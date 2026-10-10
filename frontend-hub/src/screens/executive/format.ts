@@ -1,31 +1,24 @@
+import {
+  dateText,
+  EMPTY,
+  moneyCompact,
+  percent as sharePercent,
+} from "@/lib/format"
+
 /// The figure grammar every executive page shares: rupiah at the size a board
-/// reads it, a share, a movement, and the time axis in Indonesian.
+/// reads it, a share, a movement, and the time axis. The grammar itself is
+/// `lib/format.ts` — this file only says which of its figures a board wants.
 
-const decimal = (digits: number) =>
-  new Intl.NumberFormat("id-ID", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: digits,
-  })
-
-/// Rupiah at the size a board reads it: "Rp1,97 miliar", "Rp807,1 jt". The
+/// Rupiah at the size a board reads it: "Rp 2,0 B", "Rp 807,1 M". The
 /// full figure goes in the tooltip; nobody compares a report to the rupiah.
 export function rupiah(minor: number | null | undefined): string {
-  if (minor === null || minor === undefined) return "—"
-  const sign = minor < 0 ? "−" : ""
-  const size = Math.abs(minor)
-  if (size >= 1e9) return `${sign}Rp${decimal(2).format(size / 1e9)} miliar`
-  if (size >= 1e6) return `${sign}Rp${decimal(1).format(size / 1e6)} jt`
-  if (size >= 1e3) return `${sign}Rp${decimal(0).format(size / 1e3)} rb`
-  return `${sign}Rp${decimal(0).format(size)}`
+  return moneyCompact(minor)
 }
 
+/// A share of one (`0.123` is "12,3%").
 export function percent(fraction: number | null | undefined): string {
-  if (fraction === null || fraction === undefined || !Number.isFinite(fraction))
-    return "—"
-  return `${new Intl.NumberFormat("id-ID", {
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 1,
-  }).format(fraction * 100)}%`
+  if (fraction === null || fraction === undefined) return EMPTY
+  return sharePercent(fraction * 100, { digits: 1 })
 }
 
 /// A share, or nothing when there is nothing to divide by — never `NaN%`.
@@ -40,7 +33,7 @@ export function change(now: number, before: number): number | null {
 }
 
 export function changeLabel(fraction: number | null): string {
-  if (fraction === null) return "—"
+  if (fraction === null) return EMPTY
   const sign = fraction > 0.0005 ? "+" : fraction < -0.0005 ? "−" : ""
   return `${sign}${percent(Math.abs(fraction))}`
 }
@@ -61,8 +54,8 @@ export function changeTone(
 export function tick(start: string, bucket: "day" | "week" | "month"): string {
   const date = new Date(`${start}T12:00:00`)
   return bucket === "month"
-    ? date.toLocaleDateString("id-ID", { month: "short" })
-    : date.toLocaleDateString("id-ID", { day: "numeric", month: "short" })
+    ? dateText(date, { month: "short" })
+    : dateText(date, { day: "numeric", month: "short" })
 }
 
 /// A bucket in full, for the tooltip.
@@ -70,13 +63,13 @@ export function tickTitle(
   start: string,
   bucket: "day" | "week" | "month"
 ): string {
-  if (start === "") return "—"
+  if (start === "") return EMPTY
   const date = new Date(`${start}T12:00:00`)
   if (bucket === "month")
-    return date.toLocaleDateString("id-ID", { month: "long", year: "numeric" })
+    return dateText(date, { month: "long", year: "numeric" })
   if (bucket === "week")
-    return `Minggu ${date.toLocaleDateString("id-ID", { day: "numeric", month: "long" })}`
-  return date.toLocaleDateString("id-ID", {
+    return `Week of ${dateText(date, { day: "numeric", month: "long" })}`
+  return dateText(date, {
     weekday: "long",
     day: "numeric",
     month: "long",

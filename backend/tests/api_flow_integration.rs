@@ -1288,7 +1288,11 @@ async fn a_delivery_over_the_order_does_not_stall_the_dc(pool: PgPool) {
     assert_eq!(jobs["items"].as_array().map(Vec::len), Some(1), "{jobs}");
     let (_, untagged, unidentified) = fleet.pools().await;
     assert_eq!(untagged, identified);
-    assert_eq!(unidentified, ARRIVED - identified, "the excess waits, identified by nobody");
+    assert_eq!(
+        unidentified,
+        ARRIVED - identified,
+        "the excess waits, identified by nobody"
+    );
 
     // And the stream is still moving: the next order reaches the DC.
     fleet
@@ -1297,7 +1301,9 @@ async fn a_delivery_over_the_order_does_not_stall_the_dc(pool: PgPool) {
     fleet.sync().await;
     let work = fleet.dc_get("/api/v1/dc/purchase-orders").await;
     assert!(
-        work["items"].as_array().is_some_and(|items| !items.is_empty()),
+        work["items"]
+            .as_array()
+            .is_some_and(|items| !items.is_empty()),
         "the next order never arrived: {work}"
     );
 }

@@ -166,7 +166,9 @@ pub async fn lookup(
     Json(body): Json<BenefitLookupBody>,
 ) -> Result<Json<BenefitHolderView>, AppError> {
     require(&principal, actions::BENEFIT_REDEEM)?;
-    Ok(Json(infrastructure::benefit_holder(&state.db, &body.code).await?))
+    Ok(Json(
+        infrastructure::benefit_holder(&state.db, &body.code).await?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -278,9 +280,12 @@ async fn relay_origin_site(
         .map(str::trim)
         .filter(|value| !value.is_empty());
     match (origin.site_id, stamped) {
-        (Some(registered), Some(claimed)) if registered != claimed => Err(AppError::Forbidden(
-            format!("origin {} speaks for {registered}, not {claimed}", origin.origin_id),
-        )),
+        (Some(registered), Some(claimed)) if registered != claimed => {
+            Err(AppError::Forbidden(format!(
+                "origin {} speaks for {registered}, not {claimed}",
+                origin.origin_id
+            )))
+        }
         (Some(registered), _) => Ok(registered),
         (None, Some(claimed)) => Ok(claimed.to_owned()),
         (None, None) => Err(AppError::Validation(
@@ -335,13 +340,12 @@ pub async fn sync_spend(
         .ok_or_else(|| AppError::Validation("a spend names the basket it pays".into()))?;
     // The cashier's own record, when their login is bound to one: nobody
     // rings up their own balance.
-    let cashier: Option<String> = sqlx::query_scalar(
-        "SELECT employee_id FROM app_user WHERE username = $1",
-    )
-    .bind(request.actor_id.trim())
-    .fetch_optional(&state.db)
-    .await?
-    .flatten();
+    let cashier: Option<String> =
+        sqlx::query_scalar("SELECT employee_id FROM app_user WHERE username = $1")
+            .bind(request.actor_id.trim())
+            .fetch_optional(&state.db)
+            .await?
+            .flatten();
     let by = relay_by(&request, &format!("benefit spent on {sale_ref}"))?;
     Ok(Json(
         infrastructure::spend_benefit(
@@ -377,12 +381,7 @@ pub async fn sync_return(
         .unwrap_or_else(|| format!("benefit given back on {sale_ref}"));
     let by = relay_by(&request, &reason)?;
     Ok(Json(
-        infrastructure::return_benefit(
-            &state.db,
-            sale_ref,
-            request.amount_minor.unwrap_or(0),
-            &by,
-        )
-        .await?,
+        infrastructure::return_benefit(&state.db, sale_ref, request.amount_minor.unwrap_or(0), &by)
+            .await?,
     ))
 }

@@ -5,9 +5,10 @@ import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Input } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
@@ -15,11 +16,12 @@ import { Meter } from "@/components/ui/meter"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { MiniTable, TotalsLadder } from "@/components/ui/rows"
-import { Segmented, Toolbar } from "@/components/ui/segmented"
+import { Segmented } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { useFilters } from "@/lib/filters"
 import { count, day, label, money, toneFor } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   closeLineShort,
   listPurchaseOrders,
@@ -36,7 +38,7 @@ import {
   SupplierName,
   useSupplierName,
 } from "@/screens/procurement/supplier-name"
-import { useActor } from "@/screens/procurement/shared"
+import { isOpenOrder, useActor } from "@/screens/procurement/shared"
 
 /// Outstanding — what a supplier still owes, and the one decision a buyer can
 /// make about it.
@@ -62,7 +64,7 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
     accessorKey: "po_number",
     header: "PO",
     size: 140,
-    meta: { filter: { kind: "text" } },
+    meta: { card: "hide", filter: { kind: "text" } },
     cell: ({ row }) => (
       <span className="font-mono text-id text-body">
         {row.original.po_number}
@@ -74,7 +76,7 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
     accessorFn: (row) => row.supplier_name ?? row.supplier_id,
     header: "Supplier",
     size: 220,
-    meta: { filter: { kind: "option" } },
+    meta: { card: "hide", filter: { kind: "option" } },
     cell: ({ row }) => (
       <span className="font-medium text-ink">
         <SupplierName
@@ -88,13 +90,13 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
     accessorKey: "destination_site_id",
     header: "Destination",
     size: 140,
-    meta: { filter: { kind: "option" } },
+    meta: { card: "hide", filter: { kind: "option" } },
   },
   {
     accessorKey: "lifecycle",
     header: "Status",
     size: 140,
-    meta: { filter: { kind: "option", format: label } },
+    meta: { card: "hide", filter: { kind: "option", format: label } },
     cell: ({ row }) => (
       <Pill tone={toneFor(row.original.lifecycle)}>
         {label(row.original.lifecycle)}
@@ -105,7 +107,7 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
     accessorKey: "issued_at",
     header: "Issued",
     size: 120,
-    meta: { filter: { kind: "date" } },
+    meta: { card: "hide", filter: { kind: "date" } },
     cell: ({ row }) => day(row.original.issued_at),
   },
   {
@@ -113,6 +115,7 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
     accessorFn: fill,
     header: "Arrived",
     size: 150,
+    meta: { card: "hide" },
     cell: ({ row }) => {
       const share = fill(row.original)
       return (
@@ -129,13 +132,93 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
     accessorKey: "outstanding_stock_units",
     header: "Outstanding",
     size: 120,
-    meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
+    meta: {
+      align: "right",
+      card: "hide",
+      filter: { kind: "number", unit: "pcs" },
+    },
     // The decision metric, and the default sort: the biggest hole in the
     // company's expected stock is the supplier somebody rings first.
     cell: ({ row }) => (
       <span className="font-medium text-warn-fg">
         {count(row.original.outstanding_stock_units)}
       </span>
+    ),
+  },
+  // Four columns that exist only on a card (a phone): the supplier over its
+  // PO number, what is still owed as the figure the card leads with, how much
+  // has arrived and since when, and where the order stands.
+  {
+    id: "head",
+    accessorFn: (row) => row.supplier_name ?? row.supplier_id,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <span className="flex min-w-0 flex-col gap-1">
+        <span className="min-w-0 text-[1rem] font-semibold break-words text-ink">
+          <SupplierName
+            code={row.original.supplier_id}
+            name={row.original.supplier_name}
+          />
+        </span>
+        <span className="font-mono text-[0.875rem] font-normal text-mute">
+          {row.original.po_number}
+        </span>
+      </span>
+    ),
+  },
+  {
+    id: "lead",
+    accessorFn: (row) => row.outstanding_stock_units,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "lead" },
+    cell: ({ row }) => (
+      <span className="flex flex-col items-end tabular-nums">
+        <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-warn-fg">
+          {count(row.original.outstanding_stock_units)}
+        </span>
+        <span className="text-[0.875rem] text-mute">pcs owed</span>
+      </span>
+    ),
+  },
+  {
+    id: "foot",
+    accessorFn: fill,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => (
+      <span className="flex flex-col">
+        <span>
+          <span className="text-ink tabular-nums">
+            {Math.round(fill(row.original) * 100)}%
+          </span>{" "}
+          arrived
+        </span>
+        <span>
+          {row.original.issued_at === null
+            ? "Not issued"
+            : `Issued ${day(row.original.issued_at)}`}
+        </span>
+      </span>
+    ),
+  },
+  {
+    id: "state",
+    accessorFn: (row) => row.lifecycle,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { align: "right", card: "status" },
+    cell: ({ row }) => (
+      <Pill tone={toneFor(row.original.lifecycle)}>
+        {label(row.original.lifecycle)}
+      </Pill>
     ),
   },
 ]
@@ -154,11 +237,14 @@ export function Outstanding() {
 
   // Filtered here rather than by the server: `GET /api/v1/purchase-orders`
   // takes no query and answers the whole book, so a second request would fetch
-  // the same rows again to ask a narrower question.
+  // the same rows again to ask a narrower question. Only an order still open:
+  // a cancelled one, or one closed short, owes nothing, though its row still
+  // carries expected − received (`isOpenOrder`).
   const rows = useMemo(
     () =>
       (orders.data ?? []).filter(
         (row) =>
+          isOpenOrder(row) &&
           row.outstanding_stock_units > 0 &&
           (age === "ALL" || row.issued_at !== null)
       ),
@@ -169,6 +255,9 @@ export function Outstanding() {
   const suppliers = new Set(rows.map((row) => row.supplier_id)).size
 
   const filters = useFilters(columns)
+  const phone = useLayout() === "phone"
+  /// What the phone's dock field typed: a PO number or a supplier's name.
+  const [query, setQuery] = useState("")
 
   const table = useTable(
     useMemo(
@@ -177,10 +266,22 @@ export function Outstanding() {
         data: rows,
         columns: filters.columns,
         getRowId: (row: PurchaseOrderRow) => row.purchase_order_id,
-        state: { columnFilters: filters.columnFilters, sorting },
+        state: {
+          columnFilters: filters.columnFilters,
+          globalFilter: phone ? query : "",
+          sorting,
+          // The card's own columns are drawn on a phone and never on a desk.
+          columnVisibility: {
+            head: phone,
+            lead: phone,
+            foot: phone,
+            state: phone,
+          },
+        },
         onSortingChange: setSorting,
+        onGlobalFilterChange: setQuery,
       }),
-      [rows, filters.columns, filters.columnFilters, sorting]
+      [rows, filters.columns, filters.columnFilters, query, sorting, phone]
     )
   )
 
@@ -190,8 +291,12 @@ export function Outstanding() {
         crumb="Procurement"
         title="Outstanding"
         sub="Orders with something still owed, and the lines a buyer has stopped waiting for."
+        // The phone's bar already has Orders: nothing but the title and the
+        // figures stands at the top.
         actions={
-          <LinkButton to="/procurement/orders">The whole book</LinkButton>
+          phone ? undefined : (
+            <LinkButton to="/procurement/orders">The whole book</LinkButton>
+          )
         }
       />
 
@@ -201,7 +306,9 @@ export function Outstanding() {
         <Kpi label="Units Still Owed" value={count(units)} />
       </KpiStrip>
 
-      <Toolbar>
+      {/* A desk's toolbar: on a phone the age is the dock's status button, and
+          the search, the filter and the sort sit beside it. */}
+      <div className="mb-3.5 flex flex-wrap items-center gap-[0.4375rem] max-md:hidden">
         <Segmented
           options={[
             { value: "ALL", label: "Everything owed" },
@@ -211,9 +318,29 @@ export function Outstanding() {
           onChange={setAge}
         />
         <FilterPanel model={filters} table={table} />
-      </Toolbar>
+      </div>
+      <DockTools
+        search={{
+          value: query,
+          onChange: setQuery,
+          label: "Search Outstanding",
+        }}
+        filter={{
+          count: filters.filters.length,
+          panel: { model: filters, table },
+        }}
+        sort={dockSortOf(table)}
+        status={{
+          value: age,
+          options: [
+            { value: "ALL", label: "Everything owed" },
+            { value: "ISSUED", label: "Issued only" },
+          ],
+          onChange: (next) => setAge(next as "ALL" | "ISSUED"),
+        }}
+      />
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(orders, {
           loading: "Reading the order book…",
           render: () =>
@@ -225,10 +352,14 @@ export function Outstanding() {
               </EmptyState>
             ) : (
               <DataTable<PurchaseOrderRow>
+                refresh={[orders]}
                 table={table}
                 onRowClick={(row) => order.open(row.purchase_order_id)}
                 isSelected={(row) => row.purchase_order_id === order.value}
                 className="max-h-[calc(100dvh-20rem)]"
+                cardSort={false}
+                cardsApart
+                cardLead
               />
             ),
         })}

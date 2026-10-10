@@ -17,7 +17,9 @@ import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { BarSeries, type ChartSeries } from "@/components/ui/chart"
-import { DataTable } from "@/components/ui/data-table"
+import { DockTools } from "@/components/shell/dock-tools"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
+import { Fab } from "@/components/ui/fab"
 import { Field, Input, Money, Select, Textarea } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
@@ -45,7 +47,8 @@ import {
   registerAsset,
   transferAsset,
 } from "@/lib/queries/finance"
-import { useSiteLabel, useUnits } from "@/lib/queries/organisation"
+import { useLayout } from "@/lib/layout"
+import { siteChoices, useSiteLabel, useUnits } from "@/lib/queries/organisation"
 import { problemOf } from "@/lib/problem"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
@@ -169,6 +172,7 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
     accessorKey: "asset_number",
     header: "Asset",
     size: 120,
+    meta: { card: "hide" },
     cell: ({ row }) => (
       <span className="font-mono text-id text-body">
         {row.original.asset_number}
@@ -179,6 +183,7 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
     accessorKey: "name",
     header: "Name",
     size: 280,
+    meta: { card: "hide" },
     // The asset's number sits under its name: one answer, "which asset",
     // instead of two columns that both say it.
     cell: ({ row }) => (
@@ -200,7 +205,7 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
     //
     // It is still worth a question, and the chart above is why: a bar for
     // Kendaraan is a number somebody then wants the rows behind.
-    meta: { priority: 2, filter: { kind: "option" } },
+    meta: { priority: 2, card: "hide", filter: { kind: "option" } },
     // The server orders by number, name, treatment, cost and book; see
     // `SORTS`.
     enableSorting: false,
@@ -210,6 +215,7 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
     header: "Site",
     size: 110,
     enableSorting: false,
+    meta: { card: "hide" },
     // The client's own name for it. The id stays in `title`, because that is
     // what the account codes carry and what a support call will be about.
     cell: ({ row }) => <SiteName id={row.original.site_id} />,
@@ -231,6 +237,7 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
     // empty string, and an empty cell is what `is empty` asks about — the
     // operator menu carries it. The banner above already counts them.
     meta: {
+      card: "hide",
       filter: {
         kind: "option",
         format: (value) =>
@@ -255,7 +262,7 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
     // beside "Treatment is Capitalised" is the control exception this column
     // draws in warn — something on the balance sheet whose cost never came in
     // on a bill. Nothing else on the screen can ask the pair.
-    meta: { filter: { kind: "text" } },
+    meta: { card: "hide", filter: { kind: "text" } },
     // Absent is the ordinary state for a thing the company already owned when
     // this system arrived — and an EXCEPTION for one that was capitalised
     // here, because the only way a cost gets into the books is a bill. So the
@@ -285,7 +292,7 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
     // been quietly skipping for four months looks exactly like one capitalised
     // last week until somebody asks which ones stopped. Empty is its own
     // answer — land never charges, and neither does an asset nobody has run.
-    meta: { filter: { kind: "date" } },
+    meta: { card: "hide", filter: { kind: "date" } },
     // Absent means nothing has ever been charged, which is a real state and not
     // a zero: land never charges, an asset capitalised last week has not been
     // reached yet, and one the run has been silently skipping for four months
@@ -303,7 +310,7 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
     accessorKey: "capitalized_cost_minor",
     header: "Cost",
     size: 130,
-    meta: { align: "right" },
+    meta: { align: "right", card: "hide" },
     cell: ({ row }) =>
       row.original.capitalized_cost_minor === null ? (
         <span className="text-faint">—</span>
@@ -318,7 +325,7 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
     enableSorting: false,
     // Given up before anything else: it is cost less book value, and both of
     // those are still on the row.
-    meta: { align: "right", priority: 3 },
+    meta: { align: "right", priority: 3, card: "hide" },
     // Summed from the depreciation entries on every read; not stored anywhere.
     cell: ({ row }) =>
       row.original.accumulated_minor === 0 ? (
@@ -337,6 +344,7 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
     // one row is a panel nobody reads.
     meta: {
       align: "right",
+      card: "hide",
       filter: { kind: "number", unit: "Rp" },
     },
     cell: ({ row }) =>
@@ -347,6 +355,61 @@ const columns: ColumnDef<TableSetup, AssetRow>[] = [
           {money(row.original.book_value_minor)}
         </span>
       ),
+  },
+  // Three columns that exist only on a card (a phone): the asset over its
+  // number, what it is worth now as the figure, and a foot with how it is
+  // treated and where it is.
+  {
+    id: "head",
+    accessorFn: (row) => `${row.name} ${row.asset_number}`,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="text-[1rem] font-semibold break-words text-ink">
+          {row.original.name}
+        </span>
+        <span className="font-mono text-[0.875rem] font-normal break-all text-mute">
+          {row.original.asset_number}
+        </span>
+      </span>
+    ),
+  },
+  {
+    id: "lead",
+    accessorFn: (row) => row.book_value_minor,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "lead" },
+    cell: ({ row }) => (
+      <span className="flex flex-col items-end tabular-nums">
+        <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
+          {row.original.book_value_minor === null
+            ? "—"
+            : money(row.original.book_value_minor)}
+        </span>
+        <span className="text-[0.875rem] text-mute">book value</span>
+      </span>
+    ),
+  },
+  {
+    id: "foot",
+    accessorFn: (row) => row.decision ?? "",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => (
+      <span className="flex flex-col gap-0.5 leading-6">
+        <Treatment asset={row.original} />
+        <span>
+          {row.original.category_name} · <SiteName id={row.original.site_id} />
+        </span>
+      </span>
+    ),
   },
 ]
 
@@ -366,6 +429,8 @@ const SORTS: Record<string, string> = {
 }
 
 export function AssetRegister() {
+  const phone = useLayout() === "phone"
+  const units = useUnits()
   const [query, setQuery] = useState("")
   const [site, setSite] = useState("")
   const [registering, setRegistering] = useState(false)
@@ -436,6 +501,11 @@ export function AssetRegister() {
             acquired_via: false,
             last_depreciated_month: false,
             accumulated_minor: false,
+            // The card's own columns are drawn on a phone and never on a
+            // desk.
+            head: phone,
+            lead: phone,
+            foot: phone,
           },
         },
         // The rows arrive in the order the request asked for, and the search
@@ -444,7 +514,7 @@ export function AssetRegister() {
         manualSorting: true,
         onSortingChange: setSorting,
       }),
-      [rows, filters.columns, filters.columnFilters, sorting]
+      [rows, filters.columns, filters.columnFilters, sorting, phone]
     )
   )
 
@@ -492,45 +562,87 @@ export function AssetRegister() {
       <PageHeader
         crumb="Finance · Assets"
         title="Asset"
+        // Search, the site, the filters, the order and "Register asset" are the
+        // dock's on a phone.
         actions={
-          <>
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              className="h-control w-48"
-            />
-            <Button variant="primary" onClick={() => setRegistering(true)}>
-              Register asset
-            </Button>
-          </>
+          phone ? undefined : (
+            <>
+              <Input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                className="h-control w-48"
+              />
+              <Button variant="primary" onClick={() => setRegistering(true)}>
+                Register asset
+              </Button>
+            </>
+          )
         }
       />
 
-      <Toolbar>
-        <SiteSelect
-          value={site}
-          onChange={setSite}
-          className="h-control w-44"
-          aria-label="Site"
-        />
-        {/* Location is not among the questions inside: the select beside this
+      {phone && (
+        <>
+          <Fab label="Register asset" onClick={() => setRegistering(true)} />
+          <DockTools
+            search={{
+              value: query,
+              onChange: setQuery,
+              label: "Search assets",
+            }}
+            filter={{
+              count: filters.filters.length,
+              panel: { model: filters, table },
+            }}
+            sort={dockSortOf(table)}
+            status={{
+              value: site,
+              options: [
+                { value: "", label: "All sites" },
+                ...siteChoices(units.data ?? []).map((one) => ({
+                  value: one.siteId,
+                  label: one.label,
+                })),
+              ],
+              onChange: setSite,
+            }}
+          />
+          <p className="mb-3 text-[0.875rem] text-mute">
+            {count(held)} registered ·{" "}
+            <span className="font-medium text-ink tabular-nums">
+              {money(booked)}
+            </span>{" "}
+            at book value
+          </p>
+        </>
+      )}
+
+      {!phone && (
+        <Toolbar>
+          <SiteSelect
+            value={site}
+            onChange={setSite}
+            className="h-control w-44"
+            aria-label="Site"
+          />
+          {/* Location is not among the questions inside: the select beside this
             asks it on the wire, and the figure to the right is the answer for
             whatever it asked. */}
-        <FilterPanel model={filters} table={table} />
-        <Toolbar.Spacer />
-        {/* The effective answer, in words. Which location, how many assets
+          <FilterPanel model={filters} table={table} />
+          <Toolbar.Spacer />
+          {/* The effective answer, in words. Which location, how many assets
             the server found, and what they are worth — the same figure the
             chart below totals, so the two cannot disagree. */}
-        <span className="text-[0.875rem] text-mute">
-          {site === "" ? "Every site" : <SiteName id={site} />}
-          {" · "}
-          {count(held)} registered ·{" "}
-          <span className="font-medium text-ink tabular-nums">
-            {money(booked)}
-          </span>{" "}
-          at book value
-        </span>
-      </Toolbar>
+          <span className="text-[0.875rem] text-mute">
+            {site === "" ? "All sites" : <SiteName id={site} />}
+            {" · "}
+            {count(held)} registered ·{" "}
+            <span className="font-medium text-ink tabular-nums">
+              {money(booked)}
+            </span>{" "}
+            at book value
+          </span>
+        </Toolbar>
+      )}
 
       {/* The control gap, stated once and only when there is one. It used to be
           a second tab; a tab that is empty most days is a tab that gets clicked
@@ -544,7 +656,7 @@ export function AssetRegister() {
         </Banner>
       )}
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(assets, {
           loading: "Loading the register…",
           render: () =>
@@ -566,7 +678,11 @@ export function AssetRegister() {
                 // final once the register has been read to its end.
                 empty={<NoMatch what="assets" onClear={clearNarrowing} />}
                 more={assets}
-                className="max-h-[calc(100dvh-23rem)] [&_tbody_tr]:h-[4.25rem]"
+                className="max-h-[calc(100dvh-23rem)] max-md:max-h-none [&_tbody_tr]:h-[4.25rem]"
+                pageScroll={phone}
+                cardsApart
+                cardLead
+                cardSort={false}
               />
             ),
         })}
@@ -1060,7 +1176,7 @@ function AssetSheet({
       }}
       id={asset?.asset_number}
       title={asset?.name ?? "Asset"}
-      className="w-[32rem]"
+      className="w-[32rem] max-md:w-full"
       footer={
         asset && !gone ? (
           <div className="flex items-center justify-between gap-3">
@@ -2016,7 +2132,7 @@ function RegisterSheet({
         </div>
 
         {/* Optional, because most assets on day one predate this system — and
-            because the bill often arrives after the Gudang has registered
+            because the bill often arrives after the warehouse has registered
             the thing, which is what the assessment form's copy of this field is
             for. */}
         <form.Subscribe selector={(state) => state.values.siteId}>

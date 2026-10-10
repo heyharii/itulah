@@ -1,0 +1,28 @@
+-- The order book is where an index on purchase_order (issued_at DESC) would
+-- be expected, and why none is created here.
+--
+-- Every sort the book offers orders a column the READ derives, not a column
+-- the table keeps. `issued_key` is COALESCE(issued_at, '-infinity'): a draft
+-- has no issue instant, and -infinity is a VALUE the keyset can seek against,
+-- which `issued_at DESC`'s NULLS FIRST is not. `attention_key` is a CASE that
+-- puts the longest-late order at the top; `supplier_key` coalesces the name
+-- onto the code; `net_key` is gross minus discount; `expected_key` fills a
+-- promise nobody made with 9999-12-31; and every sort ends in
+-- purchase_order_id, the tie-break that keeps a keyset from repeating or
+-- losing a row. An index cannot sort what it never stored: the ORDER BY
+-- happens after the rows have left the table, over values that exist only in
+-- the read.
+--
+-- The one plausible candidate — the issue-instant sort — differs from its
+-- indexed column exactly where it matters. A draft's NULL issued_at sorts as
+-- -infinity in the read (last, descending, where a draft belongs) but FIRST
+-- in a DESC index, so even for that one sort the index's order is not the
+-- query's order and the planner would be right to ignore it.
+--
+-- An index no ORDER BY can adopt is cost with no purchase: every order raised
+-- pays to maintain it and the planner pays to consider it each time. The page
+-- is found by the keyset seek instead, which walks by value from wherever the
+-- last page stopped.
+--
+-- If a sort is ever added on the bare issued_at column, this is the file that
+-- grows its index.

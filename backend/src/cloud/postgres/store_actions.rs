@@ -117,9 +117,15 @@ pub fn action_label(key: &str) -> &'static str {
 
 fn target_of(key: &str) -> Option<&'static str> {
     match key {
-        ACTION_RESTART_SERVER | ACTION_RESEND_INITIAL_DATA | ACTION_BACK_UP_NOW
-        | ACTION_DIAGNOSE | ACTION_SYNC_NOW | ACTION_UPDATE_SERVER => Some(TARGET_SERVER),
-        ACTION_TEST_PRINT | ACTION_SUSPEND_DEVICE | ACTION_REACTIVATE_DEVICE
+        ACTION_RESTART_SERVER
+        | ACTION_RESEND_INITIAL_DATA
+        | ACTION_BACK_UP_NOW
+        | ACTION_DIAGNOSE
+        | ACTION_SYNC_NOW
+        | ACTION_UPDATE_SERVER => Some(TARGET_SERVER),
+        ACTION_TEST_PRINT
+        | ACTION_SUSPEND_DEVICE
+        | ACTION_REACTIVATE_DEVICE
         | ACTION_REVOKE_DEVICE => Some(TARGET_DEVICE),
         _ => None,
     }
@@ -503,9 +509,7 @@ fn build_menu(
         server(
             ACTION_SYNC_NOW,
             true,
-            format!(
-                "Send {name}'s waiting records to head office and fetch its instructions now?"
-            ),
+            format!("Send {name}'s waiting records to head office and fetch its instructions now?"),
         ),
         server(
             ACTION_UPDATE_SERVER,
@@ -667,9 +671,8 @@ pub async fn request_store_action(
     actor: &str,
     idempotency_key: &str,
 ) -> Result<RequestedStoreAction, AppError> {
-    let target = target_of(key).ok_or_else(|| {
-        AppError::NotFound(format!("no store action is called {key}"))
-    })?;
+    let target = target_of(key)
+        .ok_or_else(|| AppError::NotFound(format!("no store action is called {key}")))?;
     if key == ACTION_UPDATE_SERVER {
         return Err(AppError::Conflict(UPDATE_DEFERRED.into()));
     }
@@ -680,7 +683,9 @@ pub async fn request_store_action(
         .filter(|note| !note.is_empty())
         .map(str::to_owned);
     if note.as_ref().is_some_and(|note| note.chars().count() > 300) {
-        return Err(AppError::Validation("a note is at most 300 characters".into()));
+        return Err(AppError::Validation(
+            "a note is at most 300 characters".into(),
+        ));
     }
     let device_id = request
         .device_id
@@ -709,14 +714,20 @@ pub async fn request_store_action(
     }))?;
 
     let mut tx = pool.begin().await?;
-    if let Some(answer) = begin_idempotent(&mut tx, idempotency_key, "store.action", &digest).await? {
+    if let Some(answer) =
+        begin_idempotent(&mut tx, idempotency_key, "store.action", &digest).await?
+    {
         tx.commit().await?;
         let accepted: StoreActionAccepted = serde_json::from_value(answer)?;
-        let origin_id = sqlx::query_scalar("SELECT origin_id FROM store_action WHERE action_id = $1")
-            .bind(accepted.action_id)
-            .fetch_optional(pool)
-            .await?;
-        return Ok(RequestedStoreAction { accepted, origin_id });
+        let origin_id =
+            sqlx::query_scalar("SELECT origin_id FROM store_action WHERE action_id = $1")
+                .bind(accepted.action_id)
+                .fetch_optional(pool)
+                .await?;
+        return Ok(RequestedStoreAction {
+            accepted,
+            origin_id,
+        });
     }
     // One action at a time per store: two Admins pressing at once record it
     // once, and the second is told it is already on its way.
@@ -778,9 +789,15 @@ pub async fn request_store_action(
                 force: false,
                 action_id: Some(action_id),
             })?;
-            let command =
-                super::sync::issue_command_tx(&mut tx, kind, &payload, actor, Some(expires_at), &[origin_id.clone()])
-                    .await?;
+            let command = super::sync::issue_command_tx(
+                &mut tx,
+                kind,
+                &payload,
+                actor,
+                Some(expires_at),
+                &[origin_id.clone()],
+            )
+            .await?;
             (Some(command), None, true)
         }
         ACTION_SYNC_NOW => {
@@ -861,7 +878,10 @@ pub async fn request_store_action(
     tx.commit().await?;
 
     if key == ACTION_RESEND_INITIAL_DATA {
-        resend_initial_data(pool, action_id, &origin_id, &facts, &reason, actor, expires_at).await?;
+        resend_initial_data(
+            pool, action_id, &origin_id, &facts, &reason, actor, expires_at,
+        )
+        .await?;
     }
     Ok(RequestedStoreAction {
         accepted,
@@ -930,12 +950,11 @@ async fn resend_initial_data(
         .await?;
         (Some(command), seq_of(&mut tx, command, origin_id).await?)
     } else {
-        let last: Option<i64> = sqlx::query_scalar(
-            "SELECT max(seq) FROM sync_command_delivery WHERE origin_id = $1",
-        )
-        .bind(origin_id)
-        .fetch_one(&mut *tx)
-        .await?;
+        let last: Option<i64> =
+            sqlx::query_scalar("SELECT max(seq) FROM sync_command_delivery WHERE origin_id = $1")
+                .bind(origin_id)
+                .fetch_one(&mut *tx)
+                .await?;
         (None, last)
     };
     sqlx::query(
@@ -1128,7 +1147,11 @@ pub(super) async fn record_action_reports(
             continue;
         }
         let terminal = matches!(report.state.as_str(), "DONE" | "FAILED");
-        let state = if terminal { report.state.as_str() } else { STATE_RUNNING };
+        let state = if terminal {
+            report.state.as_str()
+        } else {
+            STATE_RUNNING
+        };
         let sentence = report
             .sentence
             .as_deref()
@@ -1194,7 +1217,9 @@ pub async fn store_action_history(
     unit: &str,
     limit: Option<i64>,
 ) -> Result<StoreActionHistory, AppError> {
-    let limit = limit.unwrap_or(HISTORY_DEFAULT_LIMIT).clamp(1, HISTORY_MAX_LIMIT);
+    let limit = limit
+        .unwrap_or(HISTORY_DEFAULT_LIMIT)
+        .clamp(1, HISTORY_MAX_LIMIT);
     let mut connection = pool.acquire().await?;
     let facts = server_facts(&mut connection, unit).await?;
     let origins: Vec<String> = sqlx::query_scalar(
@@ -1296,7 +1321,10 @@ mod tests {
         let menu = build_menu(&facts(&[]), &[], &[], true, Utc::now());
         let restart = find(&menu, ACTION_RESTART_SERVER);
         assert!(restart.is_some_and(|o| !o.enabled
-            && o.reason_disabled.as_deref().unwrap_or("").contains("too old")));
+            && o.reason_disabled
+                .as_deref()
+                .unwrap_or("")
+                .contains("too old")));
         assert!(find(&menu, ACTION_RESEND_INITIAL_DATA).is_some_and(|o| o.enabled && o.danger));
         assert!(find(&menu, ACTION_UPDATE_SERVER).is_some_and(|o| !o.enabled));
     }
@@ -1310,7 +1338,12 @@ mod tests {
             true,
             Utc::now(),
         );
-        for key in [ACTION_RESTART_SERVER, ACTION_BACK_UP_NOW, ACTION_DIAGNOSE, ACTION_SYNC_NOW] {
+        for key in [
+            ACTION_RESTART_SERVER,
+            ACTION_BACK_UP_NOW,
+            ACTION_DIAGNOSE,
+            ACTION_SYNC_NOW,
+        ] {
             assert!(find(&menu, key).is_some_and(|o| o.enabled), "{key}");
         }
         assert!(find(&menu, ACTION_TEST_PRINT).is_some_and(|o| o.enabled));
@@ -1331,8 +1364,9 @@ mod tests {
             requested_at: Utc::now() - Duration::minutes(3),
         }];
         let menu = build_menu(&everything, &[], &flying, true, Utc::now());
-        assert!(find(&menu, ACTION_RESTART_SERVER).is_some_and(|o| !o.enabled
-            && o.reason_disabled.as_deref().unwrap_or("").contains("rina")));
+        assert!(find(&menu, ACTION_RESTART_SERVER).is_some_and(
+            |o| !o.enabled && o.reason_disabled.as_deref().unwrap_or("").contains("rina")
+        ));
         assert!(find(&menu, ACTION_BACK_UP_NOW).is_some_and(|o| o.enabled));
     }
 }

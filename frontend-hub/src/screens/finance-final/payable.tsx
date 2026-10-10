@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
+import { useInfiniteQuery } from "@tanstack/react-query"
 import { useEffect, useRef, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -8,22 +8,33 @@ import { ExportButton } from "@/components/ui/export-button"
 import { Input } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Status } from "@/components/ui/pill"
-import { Banner, EmptyState, LoadMore } from "@/components/ui/states"
+import {
+  Banner,
+  EmptyState,
+  ErrorState,
+  LoadMore,
+  LoadingState,
+} from "@/components/ui/states"
 import type { ExportSheet } from "@/lib/export-xlsx"
 import { count, day, money } from "@/lib/format"
-import {
-  financeKeys,
-  listBills,
-  payablesAging,
-  unbilledPage,
-} from "@/lib/queries/finance"
+import { useLayout } from "@/lib/layout"
+import { financeKeys, listBills, unbilledPage } from "@/lib/queries/finance"
 import { useSiteLabel, useUnits } from "@/lib/queries/organisation"
 import { queryState } from "@/lib/query-state"
 import { Code, Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
 import { todayIso } from "@/screens/finance/chart"
 import { useAsOf, useSupplierName, useUnitName } from "@/screens/finance/hooks"
 import {
+  AGEING_BUCKETS,
+  openItemsText,
+  useDeliveryNumber,
+  useOpenDeliveries,
+  usePayables,
+} from "@/screens/finance/measures"
+import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
+import {
   AsOfControl,
+  PhoneFigures,
   SiteName,
   SupplierName,
   UnitName,
@@ -33,6 +44,7 @@ import { FilterCheck, ReportFilters } from "@/screens/finance/report"
 import { AgeingBar } from "@/screens/finance/workspace"
 import type {
   AgingBuckets,
+  PaymentLedgerEntry,
   PayablesAgingRow,
   SupplierBill,
   UnbilledReceipt,
@@ -86,13 +98,9 @@ export function AccountsPayable() {
   const [needle, setNeedle] = useState("")
   const unitName = useUnitName()
   const exporter: Exporter = useRef(null)
-  const subtitle = `${asOf.chip} · ${unit === "" ? "every unit" : unitName(unit)}`
+  const subtitle = `${asOf.chip} · ${unit === "" ? "all units" : unitName(unit)}`
 
-  const aging = useQuery({
-    queryKey: financeKeys.payablesAging(asOf.value, unit || null),
-    queryFn: ({ signal }) =>
-      payablesAging({ as_of: asOf.value, unit: unit || undefined }, signal),
-  })
+  const aging = usePayables({ unit, asOf: asOf.value })
 
   const total = aging.data?.total ?? null
   const perBooks = aging.data?.books_minor ?? null
@@ -102,6 +110,7 @@ export function AccountsPayable() {
   return (
     <PageContent>
       <PageHeader
+        className="max-md:hidden"
         crumb="Finance · Payables"
         title="Accounts Payable"
         actions={
@@ -113,11 +122,18 @@ export function AccountsPayable() {
       />
 
       <ReportFilters
+        exportAction={
+          <ExportButton
+            variant="ghost"
+            build={() => exporter.current?.() ?? null}
+            disabled={aging.data === undefined}
+          />
+        }
         note={
           <>
             {asOf.chip}
             {unit === "" ? (
-              " · every unit"
+              " · all units"
             ) : (
               <>
                 {" · "}
@@ -132,7 +148,8 @@ export function AccountsPayable() {
           <Input
             value={needle}
             onChange={(event) => setNeedle(event.target.value)}
-            aria-label="Search"
+            aria-label="Search bills"
+            placeholder="Search bills"
             className="h-control w-64"
           />
         )}
@@ -171,6 +188,22 @@ export function AccountsPayable() {
             <Card className="mb-3 px-4 py-4">
               <AgeingBar buckets={data.total} />
             </Card>
+
+            {data.on_hold_count > 0 && (
+              <Banner tone="info">
+                {count(data.on_hold_count)}{" "}
+                {data.on_hold_count === 1 ? "bill is" : "bills are"} on hold (
+                {money(data.on_hold_minor)}) and not in these figures. Release{" "}
+                {data.on_hold_count === 1 ? "it" : "them"} on{" "}
+                <AppLink
+                  to="/finance/payables/bills"
+                  className="text-accent hover:underline"
+                >
+                  Purchase Invoice
+                </AppLink>{" "}
+                to count {data.on_hold_count === 1 ? "it" : "them"}.
+              </Banner>
+            )}
 
             {unbilled ? (
               <UnbilledTable exporter={exporter} subtitle={subtitle} />
@@ -212,15 +245,12 @@ export function AccountsPayableSummary() {
   const unitName = useUnitName()
   const exporter: Exporter = useRef(null)
 
-  const aging = useQuery({
-    queryKey: financeKeys.payablesAging(asOf.value, unit || null),
-    queryFn: ({ signal }) =>
-      payablesAging({ as_of: asOf.value, unit: unit || undefined }, signal),
-  })
+  const aging = usePayables({ unit, asOf: asOf.value })
 
   return (
     <PageContent>
       <PageHeader
+        className="max-md:hidden"
         crumb="Finance · Payables"
         title="Supplier Bills"
         actions={
@@ -232,11 +262,18 @@ export function AccountsPayableSummary() {
       />
 
       <ReportFilters
+        exportAction={
+          <ExportButton
+            variant="ghost"
+            build={() => exporter.current?.() ?? null}
+            disabled={aging.data === undefined}
+          />
+        }
         note={
           <>
             {asOf.chip}
             {unit === "" ? (
-              " · every unit"
+              " · all units"
             ) : (
               <>
                 {" · "}
@@ -271,7 +308,7 @@ export function AccountsPayableSummary() {
                 exporter={exporter}
                 title="Supplier Bills"
                 filename={`Supplier-Bills-${asOf.value}`}
-                subtitle={`${asOf.chip} · ${unit === "" ? "every unit" : unitName(unit)}`}
+                subtitle={`${asOf.chip} · ${unit === "" ? "all units" : unitName(unit)}`}
               />
             )}
           </>
@@ -299,17 +336,25 @@ type BucketFigures = Omit<AgingBuckets, "total_minor">
 /// Declared once because the page draws them in a header, in every row and in
 /// a total, and three hand-written lists of five fields is three chances to
 /// slip a column.
+const BUCKET_TITLES: readonly string[] = [
+  "Not yet fallen due",
+  "1–30 days late",
+  "31–60 days late",
+  "61–90 days late",
+  "More than 90 days late",
+]
+
+/// The words are `measures.ts`' (the Overview names the same buckets); the
+/// titles are this table's own.
 const BUCKETS: readonly {
   readonly key: keyof BucketFigures
   readonly label: string
   readonly title: string
-}[] = [
-  { key: "not_due_minor", label: "Not due", title: "Not yet fallen due" },
-  { key: "days_1_30_minor", label: "1–30", title: "1–30 days late" },
-  { key: "days_31_60_minor", label: "31–60", title: "31–60 days late" },
-  { key: "days_61_90_minor", label: "61–90", title: "61–90 days late" },
-  { key: "days_over_90_minor", label: "90+", title: "More than 90 days late" },
-]
+}[] = AGEING_BUCKETS.map((bucket, index) => ({
+  key: bucket.key,
+  label: bucket.short,
+  title: BUCKET_TITLES[index],
+}))
 
 /// One row per supplier — ERPNext's Accounts Payable Summary.
 ///
@@ -336,6 +381,7 @@ function SupplierTable({
     0
   )
   const supplierName = useSupplierName()
+  const phone = useLayout() === "phone"
   useExporter(exporter, () => ({
     filename,
     sheet: title,
@@ -343,7 +389,7 @@ function SupplierTable({
     subtitle,
     columns: [
       { header: "Supplier", kind: "text", width: 40 },
-      { header: "Open Bills", kind: "number", width: 12 },
+      { header: "Open Items", kind: "number", width: 12 },
       { header: "Oldest (days Late)", kind: "number", width: 18 },
       ...BUCKETS.map((bucket) => ({
         header: bucket.label,
@@ -359,13 +405,52 @@ function SupplierTable({
       row.buckets.total_minor,
     ]),
     totalRow: [
-      "Total payable",
+      "Total payables",
       openDocuments,
       null,
       ...BUCKETS.map((bucket) => total[bucket.key]),
       total.total_minor,
     ],
   }))
+  if (phone)
+    return (
+      <>
+        <PhoneFigures
+          items={[
+            { label: "Total payables", value: total.total_minor },
+            { label: "Open items", value: openDocuments, unit: "count" },
+          ]}
+        />
+        <PhoneList
+          rows={rows.map((row) => ({
+            key: row.supplier_id,
+            title: (
+              <AppLink
+                to="/finance/payables/supplier-ledger"
+                sheet={{ key: "supplier", value: row.supplier_id }}
+              >
+                <SupplierName id={row.supplier_id} name={row.supplier_name} />
+              </AppLink>
+            ),
+            line: openItemsText(row.open_document_count),
+            lead: <CardFigure value={money(row.buckets.total_minor)} />,
+            foot: (
+              <span className="flex flex-col">
+                <span>
+                  {BUCKETS.filter((bucket) => row.buckets[bucket.key] !== 0)
+                    .map(
+                      (bucket) =>
+                        `${bucket.label} ${money(row.buckets[bucket.key])}`
+                    )
+                    .join(" · ") || "Nothing owed"}
+                </span>
+                <OldestAge days={row.oldest_days} />
+              </span>
+            ),
+          }))}
+        />
+      </>
+    )
   return (
     <>
       <Grid>
@@ -399,7 +484,7 @@ function SupplierTable({
               <Td className="max-w-0">
                 <span
                   className="block truncate"
-                  title={`${count(row.open_document_count)} open ${row.open_document_count === 1 ? "bill" : "bills"}`}
+                  title={openItemsText(row.open_document_count)}
                 >
                   {/* The name leads to the supplier's ledger: what is owed
                       here, and the movements it is made of. */}
@@ -441,10 +526,10 @@ function SupplierTable({
           ))}
           <TotalRow>
             <Td>
-              Total payable
+              Total payables
               <span className="font-normal text-mute">
                 {" "}
-                · {count(openDocuments)} bills
+                · {openItemsText(openDocuments)}
               </span>
             </Td>
             <Td />
@@ -461,9 +546,21 @@ function SupplierTable({
   )
 }
 
-/// One row per bill — ERPNext's Accounts Payable detail.
+/// One row per open item — ERPNext's Accounts Payable detail.
 ///
-/// # Why this asks for POSTED and nothing else
+/// # Two sources, one population
+///
+/// The ageing above this table counts two things (`measures.ts`): the posted
+/// bills that are still unpaid, and the deliveries no bill covers yet. A table
+/// that listed only the bills said "Nothing is owed to a supplier." under a
+/// card that said Rp 52.946.430, so this draws both — the bills from the
+/// register, then the deliveries from the payment ledger — and the Total row
+/// is what the card is.
+///
+/// A bill put on hold is owed but not ageing: the figure leaves it out, so the
+/// rows do too (the page says how many are held).
+///
+/// # Why the bills ask for POSTED and nothing else
 ///
 /// Because that is the population the ageing counts: `payables_aging` filters
 /// `i.status = 'POSTED'`, so a draft bill is in neither. Asking the server for
@@ -472,18 +569,20 @@ function SupplierTable({
 /// server filter, so the narrowing is the request and not a sieve over a wider
 /// answer.
 ///
-/// # What this table cannot do, and says so
+/// # What the bill half cannot do, and says so
 ///
 /// It cannot be wound back to the reporting date. `GET /finance/bills` takes
 /// no `as_of` at all: `outstanding_minor`, `days_overdue` and `next_due_date`
 /// are derived on read, as at now. So this is the register as it stands today,
-/// as the page's own comment says. The unit does reach it: a bill stays at the site
+/// as the page's own comment says. The deliveries are wound back — the payment
+/// ledger takes the date. The unit reaches both: a bill stays at the site
 /// it was received at, so the unit's own sites go on the wire — one `site`,
 /// comma-separated, which the server reads as a list — and the key carries
 /// them. Nothing is asked until the register says which sites those are.
 ///
-/// It pages — the list scrolls on — and the total row is the server's own
-/// sum over every posted bill it matches, not a sum of the pages loaded.
+/// It pages — the list scrolls on — and the bills' part of the total is the
+/// server's own sum over every posted bill it matches, not a sum of the pages
+/// loaded.
 function BillTable({
   unit,
   needle,
@@ -501,6 +600,8 @@ function BillTable({
 }) {
   const units = useUnits()
   const supplierName = useSupplierName()
+  const deliveryNumber = useDeliveryNumber()
+  const phone = useLayout() === "phone"
   const sites =
     unit === ""
       ? ""
@@ -525,6 +626,7 @@ function BillTable({
     // A unit whose sites are not known yet must not read as every site.
     enabled: unit === "" || sites !== "",
   })
+  const deliveries = useOpenDeliveries({ unit, asOf })
 
   const text = needle.trim().toLowerCase()
   const searched = (bill: SupplierBill) =>
@@ -534,14 +636,48 @@ function BillTable({
       bill.invoice_number,
       bill.entry_number,
     ].some((field) => (field ?? "").toLowerCase().includes(text))
+  const searchedDelivery = (item: PaymentLedgerEntry) =>
+    text === "" ||
+    [
+      supplierName(item.party_id, item.party_name),
+      deliveryNumber(item.voucher_id, item.entry_number),
+      item.entry_number,
+    ].some((field) => (field ?? "").toLowerCase().includes(text))
 
-  // What is on screen: the bills still owed, as far as the list has scrolled.
+  /// What is owed and not held, as far as the register has scrolled; and every
+  /// open delivery.
+  const owedBills = (pages: readonly { rows: readonly SupplierBill[] }[]) =>
+    pages
+      .flatMap((page) => page.rows)
+      .filter(
+        (bill) => !bill.on_hold && bill.outstanding_minor > 0 && searched(bill)
+      )
+  const owedDeliveries = (deliveries.data?.items ?? []).filter(
+    (item) => item.outstanding_minor > 0 && searchedDelivery(item)
+  )
+  /// The bills' share of the outstanding total: the server's sum over every
+  /// posted bill, less the held ones this page has seen; a search totals what
+  /// it shows.
+  const billsOutstanding = (
+    pages: readonly {
+      rows: readonly SupplierBill[]
+      outstanding_minor: number
+    }[],
+    shown: readonly SupplierBill[]
+  ) =>
+    text === ""
+      ? pages[0].outstanding_minor -
+        pages
+          .flatMap((page) => page.rows)
+          .filter((bill) => bill.on_hold && bill.outstanding_minor > 0)
+          .reduce((sum, bill) => sum + bill.outstanding_minor, 0)
+      : shown.reduce((sum, bill) => sum + bill.outstanding_minor, 0)
+
+  // What is on screen: the open items, as far as the list has scrolled.
   useExporter(exporter, () => {
     const pages = bills.data?.pages
-    if (pages === undefined) return null
-    const owed = pages
-      .flatMap((page) => page.rows)
-      .filter((bill) => bill.outstanding_minor > 0 && searched(bill))
+    if (pages === undefined || deliveries.data === undefined) return null
+    const owed = owedBills(pages)
     return {
       filename: `Accounts-Payable-${asOf}`,
       sheet: "Accounts Payable",
@@ -550,7 +686,7 @@ function BillTable({
       columns: [
         { header: "Posting Date", kind: "date" },
         { header: "Supplier", kind: "text", width: 36 },
-        { header: "Bill No", kind: "text", width: 20 },
+        { header: "Document No", kind: "text", width: 20 },
         { header: "Entry", kind: "text", width: 18 },
         { header: "Due Date", kind: "date" },
         { header: "Invoiced Amount", kind: "money" },
@@ -559,29 +695,46 @@ function BillTable({
         { header: "Status", kind: "text", width: 12 },
         { header: "Age (days Late)", kind: "number", width: 16 },
       ],
-      rows: owed.map((bill) => [
-        bill.invoice_date,
-        supplierName(bill.supplier_id, bill.supplier_name),
-        bill.invoice_number,
-        bill.entry_number,
-        bill.next_due_date,
-        bill.total_minor,
-        bill.paid_minor,
-        bill.outstanding_minor,
-        bill.overdue ? "Overdue" : (PAYMENT_STATE[bill.payment_state] ?? null),
-        bill.days_overdue,
-      ]),
+      rows: [
+        ...owed.map((bill) => [
+          bill.invoice_date,
+          supplierName(bill.supplier_id, bill.supplier_name),
+          bill.invoice_number,
+          bill.entry_number,
+          bill.next_due_date,
+          bill.total_minor,
+          bill.paid_minor,
+          bill.outstanding_minor,
+          bill.overdue
+            ? "Overdue"
+            : (PAYMENT_STATE[bill.payment_state] ?? null),
+          bill.days_overdue,
+        ]),
+        ...owedDeliveries.map((item) => [
+          item.posting_date,
+          supplierName(item.party_id, item.party_name),
+          deliveryNumber(item.voucher_id, item.entry_number),
+          item.entry_number,
+          item.due_date,
+          item.amount_minor,
+          item.settled_minor,
+          item.outstanding_minor,
+          item.age_days > 0 ? "Overdue" : "Not billed",
+          item.age_days,
+        ]),
+      ],
       totalRow: [
         "Total",
-        `${count(owed.length)} bills`,
+        openItemsText(owed.length + owedDeliveries.length),
         null,
         null,
         null,
-        owed.reduce((sum, bill) => sum + bill.total_minor, 0),
-        owed.reduce((sum, bill) => sum + bill.paid_minor, 0),
-        text === ""
-          ? pages[0].outstanding_minor
-          : owed.reduce((sum, bill) => sum + bill.outstanding_minor, 0),
+        owed.reduce((sum, bill) => sum + bill.total_minor, 0) +
+          owedDeliveries.reduce((sum, item) => sum + item.amount_minor, 0),
+        owed.reduce((sum, bill) => sum + bill.paid_minor, 0) +
+          owedDeliveries.reduce((sum, item) => sum + item.settled_minor, 0),
+        billsOutstanding(pages, owed) +
+          owedDeliveries.reduce((sum, item) => sum + item.outstanding_minor, 0),
         null,
         null,
       ],
@@ -591,25 +744,113 @@ function BillTable({
   return queryState(bills, {
     loading: "Reading the bill register…",
     render: (data) => {
+      // The ageing's other half. A table drawn before it lands could say
+      // "nothing is owed" over a card that says otherwise.
+      if (deliveries.isPending)
+        return <LoadingState>Reading the deliveries…</LoadingState>
+      if (deliveries.isError)
+        return (
+          <ErrorState
+            error={deliveries.error}
+            onRetry={() => void deliveries.refetch()}
+          />
+        )
       // Accounts Payable lists what is still owed, as ERPNext's does: a bill
       // paid in full has left the report.
-      const rows = data.pages
-        .flatMap((page) => page.rows)
-        .filter((bill) => bill.outstanding_minor > 0 && searched(bill))
-      const head = data.pages[0]
-      const invoiced = rows.reduce((sum, bill) => sum + bill.total_minor, 0)
-      const paid = rows.reduce((sum, bill) => sum + bill.paid_minor, 0)
-      // The server's sum covers every bill; a search totals what it shows.
+      const rows = owedBills(data.pages)
+      const itemCount = rows.length + owedDeliveries.length
+      const invoiced =
+        rows.reduce((sum, bill) => sum + bill.total_minor, 0) +
+        owedDeliveries.reduce((sum, item) => sum + item.amount_minor, 0)
+      const paid =
+        rows.reduce((sum, bill) => sum + bill.paid_minor, 0) +
+        owedDeliveries.reduce((sum, item) => sum + item.settled_minor, 0)
       const outstanding =
-        text === ""
-          ? head.outstanding_minor
-          : rows.reduce((sum, bill) => sum + bill.outstanding_minor, 0)
-      return rows.length === 0 ? (
+        billsOutstanding(data.pages, rows) +
+        owedDeliveries.reduce((sum, item) => sum + item.outstanding_minor, 0)
+      return itemCount === 0 ? (
         <EmptyState>
           {text === ""
             ? "Nothing is owed to a supplier."
-            : `No bill matches “${needle.trim()}”.`}
+            : `Nothing matches “${needle.trim()}”.`}
         </EmptyState>
+      ) : phone ? (
+        <>
+          <PhoneFigures
+            items={[
+              { label: "Outstanding", value: outstanding },
+              { label: "Open items", value: itemCount, unit: "count" },
+            ]}
+          />
+          <PhoneList
+            rows={[
+              ...rows.map((bill) => ({
+                key: bill.invoice_id,
+                title: (
+                  <SupplierName
+                    id={bill.supplier_id}
+                    name={bill.supplier_name}
+                  />
+                ),
+                code: bill.invoice_number,
+                lead: (
+                  <CardFigure
+                    value={money(bill.outstanding_minor)}
+                    caption={
+                      bill.allocated_minor > bill.paid_minor
+                        ? `${money(bill.allocated_minor - bill.paid_minor)} spoken for`
+                        : undefined
+                    }
+                  />
+                ),
+                foot: (
+                  <span className="flex flex-col">
+                    <span>
+                      Posted {day(bill.invoice_date)}
+                      {bill.next_due_date !== null &&
+                        ` · due ${day(bill.next_due_date)}`}
+                    </span>
+                    <OldestAge days={bill.days_overdue} />
+                  </span>
+                ),
+                action: (
+                  <Status
+                    tone={
+                      bill.overdue ? "bad" : paymentTone(bill.payment_state)
+                    }
+                  >
+                    {bill.overdue
+                      ? "Overdue"
+                      : PAYMENT_STATE[bill.payment_state]}
+                  </Status>
+                ),
+              })),
+              ...owedDeliveries.map((item) => ({
+                key: item.entry_id,
+                title: (
+                  <SupplierName id={item.party_id} name={item.party_name} />
+                ),
+                code: deliveryNumber(item.voucher_id, item.entry_number),
+                lead: <CardFigure value={money(item.outstanding_minor)} />,
+                foot: (
+                  <span className="flex flex-col">
+                    <span>
+                      Received {day(item.posting_date)}
+                      {item.due_date !== null && ` · due ${day(item.due_date)}`}
+                    </span>
+                    <OldestAge days={item.age_days} />
+                  </span>
+                ),
+                action: (
+                  <Status tone={item.age_days > 0 ? "bad" : "neutral"}>
+                    {item.age_days > 0 ? "Overdue" : "Not billed"}
+                  </Status>
+                ),
+              })),
+            ]}
+          />
+          <LoadMore query={bills} />
+        </>
       ) : (
         <>
           <Grid>
@@ -617,7 +858,7 @@ function BillTable({
               <tr>
                 <Th width="7.5rem">Posting Date</Th>
                 <Th>Supplier</Th>
-                <Th width="11rem">Bill No</Th>
+                <Th width="11rem">Document No</Th>
                 <Th width="7.5rem">
                   <span title="The earliest instalment this bill has not paid for">
                     Due Date
@@ -641,9 +882,16 @@ function BillTable({
               {rows.map((bill) => (
                 <BillRow key={bill.invoice_id} bill={bill} />
               ))}
+              {owedDeliveries.map((item) => (
+                <DeliveryRow
+                  key={item.entry_id}
+                  item={item}
+                  number={deliveryNumber(item.voucher_id, item.entry_number)}
+                />
+              ))}
               <TotalRow>
                 <Td>Total</Td>
-                <Td>{count(rows.length)} bills</Td>
+                <Td>{openItemsText(itemCount)}</Td>
                 <Td />
                 <Td />
                 <Td align="right">{money(invoiced)}</Td>
@@ -663,6 +911,51 @@ function BillTable({
 /// One page of the bill register. The list scrolls on — this is the size of
 /// a step, not a ceiling.
 const PAGE = 100
+
+/// A delivery the books already owe for, with no bill against it yet: the
+/// goods receipt is the document, the ledger's figure is the debt.
+function DeliveryRow({
+  item,
+  number,
+}: {
+  item: PaymentLedgerEntry
+  number: string
+}) {
+  return (
+    <tr>
+      <Td className="whitespace-nowrap">{day(item.posting_date)}</Td>
+      <Td className="whitespace-nowrap">
+        <SupplierName
+          id={item.party_id}
+          name={item.party_name}
+          className="font-medium text-ink"
+        />
+      </Td>
+      <Td className="whitespace-nowrap">
+        <Code>{number}</Code>
+        <span className="mt-0.5 block text-[0.875rem] text-mute">
+          Delivery, no bill yet
+        </span>
+      </Td>
+      <Td>{item.due_date === null ? "—" : day(item.due_date)}</Td>
+      <Td align="right">{money(item.amount_minor)}</Td>
+      <Td align="right">{money(item.settled_minor)}</Td>
+      <Td align="right">
+        <span className="font-medium text-ink">
+          {money(item.outstanding_minor)}
+        </span>
+        <span className="mt-0.5 block">
+          <Status tone={item.age_days > 0 ? "bad" : "neutral"}>
+            {item.age_days > 0 ? "Overdue" : "Not billed"}
+          </Status>
+        </span>
+      </Td>
+      <Td align="right">
+        <OldestAge days={item.age_days} />
+      </Td>
+    </tr>
+  )
+}
 
 function BillRow({ bill }: { bill: SupplierBill }) {
   return (
@@ -740,13 +1033,13 @@ function paymentTone(state: string): "ok" | "warn" | "neutral" {
 
 /// Deliveries with no bill against them.
 ///
-/// Not a payable and not on this page by accident. The client keeps no
-/// goods-received-not-invoiced account, so this exposure sits in the warehouse
-/// and nowhere in the books: at month end both inventory and payables
-/// understate by exactly this, and this list is the only place the gap is ever
-/// visible. ERPNext would have posted it to Stock Received But Not Billed on
-/// the purchase receipt; we have no such account to post to, which is why the
-/// figure is labelled an exposure rather than a balance.
+/// These are in Total payables: the goods receipt posts the debt to the
+/// supplier the day it is valued (`payables_aging`'s `open_receipt` leg), and
+/// the register above lists them as open items. This view is the same
+/// deliveries seen as paperwork — what the supplier's own invoice said, how
+/// long each has waited — priced at the ORDER, which is why its total can sit
+/// a few rupiah off the ledger's (the receipt is booked at the quantity
+/// matched).
 function UnbilledTable({
   exporter,
   subtitle,
@@ -755,6 +1048,7 @@ function UnbilledTable({
   subtitle: string
 }) {
   const siteLabel = useSiteLabel()
+  const phone = useLayout() === "phone"
   // Paged, oldest first. The plain read of this route stops at 200 and says
   // nothing, so a total under it was the exposure of the oldest 200.
   const unbilled = useInfiniteQuery({
@@ -817,10 +1111,49 @@ function UnbilledTable({
       const rows = data.pages.flatMap((page) => page.rows)
       const head = data.pages[0]
       return rows.length === 0 ? (
-        <EmptyState>
-          Every delivery has a bill against it. Nothing is sitting in a
-          warehouse that the books do not know about.
-        </EmptyState>
+        <EmptyState>Every delivery has a bill against it.</EmptyState>
+      ) : phone ? (
+        <>
+          <PhoneFigures
+            items={[
+              { label: "Total exposure", value: head.total_minor },
+              { label: "Receipts", value: head.total, unit: "count" },
+            ]}
+          />
+          <PhoneList
+            rows={rows.map((receipt) => ({
+              key: receipt.receipt_id,
+              title: receipt.supplier_id,
+              code: receipt.receipt_number,
+              line:
+                receipt.invoice_number === null
+                  ? undefined
+                  : `their ${receipt.invoice_number}`,
+              lead: (
+                <CardFigure
+                  value={money(receipt.value_at_order_price_minor)}
+                  caption="at order price"
+                />
+              ),
+              foot: (
+                <span className="flex flex-col">
+                  <span>
+                    Arrived {day(receipt.arrived_at)} ·{" "}
+                    {count(receipt.line_count)}{" "}
+                    {receipt.line_count === 1 ? "line" : "lines"}
+                  </span>
+                  <SiteName id={receipt.site_id} />
+                </span>
+              ),
+              action: (
+                <Status tone={receipt.days_waiting > 30 ? "bad" : "neutral"}>
+                  {count(receipt.days_waiting)}d waiting
+                </Status>
+              ),
+            }))}
+          />
+          <LoadMore query={unbilled} />
+        </>
       ) : (
         <>
           <Grid>
@@ -947,7 +1280,7 @@ function NothingOwed({ unit, asOf }: { unit: string; asOf: string }) {
   return (
     <EmptyState>
       {unit === ""
-        ? `Nothing is outstanding to any supplier as at ${day(asOf)}. Every posted bill has been paid in full.`
+        ? `Nothing is outstanding to any supplier as at ${day(asOf)}.`
         : `Nothing is outstanding to any supplier in this unit's books as at ${day(asOf)}. Another unit may still owe — the filter is a server filter, so this answer is about this unit alone.`}
     </EmptyState>
   )

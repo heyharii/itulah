@@ -494,7 +494,7 @@ export function RuleForm({
   const effect: Effect | null = (() => {
     switch (effectKind) {
       case "PERCENT":
-        return bps === null || !Number.isFinite(bps) || bps <= 0
+        return bps === null || !Number.isFinite(bps) || bps <= 0 || bps > 10_000
           ? null
           : {
               kind: "PERCENT",
@@ -539,7 +539,12 @@ export function RuleForm({
     name.trim() === "" ? "Give the promotion a name." : undefined
   const scopeProblem =
     needsCodes && chosen.length === 0 ? "Choose what it applies to." : undefined
-  const effectProblem = effect === null ? "Set the discount." : undefined
+  const effectProblem =
+    effect === null
+      ? effectKind === "PERCENT" && bps !== null && bps > 10_000
+        ? "At most 100%."
+        : "Set the discount."
+      : undefined
   const dateProblem =
     endsAt !== null && startsAt !== null && endsAt <= startsAt
       ? "The end date has to be after the start."
@@ -673,7 +678,7 @@ export function RuleForm({
                 max_uses: campaign.campaign.max_uses,
                 // Verbatim includes the poster. Omitting these would restate
                 // the campaign with its banner blanked, so joining a rule to
-                // the Lebaran sale would quietly wipe the Lebaran sale's
+                // the Eid sale would quietly wipe the Eid sale's
                 // picture from every shop in the fleet.
                 image_url: campaign.campaign.image_url,
                 headline: campaign.campaign.headline,

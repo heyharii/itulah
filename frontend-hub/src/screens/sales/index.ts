@@ -13,6 +13,7 @@ import {
   SalesByTag,
 } from "@/screens/sales/breakdown"
 import { Member } from "@/screens/sales/customer"
+import { SalesExplorer } from "@/screens/sales/explorer"
 import { Overview } from "@/screens/sales/overview"
 import { Returns } from "@/screens/sales/returns"
 import { Sales } from "@/screens/sales/sales"
@@ -24,6 +25,7 @@ import { Sales } from "@/screens/sales/sales"
 /// absorbed — see `nav.ts` for why.
 export const screens: ScreenMap = {
   "/sales": Sales,
+  "/sales/explorer": SalesExplorer,
   "/sales/analytics": SalesAnalytics,
   "/sales/by-store": SalesByStore,
   "/sales/by-division": SalesByDivision,

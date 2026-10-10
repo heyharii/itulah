@@ -75,6 +75,11 @@ received_value_minor: number,
  */
 fulfilled_at: string | null, 
 /**
+ * When anything last happened to the order — made, issued, edited,
+ * received, closed short, cancelled. The list's default order.
+ */
+updated_at: string, 
+/**
  * The delivery date has passed and pieces are still owed. The list pins
  * these to the top and marks them red.
  */

@@ -427,7 +427,12 @@ async fn a_supervisor_cannot_answer_for_the_worker(pool: PgPool) {
     for subject in [rina.as_str(), "me"] {
         let own =
             order_overtime(&app, &hers, &her_csrf, subject, "OT-0009", "2026-04-07", 60).await;
-        assert_eq!(own.status, StatusCode::FORBIDDEN, "{subject}: {:?}", own.body);
+        assert_eq!(
+            own.status,
+            StatusCode::FORBIDDEN,
+            "{subject}: {:?}",
+            own.body
+        );
     }
 }
 

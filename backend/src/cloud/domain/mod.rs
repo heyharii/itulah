@@ -43,8 +43,8 @@ mod interunit;
 mod inventory;
 pub mod job_role;
 mod leave;
-pub mod number_series;
 mod movement;
+pub mod number_series;
 mod observation;
 mod opening;
 mod overtime;
@@ -61,33 +61,33 @@ mod store_cash;
 /// Store exceptions: the kinds, who owns them, who sees them (0646-0648).
 pub mod store_exception;
 // lane-A
-pub mod sales_posting;
+/// The hard cap: a promotion's limit split into allowances each shop enforces
+/// against its own sales, which only ever grow. Pure, so the split is testable
+/// without a database.
+pub mod cap_allocation;
+/// What head office is told about the promotions it runs: a budget or basket
+/// cap crossed, and when the fleet is due a fresh count. Pure, so the watch is
+/// testable without a clock or a database.
+pub mod marketing_watch;
 /// People's next generation: roster swaps, change proposals, the onboarding
 /// and separation checklist, the recruitment pipeline, performance, training
 /// and the rule numbers. One module because they share one shape — filed,
 /// decided, read back — and one rule: the filer never decides their own.
 pub mod people;
+/// Which HR calls a store node may relay to the cloud for its signed-in
+/// manager, and the headers that carry them. Pure, and imported by the store
+/// node rather than copied, so both ends enforce one list.
+pub mod relay;
+/// What the date says to head office outside HR: a GA contract or a paper about
+/// to lapse, a supplier bill about to fall due, a tax month about to be late.
+/// Pure decisions, so the reminder pass is testable without a database.
+pub mod reminder;
+pub mod sales_posting;
 /// What the date decides: the entitlement a policy has earned, the
 /// carry-forward a cap put a deadline on, next week's roster carried from this
 /// week's plan, and the nudges. Pure functions over dates and records, so the
 /// schedule is testable without a clock or a database.
 pub mod schedule;
-/// What the date says to head office outside HR: a GA contract or a paper about
-/// to lapse, a supplier bill about to fall due, a tax month about to be late.
-/// Pure decisions, so the reminder pass is testable without a database.
-pub mod reminder;
-/// What head office is told about the promotions it runs: a budget or basket
-/// cap crossed, and when the fleet is due a fresh count. Pure, so the watch is
-/// testable without a clock or a database.
-pub mod marketing_watch;
-/// The hard cap: a promotion's limit split into allowances each shop enforces
-/// against its own sales, which only ever grow. Pure, so the split is testable
-/// without a database.
-pub mod cap_allocation;
-/// Which HR calls a store node may relay to the cloud for its signed-in
-/// manager, and the headers that carry them. Pure, and imported by the store
-/// node rather than copied, so both ends enforce one list.
-pub mod relay;
 mod supplier;
 mod sync;
 mod sync_generation;
@@ -100,7 +100,6 @@ pub mod withholding;
 
 pub use allotment::*;
 pub use attendance::*;
-pub use people::*;
 pub use auth::*;
 pub use bank_match::*;
 pub use cash_document::*;
@@ -132,6 +131,7 @@ pub use overtime::*;
 pub use pay::*;
 pub use payment::*;
 pub use payment_ledger::*;
+pub use people::*;
 pub use period_close::*;
 pub use place::*;
 pub use record::*;

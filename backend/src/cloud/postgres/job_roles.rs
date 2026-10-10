@@ -133,11 +133,7 @@ pub async fn load_job_role(pool: &PgPool, code: &str) -> Result<Option<JobRole>,
 }
 
 /// A list of codes, checked against a vocabulary and put in its order.
-fn checked(
-    asked: &[String],
-    known: &[&str],
-    what: &str,
-) -> Result<Vec<String>, AppError> {
+fn checked(asked: &[String], known: &[&str], what: &str) -> Result<Vec<String>, AppError> {
     let asked: Vec<String> = asked.iter().map(|code| code.trim().to_owned()).collect();
     if let Some(unknown) = asked.iter().find(|code| !known.contains(&code.as_str())) {
         return Err(AppError::Validation(format!(
@@ -223,13 +219,18 @@ pub async fn put_job_role(
         .map(|name| {
             let name = name.trim();
             if name.is_empty() || name.chars().count() > 64 {
-                Err(AppError::Validation("a role's name is 1-64 characters".into()))
+                Err(AppError::Validation(
+                    "a role's name is 1-64 characters".into(),
+                ))
             } else {
                 Ok(name.to_owned())
             }
         })
         .transpose()?;
-    let description = patch.description.as_deref().map(|text| text.trim().to_owned());
+    let description = patch
+        .description
+        .as_deref()
+        .map(|text| text.trim().to_owned());
     let rung = patch.rung.map(|rung| rung.as_str());
 
     // OWNER and ADMIN hold everything by definition (`JobGrant::holds_everything`);

@@ -10,8 +10,8 @@ use crate::cloud::{
     application::{AppError, AppState},
     domain::{actions, required_role_for_action, role_allows, Authorization},
     postgres::{
-        self as infrastructure, BusinessUnitView, CompanyView, DepartmentView, GroupEntityView, JobGradeView, JobLevelView,
-        OrgChartNode, PlacementView,
+        self as infrastructure, BusinessUnitView, CompanyView, DepartmentView, GroupEntityView,
+        JobGradeView, JobLevelView, OrgChartNode, PlacementView,
     },
 };
 use axum::{
@@ -211,7 +211,9 @@ pub async fn placements(
 ) -> Result<Json<Vec<PlacementView>>, AppError> {
     let access = resolve(&state, &principal, &raw).await?;
     access.may_read(actions::EMPLOYEE_READ)?;
-    Ok(Json(infrastructure::placements_of(&state.db, &access.employee_id).await?))
+    Ok(Json(
+        infrastructure::placements_of(&state.db, &access.employee_id).await?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -253,7 +255,9 @@ pub async fn place(
         &by,
     )
     .await?;
-    Ok(Json(infrastructure::placements_of(&state.db, &access.employee_id).await?))
+    Ok(Json(
+        infrastructure::placements_of(&state.db, &access.employee_id).await?,
+    ))
 }
 
 pub async fn chart(
@@ -335,8 +339,7 @@ pub async fn save_business_unit(
 ) -> Result<Json<Vec<BusinessUnitView>>, AppError> {
     require(&principal, actions::EMPLOYMENT_CHANGE)?;
     let by = authority(&principal, &body.reason)?;
-    infrastructure::save_business_unit(&state.db, &body.code, &body.name, &body.units, &by)
-        .await?;
+    infrastructure::save_business_unit(&state.db, &body.code, &body.name, &body.units, &by).await?;
     Ok(Json(infrastructure::business_units(&state.db).await?))
 }
 
@@ -412,8 +415,13 @@ pub struct SaveChecklistTemplateBody {
 }
 
 fn checklist_authority(principal: &Principal, reason: &str) -> Result<Authorization, AppError> {
-    Authorization::try_new(&principal.username, actions::LIFECYCLE_MANAGE, Utc::now(), reason)
-        .map_err(|error| AppError::Validation(error.to_string()))
+    Authorization::try_new(
+        &principal.username,
+        actions::LIFECYCLE_MANAGE,
+        Utc::now(),
+        reason,
+    )
+    .map_err(|error| AppError::Validation(error.to_string()))
 }
 
 pub async fn save_checklist_template(

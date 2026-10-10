@@ -1,5 +1,6 @@
 import { useNavigate } from "@tanstack/react-router"
 
+import { EMPTY, percent as sharePercent } from "@/lib/format"
 import { allNavItems } from "@/lib/navigation"
 import { useIdentity } from "@/lib/session"
 import type { FleetPool } from "@/lib/queries/inventory"
@@ -185,8 +186,8 @@ export function sourcePoolsFor(
 
 /// A whole-number percentage from a rate the server sends as a fraction.
 export function percent(rate: number | null): string {
-  if (rate === null) return "—"
-  return `${(rate * 100).toFixed(rate >= 0.1 ? 0 : 1)}%`
+  if (rate === null) return EMPTY
+  return sharePercent(rate * 100, { digits: rate >= 0.1 ? 0 : 1 })
 }
 
 /// Hours into something a person says out loud. 400 hours is "17 days", and

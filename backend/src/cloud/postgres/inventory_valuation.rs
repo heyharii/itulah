@@ -99,7 +99,24 @@ pub struct StockLedgerUnitRow {
 }
 
 const LINES: &str = "
-WITH layer AS (
+WITH pos AS (
+    SELECT split_part(f.place_id, ':', 1) AS pool_id, f.sku_code, SUM(f.quantity)::bigint AS qty
+      FROM edge_inventory_fact_position f
+     -- On hand, and Missing: a missing piece stays in the books (1029, or
+     -- 1031 when it went missing on the road) until Inventory settles it as
+     -- found or lost, so it is still stock to value.
+     WHERE split_part(f.place_id, ':', 2) IN ('on_hand', 'missing')
+       AND f.quantity > 0 AND COALESCE(f.sku_code, '') <> ''
+     GROUP BY 1, 2
+), held AS MATERIALIZED (
+    -- Only the articles that are on hand are priced, so only their layers and
+    -- order lines are read: summing every order line in the book to price the
+    -- few articles a shop holds was 20 s at two million lines.
+    SELECT DISTINCT a.id, a.article_code
+      FROM pos
+      JOIN sku k ON k.sku_code = pos.sku_code
+      JOIN article a ON a.id = k.article_id
+), layer AS (
     SELECT c.article_id,
            -- What the layers cost as received, not a truncated unit cost
            -- multiplied back (0823).
@@ -111,6 +128,7 @@ WITH layer AS (
       LEFT JOIN goods_receipt_line rl ON rl.receipt_line_id = c.receipt_line_id
       LEFT JOIN purchase_order_line pl ON pl.po_line_id = rl.po_line_id
       LEFT JOIN purchase_order o ON o.purchase_order_id = pl.purchase_order_id
+     WHERE c.article_id IN (SELECT id FROM held)
      GROUP BY 1
 ), po AS (
     SELECT pl.article_code,
@@ -121,16 +139,8 @@ WITH layer AS (
            string_agg(DISTINCT o.po_number, ', ') AS po_numbers,
            COUNT(DISTINCT pl.purchase_order_id)::bigint AS po_count
       FROM purchase_order_line pl JOIN purchase_order o USING (purchase_order_id)
+     WHERE pl.article_code IN (SELECT article_code FROM held)
      GROUP BY 1
-), pos AS (
-    SELECT split_part(f.place_id, ':', 1) AS pool_id, f.sku_code, SUM(f.quantity)::bigint AS qty
-      FROM edge_inventory_fact_position f
-     -- On hand, and Missing: a missing piece stays in the books (1029, or
-     -- 1031 when it went missing on the road) until Inventory settles it as
-     -- found or lost, so it is still stock to value.
-     WHERE split_part(f.place_id, ':', 2) IN ('on_hand', 'missing')
-       AND f.quantity > 0 AND COALESCE(f.sku_code, '') <> ''
-     GROUP BY 1, 2
 ), priced AS (
     SELECT s.unit_id, p.site_id, s.name AS site_name,
            COALESCE(p.outbound_stage = 'IN_TRANSIT', false) AS in_transit,
@@ -473,7 +483,8 @@ pub async fn cogs_by_month(pool: &PgPool, year: i32) -> Result<Vec<CogsMonthRow>
            JOIN ledger_account a ON a.account_code = l.account_code
            LEFT JOIN unit u ON u.id = l.unit_id
           WHERE a.statement_section IN ('REVENUE', 'COST_OF_SALES')
-            AND EXTRACT(YEAR FROM e.posting_date) = $1
+            AND e.posting_date >= make_date($1::int, 1, 1)
+            AND e.posting_date <  make_date($1::int, 1, 1) + INTERVAL '1 year'
           GROUP BY 1, 2, 3, 4
          HAVING COALESCE(SUM(l.debit_minor + l.credit_minor) FILTER (
                     WHERE a.statement_section = 'COST_OF_SALES'
@@ -609,7 +620,9 @@ pub async fn stock_adjustments(pool: &PgPool) -> Result<Vec<StockAdjustmentRow>,
     .fetch_all(pool)
     .await?;
     for row in &missing {
-        let sku: String = row.try_get::<Option<String>, _>("sku_code")?.unwrap_or_default();
+        let sku: String = row
+            .try_get::<Option<String>, _>("sku_code")?
+            .unwrap_or_default();
         let name: Option<String> = row.try_get("article_name")?;
         let value: i64 = row.try_get("value")?;
         out.push(StockAdjustmentRow {

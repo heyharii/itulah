@@ -91,9 +91,9 @@ export function useWaiting(): Waiting {
           enabled: signedIn,
         },
         {
-          queryKey: keys.purchaseWork(),
+          queryKey: keys.purchaseSummary(),
           queryFn: ({ signal }: { signal: AbortSignal }) =>
-            dc.purchaseWork(signal),
+            dc.purchaseSummary(signal),
           refetchInterval: POLL_MS,
           enabled: signedIn,
         },
@@ -151,7 +151,7 @@ export function useWaiting(): Waiting {
     toVerify: verify.data?.length ?? 0,
     // Orders, not lines: the badge counts the rows on the Receiving list, and
     // one order with nine lines owed is one thing to walk over to.
-    owed: new Set((owed.data ?? []).map((line) => line.po_number)).size,
+    owed: owed.data?.orders ?? 0,
     tagging: tagging.data?.length ?? 0,
     toPick: toPick.data?.length ?? 0,
     toPack: shopsToPack.size,

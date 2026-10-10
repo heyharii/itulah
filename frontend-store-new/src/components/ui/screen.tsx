@@ -111,13 +111,9 @@ export function Section({
   )
 }
 
-/// Records one under the other, the gap a card list uses everywhere.
-export function CardList({
-  className,
-  ...props
-}: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("flex flex-col gap-2.5", className)} {...props} />
-}
+/// Records one under the other, the gap a card list uses everywhere — now
+/// `card-list.tsx`'s, which also lays them out as a grid and folds groups.
+export { CardList } from "@/components/ui/card-list"
 
 /// A summary that floats over the foot of the page — the basket's running
 /// total while more is scanned. Over the phone's bottom bar there, level with

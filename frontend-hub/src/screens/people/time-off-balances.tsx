@@ -2,6 +2,8 @@ import { useQuery } from "@tanstack/react-query"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Card } from "@/components/ui/card"
 import { Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
@@ -19,6 +21,7 @@ import {
   PayOutForm,
 } from "@/screens/people/leave-extras"
 import { Quiet } from "@/screens/people/parts"
+import { CardButton, CardName, PhoneCards } from "@/components/ui/phone-cards"
 import { usePeopleAudience } from "@/screens/people/scope"
 import type { EmployeeSummary } from "@itulah/contract"
 
@@ -29,6 +32,7 @@ import type { EmployeeSummary } from "@itulah/contract"
 /// the three things done to a balance by hand: correct or grant days, pay days
 /// out into a month's payroll, and give a day back for a holiday worked.
 export function TimeOffBalances() {
+  const phone = useLayout() === "phone"
   const { people, team } = useActiveEmployees()
   const [search, setSearch] = useState("")
   const [unit, setUnit] = useState("")
@@ -63,26 +67,53 @@ export function TimeOffBalances() {
         sub="What each person has left per kind of leave. Open one to see it, correct it or pay days out."
       />
 
-      <Toolbar>
-        <Input
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          className="h-8 w-64"
-          aria-label="Search people"
+      {/* On a phone the search and the unit are in the dock over the bottom
+          bar. */}
+      {phone ? (
+        <DockTools
+          search={{
+            value: search,
+            onChange: setSearch,
+            label: "Search People",
+          }}
+          status={
+            units.length > 1
+              ? {
+                  value: unit,
+                  options: [
+                    { value: "", label: "Every unit" },
+                    ...units.map(([id, name]) => ({
+                      value: id,
+                      label: name,
+                    })),
+                  ],
+                  onChange: setUnit,
+                }
+              : undefined
+          }
         />
-        {units.length > 1 && (
-          <Select value={unit} onChange={setUnit} className="h-8 w-52">
-            <option value="">Every unit</option>
-            {units.map(([id, name]) => (
-              <option key={id} value={id}>
-                {name}
-              </option>
-            ))}
-          </Select>
-        )}
-      </Toolbar>
+      ) : (
+        <Toolbar>
+          <Input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            className="h-8 w-64"
+            aria-label="Search people"
+          />
+          {units.length > 1 && (
+            <Select value={unit} onChange={setUnit} className="h-8 w-52">
+              <option value="">Every unit</option>
+              {units.map(([id, name]) => (
+                <option key={id} value={id}>
+                  {name}
+                </option>
+              ))}
+            </Select>
+          )}
+        </Toolbar>
+      )}
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(team, {
           loading: "Reading the people…",
           render: () =>
@@ -92,6 +123,34 @@ export function TimeOffBalances() {
                   ? "Nobody is employed here yet, so there are no balances to read."
                   : "Nobody matches that search."}
               </EmptyState>
+            ) : phone ? (
+              <PhoneCards
+                rows={rows}
+                onOpen={(one) => setOpened(one)}
+                rowId={(one) => one.employee_id}
+                spec={{
+                  title: (one) => (
+                    <CardName
+                      name={one.full_name ?? one.employee_code}
+                      line={[one.position, one.unit_name ?? one.unit_id]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    />
+                  ),
+                  foot: (one) => (
+                    <span className="font-mono text-id">
+                      {one.employee_code}
+                    </span>
+                  ),
+                  action: (one) => (
+                    <CardButton
+                      label="Open"
+                      ariaLabel={`Open ${one.full_name ?? one.employee_code}’s balances`}
+                      onClick={() => setOpened(one)}
+                    />
+                  ),
+                }}
+              />
             ) : (
               <div className="px-4 pt-3 pb-4">
                 <MiniTable

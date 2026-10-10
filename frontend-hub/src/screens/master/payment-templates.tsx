@@ -5,18 +5,24 @@ import type {
   PaymentTermsTemplateRow,
 } from "@itulah/contract"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
 import { Plus, X } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
+import { Fab } from "@/components/ui/fab"
 import { Field, Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Sheet } from "@/components/ui/sheet"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import { Banner, EmptyState } from "@/components/ui/states"
-import { count } from "@/lib/format"
+import { count, percentBps } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   createPaymentTerm,
   createPaymentTermsTemplate,
@@ -26,6 +32,7 @@ import {
   updatePaymentTermsTemplate,
 } from "@/lib/queries/payment-terms"
 import { queryState } from "@/lib/query-state"
+import { tableSetup, type TableSetup } from "@/lib/table"
 import { cn } from "@/lib/utils"
 import { CodeFact, SubmitRow } from "@/screens/master/term-form"
 import {
@@ -96,10 +103,9 @@ function describeDue(basis: PaymentTermBasis, offset: number): string {
   }
 }
 
-/// 4000 → "40%", 3333 → "33.33%".
+/// 4000 → "40%", 3333 → "33,33%".
 function percent(bps: number): string {
-  const value = bps / 100
-  return `${Number.isInteger(value) ? value : value.toFixed(2).replace(/0$/, "")}%`
+  return percentBps(bps)
 }
 
 /// "40", "33.33" → basis points, or null when it is not a portion.
@@ -185,30 +191,36 @@ export function PaymentTemplates() {
   })
 
   const close = useCallback(() => setEditing(null), [])
+  const phone = useLayout() === "phone"
 
   return (
     <PageContent>
       <PageHeader
         title="Payment Templates"
+        // A phone has the dock's round "+" for the one it is looking at.
         actions={
-          <>
-            <Button
-              className={T14}
-              onClick={() => setEditing({ kind: "term", code: null })}
-            >
-              New term
-            </Button>
-            <Button
-              variant="primary"
-              className={T14}
-              onClick={() => setEditing({ kind: "template", code: null })}
-            >
-              New template
-            </Button>
-          </>
+          phone ? undefined : (
+            <>
+              <Button
+                className={T14}
+                onClick={() => setEditing({ kind: "term", code: null })}
+              >
+                New term
+              </Button>
+              <Button
+                variant="primary"
+                className={T14}
+                onClick={() => setEditing({ kind: "template", code: null })}
+              >
+                New template
+              </Button>
+            </>
+          )
         }
       />
-      <p className={cn(T14, "-mt-2 mb-5 max-w-[46rem] text-body")}>
+      <p
+        className={cn(T14, "-mt-2 mb-5 max-w-[46rem] text-body max-md:hidden")}
+      >
         The arrangements a supplier bill is scheduled with. A template splits
         the bill into instalments that add up to 100%; each instalment falls due
         on a term. Nothing here is deleted — cancel what is no longer offered
@@ -267,6 +279,8 @@ function BookView({
   onShowRetired: (next: boolean) => void
   onOpen: (next: Editing) => void
 }) {
+  const phone = useLayout() === "phone"
+  const [view, setView] = useState<"templates" | "terms">("templates")
   const templates = useMemo(() => byOrder(book.templates), [book.templates])
   const terms = useMemo(() => byOrder(book.terms), [book.terms])
   const retiredCount =
@@ -290,6 +304,61 @@ function BookView({
     }
     return map
   }, [book.templates])
+
+  const retiredButton = (
+    <Button
+      variant="quiet"
+      className={T14}
+      onClick={() => onShowRetired(!showRetired)}
+    >
+      {showRetired
+        ? "Hide cancelled"
+        : `Show ${plural(retiredCount, "cancelled", "cancelled")}`}
+    </Button>
+  )
+
+  if (phone) {
+    return (
+      <>
+        {/* The two lists are the dock's one button: a phone shows one at a time. */}
+        <SubTabs
+          tabs={[
+            { value: "templates", label: "Templates" },
+            { value: "terms", label: "Terms" },
+          ]}
+          value={view}
+          onChange={(next) => setView(next as "templates" | "terms")}
+        />
+        <p className={cn(T14, "mb-3 text-body")}>
+          <b className="font-medium text-ink">
+            {count(templates.filter((t) => t.active).length)}
+          </b>{" "}
+          active templates ·{" "}
+          <b className="font-medium text-ink">
+            {count(terms.filter((t) => t.active).length)}
+          </b>{" "}
+          active terms
+        </p>
+        {view === "templates" ? (
+          <PhoneTemplates templates={shownTemplates} onOpen={onOpen} />
+        ) : (
+          <PhoneTerms terms={shownTerms} heldBy={heldBy} onOpen={onOpen} />
+        )}
+        {retiredCount > 0 && (
+          <div className="mt-3 flex justify-center">{retiredButton}</div>
+        )}
+        <Fab
+          label={view === "templates" ? "New Template" : "New Term"}
+          onClick={() =>
+            onOpen({
+              kind: view === "templates" ? "template" : "term",
+              code: null,
+            })
+          }
+        />
+      </>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-7">
@@ -441,6 +510,246 @@ function BookView({
         </Card>
       </section>
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// The phone's cards
+
+/// The code as a thin line under the name, only where it says more than the
+/// name does: "NET_30" under "Net 30" says it twice.
+function codeSaysMore(label: string, code: string): boolean {
+  const flat = (text: string) => text.toUpperCase().replace(/[^A-Z0-9]/g, "")
+  return flat(label) !== flat(code)
+}
+
+/// The words after the number: "after the bill". Nothing to say at zero but
+/// the moment itself.
+function dueWords(basis: PaymentTermBasis, offset: number): string {
+  if (offset === 0) {
+    return basis === "DAYS_AFTER_BILL"
+      ? "On the bill date"
+      : "At the bill's month end"
+  }
+  return basis === "DAYS_AFTER_BILL"
+    ? "after the bill"
+    : "after the bill's month end"
+}
+
+function nameCell(label: string, code: string) {
+  return (
+    <span className="flex min-w-0 flex-col gap-1">
+      <span className="min-w-0 text-[1rem] font-semibold break-words text-ink">
+        {label}
+      </span>
+      {codeSaysMore(label, code) && (
+        <span className="font-mono text-[0.875rem] font-normal text-mute">
+          {code}
+        </span>
+      )}
+    </span>
+  )
+}
+
+const TEMPLATE_CARDS: ColumnDef<TableSetup, PaymentTermsTemplateRow>[] = [
+  {
+    id: "head",
+    accessorFn: (row) => row.label,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => nameCell(row.original.label, row.original.code),
+  },
+  {
+    id: "lead",
+    accessorFn: (row) => row.lines.length,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "lead" },
+    cell: ({ row }) => (
+      <span className="flex flex-col items-end tabular-nums">
+        <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
+          {row.original.lines
+            .map((line) => percent(line.portion_bps).replace("%", ""))
+            .join(" / ")}
+          %
+        </span>
+        <span className={cn(T14, "text-mute")}>
+          {plural(row.original.lines.length, "instalment", "instalments")}
+        </span>
+      </span>
+    ),
+  },
+  {
+    id: "foot",
+    accessorFn: (row) => row.code,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => (
+      <span className="flex flex-col">
+        {row.original.lines.map((line) => (
+          <span key={line.seq} className="truncate">
+            <span className="text-ink tabular-nums">
+              {percent(line.portion_bps)}
+            </span>{" "}
+            {line.term_label}
+          </span>
+        ))}
+      </span>
+    ),
+  },
+  {
+    id: "state",
+    accessorFn: (row) => row.active,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { align: "right", card: "status" },
+    cell: ({ row }) => <Status active={row.original.active} />,
+  },
+]
+
+function PhoneTemplates({
+  templates,
+  onOpen,
+}: {
+  templates: readonly PaymentTermsTemplateRow[]
+  onOpen: (next: Editing) => void
+}) {
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: templates as PaymentTermsTemplateRow[],
+        columns: TEMPLATE_CARDS,
+        getRowId: (row: PaymentTermsTemplateRow) => row.code,
+      }),
+      [templates]
+    )
+  )
+  return templates.length === 0 ? (
+    <EmptyState>
+      <span className={T14}>
+        No payment template yet, so a bill has nothing to be scheduled with.
+      </span>
+    </EmptyState>
+  ) : (
+    <DataTable<PaymentTermsTemplateRow>
+      table={table}
+      onRowClick={(row) => onOpen({ kind: "template", code: row.code })}
+      cardSort={false}
+      cardsApart
+      cardLead
+    />
+  )
+}
+
+function PhoneTerms({
+  terms,
+  heldBy,
+  onOpen,
+}: {
+  terms: readonly PaymentTermRow[]
+  heldBy: ReadonlyMap<string, readonly PaymentTermsTemplateRow[]>
+  onOpen: (next: Editing) => void
+}) {
+  const columns = useMemo<ColumnDef<TableSetup, PaymentTermRow>[]>(
+    () => [
+      {
+        id: "head",
+        accessorFn: (row) => row.label,
+        header: "",
+        enableHiding: false,
+        enableSorting: false,
+        meta: { card: "title" },
+        cell: ({ row }) => nameCell(row.original.label, row.original.code),
+      },
+      {
+        id: "lead",
+        accessorFn: (row) => row.offset_value,
+        header: "",
+        enableHiding: false,
+        enableSorting: false,
+        meta: { card: "lead" },
+        cell: ({ row }) => (
+          <span className="flex flex-col items-end tabular-nums">
+            <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
+              {row.original.offset_value}
+            </span>
+            <span className={cn(T14, "text-mute")}>
+              {row.original.basis === "MONTHS_AFTER_BILL_MONTH_END"
+                ? row.original.offset_value === 1
+                  ? "month"
+                  : "months"
+                : row.original.offset_value === 1
+                  ? "day"
+                  : "days"}
+            </span>
+          </span>
+        ),
+      },
+      {
+        id: "foot",
+        accessorFn: (row) => row.basis,
+        header: "",
+        enableHiding: false,
+        enableSorting: false,
+        meta: { card: "foot" },
+        cell: ({ row }) => {
+          const holders = heldBy.get(row.original.code) ?? []
+          return (
+            <span className="flex flex-col">
+              <span className="truncate text-ink">
+                {dueWords(row.original.basis, row.original.offset_value)}
+              </span>
+              <span className="truncate">
+                {holders.length === 0
+                  ? "In no template"
+                  : `In ${plural(holders.length, "template", "templates")}`}
+              </span>
+            </span>
+          )
+        },
+      },
+      {
+        id: "state",
+        accessorFn: (row) => row.active,
+        header: "",
+        enableHiding: false,
+        enableSorting: false,
+        meta: { align: "right", card: "status" },
+        cell: ({ row }) => <Status active={row.original.active} />,
+      },
+    ],
+    [heldBy]
+  )
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: terms as PaymentTermRow[],
+        columns,
+        getRowId: (row: PaymentTermRow) => row.code,
+      }),
+      [terms, columns]
+    )
+  )
+  return terms.length === 0 ? (
+    <EmptyState>
+      <span className={T14}>No payment term yet.</span>
+    </EmptyState>
+  ) : (
+    <DataTable<PaymentTermRow>
+      table={table}
+      onRowClick={(row) => onOpen({ kind: "term", code: row.code })}
+      cardSort={false}
+      cardsApart
+      cardLead
+    />
   )
 }
 

@@ -4,8 +4,9 @@ import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Card } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Input } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
@@ -16,6 +17,7 @@ import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilterState, type Filter, type FilterField } from "@/lib/filters"
 import { count, moment } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   inventoryKeys,
   reconciliationsPage,
@@ -25,6 +27,7 @@ import {
 import { queryState } from "@/lib/query-state"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { useDebounced } from "@/lib/use-debounced"
+import { CardName } from "@/components/ui/phone-cards"
 
 /// One tag, two claims: the DC says it sent it, the store says it received it.
 ///
@@ -101,6 +104,7 @@ const columns: ColumnDef<TableSetup, Reconciliation>[] = [
     accessorKey: "status",
     header: "Status",
     size: 130,
+    meta: { card: "hide" },
     cell: ({ row }) => (
       <Pill tone={TONE[row.original.status]}>{WORD[row.original.status]}</Pill>
     ),
@@ -109,6 +113,7 @@ const columns: ColumnDef<TableSetup, Reconciliation>[] = [
     accessorKey: "epc",
     header: "Tag",
     size: 220,
+    meta: { card: "hide" },
     cell: ({ row }) => (
       <span className="font-mono text-id text-body">{row.original.epc}</span>
     ),
@@ -119,6 +124,7 @@ const columns: ColumnDef<TableSetup, Reconciliation>[] = [
       `${row.source_dc_id ?? ""} ${row.destination_store_id}`,
     header: "Route",
     size: 200,
+    meta: { card: "hide" },
     cell: ({ row }) => (
       <span className="text-body">
         {row.original.source_dc_id ?? "—"} → {row.original.destination_store_id}
@@ -130,6 +136,7 @@ const columns: ColumnDef<TableSetup, Reconciliation>[] = [
     header: "SKU",
     size: 140,
     enableSorting: false,
+    meta: { card: "hide" },
     cell: ({ row }) =>
       row.original.sku_code ? (
         <span className="font-mono text-id text-body">
@@ -144,6 +151,7 @@ const columns: ColumnDef<TableSetup, Reconciliation>[] = [
     header: "Shipment",
     size: 150,
     enableSorting: false,
+    meta: { card: "hide" },
     cell: ({ row }) => (
       <span className="font-mono text-id text-mute">
         {row.original.shipment_reference ?? "—"}
@@ -156,6 +164,7 @@ const columns: ColumnDef<TableSetup, Reconciliation>[] = [
     header: "Attributed",
     size: 120,
     enableSorting: false,
+    meta: { card: "hide" },
     cell: ({ row }) =>
       row.original.status !== "MATCHED" ? (
         <span className="text-mute">—</span>
@@ -171,11 +180,77 @@ const columns: ColumnDef<TableSetup, Reconciliation>[] = [
     header: "Received",
     size: 160,
     enableSorting: false,
+    meta: { card: "hide" },
     cell: ({ row }) => moment(row.original.received?.occurred_at),
   },
 ]
 
+/// The card a phone draws for a claim, as columns of their own that exist there
+/// only (`cardLead`): the SKU over the tag, the route and shipment on the foot,
+/// and where the claim stands. A claim has no figure to lead with.
+const cards: ColumnDef<TableSetup, Reconciliation>[] = [
+  {
+    id: "head",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    accessorFn: (row) => row.sku_code ?? "",
+    cell: ({ row }) => (
+      <CardName
+        name={
+          row.original.sku_code ??
+          `${count(row.original.sku_codes.length)} codes`
+        }
+        code={row.original.epc}
+      />
+    ),
+  },
+  {
+    id: "foot",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    accessorFn: (row) => row.destination_store_id,
+    cell: ({ row }) => (
+      <span className="flex flex-col leading-6">
+        <span>
+          {row.original.source_dc_id ?? "—"} →{" "}
+          {row.original.destination_store_id}
+          {row.original.status === "MATCHED" && !row.original.attributed && (
+            <span className="font-medium text-warn-fg"> · unexplained</span>
+          )}
+        </span>
+        {(row.original.shipment_reference ??
+          row.original.received?.occurred_at) && (
+          <span className="tabular-nums">
+            {row.original.shipment_reference}
+            {row.original.shipment_reference !== null &&
+              row.original.received !== null &&
+              " · "}
+            {row.original.received !== null &&
+              moment(row.original.received?.occurred_at)}
+          </span>
+        )}
+      </span>
+    ),
+  },
+  {
+    id: "where",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { align: "right", card: "status" },
+    accessorFn: (row) => row.status,
+    cell: ({ row }) => (
+      <Pill tone={TONE[row.original.status]}>{WORD[row.original.status]}</Pill>
+    ),
+  },
+]
+
 export function Reconciliations() {
+  const phone = useLayout() === "phone"
   const [slice, setSlice] = useState<"attention" | "all">("attention")
   const [query, setQuery] = useState("")
   const [sorting, setSorting] = useState<SortingState>([
@@ -238,7 +313,7 @@ export function Reconciliations() {
       () => ({
         features: tableSetup,
         data: rows,
-        columns,
+        columns: phone ? [...columns, ...cards] : columns,
         getRowId: (row: Reconciliation) =>
           `${row.destination_store_id}/${row.epc}/${row.shipment_reference ?? ""}`,
         state: { sorting },
@@ -246,9 +321,14 @@ export function Reconciliations() {
         manualSorting: true,
         onSortingChange: setSorting,
       }),
-      [rows, sorting]
+      [rows, sorting, phone]
     )
   )
+
+  const summary = head?.summary
+  const attention = summary
+    ? summary.store_only + summary.unresolved + summary.conflicts
+    : undefined
 
   return (
     <PageContent>
@@ -256,6 +336,33 @@ export function Reconciliations() {
         crumb="Inventory"
         title="Claim Reconciliation"
         sub="Every tag a DC says it sent, against every tag a store says it received."
+      />
+
+      {/* On a phone the slice, the search, the filter and the order are the
+          dock's. */}
+      <DockTools
+        search={{ value: query, onChange: setQuery, label: "Search claims" }}
+        filter={{
+          count: filters.filters.length,
+          panel: { model: filters, filterModel: model },
+        }}
+        sort={dockSortOf(table)}
+        status={{
+          value: slice,
+          options: [
+            {
+              value: "attention",
+              label: "Needs answering",
+              ...(attention === undefined ? {} : { count: attention }),
+            },
+            {
+              value: "all",
+              label: "Every claim",
+              ...(head === undefined ? {} : { count: head.total }),
+            },
+          ],
+          onChange: (next) => setSlice(next as "attention" | "all"),
+        }}
       />
 
       {queryState(report, {
@@ -298,7 +405,7 @@ export function Reconciliations() {
                 </Banner>
               )}
 
-              <Toolbar>
+              <Toolbar className="max-md:hidden">
                 <Segmented
                   value={slice}
                   onChange={setSlice}
@@ -319,7 +426,7 @@ export function Reconciliations() {
                 </span>
               </Toolbar>
 
-              <Card className="overflow-hidden">
+              <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
                 {rows.length === 0 ? (
                   <EmptyState>
                     {needle !== "" || filters.filters.length > 0
@@ -330,9 +437,13 @@ export function Reconciliations() {
                   </EmptyState>
                 ) : (
                   <DataTable<Reconciliation>
+                    refresh={[report]}
                     table={table}
                     more={report}
                     className="max-h-[calc(100dvh-26rem)]"
+                    cardSort={false}
+                    cardsApart
+                    cardLead
                   />
                 )}
               </Card>

@@ -216,7 +216,9 @@ pub async fn save_asset_class(
 ) -> Result<AssetClassList, AppError> {
     let code = request.class_code.trim().to_ascii_uppercase();
     if code.is_empty() || request.name.trim().is_empty() {
-        return Err(AppError::Validation("an asset class has a code and a name".into()));
+        return Err(AppError::Validation(
+            "an asset class has a code and a name".into(),
+        ));
     }
     sqlx::query(
         "INSERT INTO asset_class
@@ -233,7 +235,12 @@ pub async fn save_asset_class(
     .bind(request.kind.trim().to_ascii_uppercase())
     .bind(request.build.trim().to_ascii_uppercase())
     .bind(request.default_useful_life_months)
-    .bind(request.default_method.as_deref().map(|m| m.trim().to_ascii_uppercase()))
+    .bind(
+        request
+            .default_method
+            .as_deref()
+            .map(|m| m.trim().to_ascii_uppercase()),
+    )
     .bind(request.is_active)
     .bind(actor)
     .execute(pool)

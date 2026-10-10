@@ -1461,7 +1461,6 @@ pub async fn payment_ledger_integrity(
     })
 }
 
-
 // ---------------------------------------------------------------------------
 // A party's movements — 7Soft's Kartu Hutang, ERPNext's Supplier Ledger
 // ---------------------------------------------------------------------------

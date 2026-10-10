@@ -768,6 +768,80 @@ fn a_limited_legacy_coupon_is_refused_until_it_can_be_reserved_online() {
     );
 }
 
+/// A limited coupon with no hold is refused, exactly as before holds existed:
+/// the snapshot's count is as old as the last sync, and admitting from it is
+/// how two shops both give away the hundredth use.
+#[test]
+fn a_limited_coupon_without_a_hold_still_needs_head_office() {
+    let mut snap = snapshot_with_coupon();
+    snap.coupons[0].max_uses = Some(100);
+
+    // A hold for a DIFFERENT code opens nothing here.
+    let context = context()
+        .with_coupon("LEBARAN")
+        .with_coupon_authorization("OTHERCODE", "hold-for-something-else");
+    let result = resolved(&snap, &context, &[CartLine::new("SKU1", 1)]);
+    assert_eq!(result.total, Money::new(100_000));
+    assert_eq!(
+        why(&result, "R1"),
+        RejectionReason::CouponNeedsOnlineAuthorization
+    );
+    assert_eq!(
+        check_coupon(&snap, &context, "LEBARAN"),
+        Err(RejectionReason::CouponNeedsOnlineAuthorization)
+    );
+}
+
+/// With head office's hold the limited coupon applies — and the snapshot's own
+/// count is not read against it, because that count is the stale number the
+/// hold replaces (here it even says "used up", as this shop's brake can after
+/// its own unsynced sales).
+#[test]
+fn a_limited_coupon_applies_on_head_offices_hold() {
+    let mut snap = snapshot_with_coupon();
+    snap.coupons[0].max_uses = Some(100);
+
+    let held = context()
+        .with_coupon("LEBARAN")
+        .with_coupon_authorization("lebaran", "6f1c0d6e-hold");
+    let result = resolved(&snap, &held, &[CartLine::new("SKU1", 1)]);
+    assert_eq!(result.total, Money::new(80_000));
+    assert_eq!(applied_ids(&result), vec!["R1"]);
+    assert!(check_coupon(&snap, &held, "LEBARAN").is_ok());
+
+    snap.coupons[0].used = 100;
+    let result = resolved(&snap, &held, &[CartLine::new("SKU1", 1)]);
+    assert_eq!(result.total, Money::new(80_000));
+
+    // The rest of the gate still stands: a hold does not revive a lapsed code.
+    snap.coupons[0].valid_to = Some(at(3));
+    let result = resolved(&snap, &held, &[CartLine::new("SKU1", 1)]);
+    assert_eq!(why(&result, "R1"), RejectionReason::CouponExpired);
+}
+
+/// An uncapped coupon needs no hold and ignores one it is given.
+#[test]
+fn an_uncapped_coupon_is_unchanged_by_holds() {
+    let snap = snapshot_with_coupon();
+
+    let plain = resolved(
+        &snap,
+        &context().with_coupon("LEBARAN"),
+        &[CartLine::new("SKU1", 1)],
+    );
+    assert_eq!(plain.total, Money::new(80_000));
+
+    let held = resolved(
+        &snap,
+        &context()
+            .with_coupon("LEBARAN")
+            .with_coupon_authorization("LEBARAN", "unneeded-hold"),
+        &[CartLine::new("SKU1", 1)],
+    );
+    assert_eq!(held.total, plain.total);
+    assert_eq!(applied_ids(&held), vec!["R1"]);
+}
+
 #[test]
 fn a_coupon_issued_to_someone_is_not_bearer_paper() {
     let mut snap = snapshot_with_coupon();
@@ -2077,11 +2151,7 @@ fn a_free_item_cannot_bypass_a_campaign_budget_spent_by_another_rule() {
     envelope.caps.budget = Some(Money::new(10_000));
     snap.campaigns.push(envelope);
     snap.rules.push(under_campaign("R1", "C1", 1_000));
-    snap.rules.push(under_campaign(
-        "R2",
-        "C1",
-        0,
-    ));
+    snap.rules.push(under_campaign("R2", "C1", 0));
     snap.rules[1].effect = Effect::FreeItem {
         sku_code: Some("SKU2".into()),
         quantity: 1,

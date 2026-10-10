@@ -5,7 +5,7 @@ import { useMemo, useState } from "react"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { EmptyState } from "@/components/ui/states"
-import { count } from "@/lib/format"
+import { count, quantity } from "@/lib/format"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import type { ProblemRow } from "./problems-data"
 
@@ -44,7 +44,7 @@ const columns: ColumnDef<TableSetup, ProblemRow>[] = [
         <span className="block whitespace-nowrap text-ink">
           {row.original.kind}{" "}
           <span className="font-medium text-bad-fg tabular-nums">
-            −{count(row.original.short)} pcs
+            −{quantity(row.original.short)}
           </span>
         </span>
         {row.original.detail !== null && (
@@ -57,7 +57,7 @@ const columns: ColumnDef<TableSetup, ProblemRow>[] = [
   },
   {
     accessorKey: "pieces",
-    header: "Pieces",
+    header: "Pcs",
     size: 110,
     meta: { align: "right" },
     cell: ({ row }) => (

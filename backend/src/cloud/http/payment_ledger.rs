@@ -21,9 +21,9 @@
 use crate::cloud::{
     application::{AppError, AppState},
     postgres::{
-        self as infrastructure, PaymentLedgerAging, PaymentLedgerEntry, PaymentLedgerFilter,
-        PaymentLedgerIntegrity, PaymentLedgerPartyStatement, PaymentLedgerPartyType,
-        PaymentLedgerSettlementRow, PaymentLedgerSide, PartyMovements,
+        self as infrastructure, PartyMovements, PaymentLedgerAging, PaymentLedgerEntry,
+        PaymentLedgerFilter, PaymentLedgerIntegrity, PaymentLedgerPartyStatement,
+        PaymentLedgerPartyType, PaymentLedgerSettlementRow, PaymentLedgerSide,
     },
 };
 use axum::{
@@ -232,7 +232,11 @@ pub async fn movements(
     let from = query.from.unwrap_or_else(|| {
         NaiveDate::from_ymd_opt(chrono::Datelike::year(&to), 1, 1).unwrap_or(to)
     });
-    let unit = query.unit.as_deref().map(str::trim).filter(|u| !u.is_empty());
+    let unit = query
+        .unit
+        .as_deref()
+        .map(str::trim)
+        .filter(|u| !u.is_empty());
     Ok(Json(
         infrastructure::party_movements(&state.db, kind.as_str(), &party_id, from, to, unit)
             .await?,

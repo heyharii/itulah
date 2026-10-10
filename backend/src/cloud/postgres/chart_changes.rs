@@ -92,12 +92,18 @@ fn payload_of(request: &ChartChangeRequest) -> Value {
     for (key, value) in [
         ("name", trimmed(&request.name)),
         ("parent_code", trimmed(&request.parent_code)),
-        ("account_type", trimmed(&request.account_type).map(|t| t.to_ascii_uppercase())),
+        (
+            "account_type",
+            trimmed(&request.account_type).map(|t| t.to_ascii_uppercase()),
+        ),
         (
             "statement_section",
             trimmed(&request.statement_section).map(|t| t.to_ascii_uppercase()),
         ),
-        ("dimension", trimmed(&request.dimension).map(|t| t.to_ascii_lowercase())),
+        (
+            "dimension",
+            trimmed(&request.dimension).map(|t| t.to_ascii_lowercase()),
+        ),
         (
             "normal_balance",
             trimmed(&request.normal_balance).map(|t| t.to_ascii_uppercase()),
@@ -155,7 +161,10 @@ async fn apply(
                     "{parent_code} is a leaf; a new account sits under a heading"
                 )));
             }
-            let is_group = payload.get("is_group").and_then(Value::as_bool).unwrap_or(false);
+            let is_group = payload
+                .get("is_group")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
             let section = text(payload, "statement_section")
                 .map(str::to_string)
                 .unwrap_or(parent.try_get::<String, _>("statement_section")?);
@@ -165,13 +174,11 @@ async fn apply(
                 .await?;
             let normal_balance = match text(payload, "normal_balance") {
                 Some(balance) => balance.to_string(),
-                None if section == "OTHER_NET" => {
-                    return Err(AppError::Validation(
-                        "an account in OTHER_NET can be income or expense; say whether it is debit \
+                None if section == "OTHER_NET" => return Err(AppError::Validation(
+                    "an account in OTHER_NET can be income or expense; say whether it is debit \
                          (D) or credit (C)"
-                            .into(),
-                    ))
-                }
+                        .into(),
+                )),
                 None if matches!(root.as_str(), "ASSET" | "EXPENSE") => "D".into(),
                 None => "C".into(),
             };
@@ -196,7 +203,11 @@ async fn apply(
             .bind(dimension)
             .bind(&normal_balance)
             .bind(&section)
-            .bind(if is_group { None } else { text(payload, "account_type") })
+            .bind(if is_group {
+                None
+            } else {
+                text(payload, "account_type")
+            })
             .execute(&mut **tx)
             .await?;
         }
@@ -272,7 +283,9 @@ async fn apply(
             .await?
             .rows_affected();
             if changed == 0 {
-                return Err(AppError::Validation(format!("{code} is not a live account")));
+                return Err(AppError::Validation(format!(
+                    "{code} is not a live account"
+                )));
             }
         }
         "REACTIVATE" => {
@@ -284,7 +297,9 @@ async fn apply(
             .await?
             .rows_affected();
             if changed == 0 {
-                return Err(AppError::Validation(format!("{code} is not a retired account")));
+                return Err(AppError::Validation(format!(
+                    "{code} is not a retired account"
+                )));
             }
         }
         other => {
@@ -329,16 +344,20 @@ pub async fn change_chart(
     }
     let code = request.account_code.trim();
     if code.is_empty() {
-        return Err(AppError::Validation("name the account the change is about".into()));
+        return Err(AppError::Validation(
+            "name the account the change is about".into(),
+        ));
     }
     let payload = payload_of(request);
 
     let mut tx = pool.begin().await?;
-    sqlx::query("SELECT set_config('finance.actor', $1, true), set_config('finance.reason', $2, true)")
-        .bind(actor)
-        .bind(trimmed(&request.reason).unwrap_or_default())
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query(
+        "SELECT set_config('finance.actor', $1, true), set_config('finance.reason', $2, true)",
+    )
+    .bind(actor)
+    .bind(trimmed(&request.reason).unwrap_or_default())
+    .execute(&mut *tx)
+    .await?;
     apply(&mut tx, &kind, code, &payload).await?;
     // The chart's deferred checks (the tree, the roots) run before the answer
     // is read back, so a refusal arrives as a refusal and not at commit.

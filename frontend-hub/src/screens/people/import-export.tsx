@@ -139,7 +139,7 @@ export function ImportExportSheet({
                 }
                 void chosen
                   .text()
-                  .then((text) => setSheet(readPaySheet(text, "import gaji")))
+                  .then((text) => setSheet(readPaySheet(text, "pay import")))
               }}
             />
           </Field>
@@ -148,7 +148,7 @@ export function ImportExportSheet({
             onClick={() =>
               downloadCsv(
                 csvName("pay changes template"),
-                "employee_code,effective_from,base_salary,allowances,reason\r\nK0001,2026-10-01,5000000,JABATAN:500000;MAKAN:300000,kenaikan gaji\r\n"
+                "employee_code,effective_from,base_salary,allowances,reason\r\nK0001,2026-10-01,5000000,JABATAN:500000;MAKAN:300000,salary raise\r\n"
               )
             }
           >

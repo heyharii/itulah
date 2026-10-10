@@ -839,7 +839,9 @@ pub async fn salary_structures(pool: &PgPool) -> Result<Vec<SalaryStructureRecor
                 allowances,
                 defined: serde_json::from_value(row.try_get("defined")?)
                     .map_err(|error| corrupt("structure authority", error.to_string()))?,
-                retired: row.try_get::<Option<DateTime<Utc>>, _>("retired_at")?.is_some(),
+                retired: row
+                    .try_get::<Option<DateTime<Utc>>, _>("retired_at")?
+                    .is_some(),
             })
         })
         .collect()

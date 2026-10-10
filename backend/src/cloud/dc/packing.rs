@@ -37,11 +37,13 @@ use crate::cloud::http::auth::Principal;
 use crate::cloud::{AppError, AppState};
 use crate::edge::contracts::{AdvanceKoliRequest, DispatchTripRequest, EdgeError, PackRequest};
 use crate::edge::outbound::{
-    Dispatch, DispatchDetail, Koli, KoliManifest, ListFilter, ManifestLine,
-    PrintKoliLabelRequest, Shipment, ShipmentDetail,
+    Dispatch, DispatchDetail, Koli, KoliManifest, ListFilter, ManifestLine, PrintKoliLabelRequest,
+    Shipment, ShipmentDetail,
 };
 use crate::edge::printing::LABEL_BRAND;
-use crate::edge::zpl::{preview_koli_label, render_koli_label, KoliLabelData, LabelBrand, LabelSize};
+use crate::edge::zpl::{
+    preview_koli_label, render_koli_label, KoliLabelData, LabelBrand, LabelSize,
+};
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -55,9 +57,12 @@ use sqlx::{PgConnection, Row};
 use uuid::Uuid;
 
 #[path = "packing_stages.rs"]
-mod stages;
+pub(super) mod stages;
 
 pub(crate) use stages::reconcile_counted_in_tx;
+// The move back (`dc/move_back.rs`) takes pieces out of a box with the same
+// machinery that put them in, under the same lock.
+pub(super) use stages::{lock_outbound, move_pieces, place_of_role, Piece};
 
 pub fn routes(router: Router<AppState>) -> Router<AppState> {
     router
@@ -66,7 +71,10 @@ pub fn routes(router: Router<AppState>) -> Router<AppState> {
         .route("/api/v1/dc/koli/{koli_id}", get(koli_manifest))
         .route("/api/v1/dc/koli/{koli_id}/seal", post(seal))
         .route("/api/v1/dc/koli/{koli_id}/label", post(print_label))
-        .route("/api/v1/dc/koli/{koli_id}/in-transit", post(koli_in_transit))
+        .route(
+            "/api/v1/dc/koli/{koli_id}/in-transit",
+            post(koli_in_transit),
+        )
         .route("/api/v1/dc/dispatch-trips", post(dispatch_trip))
         .route("/api/v1/dc/dispatches", get(list_dispatches))
         .route("/api/v1/dc/dispatches/{dispatch_id}", get(dispatch_detail))
@@ -99,7 +107,8 @@ async fn list_koli(
     Query(filter): Query<ListFilter>,
 ) -> Result<Json<Value>, AppError> {
     common::require_hosted()?;
-    let mut sql = format!("{KOLI_SELECT} WHERE TRUE");
+    // A carton a move back emptied is no carton any more.
+    let mut sql = format!("{KOLI_SELECT} WHERE k.voided_at IS NULL");
     if filter.unassigned {
         sql.push_str(" AND k.shipment_id IS NULL");
     }
@@ -108,7 +117,10 @@ async fn list_koli(
     }
     sql.push_str(" ORDER BY k.koli_number");
     let rows = sqlx::query(&sql).fetch_all(&state.db).await?;
-    let items = rows.iter().map(koli_from_row).collect::<Result<Vec<_>, _>>()?;
+    let items = rows
+        .iter()
+        .map(koli_from_row)
+        .collect::<Result<Vec<_>, _>>()?;
     Ok(Json(serde_json::json!({ "items": items })))
 }
 
@@ -230,7 +242,9 @@ async fn dispatch_detail(
     common::require_hosted()?;
     let dispatch_id = parse_id(&dispatch_id, "dispatch")?;
     let mut connection = state.db.acquire().await?;
-    Ok(Json(dispatch_detail_of(&mut connection, dispatch_id).await?))
+    Ok(Json(
+        dispatch_detail_of(&mut connection, dispatch_id).await?,
+    ))
 }
 
 /// The truck leaves (`edge::outbound` `depart_dispatch`). Once.
@@ -273,7 +287,9 @@ async fn shipment_detail(
     let mut connection = state.db.acquire().await?;
     let shipment = load_shipment(&mut connection, shipment_id).await?;
     let ids: Vec<Uuid> = sqlx::query_scalar(
-        "SELECT koli_id FROM dc_koli WHERE shipment_id = $1 ORDER BY koli_number",
+        "SELECT koli_id FROM dc_koli
+          WHERE shipment_id = $1 AND voided_at IS NULL
+          ORDER BY koli_number",
     )
     .bind(shipment_id)
     .fetch_all(&mut *connection)
@@ -317,7 +333,8 @@ const KOLI_SELECT: &str = "
 
 const SHIPMENT_SELECT: &str = "
     SELECT s.shipment_id, s.shipment_number, s.destination_store_id, s.dispatch_id,
-           (SELECT count(*) FROM dc_koli k WHERE k.shipment_id = s.shipment_id)::bigint AS koli_count,
+           (SELECT count(*) FROM dc_koli k
+             WHERE k.shipment_id = s.shipment_id AND k.voided_at IS NULL)::bigint AS koli_count,
            (SELECT count(*) FROM dc_koli_unit u JOIN dc_koli k ON k.koli_id = u.koli_id
              WHERE k.shipment_id = s.shipment_id)::bigint AS unit_count,
            CASE
@@ -339,7 +356,7 @@ const DISPATCH_SELECT: &str = "
            (SELECT count(*) FROM dc_shipment s WHERE s.dispatch_id = d.dispatch_id)::bigint
                AS shipment_count,
            (SELECT count(*) FROM dc_koli k JOIN dc_shipment s ON s.shipment_id = k.shipment_id
-             WHERE s.dispatch_id = d.dispatch_id)::bigint AS koli_count,
+             WHERE s.dispatch_id = d.dispatch_id AND k.voided_at IS NULL)::bigint AS koli_count,
            (SELECT count(*) FROM dc_koli_unit u
               JOIN dc_koli k ON k.koli_id = u.koli_id
               JOIN dc_shipment s ON s.shipment_id = k.shipment_id
@@ -421,7 +438,10 @@ fn dispatch_from_row(row: &PgRow) -> Result<Dispatch, AppError> {
 }
 
 async fn load_koli(connection: &mut PgConnection, koli_id: Uuid) -> Result<Koli, AppError> {
-    let row = sqlx::query(&format!("{KOLI_SELECT} WHERE k.koli_id = $1"))
+    // A carton a move back emptied has no manifest and no label.
+    let row = sqlx::query(&format!(
+        "{KOLI_SELECT} WHERE k.koli_id = $1 AND k.voided_at IS NULL"
+    ))
         .bind(koli_id)
         .fetch_optional(&mut *connection)
         .await?

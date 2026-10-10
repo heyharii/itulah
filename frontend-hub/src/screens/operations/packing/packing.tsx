@@ -10,6 +10,7 @@ import { Printer } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import {
   PackingListPrint,
   useShopName,
@@ -23,10 +24,11 @@ import {
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
+import { SheetFooter } from "@/components/ui/sheet-footer"
 import {
   EmptyState,
   ErrorState,
@@ -34,11 +36,19 @@ import {
   Problem,
 } from "@/components/ui/states"
 import { dc } from "@/lib/api"
-import { clock, count } from "@/lib/format"
+import { clock, count, quantity } from "@/lib/format"
+import { MoveBackDialog } from "@/screens/operations/board/move-back"
+import type { MoveBackTarget } from "@/screens/operations/board/owed"
 import { PackingCell } from "@/screens/operations/packing/packing-cell"
+import { prefetchKoliDetail } from "@/screens/operations/prefetch"
 import { usePackingShort } from "@/screens/operations/packing/packing-short"
 import { loadPrinter } from "@/lib/operations/printer"
 import { keys } from "@/lib/operations/keys"
+import {
+  koliManifestQuery,
+  koliQuery,
+  picklistsQuery,
+} from "@/lib/operations/queries"
 import { useCatalogue } from "@/lib/operations/catalogue"
 import { useEdgeActor, useEdgeNodeIdentity } from "@/lib/edge-session"
 import { useSheet } from "@/lib/sheets"
@@ -79,16 +89,11 @@ export function Packing() {
   const [showList, setShowList] = useState(false)
   const [printKoliId, setPrintKoliId] = useState<string | null>(null)
   const [sorting, setSorting] = useState<SortingState>([])
+  const [typed, setTyped] = useState("")
 
   /// Every picklist this DC has raised — the same list Picking reads.
-  const picklists = useQuery({
-    queryKey: keys.picklists(),
-    queryFn: ({ signal }) => dc.picklists(signal),
-  })
-  const koli = useQuery({
-    queryKey: keys.koli(),
-    queryFn: ({ signal }) => dc.koli({}, signal),
-  })
+  const picklists = useQuery(picklistsQuery())
+  const koli = useQuery(koliQuery())
 
   /// Picklists still owed a pack, grouped by shop — a shop with several
   /// allotments each contributes its own row here.
@@ -158,17 +163,31 @@ export function Packing() {
 
   const cartonColumns = useMemo(() => cartonColumnsFor(setPrintKoliId), [])
 
+  // A phone's search, over the cartons: the dock that carries their sort.
+  const needle = typed.trim().toLowerCase()
+  const searched = useMemo(
+    () =>
+      needle === ""
+        ? sealed
+        : sealed.filter(
+            (one) =>
+              one.koli_number.toLowerCase().includes(needle) ||
+              shopName(one.destination_store_id).toLowerCase().includes(needle)
+          ),
+    [sealed, needle, shopName]
+  )
+
   const cartons = useTable(
     useMemo(
       () => ({
         features: tableSetup,
-        data: sealed,
+        data: searched,
         columns: cartonColumns,
         getRowId: (row: Koli) => row.koli_id,
         state: { sorting },
         onSortingChange: setSorting,
       }),
-      [sealed, cartonColumns, sorting]
+      [searched, cartonColumns, sorting]
     )
   )
 
@@ -186,17 +205,23 @@ export function Packing() {
       <KpiStrip className="grid-cols-2 md:grid-cols-4 xl:grid-cols-4">
         <Kpi label="Shops to pack" value={count(toPack.length)} />
         <Kpi
-          label="Pieces to pack"
+          label="Pcs to pack"
           value={count(toPack.reduce((total, row) => total + row.pieces, 0))}
         />
         <Kpi label="Sealed today" value={count(sealedToday.length)} />
         <Kpi
-          label="Pieces sealed"
+          label="Pcs sealed"
           value={count(
             sealedToday.reduce((total, one) => total + one.unit_count, 0)
           )}
         />
       </KpiStrip>
+
+      {/* On a phone the cartons' sort is the dock's, not a bar over them. */}
+      <DockTools
+        search={{ value: typed, onChange: setTyped, label: "Search cartons" }}
+        sort={dockSortOf(cartons)}
+      />
 
       <Card className="mb-5 overflow-clip">
         <CardHeader>
@@ -228,8 +253,7 @@ export function Packing() {
                   <div className="truncate text-[0.875rem] text-mute">
                     {count(row.rounds.length)}{" "}
                     {row.rounds.length === 1 ? "picklist" : "picklists"} ·{" "}
-                    {count(row.pieces)} {row.pieces === 1 ? "piece" : "pieces"}{" "}
-                    to pack
+                    {quantity(row.pieces)} to pack
                   </div>
                 </div>
                 <Button
@@ -263,8 +287,10 @@ export function Packing() {
           </EmptyState>
         ) : (
           <DataTable<Koli>
+            refresh={[picklists, koli]}
             table={cartons}
             onRowClick={(row) => opened.open(row.koli_id)}
+            onRowIntent={(row) => void prefetchKoliDetail(client, row.koli_id)}
             isSelected={(row) => row.koli_id === opened.value}
             summary={{
               carton: (
@@ -280,6 +306,7 @@ export function Packing() {
               ),
             }}
             pageScroll
+            cardSort={false}
           />
         )}
       </Card>
@@ -290,11 +317,18 @@ export function Packing() {
         onPacked={(manifest) => {
           const shopId = packSheet.value ?? null
           packSheet.close()
+          // The packing list is printed on purpose — Print on the carton, or
+          // Packing list below — not thrown up after every seal (owner,
+          // 10 Oct 2026).
           setJustPacked({ manifest, shopId })
-          setShowList(true)
           if (manifest.koli.koli_id)
             void printSticker.mutate(manifest.koli.koli_id)
-          void client.invalidateQueries({ queryKey: keys.dc.all })
+          // The carton exists — its list, its ready row and its manifest —
+          // the rounds it drew from have less waiting, and the pieces moved
+          // out of pickable stock.
+          void client.invalidateQueries({ queryKey: ["dc", "koli"] })
+          void client.invalidateQueries({ queryKey: keys.picklists() })
+          void client.invalidateQueries({ queryKey: ["dc", "pick-session"] })
           void client.invalidateQueries({ queryKey: keys.pools() })
         }}
       />
@@ -305,13 +339,18 @@ export function Packing() {
           if (!next) setJustPacked(null)
         }}
         title="Packed"
+        // Print lives at the top, in the head's ⋯, on every width (owner,
+        // 10 Oct 2026) — the foot is for what comes next.
+        more={[
+          {
+            label: "Print packing list",
+            icon: <Printer />,
+            onSelect: () => setShowList(true),
+          },
+        ]}
         footer={
           justPacked && (
             <div className="flex flex-wrap items-center gap-2">
-              <Button variant="ghost" onClick={() => setShowList(true)}>
-                <Printer />
-                Packing list
-              </Button>
               <span className="flex-1" />
               {(() => {
                 const next = nextToPack(justPacked.shopId)
@@ -346,7 +385,7 @@ export function Packing() {
                 {shopName(justPacked.manifest.koli.destination_store_id)}
               </Fact>
               <Fact term="Carton">{justPacked.manifest.koli.koli_number}</Fact>
-              <Fact term="Pieces">
+              <Fact term="Pcs">
                 {count(justPacked.manifest.koli.unit_count)}
               </Fact>
             </Facts>
@@ -432,11 +471,18 @@ export function PackSheets() {
         onPacked={(manifest) => {
           const shopId = packSheet.value ?? null
           packSheet.close()
+          // The packing list is printed on purpose — Print on the carton, or
+          // Packing list below — not thrown up after every seal (owner,
+          // 10 Oct 2026).
           setJustPacked({ manifest, shopId })
-          setShowList(true)
           if (manifest.koli.koli_id)
             void printSticker.mutate(manifest.koli.koli_id)
-          void client.invalidateQueries({ queryKey: keys.dc.all })
+          // The carton exists — its list, its ready row and its manifest —
+          // the rounds it drew from have less waiting, and the pieces moved
+          // out of pickable stock.
+          void client.invalidateQueries({ queryKey: ["dc", "koli"] })
+          void client.invalidateQueries({ queryKey: keys.picklists() })
+          void client.invalidateQueries({ queryKey: ["dc", "pick-session"] })
           void client.invalidateQueries({ queryKey: keys.pools() })
         }}
       />
@@ -447,13 +493,18 @@ export function PackSheets() {
           if (!next) setJustPacked(null)
         }}
         title="Packed"
+        // Print lives at the top, in the head's ⋯, on every width (owner,
+        // 10 Oct 2026) — the foot is for what comes next.
+        more={[
+          {
+            label: "Print packing list",
+            icon: <Printer />,
+            onSelect: () => setShowList(true),
+          },
+        ]}
         footer={
           justPacked && (
             <div className="flex flex-wrap items-center gap-2">
-              <Button variant="ghost" onClick={() => setShowList(true)}>
-                <Printer />
-                Packing list
-              </Button>
               <span className="flex-1" />
               {(() => {
                 const next = nextToPack(justPacked.shopId)
@@ -488,7 +539,7 @@ export function PackSheets() {
                 {shopName(justPacked.manifest.koli.destination_store_id)}
               </Fact>
               <Fact term="Carton">{justPacked.manifest.koli.koli_number}</Fact>
-              <Fact term="Pieces">
+              <Fact term="Pcs">
                 {count(justPacked.manifest.koli.unit_count)}
               </Fact>
             </Facts>
@@ -566,7 +617,7 @@ function cartonColumnsFor(
     {
       id: "pieces",
       accessorKey: "unit_count",
-      header: "Pieces",
+      header: "Pcs",
       size: 100,
       meta: { align: "right", card: "metric" },
       cell: ({ row }) => count(row.original.unit_count),
@@ -755,7 +806,7 @@ function PackSheet({
           <div className="flex flex-wrap items-center gap-2">
             <span className="mr-auto text-[0.875rem] text-mute">
               {lineCount > 0
-                ? `${count(lineCount)} ${lineCount === 1 ? "line" : "lines"} · ${count(pieces)} ${pieces === 1 ? "piece" : "pieces"}`
+                ? `${quantity(lineCount, "items")} · ${quantity(pieces)}`
                 : "Enter what went in the carton"}
             </span>
             <Button
@@ -897,14 +948,16 @@ function Carton({
   onPrintList: (koliId: string) => void
 }) {
   const manifest = useQuery({
-    queryKey: keys.manifest(id ?? ""),
-    queryFn: ({ signal }) => dc.koliManifest(id!, signal),
+    ...koliManifestQuery(id ?? ""),
     enabled: id !== null,
   })
   // Read once into a local — a query's own `.data` does not narrow inside a
   // closure handed to a prop, since nothing stops the query object itself
   // from being read again later. A plain local does.
   const data = manifest.data
+  /// Take pieces out of this carton (or all of them): Move back, asked first.
+  /// Only a carton that has not left on a trip; the server refuses the rest.
+  const [moving, setMoving] = useState<MoveBackTarget | null>(null)
 
   return (
     <Sheet
@@ -924,6 +977,39 @@ function Carton({
             <PrintSticker manifest={data} />
           </>
         )
+      }
+      footer={
+        data &&
+        (data.koli.position === "PACKED" ||
+          data.koli.position === "SHIPMENT") ? (
+          <>
+            <SheetFooter
+              start={
+                <Button
+                  variant="ghost"
+                  onClick={() =>
+                    setMoving({
+                      from: "packed",
+                      destinationId: data.koli.destination_store_id,
+                      koliId: data.koli.koli_id,
+                    })
+                  }
+                >
+                  Move back
+                </Button>
+              }
+            />
+            {/* Inside the sheet's own tree, so it opens over the carton. */}
+            <MoveBackDialog
+              target={moving}
+              onClose={() => setMoving(null)}
+              onMoved={(result) => {
+                // An emptied carton is gone: its sheet has nothing to show.
+                if (result.kolis.some((one) => one.emptied)) onClose()
+              }}
+            />
+          </>
+        ) : undefined
       }
     >
       {id === null ? null : manifest.isPending ? (
@@ -981,7 +1067,7 @@ function Manifest({ manifest }: { manifest: KoliManifest }) {
     <div className="flex flex-col gap-4">
       <Facts>
         <Fact term="Shop">{shopName(manifest.koli.destination_store_id)}</Fact>
-        <Fact term="Pieces">{count(manifest.koli.unit_count)}</Fact>
+        <Fact term="Pcs">{count(manifest.koli.unit_count)}</Fact>
         <Fact term="Status">
           <PositionPill position={manifest.koli.position} />
         </Fact>
@@ -1001,7 +1087,7 @@ function Manifest({ manifest }: { manifest: KoliManifest }) {
         On the carton&apos;s sticker. The shop scans it to receive this carton.
       </QrBlock>
 
-      <SkuLines quantityLabel="Pieces" lines={manifest.lines} />
+      <SkuLines quantityLabel="Pcs" lines={manifest.lines} />
     </div>
   )
 }

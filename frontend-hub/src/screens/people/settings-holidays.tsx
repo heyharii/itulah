@@ -2,6 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
+import { DockChoice } from "@/components/shell/dock-tools"
+import { Fab } from "@/components/ui/fab"
 import { Button } from "@/components/ui/button"
 import { Day } from "@/components/ui/day"
 import { Field, Input, Select, Textarea } from "@/components/ui/field"
@@ -30,7 +33,7 @@ import type { HolidayView } from "@itulah/contract"
 ///
 /// Indonesian public holidays are fixed each year by a decree of three
 /// ministries and move after the year has started, so they are typed in, not
-/// compiled in. *Cuti bersama* is charged against annual leave, which is why
+/// compiled in. *Collective leave* is charged against annual leave, which is why
 /// the kind is on every row. A year is published once and amended for ever
 /// after, so "the calendar March payroll was settled under" stays answerable.
 
@@ -38,19 +41,20 @@ const KINDS = [
   { value: "NATIONAL", label: "National holiday" },
   {
     value: "CUTI_BERSAMA",
-    label: "Cuti bersama — charged against annual leave",
+    label: "Collective leave — charged against annual leave",
   },
   { value: "REGIONAL", label: "Regional — observed only in named places" },
 ] as const
 
 const KIND_SHORT: Record<string, string> = {
   NATIONAL: "National",
-  CUTI_BERSAMA: "Cuti bersama",
+  CUTI_BERSAMA: "Collective leave",
   REGIONAL: "Regional",
 }
 
 export function HolidaySettings() {
   const canWrite = useCanWrite()
+  const phone = useLayout() === "phone"
   const years = useQuery({
     queryKey: leaveKeys.calendarYears(),
     queryFn: ({ signal }) => publishedYears(signal),
@@ -80,6 +84,7 @@ export function HolidaySettings() {
         title="Holidays"
         sub="Which days are red, and which of them come out of somebody's annual leave."
         actions={
+          !phone &&
           canWrite &&
           years.isSuccess &&
           (isPublished ? (
@@ -94,15 +99,39 @@ export function HolidaySettings() {
         }
       />
 
-      <Toolbar>
-        <Segmented
-          value={String(chosen)}
-          onChange={(value) => setYear(Number(value))}
-          options={[...new Set([...published, chosen])]
-            .sort((a, b) => a - b)
-            .map((value) => ({ value: String(value), label: String(value) }))}
-        />
-      </Toolbar>
+      {/* On a phone the year is the chip over the bottom bar and the one
+          action is the round + (a toolbar there would be a second chip). */}
+      {phone ? (
+        <>
+          <DockChoice
+            value={String(chosen)}
+            onChange={(value) => setYear(Number(value))}
+            options={[...new Set([...published, chosen])]
+              .sort((a, b) => a - b)
+              .map((value) => ({
+                value: String(value),
+                label: String(value),
+                short: String(value),
+              }))}
+          />
+          {canWrite && years.isSuccess && (
+            <Fab
+              label={isPublished ? "Add holiday" : `Publish ${chosen}`}
+              onClick={() => (isPublished ? add.show() : publish.show())}
+            />
+          )}
+        </>
+      ) : (
+        <Toolbar>
+          <Segmented
+            value={String(chosen)}
+            onChange={(value) => setYear(Number(value))}
+            options={[...new Set([...published, chosen])]
+              .sort((a, b) => a - b)
+              .map((value) => ({ value: String(value), label: String(value) }))}
+          />
+        </Toolbar>
+      )}
 
       {years.isSuccess && !isPublished && (
         <Banner tone="warn" className="mb-4">
@@ -289,6 +318,9 @@ const KIND_WORDS: Record<string, NewHoliday["kind"]> = {
   cuti_bersama: "CUTI_BERSAMA",
   "cuti bersama": "CUTI_BERSAMA",
   cutibersama: "CUTI_BERSAMA",
+  collective: "CUTI_BERSAMA",
+  "collective leave": "CUTI_BERSAMA",
+  collective_leave: "CUTI_BERSAMA",
   regional: "REGIONAL",
   daerah: "REGIONAL",
 }
@@ -383,7 +415,7 @@ function parseCalendar(
       rejected.push({
         line: at,
         text: line,
-        why: `"${parts[2]}" is not nasional, cuti bersama or regional`,
+        why: `"${parts[2]}" is not national, collective leave or regional`,
       })
       return
     }

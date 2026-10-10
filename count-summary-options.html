@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Accepted and returned</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#20242c;--body:#565f6d;--mute:#666f7d;--hairline:#e6e6e9;--divider:#c6c6cc;
+  --soft:#f8f8f9;--soft-2:#f0f0f2;--soft-3:#f6f6f7;--canvas:#fff;
+  --accent:#2563eb;--ok-fg:#137a37;--ok-bg:#d9f4d2;--bad-fg:#be123c;--bad-bg:#fbeaea;
+  --shadow-float:0 8px 24px rgb(24 39 60/6%),0 24px 64px rgb(24 39 60/12%);
+  --r-card:10px;--r-inner:8px;--r-shell:16px;
+}
+*{box-sizing:border-box;margin:0}
+body{font:15px/1.45 Inter,system-ui,sans-serif;color:var(--ink);background:var(--soft-3);-webkit-font-smoothing:antialiased}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:14px;color:var(--mute)}
+button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
+.btn{height:36px;padding:0 14px;border-radius:var(--r-inner);font-weight:500;font-size:14px;display:inline-flex;align-items:center;gap:6px;transition:transform 160ms cubic-bezier(.23,1,.32,1)}
+.btn:active{transform:scale(.97)}
+.btn-soft{background:var(--soft-2)}
+.btn-ghost{background:var(--canvas);border:1px solid #d9d9de;box-shadow:0 1px 3px rgb(24 39 60/4%)}
+.btn-danger{background:var(--bad-bg);color:var(--bad-fg)}
+.hide{display:flex;justify-content:flex-end;align-items:center;gap:8px;color:var(--body);font-size:15px;margin-bottom:-8px}
+.sw{width:36px;height:20px;border-radius:999px;background:var(--divider);position:relative;transition:background-color 150ms ease}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgb(0 0 0/.2);transition:transform 200ms cubic-bezier(.23,1,.32,1)}
+.sw[aria-checked=true]{background:var(--accent)}
+.sw[aria-checked=true]::after{transform:translateX(16px)}
+.btn-primary{background:var(--accent);color:#fff}
+.bar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:16px;padding:12px 24px;background:var(--canvas);border-bottom:1px solid var(--hairline)}
+.bar h1{font-size:15px;font-weight:600}
+.seg{display:flex;gap:2px;background:var(--soft-2);border-radius:var(--r-inner);padding:3px;flex-wrap:wrap}
+.seg button{height:30px;padding:0 12px;border-radius:6px;font-size:14px;color:var(--body)}
+.seg button[aria-pressed=true]{background:var(--canvas);color:var(--ink);font-weight:500;box-shadow:0 1px 2px rgb(24 39 60/6%)}
+.note{color:var(--mute);font-size:14px}
+.stage{padding:24px;display:flex;justify-content:center}
+.sheet{width:min(100%,900px);height:calc(100vh - 150px);min-height:520px;display:flex;flex-direction:column;background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-shell);box-shadow:var(--shadow-float);overflow:hidden}
+.s-head{display:flex;align-items:center;gap:12px;padding:14px 28px;border-bottom:1px solid var(--hairline)}
+.s-head .t{font-size:18px;font-weight:600;display:flex;gap:8px;align-items:center}
+.s-body > *{flex-shrink:0}
+.s-body{flex:1;min-height:0;overflow-y:auto;padding:20px 32px 32px;display:flex;flex-direction:column;gap:24px}
+.facts{display:grid;grid-template-columns:max-content minmax(0,1fr) max-content minmax(0,1fr);gap:8px 16px}
+.facts dt{color:var(--body)}
+.card{border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden}
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+th{height:40px;background:var(--soft);text-align:left;font-size:14px;font-weight:500;color:var(--body);padding:0 16px;border-bottom:1px solid var(--hairline)}
+td{height:64px;padding:0 16px;border-top:1px solid var(--hairline);vertical-align:middle;font-variant-numeric:tabular-nums}
+tbody tr:first-child td{border-top:0}
+th.grp,td.grp{border-left:1px solid var(--divider)}
+.sub{font-size:14px;color:var(--mute)}
+.diff{display:inline-block;padding:4px 10px;border-radius:var(--r-inner);background:var(--bad-bg);color:var(--bad-fg);font-weight:500;white-space:nowrap}
+.match{color:var(--ok-fg);font-weight:500}
+.red{color:var(--bad-fg)}
+.s-foot{display:flex;gap:12px;justify-content:flex-end;align-items:center;padding:16px 24px;border-top:1px solid var(--hairline)}
+/* A */
+.sumA{display:grid;grid-template-columns:1fr auto 9.5rem;row-gap:8px;margin-right:1px}
+.sumA dt{grid-column:2;padding-right:40px;color:var(--body)}
+.sumA dd{padding:0 16px;font-weight:500}
+/* B: figures strip */
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden}
+.kpis div{padding:12px 16px;border-left:1px solid var(--hairline)}
+.kpis div:first-child{border-left:0}
+.kpis dt{font-size:14px;color:var(--body)}
+.kpis dd{font-size:18px;font-weight:600;margin-top:2px;font-variant-numeric:tabular-nums}
+/* C: footer */
+.foot-sum{flex:1;display:flex;gap:28px;font-variant-numeric:tabular-nums}
+.foot-sum span{color:var(--body)}
+.foot-sum b{font-weight:600;margin-left:8px}
+/* E: two tiles */
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.tile{border:1px solid var(--hairline);border-radius:var(--r-card);padding:14px 18px;display:flex;justify-content:space-between;align-items:baseline}
+.tile dt{color:var(--body)}
+.tile dd{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
+.tile.bad{background:var(--bad-bg);border-color:transparent}
+.tile.bad dt,.tile.bad dd{color:var(--bad-fg)}
+.tile .to{font-size:14px;color:var(--mute);margin-top:2px}
+.tile.bad .to{color:var(--bad-fg);opacity:.8}
+.bar2{top:57px;background:var(--soft);padding:8px 24px}
+.bar2 h1{font-weight:500;color:var(--body)}
+.right{display:flex;justify-content:flex-end}
+/* R2 totals box — flush with the table's right edge, as wide as its content */
+.boxrow{display:flex;justify-content:flex-end}
+.box{display:grid;grid-template-columns:auto auto;column-gap:40px;background:var(--soft);border:1px solid var(--hairline);border-radius:var(--r-card);padding:10px 16px;row-gap:8px}
+.box dt{color:var(--ink)}.box dd{text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
+/* R3 rule above */
+.ruled{width:calc(10rem + 9.5rem + 2px);border-top:1px solid var(--divider);padding-top:10px;display:grid;grid-template-columns:10rem 9.5rem;row-gap:8px;margin-right:1px}
+.ruled dt{padding-left:16px;color:var(--body)}.ruled dd{padding-left:16px;font-weight:600;font-variant-numeric:tabular-nums}
+/* R4 side by side */
+.pair{display:flex;gap:0;margin-right:1px}
+.pair div{width:9.5rem;padding:0 16px}
+.pair div:first-child{width:10rem;border-right:1px solid var(--hairline)}
+.pair dt{font-size:14px;color:var(--body)}.pair dd{font-size:18px;font-weight:600;margin-top:2px;font-variant-numeric:tabular-nums}
+/* R5 chips */
+.chips{display:flex;gap:8px}
+.chip{display:flex;align-items:baseline;gap:10px;height:40px;padding:0 14px;border-radius:var(--r-inner);border:1px solid var(--hairline);font-variant-numeric:tabular-nums}
+.chip dt{color:var(--body)}.chip dd{font-weight:600}
+.chip.bad{background:var(--bad-bg);border-color:transparent}.chip.bad dt,.chip.bad dd{color:var(--bad-fg)}
+.chip{align-items:center}
+/* R6 joined */
+.joined{border-top:1px solid var(--hairline);background:var(--soft);display:grid;grid-template-columns:1fr 10rem 9.5rem;row-gap:0}
+.joined dt{grid-column:2;padding:10px 16px;color:var(--body)}
+.joined dd{padding:10px 16px;font-weight:600;font-variant-numeric:tabular-nums}
+.joined dt:first-of-type,.joined dd:first-of-type{padding-top:14px}
+.joined dt:last-of-type,.joined dd:last-of-type{padding-bottom:14px}
+.sheet.stick .boxrow{position:sticky;bottom:-32px;margin-bottom:-32px;padding:28px 0 12px;background:linear-gradient(to bottom,rgb(255 255 255/0),#fff 20px)}
+.edge-band{display:none;border-top:1px solid var(--hairline);background:var(--soft);padding:12px 32px}
+.edge-band dl{display:grid;grid-template-columns:1fr 10rem 9.5rem;row-gap:8px;margin-right:1px;font-variant-numeric:tabular-nums}
+.edge-band dt{grid-column:2;padding:0 16px;color:var(--ink)}
+.edge-band dd{padding:0 16px;font-weight:600}
+.sheet.edge .edge-band{display:block}
+.sheet.edge .s-body .boxrow{display:none}
+.bar3{top:auto;position:relative;z-index:9;background:var(--canvas);padding:10px 24px}
+.stage.tablet .sheet{width:600px}
+.stage.phone{padding-top:12px}
+.stage.phone .sheet{width:414px;height:820px;border-radius:16px 16px 0 0}
+.stage.phone .s-head{padding:12px 16px}
+.stage.phone .s-body{padding:16px 16px 24px;gap:16px}
+.stage.phone .s-foot{padding:12px 16px 34px;gap:8px}
+.stage.phone .s-foot .btn{height:44px;padding:0 14px;font-size:15px}
+.stage.phone .facts{grid-template-columns:max-content 1fr}
+.stage.tablet .facts{grid-template-columns:max-content 1fr}
+.grab{width:36px;height:5px;border-radius:3px;background:var(--divider);margin:8px auto 0}
+/* tablet table: compact tracks */
+.stage.tablet td,.stage.tablet th{padding:0 12px}
+/* phone cards */
+.cards{display:flex;flex-direction:column;gap:12px;list-style:none;padding:0}
+.cards li{border:1px solid var(--hairline);border-radius:var(--r-card);padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+.cards .top{display:flex;gap:12px}
+.cards .no{width:20px;text-align:right;color:var(--mute);font-variant-numeric:tabular-nums}
+.cards dl{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.cards dl dt{font-size:14px;color:var(--mute)}
+.cards dl dd{font-variant-numeric:tabular-nums}
+.stage.phone .boxrow .box{width:100%;grid-template-columns:1fr auto}
+/* count inputs */
+.qty{display:flex;align-items:center;gap:8px}
+.qty input{width:96px;height:44px;border:1px solid #d9d9de;border-radius:var(--r-inner);text-align:center;font:600 15px Inter;font-variant-numeric:tabular-nums;color:var(--ink);background:#fff}
+.qty input:focus{outline:2px solid var(--accent);outline-offset:-1px}
+.qty select{height:44px;width:104px;border:1px solid #d9d9de;border-radius:var(--r-inner);padding:0 10px;font:15px Inter;color:var(--ink);background:#fff}
+.stage.phone .qty input{flex:1;width:auto}
+.wrongrow td{background:var(--soft)}
+.legend{max-width:900px;margin:0 auto;padding:0 24px 40px;color:var(--body);font-size:14px}
+.legend b{color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="bar">
+  <h1>Accepted and To Be Returned</h1>
+  <div class="seg" id="seg">
+    <button data-o="A">A · Under, right</button>
+    <button data-o="B">B · Figures on top</button>
+    <button data-o="C">C · In the footer</button>
+    <button data-o="D">D · Columns per item</button>
+    <button data-o="E">E · Two tiles</button>
+    <button data-o="F">F · With the facts</button>
+  </div>
+</div>
+<div class="bar bar2">
+  <h1>Under, right</h1>
+  <div class="seg" id="seg2">
+    <button data-o="R1">1 · Plain pairs</button>
+    <button data-o="R2">2 · Totals box</button>
+    <button data-o="R3">3 · Rule above</button>
+    <button data-o="R4">4 · Side by side</button>
+    <button data-o="R5">5 · Two chips</button>
+    <button data-o="R6">6 · Joined to the table</button>
+  </div>
+  <div class="seg" id="segN" style="margin-left:auto">
+    <button data-n="3" aria-pressed="true">3 items</button>
+    <button data-n="10">10 items</button>
+  </div>
+  <div class="seg" id="segS">
+    <button data-s="scroll" aria-pressed="true">Scrolls</button>
+    <button data-s="stick">Sticks at bottom</button>
+    <button data-s="edge">Edge to edge</button>
+  </div>
+</div>
+<div class="bar bar3">
+  <h1>Picked</h1>
+  <div class="seg" id="segScreen">
+    <button data-screen="review" aria-pressed="true">Review Count</button>
+    <button data-screen="count">Count (Ops)</button>
+  </div>
+  <div class="seg" id="segDev">
+    <button data-dev="desk" aria-pressed="true">Desktop</button>
+    <button data-dev="tablet">Tablet</button>
+    <button data-dev="phone">Phone</button>
+  </div>
+</div>
+<div class="stage"><div class="sheet" id="sheet"></div></div>
+<p class="legend" id="legend"></p>
+
+<script>
+const few=[
+  {no:1,name:'Kemeja Gelambir',kind:'Pria · Celana',ord:200,cnt:200},
+  {no:2,name:'Kemeja Gelambir Slim',kind:'Pria · Celana',ord:200,cnt:500},
+  {no:3,name:'Celana Chino',kind:'Pria · Celana',ord:100,cnt:96},
+]
+const many=[...few,
+  {no:4,name:'Kaos Polos Oversize',kind:'Pria · Kaos',ord:120,cnt:120},
+  {no:5,name:'Blus Lengan Balon',kind:'Wanita · Blus',ord:80,cnt:92},
+  {no:6,name:'Gamis Panjang',kind:'Wanita · Gaun',ord:60,cnt:60},
+  {no:7,name:'Celana Kulot Linen',kind:'Wanita · Celana',ord:150,cnt:138},
+  {no:8,name:'Kemeja Flanel Kotak',kind:'Pria · Kemeja',ord:90,cnt:90},
+  {no:9,name:'Rok Plisket Midi',kind:'Wanita · Rok',ord:70,cnt:75},
+  {no:10,name:'Jaket Denim Crop',kind:'Wanita · Jaket',ord:40,cnt:40},
+]
+let lines=few
+const pcs=n=>`${n.toLocaleString('id-ID')} ${n===1?'pc':'pcs'}`
+const acc=l=>Math.min(l.ord,l.cnt), ret=l=>Math.max(l.cnt-l.ord,0)
+let A,R,O,C
+function sums(){A=lines.reduce((s,l)=>s+acc(l),0);R=lines.reduce((s,l)=>s+ret(l),0);O=lines.reduce((s,l)=>s+l.ord,0);C=lines.reduce((s,l)=>s+l.cnt,0)}
+sums()
+const diffCell=l=>{const d=l.cnt-l.ord;return d===0?'<span class="match">✓ Matches</span>':`<span class="diff">${d>0?'+':'−'}${pcs(Math.abs(d))}</span>`}
+const art=l=>`<td>${l.name}<div class="sub">${l.kind}</div></td>`
+
+let hideMatched=false
+function table(perItem){
+  const rowsOf=hideMatched?lines.filter(l=>l.cnt!==l.ord):lines
+  const cols=perItem
+    ?'<col style="width:3.5rem"><col><col style="width:7.5rem"><col style="width:7.5rem"><col style="width:7.5rem"><col style="width:7.5rem"><col style="width:9rem">'
+    :'<col style="width:3.5rem"><col><col style="width:10rem"><col style="width:10rem"><col style="width:9.5rem">'
+  const head=perItem
+    ?'<th>No.</th><th>Article</th><th>Ordered</th><th>Counted</th><th>Difference</th><th class="grp">Accepted</th><th>To Be Returned</th>'
+    :'<th>No.</th><th>Article</th><th>Ordered Quantity</th><th>Counted Quantity</th><th>Difference</th>'
+  const body=rowsOf.map(l=>`<tr><td class="sub">${l.no}</td>${art(l)}<td>${pcs(l.ord)}</td><td>${pcs(l.cnt)}</td><td>${diffCell(l)}</td>${perItem?`<td class="grp">${pcs(acc(l))}</td><td class="${ret(l)?'red':'sub'}">${ret(l)?pcs(ret(l)):'—'}</td>`:''}</tr>`).join('')
+  return `<label class="hide">Hide matched<button class="sw" role="switch" aria-checked="${hideMatched}" onclick="hideMatched=!hideMatched;show(cur)"></button></label><div class="card"><table><colgroup>${cols}</colgroup><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`
+}
+const head=`<div class="s-head"><div style="flex:1"><div class="t">Review Count <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#be123c" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg></div><div class="mono">PO-041026-012</div></div><button class="btn" style="width:32px;padding:0;justify-content:center">✕</button></div>`
+const facts=(extra='')=>`<dl class="facts"><dt>Supplier</dt><dd>Indorama, PT</dd><dt>Counted</dt><dd>Rina Kusuma · 04 Oct 2026, 16:59</dd>${extra}</dl>`
+const buttons=`<button class="btn btn-ghost">Recount</button><button class="btn btn-danger">Close Short</button><button class="btn btn-primary">✓ Partial Receive</button>`
+const foot=(left='')=>`<div class="s-foot">${left}${buttons}</div>`
+
+const views={
+  A:{legend:'<b>A · Under, right</b> — what the hub shows now, without the Total row: the two figures under the Difference column.',
+     html:()=>head+`<div class="s-body">${facts()}${table()}<dl class="sumA"><dt>Accepted</dt><dd>${pcs(A)}</dd><dt>To Be Returned</dt><dd class="red">${pcs(R)}</dd></dl></div>`+foot()},
+  B:{legend:'<b>B · Figures on top</b> — a strip of four figures above the table, like the KPI strips on the lists: what was ordered, counted, kept and sent back, read before the lines.',
+     html:()=>head+`<div class="s-body">${facts()}<dl class="kpis"><div><dt>Ordered</dt><dd>${pcs(O)}</dd></div><div><dt>Counted</dt><dd>${pcs(C)}</dd></div><div><dt>Accepted</dt><dd>${pcs(A)}</dd></div><div><dt>To Be Returned</dt><dd class="red">${pcs(R)}</dd></div></dl>${table()}</div>`+foot()},
+  C:{legend:'<b>C · In the footer</b> — the two figures sit next to the button that commits them: what you press is what you read.',
+     html:()=>head+`<div class="s-body">${facts()}${table()}</div>`+foot(`<div class="foot-sum"><span>Accepted<b style="color:var(--ink)">${pcs(A)}</b></span><span>To Be Returned<b class="red">${pcs(R)}</b></span></div>`)},
+  D:{legend:'<b>D · Columns per item</b> — every line says what is kept and what goes back, behind a divider. No sum: each line answers for itself.',
+     html:()=>head+`<div class="s-body">${facts()}${table(true)}</div>`+foot()},
+  E:{legend:'<b>E · Two tiles</b> — two side-by-side tiles under the table; the return tile is red and names where it goes.',
+     html:()=>head+`<div class="s-body">${facts()}${table()}<div class="tiles"><dl class="tile"><div><dt>Accepted</dt><div class="to">Into stock</div></div><dd>${pcs(A)}</dd></dl><dl class="tile bad"><div><dt>To Be Returned</dt><div class="to">Back to Indorama, PT</div></div><dd>${pcs(R)}</dd></dl></div></div>`+foot()},
+  F:{legend:'<b>F · With the facts</b> — two more label/value pairs in the facts at the top, read like Supplier and Counted.',
+     html:()=>head+`<div class="s-body">${facts(`<dt>Accepted</dt><dd>${pcs(A)}</dd><dt>To Be Returned</dt><dd class="red">${pcs(R)}</dd>`)}${table()}</div>`+foot()},
+}
+const tableNoClose=()=>table().replace(/<\/table><\/div>$/,'</table>')
+Object.assign(views,{
+  R1:{legend:'<b>1 · Plain pairs</b> — label, then the figure, lined up under Ordered/Counted and Difference.',
+      html:()=>head+`<div class="s-body">${facts()}${table()}<dl class="sumA" style="grid-template-columns:1fr 10rem 9.5rem"><dt style="padding:0 16px">Accepted</dt><dd>${pcs(A)}</dd><dt style="padding:0 16px">To Be Returned</dt><dd class="red">${pcs(R)}</dd></dl></div>`+foot()},
+  R2:{legend:'<b>2 · Totals box</b> — a soft box as wide as the last two columns, like an invoice total; label left, figure right.',
+      html:()=>head+`<div class="s-body">${facts()}${table()}<div class="boxrow"><dl class="box"><dt>Total Accepted</dt><dd>${pcs(A)}</dd><dt>To Be Returned</dt><dd class="red">${pcs(R)}</dd></dl></div></div>`+`<div class="edge-band"><dl><dt>Accepted</dt><dd>${pcs(A)}</dd><dt>To Be Returned</dt><dd class="red">${pcs(R)}</dd></dl></div>`+foot()},
+  R3:{legend:'<b>3 · Rule above</b> — no box: a darker rule over the last two columns, labels under Counted, figures under Difference.',
+      html:()=>head+`<div class="s-body">${facts()}${table()}<div class="right"><dl class="ruled"><dt>Accepted</dt><dd>${pcs(A)}</dd><dt>To Be Returned</dt><dd class="red">${pcs(R)}</dd></dl></div></div>`+foot()},
+  R4:{legend:'<b>4 · Side by side</b> — two figures next to each other, label on top, figure larger; Accepted sits under Counted, To Be Returned under Difference.',
+      html:()=>head+`<div class="s-body">${facts()}${table()}<div class="right"><dl class="pair"><div><dt>Accepted</dt><dd>${pcs(A)}</dd></div><div><dt>To Be Returned</dt><dd class="red">${pcs(R)}</dd></div></dl></div></div>`+foot()},
+  R5:{legend:'<b>5 · Two chips</b> — two compact chips at the right edge; the return chip is red.',
+      html:()=>head+`<div class="s-body">${facts()}${table()}<div class="right"><dl class="chips"><div class="chip"><dt>Accepted</dt><dd>${pcs(A)}</dd></div><div class="chip bad"><dt>To Be Returned</dt><dd>${pcs(R)}</dd></div></dl></div></div>`+foot()},
+  R6:{legend:'<b>6 · Joined to the table</b> — the two lines close the table card itself, on a soft band, labels under Counted and figures under Difference. Not a Total: it says what happens to the pieces.',
+      html:()=>head+`<div class="s-body">${facts()}${tableNoClose()}<dl class="joined"><dt>Accepted</dt><dd>${pcs(A)}</dd><dt>To Be Returned</dt><dd class="red">${pcs(R)}</dd></dl></div></div>`+foot()},
+})
+let screen='review',dev='desk'
+const variantsOn=()=>dev!=='desk'||screen==='count'
+const box=(rowsArr)=>`<div class="boxrow"><dl class="box">${rowsArr.map(([t,v,red])=>`<dt>${t}</dt><dd${red?' class="red"':''}>${v}</dd>`).join('')}</dl></div>`
+const hideSw=()=>`<label class="hide">Hide matched<button class="sw" role="switch" aria-checked="${hideMatched}" onclick="hideMatched=!hideMatched;render()"></button></label>`
+const grab=()=>dev==='phone'?'<div class="grab"></div>':''
+const sheetHead=(title,id,warn)=>grab()+`<div class="s-head"><div style="flex:1"><div class="t">${title}${warn?' <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#be123c" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>':''}</div><div class="mono">${id}</div></div><button class="btn" style="width:${dev==='phone'?44:32}px;height:${dev==='phone'?44:32}px;padding:0;justify-content:center">✕</button></div>`
+function reviewPicked(){
+  const rowsOf=hideMatched?lines.filter(l=>l.cnt!==l.ord):lines
+  let list
+  if(dev==='phone'){
+    list=`<ul class="cards">${rowsOf.map(l=>`<li><div class="top"><span class="no">${l.no}</span><div>${l.name}<div class="sub">${l.kind}</div></div></div><dl><div><dt>Ordered</dt><dd>${pcs(l.ord)}</dd></div><div><dt>Counted</dt><dd>${pcs(l.cnt)}</dd></div><div><dt>Difference</dt><dd>${diffCell(l)}</dd></div></dl></li>`).join('')}</ul>`
+  }else{
+    const t=dev==='tablet'
+    const cols=t?'<col style="width:2.75rem"><col><col style="width:6.5rem"><col style="width:6.5rem"><col style="width:7.5rem">':'<col style="width:3.5rem"><col><col style="width:10rem"><col style="width:10rem"><col style="width:9.5rem">'
+    const hd=t?'<th>No.</th><th>Article</th><th>Ordered</th><th>Counted</th><th>Difference</th>':'<th>No.</th><th>Article</th><th>Ordered Quantity</th><th>Counted Quantity</th><th>Difference</th>'
+    list=`<div class="card"><table><colgroup>${cols}</colgroup><thead><tr>${hd}</tr></thead><tbody>${rowsOf.map(l=>`<tr><td class="sub">${l.no}</td>${art(l)}<td>${pcs(l.ord)}</td><td>${pcs(l.cnt)}</td><td>${diffCell(l)}</td></tr>`).join('')}</tbody></table></div>`
+  }
+  const shortAny=lines.some(l=>l.cnt<l.ord)
+  const btns=`<button class="btn btn-ghost">Recount</button>${shortAny?'<button class="btn btn-danger">Close Short</button>':''}<button class="btn btn-primary">✓ ${shortAny?'Partial Receive':'Submit'}</button>`
+  return sheetHead('Review Count','PO-041026-012',true)+`<div class="s-body">${facts()}${hideSw()}${list}${box([['Total Accepted',pcs(A)],['To Be Returned',pcs(R),true]])}</div><div class="s-foot">${btns}</div>`
+}
+const counts=[400,500,96,'',92,60,'','',75,40]
+let wrongPcs=3
+function countPicked(){
+  const L=lines.map((l,i)=>({...l,val:counts[i]}))
+  const total=L.reduce((s,l)=>s+(+l.val||0),0)
+  const unitSel=`<select><option>Piece</option><option>Kodi</option><option>Lusin</option></select>`
+  const inp=(v,label)=>`<span class="qty"><input inputmode="numeric" value="${v}" placeholder="0" aria-label="${label}">${unitSel}</span>`
+  let list
+  if(dev==='phone'){
+    list=`<ul class="cards">${L.map(l=>`<li><div class="top"><span class="no">${l.no}</span><div style="flex:1">${l.name}<div class="sub">${l.kind}</div></div><span style="font-variant-numeric:tabular-nums;${l.val===''?'color:var(--mute)':'font-weight:500'}">${l.val===''?'—':pcs(+l.val)}</span></div>${inp(l.val,'Count '+l.name)}</li>`).join('')}<li style="background:var(--soft)"><div class="top"><div style="flex:1">Not as ordered<div class="sub">Damaged or wrong items</div></div><span class="red" style="font-weight:500">${pcs(wrongPcs)}</span></div>${inp(wrongPcs,'Not as ordered')}</li></ul>`
+  }else{
+    const t=dev==='tablet'
+    const cols=t?'<col><col style="width:13rem"><col style="width:6.5rem">':'<col><col style="width:16rem"><col style="width:9.5rem">'
+    list=`<div class="card"><table><colgroup>${cols}</colgroup><thead><tr><th>Article</th><th>Count</th><th>Counted</th></tr></thead><tbody>${L.map(l=>`<tr><td>${l.name}<div class="sub">${l.kind}</div></td><td>${inp(l.val,'Count '+l.name)}</td><td class="${l.val===''?'sub':''}" style="${l.val===''?'':'font-weight:500'}">${l.val===''?'—':pcs(+l.val)}</td></tr>`).join('')}<tr class="wrongrow"><td>Not as ordered<div class="sub">Damaged or wrong items</div></td><td>${inp(wrongPcs,'Not as ordered')}</td><td class="red" style="font-weight:500">${pcs(wrongPcs)}</td></tr></tbody></table></div>`
+  }
+  return sheetHead('Indorama, PT','PO-041026-012',false)+`<div class="s-body">${list}${box([['Total Counted',pcs(total)],['Not as Ordered',pcs(wrongPcs),true]])}</div><div class="s-foot"><button class="btn btn-primary">Submit count</button></div>`
+}
+const legends={
+  review:{desk:'<b>Review Count · Desktop</b> — the picked layout: totals box flush right, Recount · Close Short · Partial Receive.',tablet:'<b>Review Count · Tablet</b> — the same table with short headers (Ordered/Counted) and narrower figure columns so the article keeps its width; the box flush right.',phone:'<b>Review Count · Phone</b> — a sheet from the bottom: a card per item (Ordered · Counted · Difference), the totals box full width under the cards, the three buttons in the footer at thumb reach (44 px).'},
+  count:{desk:'<b>Count (Ops) · Desktop</b> — the blind count: no ordered figure. The Total Counted and Not as Ordered rows leave the table and become the same box as Review Count, flush right; Submit count alone in the footer.',tablet:'<b>Count (Ops) · Tablet</b> — the same, the Count column narrower; fields stay 44 px for a finger.',phone:'<b>Count (Ops) · Phone</b> — a card per item with its field full width under the name; the figure counted so far at the right of the name; the box full width; Submit count at the bottom.'},
+}
+function render(){
+  const st=document.querySelector('.stage');st.className='stage '+(dev==='desk'?'':dev)
+  const sh=document.getElementById('sheet')
+  if(!variantsOn()){show(cur);return}
+  sh.innerHTML=screen==='review'?reviewPicked():countPicked()
+  document.getElementById('legend').innerHTML=legends[screen][dev]
+}
+document.querySelectorAll('#segScreen button').forEach(b=>b.onclick=()=>{screen=b.dataset.screen;document.querySelectorAll('#segScreen button').forEach(x=>x.setAttribute('aria-pressed',x===b));render()})
+document.querySelectorAll('#segDev button').forEach(b=>b.onclick=()=>{dev=b.dataset.dev;document.querySelectorAll('#segDev button').forEach(x=>x.setAttribute('aria-pressed',x===b));render()})
+let cur='R2'
+document.querySelectorAll('#segN button').forEach(b=>b.onclick=()=>{lines=b.dataset.n==='10'?many:few;sums();document.querySelectorAll('#segN button').forEach(x=>x.setAttribute('aria-pressed',x===b));render()})
+document.querySelectorAll('#segS button').forEach(b=>b.onclick=()=>{const sh=document.getElementById('sheet');sh.classList.toggle('stick',b.dataset.s==='stick');sh.classList.toggle('edge',b.dataset.s==='edge');document.querySelectorAll('#segS button').forEach(x=>x.setAttribute('aria-pressed',x===b))})
+function show(o){cur=o;document.querySelectorAll('#seg button,#seg2 button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.o===o));document.getElementById('sheet').innerHTML=views[o].html();document.getElementById('legend').innerHTML=views[o].legend}
+document.querySelectorAll('#seg button,#seg2 button').forEach(b=>b.onclick=()=>show(b.dataset.o))
+show('R2')
+</script>
+</body>
+</html>

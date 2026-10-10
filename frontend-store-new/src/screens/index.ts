@@ -27,7 +27,6 @@ import { Vouchers } from "@/screens/promotions/vouchers"
 import { PriceDrops } from "@/screens/promotions/price-drops"
 import { Promotions } from "@/screens/promotions/promotions"
 import { Password } from "@/screens/password"
-import { Product } from "@/screens/product"
 import { ReconciliationSoon } from "@/screens/money/coming-soon"
 import { Receive } from "@/screens/receive"
 import { Reports } from "@/screens/money/reports"
@@ -54,7 +53,6 @@ export const screens: ScreenMap = {
   "/ga/supplies": Supplies,
   "/news": Discuss,
   "/catalogue": Catalogue,
-  "/catalogue/product": Product,
   "/promotions": Promotions,
   "/promotions/campaigns": Campaigns,
   "/promotions/price-changes": PriceDrops,

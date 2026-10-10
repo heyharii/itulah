@@ -106,6 +106,15 @@ export function readAction(entry: AuditEntry): string {
     return entry.method === "DELETE" ? "Comment removed" : "Comment edited"
   }
 
+  // The warehouse taking its own count back: the path carries no record id,
+  // so the verb rule below would call it "Created".
+  if (
+    parts[0] === "dc" &&
+    parts[1] === "purchase-counts" &&
+    parts[2] === "recall"
+  )
+    return "Recalled count"
+
   const isId = (part: string) => /^[0-9a-f-]{20,}$/i.test(part)
 
   // A verb is a segment that comes AFTER the record's own id. Without that
@@ -178,6 +187,10 @@ export function describeAction(entry: AuditEntry): string {
       pieces !== null && article
         ? `${count(pieces)} pcs of ${article}`
         : (article ?? "the goods")
+    if (parts[1] === "purchase-counts" && parts[2] === "recall") {
+      const reason = text("reason")
+      return `recalled the count of ${what}${reason ? `, reason: ${reason}` : ""}`
+    }
     if (parts[1] === "purchase-counts") return `counted ${what}`
     if (parts[1] === "purchase-close-short") {
       const reason = text("reason")

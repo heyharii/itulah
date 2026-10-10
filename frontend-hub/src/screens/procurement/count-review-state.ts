@@ -27,13 +27,16 @@ export function useCountsAwaiting() {
     enabled,
   })
   const byPo = new Map<string, Count[]>()
-  for (const row of query.data ?? []) {
+  // Without a session nothing is asked, and what an earlier session left in
+  // the cache is not the warehouse today: a review already done stayed on the
+  // list as "Review Count" (owner, 2026-10-10).
+  for (const row of enabled ? (query.data ?? []) : []) {
     byPo.set(row.po_number, [...(byPo.get(row.po_number) ?? []), row])
   }
   return byPo
 }
 
-/// The POs whose count the buyer sent back to the Gudang to count again.
+/// The POs whose count the buyer sent back to the warehouse to count again.
 /// Read like `useCountsAwaiting`: nothing is asked until this browser holds a
 /// DC session.
 export function useRecountingPos() {
@@ -41,16 +44,13 @@ export function useRecountingPos() {
   const session = useEdgeIdentity()
   const enabled = where.data?.auth === "DISABLED" || session.data != null
   const query = useQuery({
-    queryKey: keys.purchaseWork(),
-    queryFn: ({ signal }) => dc.purchaseWork(signal),
+    queryKey: keys.purchaseSummary(),
+    queryFn: ({ signal }) => dc.purchaseSummary(signal),
     enabled,
   })
   const recounting = new Set<string>()
-  for (const line of query.data ?? []) {
-    // `!= null`: a line the Gudang never sent back may omit the field, and
-    // `undefined !== null` would call every order a recount.
-    if (line.recount_reason != null) recounting.add(line.po_number)
-  }
+  for (const one of enabled ? (query.data?.recounts ?? []) : [])
+    recounting.add(one.po_number)
   return recounting
 }
 
@@ -91,14 +91,36 @@ export function useRecountReasons() {
   const session = useEdgeIdentity()
   const enabled = where.data?.auth === "DISABLED" || session.data != null
   const query = useQuery({
-    queryKey: keys.purchaseWork(),
-    queryFn: ({ signal }) => dc.purchaseWork(signal),
+    queryKey: keys.purchaseSummary(),
+    queryFn: ({ signal }) => dc.purchaseSummary(signal),
     enabled,
   })
   const reasons = new Map<string, string>()
-  for (const line of query.data ?? []) {
-    if (line.recount_reason != null && !reasons.has(line.po_number))
-      reasons.set(line.po_number, line.recount_reason)
-  }
+  for (const one of enabled ? (query.data?.recounts ?? []) : [])
+    reasons.set(one.po_number, one.reason)
   return reasons
+}
+
+/// The POs whose count the warehouse took back before anybody reviewed it, by
+/// PO number: who, when, and the pieces the recalled count came to. What the
+/// order's sheet says under "Recalled by the warehouse".
+export function useRecalls() {
+  const where = useEdgeNodeIdentity()
+  const session = useEdgeIdentity()
+  const enabled = where.data?.auth === "DISABLED" || session.data != null
+  const query = useQuery({
+    queryKey: keys.purchaseSummary(),
+    queryFn: ({ signal }) => dc.purchaseSummary(signal),
+    enabled,
+  })
+  const recalls = new Map<string, { by: string; at: string; was: number }>()
+  for (const one of enabled ? (query.data?.recounts ?? []) : []) {
+    if (one.recalled_by)
+      recalls.set(one.po_number, {
+        by: one.recalled_by,
+        at: one.recalled_at ?? "",
+        was: one.was ?? 0,
+      })
+  }
+  return recalls
 }

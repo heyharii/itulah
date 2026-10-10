@@ -3,20 +3,23 @@ import { useNavigate, useSearch } from "@tanstack/react-router"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { PickOne } from "@/components/ui/pick"
+import { BottomSheet } from "@/components/ui/picker-sheet"
 import { PageHeader } from "@/components/ui/page-header"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { ButtonGroup } from "@/components/ui/segmented"
 import { Card } from "@/components/ui/card"
 import { EmptyState } from "@/components/ui/states"
 import { count, money } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { analyticsKeys, salesSeries } from "@/lib/queries/analytics"
 import { queryState } from "@/lib/query-state"
 import { useSheet, type SheetSearch } from "@/lib/sheets"
 import { SalesChart } from "@/screens/sales/chart"
 import { ComparisonPicker } from "@/screens/sales/comparison"
 import { buildMatrix, type SalesKind } from "@/screens/sales/matrix"
-import { usePeriod } from "@/screens/sales/period"
+import { PERIOD_CHOICES, usePeriod } from "@/screens/sales/period"
 import { SaleSheet } from "@/screens/sales/sale-sheet"
 import { SalesTable } from "@/screens/sales/table"
 import { WindowSheet } from "@/screens/sales/window-sheet"
@@ -57,6 +60,11 @@ const BUCKETS: readonly { value: SalesBucket; label: string }[] =
   SALES_BUCKETS.map((bucket) => ({ value: bucket, label: bucket }))
 
 export function Sales() {
+  // A phone keeps the period in the drawer over the bottom bar and reads the
+  // days as cards (`DayCards`).
+  const phone = useLayout() === "phone"
+  const [query, setQuery] = useState("")
+  const [options, setOptions] = useState(false)
   const period = usePeriod()
   // The shop the whole screen is narrowed to. `store` and not a second name
   // for a site id — see the note on it in `lib/sheets.ts`.
@@ -179,48 +187,50 @@ export function Sales() {
       {/* Which shop, then how wide a column, then how many of them, then what
           it is all measured against. Reading order matches the dependency: the
           span's options are decided by the bucket beside it. */}
-      <Toolbar>
-        <PickOne
-          label="Shop"
-          choices={fleet.rows.map((site) => ({
-            value: site.site_id,
-            label: site.site_name,
-          }))}
-          value={focused?.site_id ?? null}
-          onChange={(next) =>
-            next === null ? focus.close() : focus.open(next)
-          }
-          // Toolbar height, not form height — `<Segmented>` beside it is `h-8`,
-          // and the picker's own default is the `h-9` a `<Field>` wants.
-          className="min-h-8 w-44 px-2.5 text-[0.875rem]"
-        />
-        <Segmented
-          options={BUCKETS}
-          value={period.bucket}
-          onChange={period.setBucket}
-        />
-        <ButtonGroup>
-          {period.options.map((option) => (
-            <button
-              key={option}
-              type="button"
-              aria-pressed={option === period.buckets}
-              onClick={() => period.setBuckets(option)}
-              className={
-                option === period.buckets ? "bg-soft-2 text-ink!" : undefined
-              }
-            >
-              {option}
-            </button>
-          ))}
-        </ButtonGroup>
-        <Toolbar.Spacer />
-        <ComparisonPicker
-          comparison={comparison}
-          range={period.range}
-          onChange={setComparison}
-        />
-      </Toolbar>
+      {!phone && (
+        <Toolbar>
+          <PickOne
+            label="Shop"
+            choices={fleet.rows.map((site) => ({
+              value: site.site_id,
+              label: site.site_name,
+            }))}
+            value={focused?.site_id ?? null}
+            onChange={(next) =>
+              next === null ? focus.close() : focus.open(next)
+            }
+            // Toolbar height, not form height — `<Segmented>` beside it is `h-8`,
+            // and the picker's own default is the `h-9` a `<Field>` wants.
+            className="min-h-8 w-44 px-2.5 text-[0.875rem]"
+          />
+          <Segmented
+            options={BUCKETS}
+            value={period.bucket}
+            onChange={period.setBucket}
+          />
+          <ButtonGroup>
+            {period.options.map((option) => (
+              <button
+                key={option}
+                type="button"
+                aria-pressed={option === period.buckets}
+                onClick={() => period.setBuckets(option)}
+                className={
+                  option === period.buckets ? "bg-soft-2 text-ink!" : undefined
+                }
+              >
+                {option}
+              </button>
+            ))}
+          </ButtonGroup>
+          <Toolbar.Spacer />
+          <ComparisonPicker
+            comparison={comparison}
+            range={period.range}
+            onChange={setComparison}
+          />
+        </Toolbar>
+      )}
 
       {queryState(series, {
         loading: "Adding up the tills…",
@@ -242,8 +252,9 @@ export function Sales() {
                 kind={kind}
                 onKindChange={setKind}
               />
-              <Card className="overflow-hidden p-0">
+              <Card className="overflow-hidden p-0 max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
                 <SalesTable
+                  query={query}
                   matrix={matrix}
                   before={before}
                   comparison={comparison}
@@ -259,6 +270,48 @@ export function Sales() {
             </>
           ),
       })}
+
+      {/* On a phone the period is the status button of the drawer over the
+          bottom bar — how wide a column is and how many of them, in one list —
+          beside a search over the days, and the shop and what the figures are
+          measured against are its ⚙ sheet. */}
+      <DockTools
+        search={{ value: query, onChange: setQuery, label: "Search days" }}
+        filter={{
+          count:
+            (focused === undefined ? 0 : 1) +
+            (comparison.mode === "prev" ? 0 : 1),
+          onOpen: () => setOptions(true),
+        }}
+        status={{
+          value: `${period.bucket}:${period.buckets}`,
+          options: PERIOD_CHOICES,
+          onChange: (next) => {
+            const [bucket, buckets] = next.split(":")
+            period.setSpan(bucket as SalesBucket, Number(buckets))
+          },
+        }}
+      />
+      <BottomSheet open={options} onOpenChange={setOptions} title="Filters">
+        <div className="flex min-h-0 flex-col gap-4 overflow-y-auto overscroll-contain px-4 pb-4 [&>*]:max-w-full [&>*:is(select,input,button)]:w-full">
+          <PickOne
+            label="Shop"
+            choices={fleet.rows.map((site) => ({
+              value: site.site_id,
+              label: site.site_name,
+            }))}
+            value={focused?.site_id ?? null}
+            onChange={(next) =>
+              next === null ? focus.close() : focus.open(next)
+            }
+          />
+          <ComparisonPicker
+            comparison={comparison}
+            range={period.range}
+            onChange={setComparison}
+          />
+        </div>
+      </BottomSheet>
 
       <SaleSheet id={sale.value ?? null} onClose={sale.close} />
 

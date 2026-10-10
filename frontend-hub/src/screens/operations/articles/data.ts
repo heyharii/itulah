@@ -27,10 +27,10 @@ import { useMissingRows } from "@/screens/inventory/missing-data"
 /// The pool figures come from the same places `operations/stock/data.ts` reads
 /// (that file is another hand's, so this one is read-only to it):
 ///
-/// - **Unallotted / Unpicked** — the Gudang's `WAREHOUSE` pool, per SKU: what is
+/// - **Unallotted / Unpicked** — the warehouse's `WAREHOUSE` pool, per SKU: what is
 ///   on hand beyond the promises, and the promised (allotted) figure.
 /// - **Picked / Packed / Dispatch** — the outbound leaf pools, one per store.
-/// - **Return stock** — the `STORE_REJECT` pools at the Gudang, per store of
+/// - **Return stock** — the `STORE_REJECT` pools at the warehouse, per store of
 ///   origin.
 /// - **To supplier** — open over-delivery returns and the supplier returns
 ///   still to hand over.
@@ -190,7 +190,7 @@ export function useArticles() {
     return names
   }, [fleet.data])
 
-  // The pools worth reading: the Gudang's shelf, and every leaf or reject pool
+  // The pools worth reading: the warehouse's shelf, and every leaf or reject pool
   // that holds anything.
   const sources = useMemo<Source[]>(() => {
     const out: Source[] = []

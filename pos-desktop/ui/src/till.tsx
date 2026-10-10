@@ -18,6 +18,12 @@ import { useShortcuts } from "@/shortcuts"
 import { enqueue, flush, forget, useOutbox } from "@/outbox"
 import { drawerOnSale, printReceiptHere, receiptTarget } from "@/peripherals"
 import { authorizeVoucher, releaseVoucher } from "@/vouchers"
+import {
+  authorizeCoupon,
+  onTheWire,
+  releaseCoupon,
+  type CouponHold,
+} from "@/coupons"
 import { seatNow, useSeat } from "@/seat"
 import { lookupBenefit, returnBenefit, spendBenefit, type BenefitHolder } from "@/benefit"
 import { useNodeConfig, useSession } from "@/session"
@@ -76,6 +82,8 @@ type Quote = {
   readonly pointsEarned: number
   readonly promotions: readonly api.PromotionOutcome[]
   readonly grantedLines: readonly api.GrantedLine[]
+  /// Limited coupons the node would not apply without a hold from head office.
+  readonly toAuthorize: readonly string[]
 }
 
 const emptyQuote = (): Quote => ({
@@ -86,6 +94,7 @@ const emptyQuote = (): Quote => ({
   pointsEarned: 0,
   promotions: [],
   grantedLines: [],
+  toAuthorize: [],
 })
 
 export type Sold = {
@@ -251,6 +260,16 @@ export function Till({
   const [units, setUnits] = useState<readonly Unit[]>([])
   const [held, setHeld] = useState<readonly Held[]>(readHolds)
   const [coupons, setCoupons] = useState<readonly string[]>([])
+  // Head office's holds on this basket's limited coupons (`coupons.ts`). Asked
+  // for when the quote names a coupon in `coupons_to_authorize`, carried on
+  // every quote and on the sale, and given back when the basket is abandoned.
+  const [couponHolds, setCouponHolds] = useState<readonly CouponHold[]>([])
+  // How often each code has been asked about for this basket. Twice at most:
+  // once, and once more if that hold lapsed while the basket stood open — a
+  // refusal is not asked again on every quote.
+  const couponAsks = useRef(new Map<string, number>())
+  const couponsNow = useRef<readonly string[]>(coupons)
+  couponsNow.current = coupons
   const [charges, setCharges] = useState<readonly api.Charge[]>([])
   // Panels that open *over* the counter rather than replacing it. Kept here and
   // not in `Where` because leaving them is always "back to this basket" — a
@@ -337,6 +356,7 @@ export function Till({
         coupons,
         customerId,
         charges,
+        onTheWire(couponHolds),
       )
       if (request !== quoteRequest.current) return
       setQuote(
@@ -352,6 +372,7 @@ export function Till({
               pointsEarned: reply.body?.points_earned ?? 0,
               promotions: reply.body?.promotions ?? [],
               grantedLines: reply.body?.granted_lines ?? [],
+              toAuthorize: reply.body?.coupons_to_authorize ?? [],
             }
           : {
               ...emptyQuote(),
@@ -359,8 +380,48 @@ export function Till({
             },
       )
     },
-    [units, coupons, customerId, charges],
+    [units, coupons, customerId, charges, couponHolds],
   )
+
+  /// Hold a limited coupon at head office, the moment the node says it needs
+  /// one. The node relays the ask with its own credential; when the line is
+  /// down it says so in a sentence, and the coupon simply does not apply — a
+  /// use reserved only at this counter is the hundredth use given away twice.
+  /// A new hold re-prices the basket (`askForQuote` depends on the holds).
+  useEffect(() => {
+    if (quote.stale || quote.toAuthorize.length === 0) return
+    for (const wanted of quote.toAuthorize) {
+      const code = wanted.toUpperCase()
+      if (!couponsNow.current.includes(code)) continue
+      const asked = couponAsks.current.get(code) ?? 0
+      if (asked >= 2) continue
+      couponAsks.current.set(code, asked + 1)
+      void (async () => {
+        const checkout = newCheckoutId()
+        const reply = await authorizeCoupon(code, checkout, customerId)
+        const id = reply.body?.authorization_id
+        if (!reply.ok || id === undefined) {
+          setNote({
+            bad: true,
+            text:
+              reply.problem ??
+              `Kupon ${code} tidak bisa ditahan di pusat — pastikan sambungan ke kantor pusat hidup.`,
+          })
+          return
+        }
+        const hold = { code, authorizationId: id, checkoutId: checkout }
+        // The coupon may have been lifted while head office was answering.
+        if (!couponsNow.current.includes(code)) {
+          void releaseCoupon(hold, "kupon dilepas").catch(() => undefined)
+          return
+        }
+        setCouponHolds((was) => [
+          ...was.filter((one) => one.code !== code),
+          hold,
+        ])
+      })()
+    }
+  }, [quote, customerId])
 
   /// Ask the node what this basket comes to.
   ///
@@ -539,7 +600,28 @@ export function Till({
     }
   }, [where, sold, panel, approval.open])
 
-  function clearBasket() {
+  /// Empty the counter. The coupon holds go back to head office unless the
+  /// basket was SOLD — then the sale carries them, and head office commits
+  /// them when it lands; releasing one first would undo the shopper's coupon.
+  /// A hold the sold basket did not use is still given back.
+  function clearBasket(afterSale = false) {
+    const used = new Set(
+      afterSale
+        ? quote.promotions
+            .filter((one) => one.applied && one.coupon_authorization_id)
+            .map((one) => one.coupon_authorization_id as string)
+        : [],
+    )
+    for (const hold of couponHolds) {
+      if (used.has(hold.authorizationId)) continue
+      void releaseCoupon(hold, afterSale ? "tidak terpakai" : "keranjang dibatalkan").catch(
+        () => {
+          // It lapses at head office on its own within minutes.
+        },
+      )
+    }
+    setCouponHolds([])
+    couponAsks.current.clear()
     setUnits([])
     setCoupons([])
     setCustomerId(null)
@@ -612,7 +694,7 @@ export function Till({
         currency={currency}
         onNext={() => {
           setSold(null)
-          clearBasket()
+          clearBasket(true)
           onGo("sale")
         }}
       />
@@ -628,6 +710,7 @@ export function Till({
         provisional={quote.totalMinor === null}
         basketHasPromotion={quote.promotions.some((one) => one.applied)}
         coupons={coupons}
+        couponHolds={couponHolds}
         customerId={customerId}
         charges={charges}
         actorId={actorId}
@@ -808,9 +891,15 @@ export function Till({
                 was.includes(code) ? was : [...was, code],
               )
             }
-            onDropCoupon={(code) =>
+            onDropCoupon={(code) => {
               setCoupons((was) => was.filter((one) => one !== code))
-            }
+              // Its hold goes back: this basket will not use it.
+              for (const hold of couponHolds.filter((one) => one.code === code)) {
+                void releaseCoupon(hold, "kupon dilepas").catch(() => undefined)
+              }
+              setCouponHolds((was) => was.filter((one) => one.code !== code))
+              couponAsks.current.delete(code)
+            }}
             onCustomer={setCustomerId}
           />
 
@@ -1628,6 +1717,7 @@ function Payment({
   provisional,
   basketHasPromotion,
   coupons,
+  couponHolds,
   customerId,
   charges,
   actorId,
@@ -1643,6 +1733,8 @@ function Payment({
   /// spent on such a basket, and the node refuses it too.
   basketHasPromotion: boolean
   coupons: readonly string[]
+  /// Head office's holds on the limited coupons the quote applied.
+  couponHolds: readonly CouponHold[]
   customerId: string | null
   charges: readonly api.Charge[]
   actorId: string
@@ -1759,11 +1851,17 @@ function Payment({
     // Written to disk, with its key, before a single byte goes on the wire.
     // Everything after this line is the outbox's problem — including the case
     // where this terminal never manages to send it at all.
+    // Cash is sent as handed over, not as applied: the node works the change
+    // out and prints it on the receipt. Sending the applied amount told it no
+    // change was given, while the drawer paid some out.
     const entry = enqueue({
       epcs: units.map((unit) => unit.epc),
       tenders: taken.map((one) => ({
         method: one.method,
-        amount_minor: one.amountMinor,
+        amount_minor:
+          one.method === "CASH"
+            ? Math.max(one.tenderedMinor, one.amountMinor)
+            : one.amountMinor,
         reference: one.reference,
         // The hold head office granted, on the voucher that needed one. It is
         // carried on the tender because head office commits it against THIS
@@ -1775,6 +1873,10 @@ function Payment({
       })),
       actor_id: actorId,
       coupon_codes: coupons,
+      // The holds go with the sale: the node prices it as the screen did, and
+      // head office commits each one against this sale when it lands — the
+      // till never calls commit, as with a voucher.
+      coupon_authorizations: onTheWire(couponHolds),
       customer_id: customerId,
       charges,
       quotedTotalMinor: totalMinor,

@@ -35,7 +35,7 @@ const HUES = [
 const CAPTIONS: Record<1 | 2 | 3 | 4, readonly [string, string]> = {
   1: ["This is your business", "The map fills in as you type."],
   2: [
-    "Goods flow from the Gudang to the stores",
+    "Goods flow from the warehouse to the stores",
     "Each store has its own stock, cash and reports.",
   ],
   3: [
@@ -191,7 +191,7 @@ export function BusinessMap({
             </span>
             <span className="min-w-0">
               <b className="block truncate text-cell font-semibold text-ink">
-                Gudang
+                Warehouse
               </b>
               <span className="block text-meta text-mute">
                 Same address as the office

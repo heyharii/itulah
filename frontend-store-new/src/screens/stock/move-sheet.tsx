@@ -4,13 +4,13 @@ import { useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Field, Input, Select } from "@/components/ui/field"
 import { Pill } from "@/components/ui/pill"
-import { RecordSheet } from "@/components/ui/record-sheet"
+import { Sheet } from "@/components/ui/sheet"
 import { ScanField } from "@/components/ui/scan-field"
 import { Banner } from "@/components/ui/states"
 import { describe } from "@/lib/errors"
 import { moment } from "@/lib/format"
 import type { Mover } from "@/screens/stock/mover"
-import { Code, Route, Thumb } from "@/screens/stock/parts"
+import { FOOT, Code, Route, Thumb } from "@/screens/stock/parts"
 import {
   LEDGER_LIMIT,
   PLACES,
@@ -49,17 +49,16 @@ export function MoveSheet({ mover }: { mover: Mover }) {
     )
 
   return (
-    <RecordSheet
+    <Sheet
       open={mover.open}
       onOpenChange={mover.setOpen}
       title="Move stock"
-      caption="Stockroom, shop floor or return stock. One tag at a time."
       width="wide"
       footer={
         <div className="flex items-center gap-2 md:justify-end">
           {piece !== null && (
             <Button
-              className="max-md:h-12"
+              className={FOOT}
               onClick={() => {
                 mover.drop()
                 refocus()
@@ -70,7 +69,7 @@ export function MoveSheet({ mover }: { mover: Mover }) {
           )}
           <Button
             variant="primary"
-            className="max-md:h-12 max-md:flex-1"
+            className={`${FOOT} max-md:flex-1`}
             disabled={!ready}
             onClick={() => {
               mover.submit()
@@ -189,7 +188,7 @@ export function MoveSheet({ mover }: { mover: Mover }) {
         {piece !== null && (
           <Field
             label="Why"
-            hint="Written into the ledger beside the movement. The ledger is append-only — a mistake is corrected by another movement that says what it is correcting, never by editing this one."
+            hint="Written into the ledger beside the movement."
           >
             <Input
               value={mover.reason}
@@ -237,6 +236,6 @@ export function MoveSheet({ mover }: { mover: Mover }) {
           </section>
         )}
       </div>
-    </RecordSheet>
+    </Sheet>
   )
 }

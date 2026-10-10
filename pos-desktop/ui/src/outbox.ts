@@ -3,6 +3,7 @@ import { useSyncExternalStore } from "react"
 import {
   sell,
   type Charge,
+  type CouponAuthorization,
   type EdgeReply,
   type SaleReply,
   type SaleTender,
@@ -84,6 +85,10 @@ export type OutboxEntry = {
   readonly tenders: readonly SaleTender[]
   readonly actorId: string
   readonly couponCodes: readonly string[]
+  /// The holds head office granted for this basket's limited coupons. Sent
+  /// with the sale so the node prices it as the screen did, and so head office
+  /// can turn each hold into this sale's redemption when the sale reaches it.
+  readonly couponAuthorizations: readonly CouponAuthorization[]
   readonly customerId: string | null
   /// Fees on this bill that are not goods — a carrier bag, most often. Carried
   /// with the sale because the node prices them: a bag folded into a garment's
@@ -120,6 +125,7 @@ export type SaleDraft = {
   readonly tenders: readonly SaleTender[]
   readonly actor_id: string
   readonly coupon_codes: readonly string[]
+  readonly coupon_authorizations?: readonly CouponAuthorization[]
   readonly customer_id: string | null
   readonly charges?: readonly Charge[]
   readonly quotedTotalMinor: number
@@ -204,6 +210,11 @@ function revive(row: unknown): Mutable | null {
     tenders: it.tenders as readonly SaleTender[],
     actorId: it.actorId,
     couponCodes: strings(it.couponCodes) ? it.couponCodes : [],
+    // A row written before limited coupons could be held carries none, which
+    // is the truth about it.
+    couponAuthorizations: Array.isArray(it.couponAuthorizations)
+      ? (it.couponAuthorizations as CouponAuthorization[])
+      : [],
     customerId: typeof it.customerId === "string" ? it.customerId : null,
     quotedTotalMinor:
       typeof it.quotedTotalMinor === "number" ? it.quotedTotalMinor : 0,
@@ -337,6 +348,7 @@ export function enqueue(sale: SaleDraft): OutboxEntry {
     tenders: [...sale.tenders],
     actorId: sale.actor_id,
     couponCodes: [...sale.coupon_codes],
+    couponAuthorizations: [...(sale.coupon_authorizations ?? [])],
     customerId: sale.customer_id,
     charges: [...(sale.charges ?? [])],
     quotedTotalMinor: sale.quotedTotalMinor,
@@ -387,6 +399,7 @@ function wire(entry: OutboxEntry): SaleRequest {
     actor_id: entry.actorId,
     idempotency_key: entry.idempotencyKey,
     coupon_codes: entry.couponCodes,
+    coupon_authorizations: entry.couponAuthorizations,
     customer_id: entry.customerId,
     charges: entry.charges,
   }

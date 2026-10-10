@@ -329,7 +329,11 @@ async fn an_announced_delivery_is_blind_until_received_and_then_compared() {
         announcement(
             Uuid::new_v4(),
             STORE_SITE,
-            &[(SKU_A, a1.clone()), (SKU_A, a2.clone()), (SKU_A, a3.clone())],
+            &[
+                (SKU_A, a1.clone()),
+                (SKU_A, a2.clone()),
+                (SKU_A, a3.clone()),
+            ],
         ),
     )
     .await;
@@ -339,7 +343,11 @@ async fn an_announced_delivery_is_blind_until_received_and_then_compared() {
         announcement(
             Uuid::new_v4(),
             STORE_SITE,
-            &[(SKU_A, a4.clone()), (SKU_B, b1.clone()), (SKU_B, b2.clone())],
+            &[
+                (SKU_A, a4.clone()),
+                (SKU_B, b1.clone()),
+                (SKU_B, b2.clone()),
+            ],
         ),
     )
     .await;
@@ -356,7 +364,11 @@ async fn an_announced_delivery_is_blind_until_received_and_then_compared() {
     let deliveries = list["deliveries"]
         .as_array()
         .unwrap_or_else(|| panic!("no deliveries: {list}"));
-    assert_eq!(deliveries.len(), 1, "one surat jalan is one delivery: {list}");
+    assert_eq!(
+        deliveries.len(),
+        1,
+        "one surat jalan is one delivery: {list}"
+    );
     let delivery = &deliveries[0];
     let delivery_id = delivery["delivery_id"]
         .as_str()
@@ -499,7 +511,10 @@ async fn an_announced_delivery_is_blind_until_received_and_then_compared() {
     let mut same_tags = sweep.clone();
     same_tags["idempotency_key"] = json!("inbound-1-resent");
     let resent = ok(router(), "POST", &receive_uri, Some(same_tags)).await;
-    assert_eq!(resent, received, "the same sweep under a new key is a resend");
+    assert_eq!(
+        resent, received,
+        "the same sweep under a new key is a resend"
+    );
     let (status, body) = call(
         router(),
         "POST",
@@ -698,7 +713,15 @@ async fn provision(pool: &PgPool, origin: &str, key: &str, site: &str, role: &st
 
 async fn fleet(pool: PgPool) -> Fleet {
     provision(&pool, DC_ORIGIN, DC_KEY, DC_SITE, "DC", "DC 01").await;
-    provision(&pool, STORE_ORIGIN, STORE_KEY, STORE_SITE, "STORE", "Toko 01").await;
+    provision(
+        &pool,
+        STORE_ORIGIN,
+        STORE_KEY,
+        STORE_SITE,
+        "STORE",
+        "Toko 01",
+    )
+    .await;
     provision(
         &pool,
         OTHER_STORE_ORIGIN,
@@ -1048,13 +1071,12 @@ async fn an_in_transit_koli_is_announced_to_its_shop_and_received_blind(pool: Pg
         .await;
 
     // Nothing is announced before the lorry leaves.
-    let announced_before: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM sync_command WHERE command_type=$1",
-    )
-    .bind(INVENTORY_STORE_INBOUND_ANNOUNCE_V1)
-    .fetch_one(&fleet.cloud.db)
-    .await
-    .unwrap_or_else(|e| panic!("count commands: {e}"));
+    let announced_before: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM sync_command WHERE command_type=$1")
+            .bind(INVENTORY_STORE_INBOUND_ANNOUNCE_V1)
+            .fetch_one(&fleet.cloud.db)
+            .await
+            .unwrap_or_else(|e| panic!("count commands: {e}"));
     fleet.sync().await;
     assert_eq!(announced_before, 0);
 
@@ -1142,7 +1164,11 @@ async fn an_in_transit_koli_is_announced_to_its_shop_and_received_blind(pool: Pg
         None,
     )
     .await;
-    assert_eq!(elsewhere["deliveries"], json!([]), "another shop hears nothing");
+    assert_eq!(
+        elsewhere["deliveries"],
+        json!([]),
+        "another shop hears nothing"
+    );
 
     // Two garments never made it; one from another rack did.
     let stray = labels_by_sku
@@ -1206,7 +1232,11 @@ async fn an_in_transit_koli_is_announced_to_its_shop_and_received_blind(pool: Pg
 
     // Booked stock: what was on the manifest and read, and the stray.
     assert_eq!(
-        pool_on_hand(edge_router(&fleet.store), &format!("{STORE_SITE}.warehouse")).await,
+        pool_on_hand(
+            edge_router(&fleet.store),
+            &format!("{STORE_SITE}.warehouse")
+        )
+        .await,
         ALLOTTED - 1
     );
 
@@ -1236,7 +1266,12 @@ async fn an_in_transit_koli_is_announced_to_its_shop_and_received_blind(pool: Pg
     let report = fleet
         .cloud_get("/api/v1/inventory/reconciliations?limit=200")
         .await;
-    assert_eq!(report["summary"]["matched"], ALLOTTED - 2, "{}", report["summary"]);
+    assert_eq!(
+        report["summary"]["matched"],
+        ALLOTTED - 2,
+        "{}",
+        report["summary"]
+    );
     assert_eq!(report["summary"]["dc_only"], 2, "{}", report["summary"]);
     assert_eq!(report["summary"]["store_only"], 1, "{}", report["summary"]);
 
@@ -1264,9 +1299,9 @@ async fn an_in_transit_koli_is_announced_to_its_shop_and_received_blind(pool: Pg
         .cloud_get("/api/v1/inventory/shipments/received?since=2999-01-01T00:00:00Z")
         .await;
     assert!(
-        later["items"]
-            .as_array()
-            .is_some_and(|rows| rows.iter().any(|r| r["shipment_number"] == json!(shipment_reference))),
+        later["items"].as_array().is_some_and(|rows| rows
+            .iter()
+            .any(|r| r["shipment_number"] == json!(shipment_reference))),
         "a surat jalan still short drops off the board: {later}"
     );
 }

@@ -4,6 +4,7 @@ import { RefreshCw } from "lucide-react"
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
+import { Fab } from "@/components/ui/fab"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
@@ -15,6 +16,7 @@ import { ago, clock, count } from "@/lib/format"
 import { keys } from "@/lib/operations/keys"
 import { queryState } from "@/lib/query-state"
 import { useEdgeNodeIdentity } from "@/lib/edge-session"
+import { useLayout } from "@/lib/layout"
 import { syncHealth, type SyncHealth } from "@itulah/contract/client"
 
 /// The outbox: has today's work actually reached head office?
@@ -57,6 +59,7 @@ const POLL_MS = 10_000
 export function Sync() {
   const client = useQueryClient()
   const where = useEdgeNodeIdentity()
+  const phone = useLayout() === "phone"
 
   const status = useQuery({
     queryKey: keys.syncStatus(),
@@ -80,15 +83,25 @@ export function Sync() {
         title="Sync"
         sub="What this warehouse has recorded, and whether the centre has it."
         actions={
-          <Button
-            variant="primary"
-            pending={send.isPending}
-            onClick={() => send.mutate()}
-          >
-            <RefreshCw />
-            {send.isPending ? "Asking…" : "Send now"}
-          </Button>
+          phone ? undefined : (
+            <Button
+              variant="primary"
+              pending={send.isPending}
+              onClick={() => send.mutate()}
+            >
+              <RefreshCw />
+              {send.isPending ? "Asking…" : "Send now"}
+            </Button>
+          )
         }
+      />
+      {/* On a phone Send now is the button in the dock. */}
+      <Fab
+        label={send.isPending ? "Asking…" : "Send now"}
+        icon={RefreshCw}
+        onClick={() => {
+          if (!send.isPending) send.mutate()
+        }}
       />
 
       {send.isSuccess && send.data && !send.data.triggered && (

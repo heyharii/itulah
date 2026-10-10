@@ -8,8 +8,10 @@ import { ChevronDown, ChevronRight, Plus } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Fab } from "@/components/ui/fab"
 import { Checkbox, Field, Input, Select, Textarea } from "@/components/ui/field"
 import { KeyValue } from "@/components/ui/rows"
 import { PageHeader } from "@/components/ui/page-header"
@@ -19,6 +21,7 @@ import { EmptyState, LoadMore, Problem } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
 import { label, moment, money } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   accountBalances,
   accountChildren,
@@ -32,6 +35,7 @@ import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { cn } from "@/lib/utils"
 import { ROOT_CLASSES } from "@/screens/finance/chart"
+import { FilterSheet } from "@/components/ui/filter-sheet"
 import { AccountPicker, SiteName, UnitSelect } from "@/screens/finance/parts"
 import type {
   ChartChange,
@@ -71,6 +75,8 @@ import type {
 const SEARCH_PAGE = 100
 
 export function ChartOfAccounts() {
+  const phone = useLayout() === "phone"
+  const [filtering, setFiltering] = useState(false)
   const [needle, setNeedle] = useState("")
   const [inactive, setInactive] = useState(false)
   /// Whose books the balances are read from — the company's when blank, as
@@ -109,20 +115,76 @@ export function ChartOfAccounts() {
       <PageHeader
         crumb="Finance · Accounting Masters"
         title="Chart of Accounts"
+        // Search, the filters and the new account are in the dock on a phone.
         actions={
-          <>
-            <Input
-              value={needle}
-              onChange={(event) => setNeedle(event.target.value)}
-              className="h-control w-64"
-            />
-            <Button variant="primary" onClick={() => setCreating(true)}>
-              <Plus />
-              New account
-            </Button>
-          </>
+          phone ? undefined : (
+            <>
+              <Input
+                value={needle}
+                onChange={(event) => setNeedle(event.target.value)}
+                className="h-control w-64"
+              />
+              <Button variant="primary" onClick={() => setCreating(true)}>
+                <Plus />
+                New account
+              </Button>
+            </>
+          )
         }
       />
+
+      {phone && (
+        <>
+          <Fab label="New account" onClick={() => setCreating(true)} />
+          {tab === "chart" && (
+            <>
+              <DockTools
+                search={{
+                  value: needle,
+                  onChange: setNeedle,
+                  label: "Search accounts",
+                }}
+                filter={{
+                  count: (unit === "" ? 0 : 1) + (inactive ? 1 : 0),
+                  onOpen: () => setFiltering(true),
+                }}
+              />
+              <FilterSheet open={filtering} onOpenChange={setFiltering}>
+                <UnitSelect
+                  value={unit}
+                  onChange={setUnit}
+                  emptyLabel="All units"
+                  aria-label="Whose books"
+                />
+                <Checkbox
+                  label="Show inactive"
+                  checked={inactive}
+                  onChange={(next) => setInactive(next)}
+                />
+                <Button
+                  variant="quiet"
+                  onClick={() =>
+                    setSweep((now) => ({ mode: "open", epoch: now.epoch + 1 }))
+                  }
+                >
+                  Expand all
+                </Button>
+                <Button
+                  variant="quiet"
+                  onClick={() =>
+                    setSweep((now) => ({
+                      mode: "close",
+                      epoch: now.epoch + 1,
+                    }))
+                  }
+                >
+                  Collapse all
+                </Button>
+              </FilterSheet>
+            </>
+          )}
+        </>
+      )}
 
       <SubTabs
         tabs={[
@@ -137,53 +199,55 @@ export function ChartOfAccounts() {
         <ChartHistory onOpen={(code) => account.open(code)} />
       ) : (
         <>
-          <Toolbar>
-            {/* Not a segmented control: "Active / Including inactive" spent two
+          {!phone && (
+            <Toolbar>
+              {/* Not a segmented control: "Active / Including inactive" spent two
             pills announcing that the default is the default, and the second
             label is the first plus something. A checkbox says "and also show
             me…" in the width of a checkbox. */}
-            <UnitSelect
-              value={unit}
-              onChange={setUnit}
-              emptyLabel="Whole company"
-              className="h-control w-52"
-              aria-label="Whose books"
-            />
-            <Checkbox
-              label="Show inactive"
-              checked={inactive}
-              onChange={(next) => setInactive(next)}
-            />
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() =>
-                setSweep((now) => ({ mode: "open", epoch: now.epoch + 1 }))
-              }
-            >
-              Expand all
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() =>
-                setSweep((now) => ({ mode: "close", epoch: now.epoch + 1 }))
-              }
-            >
-              Collapse all
-            </Button>
-            <Toolbar.Spacer />
-            {/* What is on screen, in words — every toolbar in this module
+              <UnitSelect
+                value={unit}
+                onChange={setUnit}
+                emptyLabel="All units"
+                className="h-control w-52"
+                aria-label="Whose books"
+              />
+              <Checkbox
+                label="Show inactive"
+                checked={inactive}
+                onChange={(next) => setInactive(next)}
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() =>
+                  setSweep((now) => ({ mode: "open", epoch: now.epoch + 1 }))
+                }
+              >
+                Expand all
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() =>
+                  setSweep((now) => ({ mode: "close", epoch: now.epoch + 1 }))
+                }
+              >
+                Collapse all
+              </Button>
+              <Toolbar.Spacer />
+              {/* What is on screen, in words — every toolbar in this module
             answers "what am I looking at". */}
-            <span className="text-[0.875rem] text-mute">
-              {searching
-                ? `Matching “${trimmed}”`
-                : "Balances as of today, headings summed"}
-              {inactive ? " · including inactive" : ""}
-            </span>
-          </Toolbar>
+              <span className="text-[0.875rem] text-mute">
+                {searching
+                  ? `Matching “${trimmed}”`
+                  : "Balances as of today, headings summed"}
+                {inactive ? " · including inactive" : ""}
+              </span>
+            </Toolbar>
+          )}
 
-          <Card className="max-h-[calc(100dvh-16rem)] overflow-auto">
+          <Card className="max-h-[calc(100dvh-16rem)] overflow-auto max-md:max-h-none max-md:overflow-visible">
             {/* The heading row every table in the app has, so the figures on
             the right are named. */}
             <div className="sticky top-0 z-10 flex h-10 items-center border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
@@ -394,10 +458,13 @@ function AccountRow({
     <div
       className={cn(
         "flex h-row items-center gap-2 border-b border-hairline text-cell",
+        // On a phone the name wraps and the row grows with it; the indent steps
+        // are smaller so a deep account keeps room for its name.
+        "pl-[calc(0.875rem+var(--level)*1.125rem)] max-md:h-auto max-md:min-h-14 max-md:pl-[calc(0.5rem+var(--level)*0.75rem)]",
         // Selection is a tint, the same as every list in the app.
         selected ? "bg-accent-bg" : "hover:bg-soft"
       )}
-      style={{ paddingLeft: `${0.875 + level * 1.125}rem` }}
+      style={{ ["--level" as string]: level }}
     >
       <button
         type="button"
@@ -415,19 +482,22 @@ function AccountRow({
       <button
         type="button"
         onClick={onOpen}
-        className="flex min-w-0 flex-1 items-center gap-2.5 py-2 pr-3.5 text-left"
+        className="flex min-w-0 flex-1 items-center gap-2.5 py-2 pr-3.5 text-left max-md:items-start max-md:pr-3"
       >
-        <span className="w-16 shrink-0 font-mono text-[0.875rem] text-mute">
-          {account.account_code}
-        </span>
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate",
-            account.is_group ? "font-medium text-ink" : "text-text",
-            !account.is_active && "text-mute line-through"
-          )}
-        >
-          {account.name}
+        {/* On a phone the name stands over its code, and wraps. */}
+        <span className="flex min-w-0 flex-1 items-center gap-2.5 max-md:flex-col-reverse max-md:items-start max-md:gap-0.5">
+          <span className="w-16 shrink-0 font-mono text-[0.875rem] text-mute max-md:w-auto">
+            {account.account_code}
+          </span>
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate max-md:flex-none max-md:break-words max-md:whitespace-normal",
+              account.is_group ? "font-medium text-ink" : "text-text",
+              !account.is_active && "text-mute line-through"
+            )}
+          >
+            {account.name}
+          </span>
         </span>
         {/* The site as people read it — its unit's code and name — the same
             reading every other site in this module gets. The raw id was here
@@ -447,7 +517,7 @@ function AccountRow({
         {balance !== undefined && (
           <span
             className={cn(
-              "w-48 shrink-0 text-right whitespace-nowrap tabular-nums",
+              "w-48 shrink-0 text-right whitespace-nowrap tabular-nums max-md:w-auto max-md:pt-0.5",
               balance === 0
                 ? "text-faint"
                 : account.is_group

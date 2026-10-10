@@ -4,4 +4,10 @@
  * One SKU's worth of a line: a colour, a size, how many, and — when it
  * differs from the line's base price — what it sells for.
  */
-export type CatalogPurchaseLineVariant = { colour_code: string | null, size_code: string | null, quantity: number, base_price_minor: number | null, };
+export type CatalogPurchaseLineVariant = { colour_code: string | null, size_code: string | null, quantity: number, base_price_minor: number | null, 
+/**
+ * What this SKU looks like, when the buyer wanted to be specific (0961):
+ * links to photographs already stored, in the order they were added.
+ * Optional; most variants carry none.
+ */
+image_urls?: Array<string>, };

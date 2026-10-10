@@ -7,6 +7,7 @@ import {
   procurementKeys,
   type PurchaseOrderDetail,
   type PurchaseOrderLine,
+  type PurchaseOrderRow,
 } from "@/lib/queries/procurement"
 import { lineTotal, shareOut } from "@/screens/procurement/line-pricing-model"
 import { useIdentity } from "@/lib/session"
@@ -208,6 +209,25 @@ export const PO_STATUS: Readonly<
 
 export function poStatus(lifecycle: string) {
   return PO_STATUS[lifecycle] ?? { label: lifecycle, tone: "neutral" as const }
+}
+
+/// An order the supplier can still deliver on: active, or part-received.
+/// Cancelled, fully received and short-received (closed short) orders are
+/// settled — nothing is owed on them, whatever their lines' arithmetic says
+/// (the list row's `outstanding_stock_units` is just expected − received, so a
+/// cancelled order still shows its 8 pcs). This is the one test every "open",
+/// "still owed" and "on order" figure uses, the server's own open-book totals
+/// (`SupplierBookSummary`) included.
+export function isOpenOrder(row: Pick<PurchaseOrderRow, "lifecycle">): boolean {
+  return row.lifecycle === "ACTIVE" || row.lifecycle === "PARTIALLY_RECEIVED"
+}
+
+/// What a supplier still owes on an order, in pieces: what is outstanding
+/// while the order is open, nothing once it is settled.
+export function owedOn(
+  row: Pick<PurchaseOrderRow, "lifecycle" | "outstanding_stock_units">
+): number {
+  return isOpenOrder(row) ? row.outstanding_stock_units : 0
 }
 
 /// A quantity of pieces, "1 pc" or "12 pcs".
@@ -441,3 +461,13 @@ export function useFittedVisibility(
   }
   return { visibility, shown, change, ref: fit.ref, hidden: fit.hidden }
 }
+
+/// A finished order's status, pressed on like a rubber date stamp: the state
+/// over the day it was reached, a double rule in the ink's colour, capitals,
+/// a few degrees off true. On a card it stands in the foot where an open
+/// order has its pill (the owner, 2026-10-06); in the table it stands in the
+/// Status cell, a little less tilted. Multiplied into the paper like ink, so a
+/// figure under it still reads. Open orders have no stamp: they keep their
+/// status word (the owner, 2026-10-05).
+export const STAMP =
+  "pointer-events-none inline-block -rotate-12 rounded-[6px] border-[3px] border-double border-current px-2.5 py-0.5 text-center text-[0.875rem] leading-5 font-bold tracking-[0.06em] whitespace-nowrap uppercase opacity-85 mix-blend-multiply lg:-rotate-6"

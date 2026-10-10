@@ -318,8 +318,8 @@ pub fn validate_endpoint(endpoint: &str) -> Result<reqwest::Url, String> {
     if endpoint.len() > 2048 {
         return Err("that push endpoint is too long to be one a browser made".into());
     }
-    let url = reqwest::Url::parse(endpoint)
-        .map_err(|_| "that push endpoint is not a URL".to_owned())?;
+    let url =
+        reqwest::Url::parse(endpoint).map_err(|_| "that push endpoint is not a URL".to_owned())?;
     if url.scheme() != "https" {
         return Err("a push endpoint must be https".into());
     }
@@ -418,9 +418,7 @@ impl PushMessage {
         // An id longer than any record id in this estate is not a record id;
         // drop the pair rather than carry an arbitrary string to a phone.
         let (subject_kind, subject_id) = match (subject_kind, subject_id) {
-            (Some(kind), Some(id)) if kind.len() <= 64 && id.len() <= 128 => {
-                (Some(kind), Some(id))
-            }
+            (Some(kind), Some(id)) if kind.len() <= 64 && id.len() <= 128 => (Some(kind), Some(id)),
             _ => (None, None),
         };
         Self {
@@ -635,8 +633,7 @@ pub fn build_request(
     // at the push service rather than queueing a second one. The simple form
     // of a UUID is 32 characters of the base64url alphabet, which is exactly
     // what RFC 8030 §5.4 allows.
-    if let Ok(topic) = http::HeaderValue::from_str(&message.notification_id.simple().to_string())
-    {
+    if let Ok(topic) = http::HeaderValue::from_str(&message.notification_id.simple().to_string()) {
         headers.insert("topic", topic);
     }
     Ok(request)
@@ -840,7 +837,9 @@ impl PushAgent {
             let drained = self.drain_once().await;
             // The fleet page's "notifications & push" (`job_beat`, 0703): a
             // beat a minute is plenty for a loop that runs every two seconds.
-            if drained.is_err() || last_beat.is_none_or(|at| at.elapsed() >= Duration::from_secs(60)) {
+            if drained.is_err()
+                || last_beat.is_none_or(|at| at.elapsed() >= Duration::from_secs(60))
+            {
                 infrastructure::job_beat(
                     &self.pool,
                     infrastructure::JOB_PUSH,
@@ -1085,10 +1084,9 @@ mod tests {
             Some("purchase_price_amendment".into()),
             Some("abc".into()),
         );
-        let value: serde_json::Value = serde_json::from_slice(
-            &message.to_bytes().unwrap_or_else(|error| panic!("{error}")),
-        )
-        .unwrap_or_else(|error| panic!("{error}"));
+        let value: serde_json::Value =
+            serde_json::from_slice(&message.to_bytes().unwrap_or_else(|error| panic!("{error}")))
+                .unwrap_or_else(|error| panic!("{error}"));
         let mut keys: Vec<&str> = value
             .as_object()
             .map(|object| object.keys().map(String::as_str).collect())
@@ -1168,7 +1166,10 @@ mod tests {
                 after: Some(Duration::from_secs(3_600)),
             }
         );
-        assert_eq!(parse_retry_after(Some(" 120 ")), Some(Duration::from_secs(120)));
+        assert_eq!(
+            parse_retry_after(Some(" 120 ")),
+            Some(Duration::from_secs(120))
+        );
         assert_eq!(
             parse_retry_after(Some("Wed, 21 Oct 2015 07:28:00 GMT")),
             None

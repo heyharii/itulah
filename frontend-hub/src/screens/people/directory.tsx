@@ -12,15 +12,17 @@ import { useEffect, useMemo, useState } from "react"
 import { CalendarClock, UserPlus } from "lucide-react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Day } from "@/components/ui/day"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { ExceptionQueue } from "@/components/ui/exception-queue"
 import { Field, Input, Select, Textarea } from "@/components/ui/field"
 import { useUnits } from "@/lib/queries/organisation"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { Choices } from "@/components/ui/form"
+import { Fab } from "@/components/ui/fab"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import {
@@ -33,10 +35,10 @@ import {
 import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState, ErrorState } from "@/components/ui/states"
-import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
 import { Timeline } from "@/components/ui/timeline"
 import { useFilterState, type Filter, type FilterField } from "@/lib/filters"
+import { useLayout } from "@/lib/layout"
 import { useDebounced } from "@/lib/use-debounced"
 import { count, day, money, moment } from "@/lib/format"
 import type { Tone } from "@/lib/format"
@@ -96,7 +98,7 @@ import type {
   EmployeeView,
   ProfileAmendmentView,
 } from "@itulah/contract"
-import { Quiet } from "@/screens/people/parts"
+import { Quiet, SheetTabs } from "@/screens/people/parts"
 import { ChecklistPanel } from "@/screens/people/checklist"
 import { ClaimBalances } from "@/screens/people/claim-benefits"
 import { DisciplinePanel } from "@/screens/people/discipline"
@@ -146,132 +148,244 @@ function statusTone(status: string): Tone {
 /// contract.
 const PERMANENT = Number.MAX_SAFE_INTEGER
 
-const columns: ColumnDef<TableSetup, EmployeeSummary>[] = [
-  {
-    accessorKey: "employee_code",
-    header: "Number",
-    size: 120,
-    // No filter on this or on Name: both are looked up rather than narrowed
-    // by, and the search box in the header already reads them — at the
-    // server, which matches the number and the name.
-    cell: ({ row }) => (
-      <span className="font-mono text-id text-body">
-        {row.original.employee_code}
-      </span>
-    ),
-  },
-  {
-    id: "name",
-    accessorFn: (row) => row.full_name ?? row.employee_code,
-    header: "Name",
-    size: 240,
-    cell: ({ row }) =>
-      row.original.full_name ? (
-        <span className="font-medium text-ink">{row.original.full_name}</span>
-      ) : (
-        // A record can exist before anybody has typed a name into it. Saying so
-        // is more useful than an empty cell, which reads as a loading fault.
-        <span className="text-mute">Not enrolled yet</span>
+function columnsOf(
+  onOpen: (id: string) => void
+): ColumnDef<TableSetup, EmployeeSummary>[] {
+  return [
+    {
+      accessorKey: "employee_code",
+      header: "Number",
+      size: 120,
+      meta: { card: "hide" },
+      // No filter on this or on Name: both are looked up rather than narrowed
+      // by, and the search box in the header already reads them — at the
+      // server, which matches the number and the name.
+      cell: ({ row }) => (
+        <span className="font-mono text-id text-body">
+          {row.original.employee_code}
+        </span>
       ),
-  },
-  {
-    accessorKey: "status",
-    header: "Status",
-    size: 160,
-    // Narrowed by the Status filter, which the server counts. Sorting four
-    // state names alphabetically groups nothing anybody asked for, and the
-    // server offers no such order.
-    enableSorting: false,
-    cell: ({ row }) => (
-      <Pill tone={statusTone(row.original.status)}>
-        {statusLabel(row.original.status)}
-      </Pill>
-    ),
-  },
-  {
-    id: "unit",
-    accessorFn: (row) => row.unit_name ?? row.unit_id ?? "",
-    header: "Posted to",
-    size: 160,
-    cell: ({ row }) =>
-      row.original.unit_id ? (
-        (row.original.unit_name ?? row.original.unit_id)
-      ) : (
-        <span className="text-mute">Unposted</span>
+    },
+    {
+      id: "name",
+      accessorFn: (row) => row.full_name ?? row.employee_code,
+      header: "Name",
+      size: 240,
+      meta: { card: "hide" },
+      cell: ({ row }) =>
+        row.original.full_name ? (
+          <span className="font-medium text-ink">{row.original.full_name}</span>
+        ) : (
+          // A record can exist before anybody has typed a name into it. Saying so
+          // is more useful than an empty cell, which reads as a loading fault.
+          <span className="text-mute">Not enrolled yet</span>
+        ),
+    },
+    {
+      accessorKey: "status",
+      header: "Status",
+      size: 160,
+      // Narrowed by the Status filter, which the server counts. Sorting four
+      // state names alphabetically groups nothing anybody asked for, and the
+      // server offers no such order.
+      enableSorting: false,
+      meta: { card: "hide" },
+      cell: ({ row }) => (
+        <Pill tone={statusTone(row.original.status)}>
+          {statusLabel(row.original.status)}
+        </Pill>
       ),
-  },
-  {
-    accessorKey: "position",
-    header: "Job",
-    size: 160,
-    enableSorting: false,
-    cell: ({ row }) =>
-      row.original.position ?? <span className="text-mute">—</span>,
-  },
-  {
-    accessorKey: "contract_kind",
-    header: "Contract",
-    size: 110,
-    // PKWT against PKWTT is the Contract filter's question; "Term ends in"
-    // beside it is the order that answers "who needs a renewal first".
-    enableSorting: false,
-    cell: ({ row }) =>
-      row.original.contract_kind ? (
-        <Tag tone={row.original.contract_kind === "PKWT" ? "warn" : "neutral"}>
-          {row.original.contract_kind}
-        </Tag>
-      ) : (
-        <span className="text-mute">None</span>
-      ),
-  },
-  {
-    id: "expiry",
-    accessorFn: (row) => daysUntil(row.contract_ends_on) ?? PERMANENT,
-    header: "Term Ends in",
-    size: 140,
-    /// **Not filterable, because of the accessor directly above.** A permanent
-    /// contract has no end date and is stood in for by `PERMANENT` so that it
-    /// sorts last. A clause cannot see that substitution: "ends in more than
-    /// 90 days" would answer with every permanent employee in the company,
-    /// each one reported as a term running out in nine quadrillion days. Ask
-    /// Contract instead — PKWT is the set with a term at all — and the
-    /// exception queue above already carries the ones running out.
-    meta: { align: "right" },
-    // The decision metric, and why this list sorts by it ascending: the first
-    // screenful is whoever needs a renewal — and above them, anybody already
-    // working on a term that ran out while nobody was looking.
-    cell: ({ row }) => {
-      const left = daysUntil(row.original.contract_ends_on)
-      if (left === null) return <span className="text-mute">Permanent</span>
-      if (left < 0)
+    },
+    {
+      id: "unit",
+      accessorFn: (row) => row.unit_name ?? row.unit_id ?? "",
+      header: "Posted to",
+      size: 160,
+      meta: { card: "hide" },
+      cell: ({ row }) =>
+        row.original.unit_id ? (
+          (row.original.unit_name ?? row.original.unit_id)
+        ) : (
+          <span className="text-mute">Unposted</span>
+        ),
+    },
+    {
+      accessorKey: "position",
+      header: "Job",
+      size: 160,
+      enableSorting: false,
+      meta: { card: "hide" },
+      cell: ({ row }) =>
+        row.original.position ?? <span className="text-mute">—</span>,
+    },
+    {
+      accessorKey: "contract_kind",
+      header: "Contract",
+      size: 110,
+      // PKWT against PKWTT is the Contract filter's question; "Term ends in"
+      // beside it is the order that answers "who needs a renewal first".
+      enableSorting: false,
+      meta: { card: "hide" },
+      cell: ({ row }) =>
+        row.original.contract_kind ? (
+          <Tag
+            tone={row.original.contract_kind === "PKWT" ? "warn" : "neutral"}
+          >
+            {row.original.contract_kind}
+          </Tag>
+        ) : (
+          <span className="text-mute">None</span>
+        ),
+    },
+    {
+      id: "expiry",
+      accessorFn: (row) => daysUntil(row.contract_ends_on) ?? PERMANENT,
+      header: "Term Ends in",
+      size: 140,
+      /// **Not filterable, because of the accessor directly above.** A permanent
+      /// contract has no end date and is stood in for by `PERMANENT` so that it
+      /// sorts last. A clause cannot see that substitution: "ends in more than
+      /// 90 days" would answer with every permanent employee in the company,
+      /// each one reported as a term running out in nine quadrillion days. Ask
+      /// Contract instead — PKWT is the set with a term at all — and the
+      /// exception queue above already carries the ones running out.
+      meta: { align: "right", card: "hide" },
+      // The decision metric, and why this list sorts by it ascending: the first
+      // screenful is whoever needs a renewal — and above them, anybody already
+      // working on a term that ran out while nobody was looking.
+      cell: ({ row }) => {
+        const left = daysUntil(row.original.contract_ends_on)
+        if (left === null) return <span className="text-mute">Permanent</span>
+        if (left < 0)
+          return (
+            <span className="font-medium text-bad-fg">
+              Ended {count(-left)}d ago
+            </span>
+          )
         return (
-          <span className="font-medium text-bad-fg">
-            Ended {count(-left)}d ago
+          <span
+            className={left <= 14 ? "font-medium text-warn-fg" : "text-text"}
+          >
+            {count(left)} days
           </span>
         )
-      return (
-        <span className={left <= 14 ? "font-medium text-warn-fg" : "text-text"}>
-          {count(left)} days
-        </span>
-      )
+      },
     },
-  },
-  {
-    id: "account",
-    accessorFn: (row) => (row.username === null ? 0 : 1),
-    header: "Login",
-    size: 100,
-    // Narrowed by the Login filter, which the server counts; a column of two
-    // words has no order worth asking for.
-    enableSorting: false,
-    cell: ({ row }) =>
-      row.original.username ? (
-        <span className="text-text">Linked</span>
-      ) : (
-        <span className="text-mute">None</span>
+    {
+      id: "account",
+      accessorFn: (row) => (row.username === null ? 0 : 1),
+      header: "Login",
+      size: 100,
+      // Narrowed by the Login filter, which the server counts; a column of two
+      // words has no order worth asking for.
+      enableSorting: false,
+      meta: { card: "hide" },
+      cell: ({ row }) =>
+        row.original.username ? (
+          <span className="text-text">Linked</span>
+        ) : (
+          <span className="text-mute">None</span>
+        ),
+    },
+    // Four columns that exist only on a card (a phone): the person over their
+    // job and where they are posted, the term's days as the figure, the status,
+    // and the word that opens the same sheet the card's own tap opens.
+    {
+      id: "head",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "title" },
+      cell: ({ row }) => (
+        <span className="flex min-w-0 flex-col gap-0.5">
+          <span className="text-[1rem] font-semibold break-words text-ink">
+            {row.original.full_name ?? (
+              <span className="text-mute">Not enrolled yet</span>
+            )}
+          </span>
+          <span className="text-[0.875rem] font-normal break-words text-mute">
+            {[
+              row.original.position,
+              row.original.unit_id
+                ? (row.original.unit_name ?? row.original.unit_id)
+                : "Unposted",
+            ]
+              .filter((one) => one)
+              .join(" · ")}
+          </span>
+        </span>
       ),
-  },
-]
+    },
+    {
+      id: "lead",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "lead" },
+      cell: ({ row }) => {
+        const left = daysUntil(row.original.contract_ends_on)
+        const figure =
+          left === null ? "—" : left < 0 ? `-${count(-left)}` : count(left)
+        return (
+          <span className="flex flex-col items-end tabular-nums">
+            <span
+              className={
+                left === null
+                  ? "text-[1.5rem] leading-tight font-semibold tracking-tight text-mute"
+                  : left < 0
+                    ? "text-[1.5rem] leading-tight font-semibold tracking-tight text-bad-fg"
+                    : left <= 14
+                      ? "text-[1.5rem] leading-tight font-semibold tracking-tight text-warn-fg"
+                      : "text-[1.5rem] leading-tight font-semibold tracking-tight text-ink"
+              }
+            >
+              {figure}
+            </span>
+            <span className="text-[0.875rem] text-mute">
+              {left === null
+                ? "permanent"
+                : left < 0
+                  ? "days over"
+                  : "days left"}
+            </span>
+          </span>
+        )
+      },
+    },
+    {
+      id: "foot",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "foot" },
+      cell: ({ row }) => (
+        <Pill tone={statusTone(row.original.status)}>
+          {statusLabel(row.original.status)}
+        </Pill>
+      ),
+    },
+    {
+      id: "open",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { align: "right", card: "status" },
+      cell: ({ row }) => (
+        <Button
+          variant="tint"
+          size="card"
+          aria-label={`Open ${row.original.full_name ?? row.original.employee_code}`}
+          onClick={(event) => {
+            event.stopPropagation()
+            onOpen(row.original.employee_id)
+          }}
+        >
+          Open
+        </Button>
+      ),
+    },
+  ]
+}
 
 /// How many employees one page of the directory asks for. A step, not a
 /// ceiling: the list pages as it scrolls, and the server clamps anything above
@@ -330,6 +444,7 @@ export function Directory() {
   const adding = useSheet("addEmployee")
   const porting = useSheet("importExport")
   const employer = usePeopleAudience() === "employer"
+  const phone = useLayout() === "phone"
   const [sorting, setSorting] = useState<SortingState>([
     { id: "expiry", desc: false },
   ])
@@ -459,6 +574,7 @@ export function Directory() {
     })
   }, [fields, head])
 
+  const columns = useMemo(() => columnsOf(employee.open), [employee.open])
   const table = useTable(
     useMemo(
       () => ({
@@ -466,13 +582,22 @@ export function Directory() {
         data: rows,
         columns,
         getRowId: (row: EmployeeSummary) => row.employee_id,
-        state: { sorting },
+        state: {
+          sorting,
+          // The card's own columns are drawn on a phone and never on a desk.
+          columnVisibility: {
+            head: phone,
+            lead: phone,
+            foot: phone,
+            open: phone,
+          },
+        },
         // The rows arrive in the order the request asked for. Sorting them
         // again here would sort the pages in hand and call it the workforce.
         manualSorting: true,
         onSortingChange: setSorting,
       }),
-      [rows, sorting]
+      [rows, sorting, columns, phone]
     )
   )
 
@@ -522,25 +647,29 @@ export function Directory() {
             ? "Who works here, under what contract, and where they are posted. Personal data is a different question and a different privilege."
             : `${bounded} only — your own posting is what you may read. Personal data is a different question and a different privilege.`
         }
+        // On a phone the search, the filters and the sort are in the dock over
+        // the bottom bar, and adding is its round +.
         actions={
-          <>
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              className="h-8 w-48"
-            />
-            {/* Adding somebody, as Talenta's Add employee does it — the
+          phone ? undefined : (
+            <>
+              <Input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                className="h-8 w-48"
+              />
+              {/* Adding somebody, as Talenta's Add employee does it — the
                 hire request it replaced went with recruitment (2026-09-30). */}
-            {employer && (
-              <Button variant="ghost" onClick={() => porting.open(true)}>
-                Import & export
+              {employer && (
+                <Button variant="ghost" onClick={() => porting.open(true)}>
+                  Import & export
+                </Button>
+              )}
+              <Button variant="primary" onClick={() => adding.open(true)}>
+                <UserPlus />
+                Add employee
               </Button>
-            )}
-            <Button variant="primary" onClick={() => adding.open(true)}>
-              <UserPlus />
-              Add employee
-            </Button>
-          </>
+            </>
+          )
         }
       />
 
@@ -552,18 +681,38 @@ export function Directory() {
         />
       )}
 
-      <Toolbar>
-        <FilterPanel model={{ ...filters, fields: counted }} />
-        {/* The server's count of everything the search and the chips match,
+      <div className="max-md:hidden">
+        <Toolbar>
+          <FilterPanel model={{ ...filters, fields: counted }} />
+          {/* The server's count of everything the search and the chips match,
             not of the rows loaded so far. */}
-        {head !== undefined && (
-          <span className="ml-auto text-[0.8125rem] text-body">
-            {count(head.total)} {head.total === 1 ? "employee" : "employees"}
-          </span>
-        )}
-      </Toolbar>
+          {head !== undefined && (
+            <span className="ml-auto text-[0.875rem] text-body">
+              {count(head.total)} {head.total === 1 ? "employee" : "employees"}
+            </span>
+          )}
+        </Toolbar>
+      </div>
 
-      <Card className="overflow-hidden">
+      <Fab label="Add employee" onClick={() => adding.open(true)} />
+      <DockTools
+        search={{
+          value: query,
+          onChange: setQuery,
+          label: "Search Employees",
+        }}
+        filter={{
+          count: filters.filters.length,
+          panel: {
+            model: filters,
+            filterModel: { ...filters, fields: counted },
+            table,
+          },
+        }}
+        sort={dockSortOf(table)}
+      />
+
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(people, {
           loading: "Loading the workforce…",
           render: () =>
@@ -580,6 +729,9 @@ export function Directory() {
                 isSelected={(row) => row.employee_id === employee.value}
                 more={people}
                 className="max-h-[calc(100dvh-14rem)]"
+                cardsApart
+                cardLead
+                cardSort={false}
               />
             ),
         })}
@@ -594,6 +746,15 @@ export function Directory() {
       <AddEmployeeSheet
         open={adding.isOpen}
         onClose={adding.close}
+        // On a phone the import is reached from here, not from the top.
+        onImport={
+          employer
+            ? () => {
+                adding.close()
+                porting.open(true)
+              }
+            : undefined
+        }
         onAdded={(id) => {
           adding.close()
           employee.open(id)
@@ -778,7 +939,7 @@ function EmployeeSheetBody({
       </Facts>
 
       <div>
-        <SubTabs tabs={tabs} value={shown} onChange={setTab} />
+        <SheetTabs tabs={tabs} value={shown} onChange={setTab} />
 
         {shown === "record" && (
           <div className="flex flex-col gap-5">
@@ -2278,7 +2439,7 @@ function ClaimsTab({ employeeId }: { employeeId: string }) {
                   { label: "Out Since", align: "left" },
                   { label: "Settled", align: "right" },
                   { label: "Refunded", align: "right" },
-                  { label: "Dipulihkan Via Gaji", align: "right" },
+                  { label: "Recovered Via Pay", align: "right" },
                   { label: "Outstanding", align: "right" },
                 ]}
               >

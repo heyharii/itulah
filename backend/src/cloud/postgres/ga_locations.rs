@@ -261,8 +261,14 @@ pub async fn ga_location(
     .await?;
 
     let contracts = contracts_touching(pool, site_id, &location.site_kind, None, today).await?;
-    let utilities =
-        contracts_touching(pool, site_id, &location.site_kind, Some(LANGGANAN_TYPES), today).await?;
+    let utilities = contracts_touching(
+        pool,
+        site_id,
+        &location.site_kind,
+        Some(LANGGANAN_TYPES),
+        today,
+    )
+    .await?;
 
     Ok(GaLocationHub {
         location,

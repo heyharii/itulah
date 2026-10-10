@@ -817,6 +817,18 @@
       "port": 5398
     },
     {
+      "name": "repo-static",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8769",
+        "--bind",
+        "127.0.0.1"
+      ],
+      "port": 8769
+    },
+    {
       "name": "scratch-static",
       "runtimeExecutable": "python3",
       "runtimeArgs": [
@@ -2229,6 +2241,214 @@
       "env": {
         "VITE_API_TARGET": "https://34-128-98-21.sslip.io"
       }
+    },
+    {
+      "name": "colour-hub",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5486",
+        "--strictPort"
+      ],
+      "cwd": "frontend-hub",
+      "port": 5486,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8480",
+        "VITE_EDGE_TARGET": "http://127.0.0.1:8481",
+        "NODE_OPTIONS": "--max-old-space-size=768"
+      }
+    },
+    {
+      "name": "pos-e2e-hub-lan",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "5481",
+        "--strictPort"
+      ],
+      "cwd": "frontend-hub",
+      "port": 5481,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8480",
+        "VITE_EDGE_TARGET": "http://127.0.0.1:8481",
+        "NODE_OPTIONS": "--max-old-space-size=768"
+      }
+    },
+    {
+      "name": "audit-hub",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5360",
+        "--strictPort"
+      ],
+      "port": 5360,
+      "cwd": "frontend-hub",
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8480",
+        "VITE_EDGE_TARGET": "http://127.0.0.1:8481"
+      }
+    },
+    {
+      "name": "sales-totals-proto",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "5398",
+        "--bind",
+        "127.0.0.1"
+      ],
+      "port": 5398
+    },
+    {
+      "name": "agentic-hub",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "5580",
+        "--strictPort"
+      ],
+      "cwd": "frontend-hub",
+      "port": 5580,
+      "url": "http://127.0.0.1:5580",
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8580",
+        "VITE_EDGE_TARGET": "http://127.0.0.1:8581",
+        "NODE_OPTIONS": "--max-old-space-size=768"
+      }
+    },
+    {
+      "name": "agentic-store",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "5582",
+        "--strictPort"
+      ],
+      "cwd": "frontend-store-new",
+      "port": 5582,
+      "url": "http://127.0.0.1:5582",
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8582",
+        "VITE_CLOUD_TARGET": "http://127.0.0.1:8580"
+      }
+    },
+    {
+      "name": "agentic-till",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev:web",
+        "--",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "5584",
+        "--strictPort"
+      ],
+      "cwd": "pos-desktop/ui",
+      "port": 5584,
+      "url": "http://127.0.0.1:5584",
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8582"
+      }
+    },
+    {
+      "name": "prefetch-mock-api",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "/private/tmp/claude-501/-Users-hari-Documents-itulah/cf412715-5cca-4582-87e9-491e5f4c79d1/scratchpad/mock-api.mjs"
+      ],
+      "port": 8793,
+      "env": {
+        "PORT": "8793"
+      }
+    },
+    {
+      "name": "prefetch-hub",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "5493",
+        "--strictPort"
+      ],
+      "cwd": "frontend-hub",
+      "port": 5493,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8793",
+        "VITE_EDGE_TARGET": "http://127.0.0.1:8794"
+      }
+    },
+    {
+      "name": "po-fields-hub",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "5590",
+        "--strictPort"
+      ],
+      "cwd": "frontend-hub",
+      "port": 5590,
+      "url": "http://127.0.0.1:5590",
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8580",
+        "VITE_EDGE_TARGET": "http://127.0.0.1:8581",
+        "NODE_OPTIONS": "--max-old-space-size=768"
+      }
+    },
+    {
+      "name": "po-variants-hub",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "5880",
+        "--strictPort"
+      ],
+      "cwd": "frontend-hub",
+      "port": 5880,
+      "env": {
+        "VITE_API_TARGET": "http://127.0.0.1:8880",
+        "VITE_EDGE_TARGET": "http://127.0.0.1:8881",
+        "NODE_OPTIONS": "--max-old-space-size=768"
+      },
+      "url": "http://127.0.0.1:5880"
     }
   ]
 }

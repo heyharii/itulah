@@ -4,7 +4,7 @@
 
 use crate::cloud::application::AppError;
 use crate::cloud::domain::Authorization;
-use chrono::{Utc, Datelike, NaiveDate};
+use chrono::{Datelike, NaiveDate, Utc};
 use serde::Serialize;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
@@ -41,7 +41,9 @@ pub async fn leave_blackouts(pool: &PgPool) -> Result<Vec<LeaveBlackoutView>, Ap
                 to_date: row.try_get("to_date")?,
                 unit_id: row.try_get("unit_id")?,
                 reason: row.try_get("reason")?,
-                defined_by: row.try_get::<Option<String>, _>("defined_by")?.unwrap_or_default(),
+                defined_by: row
+                    .try_get::<Option<String>, _>("defined_by")?
+                    .unwrap_or_default(),
                 lifted: row.try_get("lifted")?,
             })
         })
@@ -60,7 +62,9 @@ pub async fn block_leave(
         return Err(AppError::Validation("a block ends before it starts".into()));
     }
     if reason.trim().is_empty() {
-        return Err(AppError::Validation("say why these dates are closed".into()));
+        return Err(AppError::Validation(
+            "say why these dates are closed".into(),
+        ));
     }
     sqlx::query(
         "INSERT INTO leave_blackout (id, from_date, to_date, unit_id, reason, defined)
@@ -209,8 +213,12 @@ pub async fn encashments_of(
                 amount_minor: row.try_get("amount_minor")?,
                 unit_id: row.try_get("unit_id")?,
                 period: period.format("%Y-%m").to_string(),
-                encashed_by: row.try_get::<Option<String>, _>("encashed_by")?.unwrap_or_default(),
-                reason: row.try_get::<Option<String>, _>("reason")?.unwrap_or_default(),
+                encashed_by: row
+                    .try_get::<Option<String>, _>("encashed_by")?
+                    .unwrap_or_default(),
+                reason: row
+                    .try_get::<Option<String>, _>("reason")?
+                    .unwrap_or_default(),
             })
         })
         .collect()
@@ -234,10 +242,14 @@ pub async fn encash_leave(
     filed: &Authorization,
 ) -> Result<String, AppError> {
     if centidays <= 0 {
-        return Err(AppError::Validation("pay out at least part of a day".into()));
+        return Err(AppError::Validation(
+            "pay out at least part of a day".into(),
+        ));
     }
     if !(1..=31).contains(&divisor_days) {
-        return Err(AppError::Validation("a day is the month's wage over 1 to 31 days".into()));
+        return Err(AppError::Validation(
+            "a day is the month's wage over 1 to 31 days".into(),
+        ));
     }
     if centidays > available_centidays {
         return Err(AppError::Conflict(format!(
@@ -419,8 +431,12 @@ fn holiday_work_row(row: &sqlx::postgres::PgRow) -> Result<HolidayWorkView, AppE
         day_kind: row.try_get("day_kind")?,
         leave_type: row.try_get("leave_type")?,
         centidays: row.try_get("centidays")?,
-        recorded_by: row.try_get::<Option<String>, _>("recorded_by")?.unwrap_or_default(),
-        reason: row.try_get::<Option<String>, _>("reason")?.unwrap_or_default(),
+        recorded_by: row
+            .try_get::<Option<String>, _>("recorded_by")?
+            .unwrap_or_default(),
+        reason: row
+            .try_get::<Option<String>, _>("reason")?
+            .unwrap_or_default(),
     })
 }
 
@@ -452,7 +468,9 @@ pub async fn record_holiday_work(
     recorded: &Authorization,
 ) -> Result<(), AppError> {
     if centidays <= 0 || centidays > 100 {
-        return Err(AppError::Validation("a day worked earns up to one day back".into()));
+        return Err(AppError::Validation(
+            "a day worked earns up to one day back".into(),
+        ));
     }
     let mut tx = pool.begin().await?;
     // Only a day they could have worked: posted somewhere on it, and not yet

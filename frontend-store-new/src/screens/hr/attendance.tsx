@@ -4,20 +4,23 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
-import { Plus } from "lucide-react"
 import { useState } from "react"
 
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { CardList } from "@/components/ui/card-list"
 import { Field, Input, Select } from "@/components/ui/field"
+import { LeadCard } from "@/components/ui/lead-card"
 import { PeopleSheet, SheetSection } from "@/components/ui/people-sheet"
 import { PeopleTable } from "@/components/ui/people-table"
 import { PeopleTabs } from "@/components/ui/people-tabs"
-import { Pill } from "@/components/ui/pill"
+import { Pill, Status } from "@/components/ui/pill"
 import { Segmented } from "@/components/ui/segmented"
 import { Stat, StatStrip } from "@/components/ui/stat-strip"
-import { Banner } from "@/components/ui/states"
-import { moment } from "@/lib/format"
+import { Banner, EmptyState } from "@/components/ui/states"
+import { dateText, moment } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   attendanceOf,
   attendanceToday,
@@ -38,24 +41,28 @@ import {
 } from "@/lib/queries/hr"
 import { cn } from "@/lib/utils"
 import { centreState } from "@/screens/hr/centre"
-import { RefusedBanner } from "@/screens/hr/refused"
 import {
-  Decision,
+  dateLead,
   Facts,
   Heading,
   Person,
-  PersonPicker,
+  personCard,
   Submit,
+  useDecision,
 } from "@/screens/hr/parts"
+import { RefusedBanner } from "@/screens/hr/refused"
+import { SwapList } from "@/screens/hr/swaps"
 import {
   dayStatus,
   outcomeWord,
+  personByLogin,
   personName,
   requestState,
-  useTeam,
+  teamRows,
   usePendingSwaps,
+  useTeam,
+  type Tone,
 } from "@/screens/hr/words"
-import { SwapList } from "@/screens/hr/swaps"
 import { HrWorkspace } from "@/screens/hr/workspace"
 import type {
   AttendanceDayView,
@@ -81,16 +88,22 @@ import type {
 /// The centre says whether any punch source has ever reported for this shop.
 /// Until one has, every day reads as not assessed rather than as a row of
 /// absences — a red cell would be a claim that something looked.
+///
+/// # The phone
+///
+/// The three slices are the dock's one chip (`PeopleTabs`); the month is a row
+/// of the ⚙ sheet. The monthly sheet of thirty columns is one lead card per
+/// person — the days present as the figure, what is wrong in the foot — and a
+/// person's month is a sheet that lists the days one under the other, with a
+/// "Record a fix" on every day nothing was recorded. The desk keeps the grid.
 export function HrAttendance() {
   const [recording, setRecording] = useState<Prefill | null>(null)
   return (
     <HrWorkspace
-      actions={
-        <Button variant="primary" onClick={() => setRecording({})}>
-          <Plus />
-          Record a fix
-        </Button>
-      }
+      primary={{
+        label: "New attendance fix",
+        onClick: () => setRecording({}),
+      }}
     >
       {(scope) => (
         <Attendance
@@ -103,14 +116,20 @@ export function HrAttendance() {
   )
 }
 
-/// What a "Record a fix" sheet opens already filled in — from a `?` cell on the
-/// month's sheet, the person and the day.
+/// What a "New attendance fix" sheet opens already filled in — from a `?` day
+/// on the month's sheet, the person and the day.
 interface Prefill {
   readonly employeeId?: string
   readonly date?: string
 }
 
 type Tab = "today" | "sheet" | "fixes"
+
+/// One person's month, opened: which month it is the sheet's own question.
+interface Opened {
+  readonly employeeId: string
+  readonly period: string
+}
 
 function Attendance({
   scope,
@@ -122,6 +141,7 @@ function Attendance({
   onRecord: (prefill: Prefill | null) => void
 }) {
   const [tab, setTab] = useState<Tab>("today")
+  const [opened, setOpened] = useState<Opened | null>(null)
   const team = useTeam(scope)
   const pendingFixes = useQuery({
     queryKey: hrKeys.corrections(scope.unit_id, true),
@@ -142,15 +162,38 @@ function Attendance({
           { value: "fixes", label: "Fixes & swaps", count: waiting },
         ]}
       />
-      {tab === "today" && <Today scope={scope} team={team.data} />}
-      {tab === "sheet" && (
-        <Sheet
+      {tab === "today" && (
+        <Today
           scope={scope}
           team={team.data}
+          onOpen={(employeeId) =>
+            setOpened({ employeeId, period: isoMonth(new Date()) })
+          }
+        />
+      )}
+      {tab === "sheet" && (
+        <MonthlySheet
+          scope={scope}
+          team={team.data}
+          onOpen={(employeeId, period) => setOpened({ employeeId, period })}
           onFix={(employeeId, date) => onRecord({ employeeId, date })}
         />
       )}
       {tab === "fixes" && <Fixes scope={scope} team={team.data} />}
+
+      {opened !== null && (
+        <PersonMonth
+          key={`${opened.employeeId}-${opened.period}`}
+          opened={opened}
+          team={team.data}
+          onClose={() => setOpened(null)}
+          onFix={(employeeId, date) => {
+            // One sheet at a time: the fix opens where this one was.
+            setOpened(null)
+            onRecord({ employeeId, date })
+          }}
+        />
+      )}
 
       {recording !== null && (
         <RecordFix
@@ -184,14 +227,31 @@ function sourceWord(sources: readonly string[]): string {
     .join(" + ")
 }
 
+/// A rostered day in a line: `Morning 09:00–17:00`, or what the day is.
+function shiftWord(
+  plan: {
+    plan: string
+    shift_name: string | null
+    starts_at: string | null
+    ends_at: string | null
+  } | null,
+): string {
+  if (plan === null) return "Not rostered"
+  return plan.plan === "SCHEDULED"
+    ? `${plan.shift_name ?? "Shift"} ${plan.starts_at ?? ""}–${plan.ends_at ?? ""}`
+    : planWord(plan.plan)
+}
+
 // ── today ───────────────────────────────────────────────────────────────────
 
 function Today({
   scope,
   team,
+  onOpen,
 }: {
   scope: StoreScope
   team: EmployeeList | undefined
+  onOpen: (employeeId: string) => void
 }) {
   const today = isoDay(new Date())
   const roster = useQuery({
@@ -204,7 +264,7 @@ function Today({
   })
 
   return centreState(attendance, {
-    loading: "Loading…",
+    loading: "Reading today's attendance…",
     what: "today's attendance",
     render: (view) => {
       const connected = view.punch_source_connected
@@ -273,7 +333,36 @@ function Today({
           <PeopleTable
             rows={rows}
             rowKey={(row) => row.employeeId}
-            empty="Nobody rostered or checked in today."
+            onRowClick={(row) => onOpen(row.employeeId)}
+            empty="Nobody is rostered or checked in today."
+            card={(row) => {
+              const arrival = row.day?.arrival ?? null
+              return {
+                ...personCard(team, row.employeeId, [shiftWord(row.plan)]),
+                // The time they checked in; before that, the time they are
+                // due, quieter. A day off has no time to say.
+                lead:
+                  arrival !== null
+                    ? { figure: clockOf(arrival), caption: "checked in" }
+                    : row.plan?.plan === "SCHEDULED" &&
+                        row.plan.starts_at !== null
+                      ? {
+                          figure: row.plan.starts_at,
+                          caption: "due in",
+                          muted: true,
+                        }
+                      : undefined,
+                foot: {
+                  info: (
+                    <Status tone={row.status.tone}>{row.status.label}</Status>
+                  ),
+                  action: {
+                    label: "Open",
+                    onClick: () => onOpen(row.employeeId),
+                  },
+                },
+              }
+            }}
             columns={[
               {
                 key: "who",
@@ -284,12 +373,7 @@ function Today({
                 key: "shift",
                 header: "Shift",
                 card: "meta",
-                cell: (row) =>
-                  row.plan === null
-                    ? "Not rostered"
-                    : row.plan.plan === "SCHEDULED"
-                      ? `${row.plan.shift_name ?? "Shift"} ${row.plan.starts_at ?? ""}–${row.plan.ends_at ?? ""}`
-                      : planWord(row.plan.plan),
+                cell: (row) => shiftWord(row.plan),
               },
               {
                 key: "in",
@@ -332,13 +416,13 @@ function Today({
                   return extra.length === 0 ? (
                     <span className="text-faint">—</span>
                   ) : (
-                    <span className="flex flex-wrap gap-1">
+                    <span className="flex flex-wrap gap-x-3 gap-y-1">
                       {extra.map((code) => {
                         const word = outcomeWord(code)
                         return (
-                          <Pill key={code} tone={word.tone}>
+                          <Status key={code} tone={word.tone}>
                             {word.label}
-                          </Pill>
+                          </Status>
                         )
                       })}
                     </span>
@@ -350,7 +434,7 @@ function Today({
                 header: "Status",
                 card: "status",
                 cell: (row) => (
-                  <Pill tone={row.status.tone}>{row.status.label}</Pill>
+                  <Status tone={row.status.tone}>{row.status.label}</Status>
                 ),
               },
             ]}
@@ -358,9 +442,7 @@ function Today({
 
           {view.underivable.length > 0 && (
             <>
-              <Heading count={view.underivable.length}>
-                Not assessed
-              </Heading>
+              <Heading count={view.underivable.length}>Not assessed</Heading>
               <Banner tone="warn">
                 {view.underivable.map((day) => (
                   <span
@@ -381,25 +463,44 @@ function Today({
 
 // ── the month's sheet ───────────────────────────────────────────────────────
 
-/// One letter per day, the prototype's attendance sheet legend.
+/// One day, as the prototype's attendance sheet draws it: a letter in a tinted
+/// box on a desk, the same day in words (and the tone's dot) in a person's
+/// month on a phone.
 function letter(
   day: AttendanceDayView | undefined,
   connected: boolean,
-): { code: string; tone: string; title: string } {
+): { code: string; tone: string; title: string; dot: Tone } {
   if (day === undefined) {
-    return { code: "", tone: "text-faint", title: "Not planned" }
+    return {
+      code: "",
+      tone: "text-faint",
+      title: "Not planned",
+      dot: "neutral",
+    }
   }
-  if (day.plan === "REST_DAY")
-    return { code: "L", tone: "bg-soft-2 text-body", title: "Day off" }
+  if (day.plan === "REST_DAY") {
+    return {
+      code: "L",
+      tone: "bg-soft-2 text-body",
+      title: "Day off",
+      dot: "neutral",
+    }
+  }
   if (day.plan === "PUBLIC_HOLIDAY") {
     return {
       code: "N",
       tone: "bg-warn-bg text-warn-fg",
       title: "Public holiday",
+      dot: "neutral",
     }
   }
   if (day.outcomes.includes("APPROVED_LEAVE")) {
-    return { code: "C", tone: "bg-info-bg text-info-fg", title: "On leave" }
+    return {
+      code: "C",
+      tone: "bg-info-bg text-info-fg",
+      title: "On leave",
+      dot: "info",
+    }
   }
   if (day.arrival !== null) {
     return day.outcomes.includes("LATE")
@@ -407,17 +508,53 @@ function letter(
           code: "T",
           tone: "bg-warn-bg text-warn-fg",
           title: `Late by ${day.late_minutes} min`,
+          dot: "warn",
         }
-      : { code: "H", tone: "bg-ok-bg text-ok-fg", title: "Present" }
+      : {
+          code: "H",
+          tone: "bg-ok-bg text-ok-fg",
+          title: "Present",
+          dot: "ok",
+        }
   }
-  if (!connected) return { code: "·", tone: "text-mute", title: "Not assessed" }
+  if (!connected) {
+    return {
+      code: "·",
+      tone: "text-mute",
+      title: "Not assessed",
+      dot: "neutral",
+    }
+  }
   if (day.outcomes.includes("ABSENT")) {
-    return { code: "A", tone: "bg-bad-bg text-bad-fg", title: "Absent" }
+    return {
+      code: "A",
+      tone: "bg-bad-bg text-bad-fg",
+      title: "Absent",
+      dot: "bad",
+    }
   }
   return {
     code: "?",
     tone: "bg-bad-bg text-bad-fg",
     title: "Not recorded",
+    dot: "bad",
+  }
+}
+
+/// What a person's days add up to. `unrecorded` is `null` — not zero — while no
+/// punch source has reported: a zero would say somebody looked.
+function tally(days: readonly AttendanceDayView[], connected: boolean) {
+  const rostered = days.filter((day) => day.plan === "SCHEDULED")
+  return {
+    rostered: rostered.length,
+    present: rostered.filter((day) => day.arrival !== null).length,
+    late: rostered.filter((day) => day.outcomes.includes("LATE")).length,
+    unrecorded: connected
+      ? rostered.filter(
+          (day) =>
+            day.arrival === null && !day.outcomes.includes("APPROVED_LEAVE"),
+        ).length
+      : null,
   }
 }
 
@@ -426,26 +563,39 @@ const MONTHS = [
   { value: "last", label: "Last month" },
 ] as const
 
-function Sheet({
+type Which = (typeof MONTHS)[number]["value"]
+
+function periodOf(which: Which): string {
+  const now = new Date()
+  return which === "this"
+    ? isoMonth(now)
+    : isoMonth(new Date(now.getFullYear(), now.getMonth() - 1, 1))
+}
+
+/// The days a month's sheet reads: up to today, not the month's end — a day
+/// that has not happened yet has no attendance, and asking for it only fills
+/// the sheet with blanks.
+function monthWindow(period: string): { from: string; to: string } {
+  const { from, to: monthEnd } = monthBounds(period)
+  const today = isoDay(new Date())
+  return { from, to: monthEnd < today ? monthEnd : today }
+}
+
+function MonthlySheet({
   scope,
   team,
+  onOpen,
   onFix,
 }: {
   scope: StoreScope
   team: EmployeeList | undefined
+  onOpen: (employeeId: string, period: string) => void
   onFix: (employeeId: string, date: string) => void
 }) {
-  const [which, setWhich] = useState<(typeof MONTHS)[number]["value"]>("this")
-  const now = new Date()
-  const period =
-    which === "this"
-      ? isoMonth(now)
-      : isoMonth(new Date(now.getFullYear(), now.getMonth() - 1, 1))
-  const { from, to: monthEnd } = monthBounds(period)
-  // Up to today, not the month's end: a day that has not happened yet has no
-  // attendance, and asking for it only fills the sheet with blanks.
-  const today = isoDay(now)
-  const to = monthEnd < today ? monthEnd : today
+  const phone = useLayout() === "phone"
+  const [which, setWhich] = useState<Which>("this")
+  const period = periodOf(which)
+  const { from, to } = monthWindow(period)
   const dates: string[] = []
   for (
     let day = new Date(`${from}T00:00:00`);
@@ -473,7 +623,18 @@ function Sheet({
 
   return (
     <>
-      <div className="mb-4 md:max-w-[20rem]">
+      {/* The month, a row of the ⚙ sheet on a phone and a switch on a desk. */}
+      <DockTools
+        views={[
+          {
+            title: "Month",
+            value: which,
+            options: MONTHS,
+            onChange: (next) => setWhich(next as Which),
+          },
+        ]}
+      />
+      <div className="mb-4 max-md:hidden md:max-w-[20rem]">
         <Segmented options={MONTHS} value={which} onChange={setWhich} />
       </div>
       <Heading>{readMonth(period)}</Heading>
@@ -483,7 +644,48 @@ function Sheet({
       )}
 
       {people.length === 0 ? (
-        <Banner tone="info">Nobody is posted to {scope.label}.</Banner>
+        <EmptyState>Nobody is posted to {scope.label}.</EmptyState>
+      ) : phone ? (
+        <CardList>
+          {people.map((person, index) => {
+            const read = reads[index]
+            const sums = tally(read?.data?.days ?? [], connected)
+            const state: { word: string; tone: Tone } = read?.isPending
+              ? { word: "Reading…", tone: "neutral" }
+              : !connected
+                ? { word: "Not assessed", tone: "neutral" }
+                : (sums.unrecorded ?? 0) > 0
+                  ? { word: `${sums.unrecorded} unrecorded`, tone: "bad" }
+                  : sums.late > 0
+                    ? { word: `${sums.late} late`, tone: "warn" }
+                    : sums.rostered === 0
+                      ? { word: "Not rostered", tone: "neutral" }
+                      : { word: "No issues", tone: "ok" }
+            return (
+              <LeadCard
+                key={person.employee_id}
+                {...personCard(team, person.employee_id)}
+                lead={{
+                  figure: read?.isPending
+                    ? "…"
+                    : connected
+                      ? sums.present
+                      : "—",
+                  caption: `of ${sums.rostered} rostered`,
+                  muted: !connected,
+                }}
+                foot={{
+                  info: <Status tone={state.tone}>{state.word}</Status>,
+                  action: {
+                    label: "Open",
+                    onClick: () => onOpen(person.employee_id, period),
+                  },
+                }}
+                onOpen={() => onOpen(person.employee_id, period)}
+              />
+            )
+          })}
+        </CardList>
       ) : (
         <Card>
           <div className="overflow-x-auto">
@@ -496,12 +698,11 @@ function Sheet({
                   {dates.map((date) => (
                     <th
                       key={date}
-                      className="h-10 min-w-7 border-b border-hairline bg-soft px-0.5 text-center text-[0.6875rem] font-medium text-body tabular-nums"
+                      className="h-10 min-w-7 border-b border-hairline bg-soft px-0.5 text-center text-[0.875rem] font-medium text-body tabular-nums"
                     >
-                      {new Date(`${date}T00:00:00`).toLocaleDateString(
-                        "id-ID",
-                        { weekday: "narrow" },
-                      )}
+                      {dateText(new Date(`${date}T00:00:00`), {
+                        weekday: "narrow",
+                      })}
                       <br />
                       {Number(date.slice(8))}
                     </th>
@@ -524,28 +725,21 @@ function Sheet({
                   const days = new Map(
                     (read?.data?.days ?? []).map((day) => [day.date, day]),
                   )
-                  const all = read?.data?.days ?? []
-                  const rostered = all.filter((day) => day.plan === "SCHEDULED")
-                  const present = rostered.filter(
-                    (day) => day.arrival !== null,
-                  ).length
-                  const late = rostered.filter((day) =>
-                    day.outcomes.includes("LATE"),
-                  ).length
-                  const unrecorded = connected
-                    ? rostered.filter(
-                        (day) =>
-                          day.arrival === null &&
-                          !day.outcomes.includes("APPROVED_LEAVE"),
-                      ).length
-                    : null
+                  const sums = tally(read?.data?.days ?? [], connected)
+                  const name = person.full_name ?? person.employee_code
                   return (
                     <tr
                       key={person.employee_id}
                       className="border-b border-hairline last:border-b-0"
                     >
                       <th className="sticky left-0 z-10 max-w-[11rem] truncate bg-canvas px-3 py-1.5 text-left text-cell font-medium text-ink">
-                        {person.full_name ?? person.employee_code}
+                        <button
+                          type="button"
+                          onClick={() => onOpen(person.employee_id, period)}
+                          className="max-w-full truncate text-left hover:underline"
+                        >
+                          {name}
+                        </button>
                       </th>
                       {dates.map((date) => {
                         const cell = letter(days.get(date), connected)
@@ -556,10 +750,10 @@ function Sheet({
                               <button
                                 type="button"
                                 title={cell.title}
-                                aria-label={`${person.full_name ?? person.employee_code}, ${readDate(date)}: not recorded`}
+                                aria-label={`${name}, ${readDate(date)}: not recorded`}
                                 onClick={() => onFix(person.employee_id, date)}
                                 className={cn(
-                                  "inline-grid size-6 place-items-center rounded-md text-[0.6875rem] font-semibold pointer-coarse:size-9",
+                                  "inline-grid size-6 place-items-center rounded-md text-[0.875rem] font-semibold pointer-coarse:size-9",
                                   cell.tone,
                                 )}
                               >
@@ -569,7 +763,7 @@ function Sheet({
                               <span
                                 title={cell.title}
                                 className={cn(
-                                  "inline-grid size-6 place-items-center rounded-md text-[0.6875rem] font-semibold",
+                                  "inline-grid size-6 place-items-center rounded-md text-[0.875rem] font-semibold",
                                   cell.tone,
                                 )}
                               >
@@ -580,23 +774,23 @@ function Sheet({
                         )
                       })}
                       <td className="px-2.5 text-right text-meta tabular-nums">
-                        {rostered.length}
+                        {sums.rostered}
                       </td>
                       <td className="px-2.5 text-right text-meta tabular-nums">
-                        {connected ? present : "—"}
+                        {connected ? sums.present : "—"}
                       </td>
                       <td className="px-2.5 text-right text-meta tabular-nums">
-                        {connected ? late : "—"}
+                        {connected ? sums.late : "—"}
                       </td>
                       <td
                         className={cn(
                           "px-2.5 text-right text-meta tabular-nums",
-                          unrecorded !== null &&
-                            unrecorded > 0 &&
+                          sums.unrecorded !== null &&
+                            sums.unrecorded > 0 &&
                             "font-semibold text-bad-fg",
                         )}
                       >
-                        {unrecorded ?? "—"}
+                        {sums.unrecorded ?? "—"}
                       </td>
                     </tr>
                   )
@@ -607,31 +801,141 @@ function Sheet({
         </Card>
       )}
 
-      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-meta text-body">
-        {[
-          ["H", "Present", "bg-ok-bg text-ok-fg"],
-          ["T", "Late", "bg-warn-bg text-warn-fg"],
-          ["C", "Leave", "bg-info-bg text-info-fg"],
-          ["A", "Absent", "bg-bad-bg text-bad-fg"],
-          ["?", "Not recorded", "bg-bad-bg text-bad-fg"],
-          ["L", "Day off", "bg-soft-2 text-body"],
-          ["N", "Public holiday", "bg-warn-bg text-warn-fg"],
-          ["·", "Not assessed", "text-mute"],
-        ].map(([code, label, tone]) => (
-          <span key={code} className="inline-flex items-center gap-1.5">
-            <span
-              className={cn(
-                "inline-grid size-5 place-items-center rounded-md text-[0.625rem] font-semibold",
-                tone,
-              )}
-            >
-              {code}
+      {/* The key to the letters — a desk's grid is read in them. */}
+      {!phone && people.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-meta text-body">
+          {[
+            ["H", "Present", "bg-ok-bg text-ok-fg"],
+            ["T", "Late", "bg-warn-bg text-warn-fg"],
+            ["C", "Leave", "bg-info-bg text-info-fg"],
+            ["A", "Absent", "bg-bad-bg text-bad-fg"],
+            ["?", "Not recorded", "bg-bad-bg text-bad-fg"],
+            ["L", "Day off", "bg-soft-2 text-body"],
+            ["N", "Public holiday", "bg-warn-bg text-warn-fg"],
+            ["·", "Not assessed", "text-mute"],
+          ].map(([code, label, tone]) => (
+            <span key={code} className="inline-flex items-center gap-1.5">
+              <span
+                className={cn(
+                  "inline-grid size-6 place-items-center rounded-md text-[0.875rem] font-semibold",
+                  tone,
+                )}
+              >
+                {code}
+              </span>
+              {label}
             </span>
-            {label}
-          </span>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </>
+  )
+}
+
+/// One person's month, day by day — the phone's answer to the thirty-column
+/// grid, and the desk's too when somebody's name is pressed. Newest day first;
+/// a day nothing was recorded on has the way to record it right on it.
+function PersonMonth({
+  opened,
+  team,
+  onClose,
+  onFix,
+}: {
+  opened: Opened
+  team: EmployeeList | undefined
+  onClose: () => void
+  onFix: (employeeId: string, date: string) => void
+}) {
+  const { from, to } = monthWindow(opened.period)
+  const read = useQuery({
+    queryKey: hrKeys.attendanceOf(opened.employeeId, from, to),
+    queryFn: ({ signal }) => attendanceOf(opened.employeeId, from, to, signal),
+  })
+  const person = team?.rows.find((one) => one.employee_id === opened.employeeId)
+  const dates: string[] = []
+  for (
+    let day = new Date(`${to}T00:00:00`);
+    isoDay(day) >= from;
+    day.setDate(day.getDate() - 1)
+  ) {
+    dates.push(isoDay(day))
+  }
+  const connected = read.data?.punch_source_connected === true
+  const days = new Map((read.data?.days ?? []).map((day) => [day.date, day]))
+  const sums = tally(read.data?.days ?? [], connected)
+
+  return (
+    <PeopleSheet
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose()
+      }}
+      id={person?.full_name ? person.employee_code : undefined}
+      crumb="Attendance"
+      title={personName(team, opened.employeeId)}
+      sub={readMonth(opened.period)}
+      status={
+        (sums.unrecorded ?? 0) > 0 ? (
+          <Pill tone="bad">{sums.unrecorded} unrecorded</Pill>
+        ) : undefined
+      }
+    >
+      {centreState(read, {
+        loading: "Reading the month…",
+        what: "this person's attendance",
+        render: () => (
+          <>
+            <Facts
+              rows={[
+                ["Rostered", `${sums.rostered} days`],
+                ["Present", connected ? `${sums.present} days` : "—"],
+                ["Late", connected ? `${sums.late} days` : "—"],
+                [
+                  "Unrecorded",
+                  sums.unrecorded === null ? "—" : `${sums.unrecorded} days`,
+                ],
+              ]}
+            />
+            <SheetSection title="Days" className="mt-6">
+              <ul>
+                {dates.map((date) => {
+                  const day = days.get(date)
+                  const cell = letter(day, connected)
+                  const times = day?.arrival
+                    ? `${clockOf(day.arrival)}–${clockOf(day.departure)}`
+                    : null
+                  return (
+                    <li
+                      key={date}
+                      className="flex min-h-14 items-center gap-3 border-b border-hairline py-2 last:border-b-0"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="text-cell text-ink">
+                          {readDate(date, true)}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-x-2 text-[0.875rem] text-mute">
+                          <Status tone={cell.dot}>{cell.title}</Status>
+                          {times !== null && <span>{times}</span>}
+                        </div>
+                      </div>
+                      {cell.code === "?" && (
+                        <Button
+                          variant="tint"
+                          size="card"
+                          onClick={() => onFix(opened.employeeId, date)}
+                        >
+                          New fix
+                        </Button>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+            </SheetSection>
+          </>
+        ),
+      })}
+    </PeopleSheet>
   )
 }
 
@@ -674,7 +978,7 @@ function Fixes({
         Attendance fixes
       </Heading>
       {centreState(history, {
-        loading: "Loading…",
+        loading: "Reading the attendance fixes…",
         what: "this shop's attendance fixes",
         render: (rows) => (
           <PeopleTable
@@ -689,7 +993,30 @@ function Fixes({
             )}
             rowKey={(fix) => fix.id}
             onRowClick={setOpen}
-            empty="No fixes requested."
+            empty="No attendance fixes."
+            card={(fix) => {
+              const state = requestState(fix.state)
+              const known = team?.rows.some(
+                (person) => person.employee_id === fix.employee_id,
+              )
+              const head = personCard(team, fix.employee_id, [effectWord(fix)])
+              return {
+                ...head,
+                // Somebody not on this shop's list any more keeps the name the
+                // fix was filed under, not their id.
+                title: known
+                  ? head.title
+                  : fix.display_name || fix.employee_code,
+                lead: dateLead(fix.business_date),
+                foot: {
+                  info: <Status tone={state.tone}>{state.label}</Status>,
+                  action: {
+                    label: fix.state === "PENDING" ? "Review" : "Open",
+                    onClick: () => setOpen(fix),
+                  },
+                },
+              }
+            }}
             columns={[
               {
                 key: "who",
@@ -727,7 +1054,7 @@ function Fixes({
                 card: "status",
                 cell: (fix) => {
                   const state = requestState(fix.state)
-                  return <Pill tone={state.tone}>{state.label}</Pill>
+                  return <Status tone={state.tone}>{state.label}</Status>
                 },
               },
             ]}
@@ -773,6 +1100,13 @@ function FixSheet({
     },
   })
   const state = requestState(fix.state)
+  const waiting = fix.state === "PENDING"
+  const decision = useDecision({
+    placeholder: "Reader was down that morning",
+    pending: decide.isPending,
+    error: decide.error,
+    onDecide: (approve, reason) => decide.mutate({ approve, reason }),
+  })
 
   return (
     <PeopleSheet
@@ -780,31 +1114,27 @@ function FixSheet({
       onOpenChange={(next) => {
         if (!next) onClose()
       }}
+      id={fix.employee_code}
       crumb="Attendance fix"
       title={fix.display_name || personName(team, fix.employee_id)}
       sub={`${effectWord(fix)} · ${readDate(fix.business_date, true)}`}
       status={<Pill tone={state.tone}>{state.label}</Pill>}
-      foot={
-        fix.state === "PENDING" ? (
-          <Decision
-            placeholder="Reader was down that morning"
-            pending={decide.isPending}
-            error={decide.error}
-            onDecide={(approve, reason) => decide.mutate({ approve, reason })}
-          />
-        ) : undefined
-      }
+      foot={waiting ? decision.footer : undefined}
     >
       <SheetSection title="The ask">
         <Facts
           rows={[
             ["Day", readDate(fix.business_date, true)],
             ["Fix", effectWord(fix)],
-            ["Because", fix.reason],
-            ["Asked by", `${fix.requested_by} · ${moment(fix.requested_at)}`],
+            ["Because", fix.reason, true],
+            [
+              "Asked by",
+              `${personByLogin(team, fix.requested_by)} · ${moment(fix.requested_at)}`,
+            ],
+            waiting && ["Waiting on", "Store head"],
             fix.supersedes !== null && [
               "Replaces",
-              "an earlier fix of the same day",
+              "An earlier fix of the same day",
             ],
           ]}
         />
@@ -813,18 +1143,22 @@ function FixSheet({
         <SheetSection title="Decision">
           <Facts
             rows={[
-              ["By", `${fix.decided_by} · ${moment(fix.decided_at)}`],
-              ["Why", fix.decision_reason ?? "—"],
+              [
+                "By",
+                `${personByLogin(team, fix.decided_by)} · ${moment(fix.decided_at)}`,
+              ],
+              ["Why", fix.decision_reason ?? "—", true],
             ]}
           />
         </SheetSection>
       )}
+      {waiting && decision.field}
     </PeopleSheet>
   )
 }
 
-/// Record a fix — the prototype's *Catat perbaikan*. Filed by the shop, decided
-/// by the store head (and never by the same person who filed it).
+/// New attendance fix — the prototype's *Catat perbaikan*. Filed by the shop,
+/// decided by the store head (and never by the same person who filed it).
 function RecordFix({
   prefill,
   team,
@@ -862,6 +1196,9 @@ function RecordFix({
     },
   })
 
+  // Only the active ones: a fix for somebody who has left would be refused.
+  const people = teamRows(team).filter((person) => person.status === "ACTIVE")
+
   return (
     <PeopleSheet
       open
@@ -869,25 +1206,32 @@ function RecordFix({
         if (!next) onClose()
       }}
       crumb="Attendance"
-      title="Record a fix"
+      title="New attendance fix"
       foot={
         <Submit
-          label="Send to the store head"
+          label="Submit"
+          pendingLabel="Submitting…"
           pending={file.isPending}
           disabled={employeeId === "" || date === "" || reason.trim() === ""}
           error={file.error}
           onSubmit={() => file.mutate()}
+          onCancel={onClose}
         />
       }
     >
       <div className="flex flex-col gap-3">
-        <PersonPicker
-          team={team}
-          value={employeeId}
-          onChange={setEmployeeId}
-          label="Employee"
-        />
-        <Field label="Day">
+        <Field label="Employee" required>
+          <Select value={employeeId} onChange={setEmployeeId}>
+            <option value="">Choose a person…</option>
+            {people.map((person) => (
+              <option key={person.employee_id} value={person.employee_id}>
+                {person.full_name ?? person.employee_code}
+                {person.position === null ? "" : ` · ${person.position}`}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Day" required>
           <Input
             type="date"
             value={date}
@@ -895,7 +1239,7 @@ function RecordFix({
             onChange={(event) => setDate(event.target.value)}
           />
         </Field>
-        <Field label="What was missed">
+        <Field label="What was missed" required>
           <Select
             value={effect}
             onChange={(value) => setEffect(value as CorrectionEffect)}
@@ -907,7 +1251,7 @@ function RecordFix({
         </Field>
         <div className="grid grid-cols-2 gap-3">
           {effect !== "DEPARTURE" && (
-            <Field label="Arrived at">
+            <Field label="Arrived at" required>
               <Input
                 type="time"
                 value={arrival}
@@ -916,7 +1260,7 @@ function RecordFix({
             </Field>
           )}
           {effect !== "ARRIVAL" && (
-            <Field label="Left at">
+            <Field label="Left at" required>
               <Input
                 type="time"
                 value={departure}
@@ -925,7 +1269,7 @@ function RecordFix({
             </Field>
           )}
         </div>
-        <Field label="Reason">
+        <Field label="Reason" required>
           <Input
             value={reason}
             placeholder="The reader was down this morning"

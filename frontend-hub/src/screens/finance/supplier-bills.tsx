@@ -5,12 +5,13 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
-import type { ColumnDef, SortingState } from "@tanstack/react-table"
+import type { ColumnDef, RowData, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Day } from "@/components/ui/day"
+import { Fab } from "@/components/ui/fab"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -40,6 +41,7 @@ import {
 } from "@/components/ui/states"
 import { useFilters, type Filter } from "@/lib/filters"
 import { count, day, label, money, toneFor } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   billDetail,
   billWarnings,
@@ -53,6 +55,7 @@ import {
   returnBill,
   unbilledReceipts,
 } from "@/lib/queries/finance"
+import { useUnits } from "@/lib/queries/organisation"
 import { queryState } from "@/lib/query-state"
 import { useSheet, type SheetKey } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
@@ -62,16 +65,16 @@ import {
   parseMinor,
   todayIso,
 } from "@/screens/finance/chart"
-import { useAsOf, useSupplierName } from "@/screens/finance/hooks"
+import { useSupplierName } from "@/screens/finance/hooks"
 import {
   AccountAndCategory,
   accountChoiceReady,
   type AccountChoice,
-  AsOfControl,
   SiteName,
   SiteSelect,
   SupplierName,
   SupplierPicker,
+  UnitSelect,
 } from "@/screens/finance/parts"
 import { ApiError } from "@itulah/contract/client"
 import type {
@@ -104,7 +107,7 @@ function isLate(bill: SupplierBill): boolean {
   return bill.status.toUpperCase() !== "POSTED" && bill.days_overdue > 0
 }
 
-const billColumns: ColumnDef<TableSetup, SupplierBill>[] = [
+const deskBillColumns: ColumnDef<TableSetup, SupplierBill>[] = [
   {
     accessorKey: "invoice_number",
     header: "Invoice",
@@ -387,7 +390,7 @@ function LineRefs({ line }: { line: SupplierBillLine }) {
           to="/assets"
           sheetKey="asset"
           value={line.asset_id}
-          label="Aset"
+          label="Asset"
         />
       )}
       {line.repair_id !== null && (
@@ -395,7 +398,7 @@ function LineRefs({ line }: { line: SupplierBillLine }) {
           to="/maintenance"
           sheetKey="repair"
           value={line.repair_id}
-          label="Perbaikan"
+          label="Repair"
         />
       )}
       {line.contract_id !== null && (
@@ -403,7 +406,7 @@ function LineRefs({ line }: { line: SupplierBillLine }) {
           to="/contracts"
           sheetKey="contract"
           value={line.contract_id}
-          label="Kontrak"
+          label="Contract"
         />
       )}
       {line.supply_request_id !== null && (
@@ -411,7 +414,7 @@ function LineRefs({ line }: { line: SupplierBillLine }) {
           to="/supplies"
           sheetKey="supply"
           value={line.supply_request_id}
-          label="Permintaan"
+          label="Supply request"
         />
       )}
     </span>
@@ -429,9 +432,9 @@ function LineSource({ line }: { line: SupplierBillLine }) {
   if (line.source === null && !line.account_overridden) return null
   return (
     <span className="shrink-0 truncate rounded-inner bg-soft-2 px-[0.375rem] text-[0.875rem] text-body">
-      {line.source ?? "usulan GA"}
+      {line.source ?? "GA suggestion"}
       {line.account_overridden && (
-        <span className="text-mute"> · diganti Finance</span>
+        <span className="text-mute"> · changed by Finance</span>
       )}
     </span>
   )
@@ -441,8 +444,8 @@ function LineSource({ line }: { line: SupplierBillLine }) {
 /// for. Spliced in before Status rather than appended, so the two figures a
 /// reader compares — what it was for, and what it came to — are not at opposite
 /// ends of a wide row.
-const expenseColumns: ColumnDef<TableSetup, SupplierBill>[] = [
-  ...billColumns.slice(0, 3),
+const deskExpenseColumns: ColumnDef<TableSetup, SupplierBill>[] = [
+  ...deskBillColumns.slice(0, 3),
   {
     id: "lines",
     header: "Lines",
@@ -451,10 +454,124 @@ const expenseColumns: ColumnDef<TableSetup, SupplierBill>[] = [
     meta: { align: "right" },
     cell: ({ row }) => <LineCount id={row.original.invoice_id} />,
   },
-  ...billColumns.slice(3),
+  ...deskBillColumns.slice(3),
 ]
 
-const unbilledColumns: ColumnDef<TableSetup, UnbilledReceipt>[] = [
+/// A phone draws each row as a card (`cardLead`), made of the columns below
+/// and none of the desk's: the desk's are left out of the card (`card:
+/// "hide"`) and these are left out of the desk table (`columnVisibility`, set
+/// where the table is built).
+function onTheDesk<TRow extends RowData>(
+  columns: ColumnDef<TableSetup, TRow>[]
+): ColumnDef<TableSetup, TRow>[] {
+  return columns.map((column) => ({
+    ...column,
+    meta: { ...column.meta, card: "hide" as const },
+  })) as ColumnDef<TableSetup, TRow>[]
+}
+
+/// A bill as a card: who it is owed to over the invoice number, what is still
+/// owed as the figure, then when it falls due and where it stands.
+const billCardColumns: ColumnDef<TableSetup, SupplierBill>[] = [
+  {
+    id: "head",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <SupplierName
+          id={row.original.supplier_id}
+          name={row.original.supplier_name}
+          className="block break-words"
+        />
+        <span className="flex flex-wrap items-center gap-1.5">
+          <span className="font-mono text-[0.875rem] font-normal text-mute">
+            {row.original.invoice_number}
+          </span>
+          <BillMarks bill={row.original} />
+        </span>
+      </span>
+    ),
+  },
+  {
+    id: "lead",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "lead" },
+    cell: ({ row }) => {
+      const bill = row.original
+      const reserved = bill.allocated_minor - bill.paid_minor
+      return (
+        <span className="flex flex-col items-end tabular-nums">
+          <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
+            {money(bill.outstanding_minor)}
+          </span>
+          <span className="text-[0.875rem] text-mute">
+            {reserved > 0 ? (
+              <span className="text-warn-fg">{money(reserved)} in draft</span>
+            ) : (
+              "owed"
+            )}
+          </span>
+        </span>
+      )
+    },
+  },
+  {
+    id: "foot",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => {
+      const bill = row.original
+      return (
+        <span className="tabular-nums">
+          Due {day(bill.due_date)}
+          {isLate(bill) ? (
+            <span className="text-bad-fg">
+              {" · "}
+              {count(bill.days_overdue)}d late
+            </span>
+          ) : bill.days_overdue < 0 &&
+            bill.status.toUpperCase() !== "POSTED" ? (
+            ` · in ${-bill.days_overdue}d`
+          ) : (
+            ""
+          )}
+        </span>
+      )
+    },
+  },
+  {
+    id: "state",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "status" },
+    cell: ({ row }) => (
+      <Status tone={toneFor(row.original.status)}>
+        {label(row.original.status)}
+      </Status>
+    ),
+  },
+]
+
+/// The card's own columns are drawn on a phone and never on a desk.
+const CARD_COLUMNS = (phone: boolean) => ({
+  head: phone,
+  lead: phone,
+  foot: phone,
+  state: phone,
+})
+
+const billColumns = [...onTheDesk(deskBillColumns), ...billCardColumns]
+const expenseColumns = [...onTheDesk(deskExpenseColumns), ...billCardColumns]
+
+const deskUnbilledColumns: ColumnDef<TableSetup, UnbilledReceipt>[] = [
   {
     accessorKey: "receipt_number",
     header: "Receipt",
@@ -541,6 +658,78 @@ const unbilledColumns: ColumnDef<TableSetup, UnbilledReceipt>[] = [
   },
 ]
 
+/// A delivery nobody has billed, as a card: the supplier over the receipt, what
+/// it is worth at the order price, and how long it has been waiting.
+const unbilledCardColumns: ColumnDef<TableSetup, UnbilledReceipt>[] = [
+  {
+    id: "head",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <SupplierName
+          id={row.original.supplier_id}
+          className="block break-words"
+        />
+        <span className="font-mono text-[0.875rem] font-normal text-mute">
+          {row.original.receipt_number}
+        </span>
+      </span>
+    ),
+  },
+  {
+    id: "lead",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "lead" },
+    cell: ({ row }) => (
+      <span className="flex flex-col items-end tabular-nums">
+        <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
+          {money(row.original.value_at_order_price_minor)}
+        </span>
+        <span className="text-[0.875rem] text-mute">at order price</span>
+      </span>
+    ),
+  },
+  {
+    id: "foot",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => (
+      <span className="flex flex-col">
+        <span>
+          Arrived {day(row.original.arrived_at)} ·{" "}
+          {count(row.original.line_count)}{" "}
+          {row.original.line_count === 1 ? "line" : "lines"}
+        </span>
+        <SiteName id={row.original.site_id} />
+      </span>
+    ),
+  },
+  {
+    id: "state",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "status" },
+    cell: ({ row }) => (
+      <Status tone={row.original.days_waiting > 30 ? "warn" : "neutral"}>
+        {count(row.original.days_waiting)}d waiting
+      </Status>
+    ),
+  },
+]
+
+const unbilledColumns = [
+  ...onTheDesk(deskUnbilledColumns),
+  ...unbilledCardColumns,
+]
+
 /// Which of the four lists is on screen.
 ///
 /// Merchandise and Expenses are two *datasets* and not two filters on one, which
@@ -603,12 +792,25 @@ function billScope(
 
 export function SupplierBills() {
   const supplierName = useSupplierName()
+  const phone = useLayout() === "phone"
   const [tab, setTab] = useState<BillTab>("merchandise")
   const [query, setQuery] = useState("")
-  const [site, setSite] = useState("")
+  const [unit, setUnit] = useState("")
   const [recording, setRecording] = useState(false)
   const bill = useSheet("bill")
-  const asOf = useAsOf()
+  /// A unit's bills are the bills at its sites — a bill stays at the site it
+  /// was received at — so the unit goes on the wire as its sites, one `site`,
+  /// comma-separated, which the server reads as a list (Accounts Payable asks
+  /// the same way). The picker says "unit", like every other Finance screen.
+  const units = useUnits()
+  const site =
+    unit === ""
+      ? ""
+      : (units.data?.find((one) => one.id === unit)?.sites ?? [])
+          .map((one) => one.id)
+          .join(",")
+  /// A unit whose sites are not known yet must not read as every site.
+  const unitReady = unit === "" || site !== ""
   const [billSort, setBillSort] = useState<SortingState>([
     { id: "days_overdue", desc: true },
   ])
@@ -658,6 +860,7 @@ export function SupplierBills() {
     // The previous answer stays on screen while the next is fetched. Without
     // it every keystroke empties the table to a loading line.
     placeholderData: (previous) => previous,
+    enabled: unitReady,
   })
   const expenseAsk = {
     ...billScope(expenseSort, expenseFilters.filters, needle),
@@ -672,6 +875,7 @@ export function SupplierBills() {
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.next_cursor ?? undefined,
     placeholderData: (previous) => previous,
+    enabled: unitReady,
   })
   /// The inbox, narrowed on the SERVER: `draft_from=GA` asks the node for the
   /// drafts Operations filed. Its status is fixed at DRAFT, so a status clause
@@ -697,7 +901,7 @@ export function SupplierBills() {
     // Fetched when the inbox is opened, not on every visit to this screen:
     // most mornings nobody is looking at what GA filed, and a fourth list is
     // a fourth request.
-    enabled: tab === "ga",
+    enabled: tab === "ga" && unitReady,
   })
   const unbilled = useQuery({
     queryKey: financeKeys.unbilled(),
@@ -729,14 +933,13 @@ export function SupplierBills() {
   /// the length of the pages loaded so far.
   const expenseHeld = expenses.data?.pages[0]?.total ?? 0
   const gaHeld = gaBills.data?.pages[0]?.total ?? 0
-  /// Unbilled deliveries answer whole, so the location is applied here.
-  const waitRows = useMemo(
-    () =>
-      (unbilled.data ?? []).filter(
-        (row) => site === "" || row.site_id === site
-      ),
-    [unbilled.data, site]
-  )
+  /// Unbilled deliveries answer whole, so the unit's sites are applied here.
+  const waitRows = useMemo(() => {
+    const sites = site === "" ? null : new Set(site.split(","))
+    return (unbilled.data ?? []).filter(
+      (row) => sites === null || sites.has(row.site_id)
+    )
+  }, [unbilled.data, site])
 
   /// Whether the search or a column clause is narrowing a bill tab —
   /// "nothing recorded" and "nothing matches" have different fixes.
@@ -774,12 +977,19 @@ export function SupplierBills() {
         getRowId: (row: SupplierBill) => row.invoice_id,
         state: {
           columnFilters: billFilters.columnFilters,
+          columnVisibility: CARD_COLUMNS(phone),
           sorting: billSort,
         },
         manualSorting: true,
         onSortingChange: setBillSort,
       }),
-      [billRows, billFilters.columns, billFilters.columnFilters, billSort]
+      [
+        billRows,
+        billFilters.columns,
+        billFilters.columnFilters,
+        billSort,
+        phone,
+      ]
     )
   )
 
@@ -792,6 +1002,7 @@ export function SupplierBills() {
         getRowId: (row: SupplierBill) => row.invoice_id,
         state: {
           columnFilters: expenseFilters.columnFilters,
+          columnVisibility: CARD_COLUMNS(phone),
           sorting: expenseSort,
         },
         manualSorting: true,
@@ -802,6 +1013,7 @@ export function SupplierBills() {
         expenseFilters.columns,
         expenseFilters.columnFilters,
         expenseSort,
+        phone,
       ]
     )
   )
@@ -820,6 +1032,7 @@ export function SupplierBills() {
         getRowId: (row: SupplierBill) => row.invoice_id,
         state: {
           columnFilters: expenseFilters.columnFilters,
+          columnVisibility: CARD_COLUMNS(phone),
           sorting: expenseSort,
         },
         manualSorting: true,
@@ -830,6 +1043,7 @@ export function SupplierBills() {
         expenseFilters.columns,
         expenseFilters.columnFilters,
         expenseSort,
+        phone,
       ]
     )
   )
@@ -843,6 +1057,7 @@ export function SupplierBills() {
         getRowId: (row: UnbilledReceipt) => row.receipt_id,
         state: {
           columnFilters: waitFilters.columnFilters,
+          columnVisibility: CARD_COLUMNS(phone),
           globalFilter: query,
           sorting: waitSort,
         },
@@ -855,6 +1070,7 @@ export function SupplierBills() {
         waitFilters.columnFilters,
         query,
         waitSort,
+        phone,
       ]
     )
   )
@@ -870,7 +1086,10 @@ export function SupplierBills() {
 
   return (
     <PageContent>
+      {/* A phone's header is the top bar; the search is one of its Filters
+          and "Record bill" is the round + over the bottom bar. */}
       <PageHeader
+        className="max-md:hidden"
         crumb="Finance · Payables"
         title="Purchase Invoice"
         actions={
@@ -878,6 +1097,8 @@ export function SupplierBills() {
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
+              aria-label="Search bills"
+              placeholder="Search bills"
               className="h-control w-48"
             />
             <Button variant="primary" onClick={() => setRecording(true)}>
@@ -886,20 +1107,26 @@ export function SupplierBills() {
           </>
         }
       />
+      <Fab label="Record bill" onClick={() => setRecording(true)} />
 
       <Toolbar>
-        <AsOfControl asOf={asOf} />
-        <SiteSelect
-          value={site}
-          onChange={setSite}
-          className="h-control w-44"
-          aria-label="Site"
+        <Input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          aria-label="Search bills"
+          placeholder="Search bills"
+          className="h-control md:hidden"
         />
-        {/* Whichever list is on screen. Location is not among the questions
-            inside it: the select beside this already narrows all three, and
-            the ageing card below is narrowed on the SERVER by the same value —
+        <UnitSelect
+          value={unit}
+          onChange={setUnit}
+          className="h-control w-44"
+          aria-label="Unit"
+        />
+        {/* Whichever list is on screen. The unit is not among the questions
+            inside it: the select beside this already narrows all of them, and
             a second copy in the panel would move the table and leave the
-            report above it describing somewhere else. */}
+            select describing somewhere else. */}
         <FilterPanel
           model={
             tab === "unbilled"
@@ -918,15 +1145,6 @@ export function SupplierBills() {
                   : billTable
           }
         />
-        <Toolbar.Spacer />
-        {/* The effective answer, in words, always. A date box filled with
-            today and one left blank look identical to a reader; the sentence
-            is what says which report is on screen. */}
-        <span className="text-[0.875rem] text-mute">
-          {asOf.chip}
-          {site === "" ? " · every site" : " · "}
-          {site !== "" && <SiteName id={site} />}
-        </span>
       </Toolbar>
 
       {/* Four datasets, not four slices of one. Goods for resale and the
@@ -956,7 +1174,7 @@ export function SupplierBills() {
 
       {tab === "merchandise" ? (
         <>
-          <Card className="overflow-hidden">
+          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
             {queryState(bills, {
               loading: "Loading the bills…",
               refused,
@@ -964,14 +1182,33 @@ export function SupplierBills() {
                 billRows.length === 0 && billNarrowed ? (
                   <NoMatch what="bills" onClear={clearBills} />
                 ) : billRows.length === 0 ? (
-                  <EmptyState>
-                    {site === ""
+                  <EmptyState
+                    action={
+                      // Those deliveries are owed already (Total payables
+                      // counts them); what they lack is their bill, so say
+                      // where they are rather than leave the list at nothing.
+                      waitRows.length > 0 ? (
+                        <Button
+                          variant="ghost"
+                          onClick={() => setTab("unbilled")}
+                        >
+                          {count(waitRows.length)} unbilled{" "}
+                          {waitRows.length === 1 ? "delivery" : "deliveries"}
+                        </Button>
+                      ) : undefined
+                    }
+                  >
+                    {unit === ""
                       ? "No supplier invoice has been recorded yet."
-                      : "No supplier invoice has been recorded at this location. Widen the location filter to see the rest."}
+                      : "No supplier invoice has been recorded for this unit."}
                   </EmptyState>
                 ) : (
                   <DataTable<SupplierBill>
                     table={billTable}
+                    pageScroll={phone}
+                    cardsApart
+                    cardLead
+                    cardSort={false}
                     onRowClick={(row) => bill.open(row.invoice_id)}
                     isSelected={(row) => row.invoice_id === bill.value}
                     // What the column clauses leave of the pages in hand. The
@@ -979,7 +1216,7 @@ export function SupplierBills() {
                     // only final once the list has been read to its end.
                     empty={<NoMatch what="bills" onClear={clearBills} />}
                     more={bills}
-                    className="max-h-[calc(100dvh-21rem)]"
+                    className={phone ? undefined : "max-h-[calc(100dvh-21rem)]"}
                   />
                 ),
             })}
@@ -991,7 +1228,7 @@ export function SupplierBills() {
               on this screen that says what it was for, and the only one whose
               posting debits an account somebody chose rather than one a rule
               decided. */}
-          <Banner tone="info" className="mb-3">
+          <Banner tone="info" className="mb-3 max-md:hidden">
             Costs rather than goods for resale — rent, electricity, a repair,
             and the capital purchases an asset is bought by. Each one names the
             accounts its cost belongs to, and those lines are what the posting
@@ -1005,7 +1242,7 @@ export function SupplierBills() {
             </AppLink>
             , not trade payable.
           </Banner>
-          <Card className="overflow-hidden">
+          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
             {queryState(expenses, {
               loading: "Loading the bills…",
               refused,
@@ -1014,20 +1251,24 @@ export function SupplierBills() {
                   <NoMatch what="expense bills" onClear={clearExpenses} />
                 ) : expenseRows.length === 0 ? (
                   <EmptyState>
-                    {site === ""
+                    {unit === ""
                       ? "No expense bill has been recorded yet. Record one with “Record bill” and switch its kind to Expense."
-                      : "No expense bill has been recorded at this location. Widen the location filter to see the rest."}
+                      : "No expense bill has been recorded for this unit."}
                   </EmptyState>
                 ) : (
                   <DataTable<SupplierBill>
                     table={expenseTable}
+                    pageScroll={phone}
+                    cardsApart
+                    cardLead
+                    cardSort={false}
                     onRowClick={(row) => bill.open(row.invoice_id)}
                     isSelected={(row) => row.invoice_id === bill.value}
                     empty={
                       <NoMatch what="expense bills" onClear={clearExpenses} />
                     }
                     more={expenses}
-                    className="max-h-[calc(100dvh-25rem)]"
+                    className={phone ? undefined : "max-h-[calc(100dvh-25rem)]"}
                   />
                 ),
             })}
@@ -1039,16 +1280,15 @@ export function SupplierBills() {
               are not the actions on a bill Finance keyed itself: this one is
               somebody else's paperwork to check, and the honest answer may be
               that it goes back. */}
-          <Banner tone="info" className="mb-3">
-            Draft tagihan yang diajukan GA — diperiksa di sini, bukan diposting
-            sendiri. Buka satu untuk melihat barisnya, memposting kalau sudah
-            benar, atau mengembalikannya ke GA dengan sebuah alasan. Mempelajari
-            baris-barisnya akan menunjukkan akun usulan GA dan rujukan ke
-            recordnya.
+          <Banner tone="info" className="mb-3 max-md:hidden">
+            Bill drafts submitted by GA — checked here, not posted by GA itself.
+            Open one to see its lines, post it once it is right, or send it back
+            to GA with a reason. The lines show the account GA proposed and a
+            reference to its record.
           </Banner>
-          <Card className="overflow-hidden">
+          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
             {queryState(gaBills, {
-              loading: "Memuat draft dari GA…",
+              loading: "Reading the drafts from GA…",
               refused,
               render: () => {
                 /// The server's own count for what was asked — the difference
@@ -1056,29 +1296,33 @@ export function SupplierBills() {
                 /// of them match".
                 if (gaHeld === 0 && needle !== "") {
                   return (
-                    <NoMatch what="draft dari GA" onClear={clearExpenses} />
+                    <NoMatch what="draft from GA" onClear={clearExpenses} />
                   )
                 }
                 if (gaHeld === 0) {
                   return (
                     <EmptyState>
-                      Tidak ada draft dari GA. Tagihan yang diajukan GA akan
-                      muncul di sini untuk diperiksa Finance.
+                      No drafts from GA. Bills GA submits will appear here for
+                      Finance to check.
                     </EmptyState>
                   )
                 }
                 return (
                   <DataTable<SupplierBill>
                     table={gaTable}
+                    pageScroll={phone}
+                    cardsApart
+                    cardLead
+                    cardSort={false}
                     onRowClick={(row) => bill.open(row.invoice_id)}
                     isSelected={(row) => row.invoice_id === bill.value}
                     // "GA has sent nothing" is the sentence above; this is
                     // "there are some, and none of them match what you typed".
                     empty={
-                      <NoMatch what="draft dari GA" onClear={clearExpenses} />
+                      <NoMatch what="draft from GA" onClear={clearExpenses} />
                     }
                     more={gaBills}
-                    className="max-h-[calc(100dvh-25rem)]"
+                    className={phone ? undefined : "max-h-[calc(100dvh-25rem)]"}
                   />
                 )
               },
@@ -1087,33 +1331,35 @@ export function SupplierBills() {
         </>
       ) : (
         <>
-          <Banner tone="warn" className="mb-3">
-            Not a balance. The client keeps no goods-received-not-invoiced
-            account, so none of this is in the books: at month end inventory and
-            payables both understate by{" "}
+          <Banner tone="info" className="mb-3">
             <span className="font-semibold tabular-nums">
               {money(exposure)}
-            </span>
-            . The figure is accepted quantity at the agreed price — what the
-            supplier will charge if they charge what was agreed.
+            </span>{" "}
+            at the order price, accepted quantity. These deliveries are already
+            owed — they are in Total payables — and the bill, when it comes,
+            replaces them.
           </Banner>
           {/* The one tab that does not page, and that is the finding rather
               than an omission: `unbilledReceipts()` sends no `limit`, so the
               list is whole and the exposure in the banner above is a total. */}
-          <Card className="overflow-hidden">
+          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
             {queryState(unbilled, {
               loading: "Looking for unbilled deliveries…",
               refused,
               render: () =>
                 waitRows.length === 0 ? (
                   <EmptyState>
-                    {site === ""
-                      ? "Every delivery has a bill against it. Nothing is sitting in the Gudang that the books do not know about."
-                      : "Every delivery to this site has a bill against it. Widen the site filter to see the rest."}
+                    {unit === ""
+                      ? "Every delivery has a bill against it."
+                      : "Every delivery to this unit has a bill against it."}
                   </EmptyState>
                 ) : (
                   <DataTable<UnbilledReceipt>
                     table={waitTable}
+                    pageScroll={phone}
+                    cardsApart
+                    cardLead
+                    cardSort={false}
                     empty={
                       <NoMatch
                         what="deliveries"
@@ -1121,7 +1367,7 @@ export function SupplierBills() {
                         onClear={() => setQuery("")}
                       />
                     }
-                    className="max-h-[calc(100dvh-25rem)]"
+                    className={phone ? undefined : "max-h-[calc(100dvh-25rem)]"}
                   />
                 ),
             })}

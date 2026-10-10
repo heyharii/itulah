@@ -75,14 +75,14 @@ setEdgeToken(readStoredEdgeToken())
 /// path exchanges a Cloud ticket for a local DC session in `edge-session.tsx`.
 export const edgeAuth = new Auth(edge)
 
-/// Where the Gudang lives: on a DC server in the building (`edge`, reached at
+/// Where the warehouse lives: on a DC server in the building (`edge`, reached at
 /// `/edge` with its own session) or inside the cloud itself (`cloud`: the same
 /// `/api/v1/dc/...` paths on this origin, the ordinary cookie session).
 ///
 /// The cloud says which in `GET /api/v1/health` (`dc_hosting`); `useDcHosting`
 /// in `edge-session.tsx` asks once and records the answer here, before any
 /// screen is let through to make a DC call. Until then it is `edge`, which is
-/// what every deployment was before the cloud could host the Gudang.
+/// what every deployment was before the cloud could host the warehouse.
 export type DcHosting = "cloud" | "edge"
 
 let dcHosting: DcHosting = "edge"
@@ -99,12 +99,12 @@ export function dcNode(): Node {
 const edgeDc = new Dc(edge)
 const cloudDc = new Dc(node)
 
-/// The typed client for whichever node hosts the Gudang.
+/// The typed client for whichever node hosts the warehouse.
 export function dcClient(): Dc {
   return dcHosting === "cloud" ? cloudDc : edgeDc
 }
 
-/// Every warehouse operation the Gudang performs, typed from the Rust that
+/// Every warehouse operation the warehouse performs, typed from the Rust that
 /// serves it. Screens call this rather than writing paths of their own — the
 /// envelopes are part of the wire (`{items}` here, `{lines}` there) and
 /// unwrapping that at forty call sites is forty chances to unwrap the wrong
@@ -146,7 +146,7 @@ export const cacheKey = {
   /// signing out of one would empty the other.
   edgeIdentity: () => ["edge", "node", "identity"] as const,
   edgeMe: () => ["edge", "auth", "me"] as const,
-  /// Where the Gudang lives — `"cloud"` or `"edge"`. Under `node` so a sign-out
+  /// Where the warehouse lives — `"cloud"` or `"edge"`. Under `node` so a sign-out
   /// keeps it, like the identity beside it.
   dcHosting: () => ["node", "dc-hosting"] as const,
 }
@@ -207,7 +207,7 @@ export async function poolsAnswer(signal?: AbortSignal): Promise<PoolsAnswer> {
 }
 
 /// A purchase return, as this node sees it: excess a buyer at the centre put
-/// on a return, waiting for the Gudang to hand it to the supplier — or
+/// on a return, waiting for the warehouse to hand it to the supplier — or
 /// already handed over, for the last fortnight.
 ///
 /// Not in `@itulah/contract`: `edge/http.rs::present_purchase_returns` answers
@@ -219,10 +219,10 @@ export interface PurchaseReturnWork {
   readonly po_number: string
   readonly supplier_id: string
   readonly supplier_name: string | null
-  /// The Gudang's person in charge, named when the surat jalan was generated
+  /// The warehouse's person in charge, named when the delivery note was generated
   /// (0917); null until it is. Absent on a server older than that.
   readonly note_pic?: string | null
-  /// When the surat jalan was generated; null until it is.
+  /// When the delivery note was generated; null until it is.
   readonly note_generated_at?: string | null
   readonly note: string | null
   readonly raised_by: string
@@ -254,7 +254,7 @@ export async function dcPurchaseReturns(
   return body.items
 }
 
-/// Generate the surat jalan for the returns going to one supplier: the person in
+/// Generate the delivery note for the returns going to one supplier: the person in
 /// charge is named, and each return has its note from then on. Refused for one
 /// that is no longer open.
 export async function generatePurchaseReturnNote(

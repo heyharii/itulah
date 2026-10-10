@@ -30,7 +30,7 @@ import type { LoginResponse } from "@itulah/contract"
 /// mistake is invisible: it looks like it works, and shows one warehouse's
 /// operator name over another node's queues.
 
-/// Where the Gudang is hosted: `"cloud"` when the cloud runs it itself,
+/// Where the warehouse is hosted: `"cloud"` when the cloud runs it itself,
 /// `"edge"` for a DC server in the building, `undefined` until the cloud has
 /// answered.
 ///
@@ -51,7 +51,9 @@ export function useDcHosting(): DcHosting | undefined {
     queryFn: async ({ signal }): Promise<DcHosting> => {
       const hosting = await node
         .get<{ dc_hosting?: string }>("/api/v1/health", { signal })
-        .then((body): DcHosting => (body.dc_hosting === "cloud" ? "cloud" : "edge"))
+        .then((body): DcHosting =>
+          body.dc_hosting === "cloud" ? "cloud" : "edge"
+        )
         .catch((): DcHosting => "edge")
       setDcHosting(hosting)
       return hosting
@@ -93,7 +95,7 @@ export function useEdgeIdentity() {
   const cloud = useIdentity()
   const edgeSession = useQuery({
     queryKey: cacheKey.edgeMe(),
-    // Off until the cloud has said the Gudang is on a DC server — asking
+    // Off until the cloud has said the warehouse is on a DC server — asking
     // `/edge` of a cloud-hosted deployment is a request to nothing.
     enabled: hosting === "edge",
     queryFn: async ({ signal }): Promise<Identity | null> => {

@@ -79,6 +79,25 @@ export function paperShape(paper: Paper): {
   }
 }
 
+/// What a variant is called on paper — "Black M" — given its colour and size
+/// codes; the screen that prints passes the words its masters use.
+export type VariantName = (colour: string | null, size: string | null) => string
+
+/// A line's split by colour and size as the supplier reads it, one per
+/// variant: "Black M · 40 pcs" (the owner, 2026-10-10 — the supplier must know
+/// how many of each to send). Empty for a line ordered as a whole.
+export function variantLines(
+  line: PurchaseOrderDetail["lines"][number],
+  name: VariantName
+): string[] {
+  return (line.variants ?? [])
+    .filter((one) => one.quantity > 0)
+    .map(
+      (one) =>
+        `${name(one.colour_code, one.size_code)} · ${count(one.quantity)} pcs`
+    )
+}
+
 /// A date as it is written on paper — the house format, "01 Oct 2026". Shared
 /// with the PDF writer, which lays the same document out.
 export function paperDate(iso: string): string {
@@ -89,12 +108,14 @@ export function purchaseOrdersHtml({
   orders,
   phone,
   paper = "A5",
+  variantName = (colour, size) => [colour, size].filter(Boolean).join(" "),
 }: {
   orders: readonly PrintableOrder[]
   divisionLabel: (code: string | null) => string
   /// The supplier's number as the screens write it.
   phone: (value: string | null | undefined) => string | null
   paper?: Paper
+  variantName?: VariantName
 }): string {
   const e = (value: string | null | undefined) => escapeHtml(value ?? "")
   const nameOf = ({ order, supplier }: PrintableOrder) =>
@@ -167,7 +188,9 @@ export function purchaseOrdersHtml({
         const tone = receivedTone(line.ordered_quantity, line.received_quantity)
         return `<tr>
   <td>${index + 1}</td>
-  <td>${e(line.article_name)}${receipts.join("")}</td>
+  <td>${e(line.article_name)}${variantLines(line, variantName)
+    .map((one) => `<div class="sub">${e(one)}</div>`)
+    .join("")}${receipts.join("")}</td>
   <td class="num">${count(line.ordered_quantity)} pcs${entered === null ? "" : `<div class="sub">${e(entered)}</div>`}</td>
   ${received ? `<td class="num${tone === null ? "" : ` ${tone}`}">${count(line.received_quantity)} pcs</td>` : ""}
   <td class="num">${e(price)}${per === null ? "" : `<div class="sub">/ ${e(per)}</div>`}</td>

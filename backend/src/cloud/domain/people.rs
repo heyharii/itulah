@@ -18,7 +18,7 @@
 //! `hr_policy` holds guidance a decider reads, never a figure a journal
 //! computes from.
 
-use crate::cloud::domain::employment::{Authorization, EmployeeId, UnitId, actions};
+use crate::cloud::domain::employment::{actions, Authorization, EmployeeId, UnitId};
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;

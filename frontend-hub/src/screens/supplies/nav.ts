@@ -38,7 +38,15 @@ export const gaSuppliesNav: AppModule = {
   // and the seven categories are cards in the form, not a second screen.
   sections: [
     {
-      items: [{ path: "/supplies", label: "Supply Requests", icon: Package }],
+      items: [
+        {
+          path: "/supplies",
+          label: "Supply Requests",
+          // The bottom bar's word: a 14px label has a fifth of the width.
+          short: "Supplies",
+          icon: Package,
+        },
+      ],
     },
   ],
 }

@@ -274,7 +274,7 @@ export const MessageRow = memo(function MessageRow({
                   title={namesOf(reaction.users, members, me)}
                   aria-pressed={reacted}
                   className={cn(
-                    "inline-flex h-6 items-center gap-1 rounded-full border px-2 text-[0.8125rem] tabular-nums transition-colors",
+                    "inline-flex h-7 items-center gap-1 rounded-full border px-2 text-[0.875rem] tabular-nums transition-colors",
                     reacted
                       ? "border-accent/40 bg-accent-bg text-accent"
                       : "border-hairline-2 bg-canvas text-body hover:bg-soft-2"
@@ -338,7 +338,7 @@ function Quote({
       </span>
       <span
         className={cn(
-          "line-clamp-2 text-[0.8125rem] text-body",
+          "line-clamp-2 text-[0.875rem] text-body",
           reply.deleted && "text-mute italic"
         )}
       >
@@ -572,7 +572,7 @@ export function OutboxRow({
             <span className="block truncate text-pill font-medium text-accent">
               {item.replyTo.author_name}
             </span>
-            <span className="line-clamp-2 text-[0.8125rem] text-body">
+            <span className="line-clamp-2 text-[0.875rem] text-body">
               {plainText(item.replyTo.body)}
             </span>
           </div>

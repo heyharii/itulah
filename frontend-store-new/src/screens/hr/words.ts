@@ -39,18 +39,32 @@ export function personName(team: EmployeeList | undefined, id: string): string {
   return row?.full_name ?? row?.employee_code ?? id
 }
 
-/// What a request's state means to a shop, and the tint it wears.
-///
-/// `PENDING` is spelled as what it waits for, because that is the only thing
-/// anybody opening a list of requests wants to know.
+/// A person by the LOGIN a record carries ("asked by", "decided by"), as their
+/// full name — a login is never shown (owner: employees are always full names).
+/// A login the list does not know (head office staff, a retired account) is
+/// shown as it is.
+export function personByLogin(
+  team: EmployeeList | undefined,
+  login: string | null | undefined,
+): string {
+  if (login === null || login === undefined || login === "") return "—"
+  const row = team?.rows.find((person) => person.username === login)
+  return row?.full_name ?? login
+}
+
+/// What a request's state is called — the audit's canonical four (D5):
+/// **Pending / Approved / Rejected / Withdrawn**, on every request in this
+/// module (leave, expenses, swaps, overtime, changes, hires). Never "Waiting
+/// on …", "Refused", "Declined" or "Taken back": who is being waited on is a
+/// fact for the sheet's facts, not part of the state's name.
 export function requestState(state: string): { label: string; tone: Tone } {
   switch (state) {
     case "PENDING":
-      return { label: "Waiting on the store head", tone: "warn" }
+      return { label: "Pending", tone: "warn" }
     case "APPROVED":
       return { label: "Approved", tone: "ok" }
     case "REJECTED":
-      return { label: "Refused", tone: "bad" }
+      return { label: "Rejected", tone: "bad" }
     case "WITHDRAWN":
       return { label: "Withdrawn", tone: "neutral" }
     default:

@@ -170,6 +170,36 @@ pub struct PricingContext {
     /// and [`Rule::max_uses_per_customer`] for the only thing that reads this.
     #[serde(default)]
     pub customer_history: Option<BTreeMap<String, i64>>,
+    /// The uses head office is holding for this basket, one per limited code.
+    ///
+    /// A coupon with a cross-shop cap (`Coupon::max_uses`) cannot be admitted
+    /// from the snapshot: the count in it is as old as the last sync, and two
+    /// shops each reading "99 of 100" would both give the hundredth away. So
+    /// such a coupon is refused with
+    /// [`RejectionReason::CouponNeedsOnlineAuthorization`] UNLESS the till has
+    /// asked head office first and been granted a hold — which is what one of
+    /// these says. The count is then head office's business, not this
+    /// engine's: the hold IS the answer to "is there one left", given inside
+    /// the lock that keeps the cap, so the stale `used` figure is not read
+    /// against it at all.
+    ///
+    /// The engine does not check the id; it cannot. The caller that put it here
+    /// is the one that relayed the hold and wrote it down (the shop node's
+    /// `coupon_hold`), and head office commits it against the sale.
+    #[serde(default)]
+    pub coupon_authorizations: Vec<CouponAuthorization>,
+}
+
+/// A use of a limited coupon that head office is holding for this basket.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CouponAuthorization {
+    /// The code as the shopper typed it. Matched without regard to case,
+    /// because head office normalises a code before it holds it and a hold for
+    /// `hemat50` is a hold for `HEMAT50`.
+    pub code: String,
+    /// Head office's id for the hold — the one it commits when the sale lands.
+    pub authorization_id: String,
 }
 
 impl PricingContext {
@@ -183,6 +213,7 @@ impl PricingContext {
             charges: Vec::new(),
             utc_offset_minutes: 0,
             customer_history: None,
+            coupon_authorizations: Vec::new(),
         }
     }
 
@@ -199,6 +230,26 @@ impl PricingContext {
     pub fn with_coupon(mut self, code: impl Into<String>) -> Self {
         self.coupon_codes.push(code.into());
         self
+    }
+
+    /// Carry a hold head office granted for a limited coupon on this basket.
+    pub fn with_coupon_authorization(
+        mut self,
+        code: impl Into<String>,
+        authorization_id: impl Into<String>,
+    ) -> Self {
+        self.coupon_authorizations.push(CouponAuthorization {
+            code: code.into(),
+            authorization_id: authorization_id.into(),
+        });
+        self
+    }
+
+    /// The hold this basket carries for `code`, if it carries one.
+    pub fn coupon_authorization(&self, code: &str) -> Option<&CouponAuthorization> {
+        self.coupon_authorizations
+            .iter()
+            .find(|held| held.code.trim().eq_ignore_ascii_case(code.trim()))
     }
 
     pub fn for_customer(mut self, customer_id: impl Into<String>) -> Self {

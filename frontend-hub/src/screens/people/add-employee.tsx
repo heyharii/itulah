@@ -7,6 +7,7 @@ import { Field, Input, Select, Textarea } from "@/components/ui/field"
 import { SubHead } from "@/components/ui/rows"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner } from "@/components/ui/states"
+import { useLayout } from "@/lib/layout"
 import { useUnits } from "@/lib/queries/organisation"
 import {
   addContract,
@@ -82,12 +83,17 @@ export function AddEmployeeSheet({
   open,
   onClose,
   onAdded,
+  onImport,
 }: {
   open: boolean
   onClose: () => void
   /// The new record's id, so the list can open its sheet.
   onAdded: (employeeId: string) => void
+  /// Head office's import and export, offered in the foot of this sheet on a
+  /// phone, where the list has no room for it at the top.
+  onImport?: () => void
 }) {
+  const phone = useLayout() === "phone"
   const client = useQueryClient()
   const units = useUnits()
   const [draft, setDraft] = useState<Draft>(EMPTY)
@@ -114,7 +120,7 @@ export function AddEmployeeSheet({
   async function submit() {
     setPending(true)
     setFailed(null)
-    const reason = "karyawan baru"
+    const reason = "new employee"
     let id: string | null = null
     try {
       setStep("Opening the record")
@@ -179,6 +185,26 @@ export function AddEmployeeSheet({
         if (!next) onClose()
       }}
       title="Add employee"
+      footer={
+        phone ? (
+          <div className="flex items-center gap-2">
+            {onImport !== undefined && (
+              <Button variant="quiet" onClick={onImport}>
+                Import & export
+              </Button>
+            )}
+            <span className="flex-1" />
+            <Button
+              variant="primary"
+              pending={pending}
+              disabled={!ready}
+              onClick={() => void submit()}
+            >
+              Add employee
+            </Button>
+          </div>
+        ) : undefined
+      }
     >
       <div className="flex flex-col gap-4">
         <div className="flex flex-col gap-3">
@@ -304,16 +330,18 @@ export function AddEmployeeSheet({
         {failed !== null && <Banner tone="bad">{failed}</Banner>}
         {pending && step !== null && <Banner tone="info">{step}…</Banner>}
 
-        <div>
-          <Button
-            variant="primary"
-            pending={pending}
-            disabled={!ready}
-            onClick={() => void submit()}
-          >
-            Add employee
-          </Button>
-        </div>
+        {!phone && (
+          <div>
+            <Button
+              variant="primary"
+              pending={pending}
+              disabled={!ready}
+              onClick={() => void submit()}
+            >
+              Add employee
+            </Button>
+          </div>
+        )}
       </div>
     </Sheet>
   )

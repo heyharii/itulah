@@ -11,6 +11,7 @@ import {
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Select } from "@/components/ui/field"
@@ -23,12 +24,12 @@ import { shift, today } from "@/lib/calendar"
 import { count, day, dayMonth } from "@/lib/format"
 import {
   activateCount,
+  allotmentListQuery,
+  countsBoardQuery,
   createCount,
-  fleetPools,
+  fleetPoolsQuery,
   idempotencyKey,
   inventoryKeys,
-  listAllotments,
-  listCounts,
   type AllotmentList,
   type AllotmentRow,
   type FleetPool,
@@ -82,7 +83,7 @@ const ORDER_SHEET = "order"
 
 /// The order book as the on-order card reads it: only open orders, scoped on
 /// the SERVER exactly as the Workload screen scopes its own, so the two
-/// screens share one cache entry.
+/// screens share one cache entry. `prefetch.ts` asks the same scope.
 const ORDER_SCOPE = { statuses: ["ACTIVE", "PARTIALLY_RECEIVED"] } as const
 
 // ---------------------------------------------------------------------------
@@ -209,20 +210,15 @@ function ageText(days: number | null): string {
 // ---------------------------------------------------------------------------
 
 export function StockCards() {
-  const fleet = useQuery({
-    queryKey: inventoryKeys.fleet(),
-    queryFn: ({ signal }) => fleetPools(signal),
-  })
+  // What this screen asks first is also what `prefetch.ts` asks, on hover.
+  const fleet = useQuery(fleetPoolsQuery())
   const units = useUnits()
   const { cases } = useExceptionCases()
 
   // The road: one read of the allotment book. The per-destination rollup is
   // computed by the server over the WHOLE table — not just the rows that
   // came back — so "what is owed to each store" needs no second request.
-  const road = useQuery({
-    queryKey: inventoryKeys.allotmentList("", ""),
-    queryFn: ({ signal }) => listAllotments("", "", signal),
-  })
+  const road = useQuery(allotmentListQuery("", ""))
 
   // The order book, scoped exactly as the Workload screen's own card is, so
   // both screens share one cache entry rather than teaching the server the
@@ -234,10 +230,7 @@ export function StockCards() {
 
   // The count board, for the one thing a card cannot say about a count
   // already running at the place.
-  const counts = useQuery({
-    queryKey: inventoryKeys.counts(),
-    queryFn: ({ signal }) => listCounts(signal),
-  })
+  const counts = useQuery(countsBoardQuery())
 
   const client = useQueryClient()
   const actor = useActor()
@@ -289,7 +282,7 @@ export function StockCards() {
         title="Stock"
         sub="Every place the business holds stock, one card each."
         actions={
-          <>
+          <span className="contents max-md:hidden">
             <span className="relative">
               <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
               <input
@@ -312,8 +305,29 @@ export function StockCards() {
               <option value="attention">Needs attention first</option>
               <option value="az">A–Z</option>
             </Select>
-          </>
+          </span>
         }
+      />
+      {/* A phone's search and order are the dock's, as on every list
+          (owner, 2026-10-06). */}
+      <DockTools
+        search={{
+          value: search.value ?? "",
+          onChange: (next) => (next ? search.open(next) : search.close()),
+          label: "Search Stores",
+        }}
+        sort={{
+          label: sort === "az" ? "A–Z" : "Needs attention first",
+          choices: {
+            options: [
+              { value: "attention", label: "Needs attention first" },
+              { value: "az", label: "A–Z" },
+            ],
+            value: sort,
+            desc: false,
+            onChange: (next) => setSort(next === "az" ? "az" : "attention"),
+          },
+        }}
       />
 
       {queryState(fleet, {
@@ -610,7 +624,7 @@ function placeViewOf(
   const siteIds = unit.sites.map((site) => site.id)
   const fig = figuresFor(siteIds, fleet)
   // The sheet stands on the site that actually holds pools; a unit's other
-  // sites (an office beside the Gudang) have no stock to tell a story about.
+  // sites (an office beside the warehouse) have no stock to tell a story about.
   const holding = fig.pools[0]?.site_id ?? siteIds[0] ?? unit.id
   let onRoad: number | null = null
   if (road.perDestination !== null) {
@@ -713,7 +727,9 @@ function Ring({
       <span
         className={cn(
           "font-semibold tabular-nums",
-          size >= 96 ? "text-[0.875rem]" : "text-[0.6875rem]",
+          // 14px at either size: the inside of the 62px ring is 52 across,
+          // and "100%" in 14px is about 36.
+          "text-[0.875rem] leading-none",
           warn ? "text-warn-fg" : "text-ink"
         )}
       >

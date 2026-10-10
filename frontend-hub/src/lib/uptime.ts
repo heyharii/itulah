@@ -1,3 +1,4 @@
+import { EMPTY, percent as sharePercent } from "@/lib/format"
 import type { NodeUptime, Outage, UptimeState } from "@/lib/queries/system"
 
 /// Words and colours for uptime, shared by the Monitoring and Incidents
@@ -37,12 +38,12 @@ export function since(iso: string | null): string {
   return iso ? span((Date.now() - Date.parse(iso)) / 1000) : "—"
 }
 
-/// "99,98 %" — two decimals below 100, because 99.9 and 99.99 are different
+/// "99,98%" — two decimals below 100, because 99.9 and 99.99 are different
 /// promises; "—" before the node was ever heard from.
 export function percent(value: number | null): string {
-  if (value === null) return "—"
-  if (value >= 100) return "100 %"
-  return `${value.toFixed(2).replace(".", ",")} %`
+  if (value === null) return EMPTY
+  if (value >= 100) return sharePercent(100)
+  return sharePercent(value, { digits: 2, pad: true })
 }
 
 /// A day bar's colour: green for a clean day, amber for a dent, red for a

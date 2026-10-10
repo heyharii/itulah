@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>App Identity Mobile</title>
+<style>
+:root{
+  --ink:#20242c;--text:#394150;--body:#565f6d;--mute:#666f7d;--faint:#b9c0c9;
+  --canvas:#fff;--soft:#f8f8f9;--soft-2:#f0f0f2;--page:#f6f6f7;--hairline:#e6e6e9;--hairline-2:#dadade;
+  --accent:#2563eb;--accent-2:#1d4ed8;--bad:#b42318;--bad-bg:#fdf4f4;--ok:#16a34a;
+  --rail:#242526;--rail-2:#303234;--rail-ink:#fff;--rail-text:#c3c4c7;--rail-mute:#a1a3a8;--rail-hair:#343638;
+  --shadow-float:0 12px 32px rgb(15 23 42 / 16%),0 2px 6px rgb(15 23 42 / 8%);
+  --ease-out:cubic-bezier(.23,1,.32,1);--ease-drawer:cubic-bezier(.32,.72,0,1);--w:414px;
+}
+*{box-sizing:border-box;margin:0}
+body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;background:#e4e4e8;color:var(--ink);-webkit-font-smoothing:antialiased;font-size:15px}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;text-align:inherit;padding:0}
+svg{display:block;flex:none}
+.bar{position:sticky;top:0;left:0;z-index:100;display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center;padding:12px 20px;background:rgb(255 255 255 / .92);backdrop-filter:blur(10px);border-bottom:1px solid var(--hairline-2)}
+.bar h1{font-size:15px;font-weight:600;margin-right:6px}
+.seg{display:inline-flex;flex-wrap:wrap;gap:2px;padding:2px;border-radius:9px;background:#d9d9de}
+.seg button{padding:5px 11px;border-radius:7px;font-size:14px;font-weight:500;color:#444}
+.seg button[aria-pressed=true]{background:#fff;color:#111;box-shadow:0 1px 2px rgb(0 0 0 / .15)}
+.lab{font-size:14px;color:#555;margin-right:8px}
+.stage{display:flex;gap:28px;padding:24px 20px 60px;overflow-x:auto;align-items:flex-start}
+.opt{flex:none;width:var(--w)}
+.opt h2{font-size:15px;font-weight:600;margin:0 4px 2px}
+.opt>p{font-size:14px;color:#555;margin:0 4px 10px;min-height:66px}
+.rec{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:999px;background:#dfeaff;color:var(--accent-2);font-size:14px;font-weight:600;vertical-align:1px}
+.phone{position:relative;width:var(--w);height:896px;border-radius:30px;border:1px solid #cfcfd6;box-shadow:0 18px 40px rgb(0 0 0 / .14);overflow:hidden;background:var(--page)}
+.sb{position:absolute;top:0;left:0;right:0;height:47px;display:flex;align-items:flex-end;justify-content:space-between;padding:0 30px 6px;font-size:15px;font-weight:600;z-index:30;pointer-events:none}
+.sb i{font-style:normal;letter-spacing:.04em}
+.hi{position:absolute;bottom:8px;left:50%;width:134px;height:5px;margin-left:-67px;border-radius:3px;background:#1a1a1a;z-index:30}
+.dark .hi,.hi.w{background:#fff}
+
+/* home screen */
+.wall{position:absolute;inset:0;background:linear-gradient(160deg,#dbe6f6 0%,#f2e8f4 55%,#ffe9d9 100%)}
+.phone.dk .wall{background:linear-gradient(160deg,#10172a 0%,#1d1636 55%,#2c1a2a 100%)}
+.phone.dk .sb{color:#fff}
+.grid{position:absolute;top:80px;left:0;right:0;display:grid;grid-template-columns:repeat(4,1fr);row-gap:26px;padding:0 24px;justify-items:center}
+.app{display:flex;flex-direction:column;align-items:center;gap:6px;width:80px}
+.app .t{width:68px;height:68px;border-radius:15.4px;background:rgb(255 255 255 / .55);box-shadow:inset 0 0 0 1px rgb(255 255 255 / .6)}
+.phone.dk .app .t{background:rgb(255 255 255 / .12);box-shadow:inset 0 0 0 1px rgb(255 255 255 / .08)}
+.app span{font-size:12px;color:#222;text-shadow:0 1px 2px rgb(255 255 255 / .5);max-width:80px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.phone.dk .app span{color:#fff;text-shadow:0 1px 2px rgb(0 0 0 / .4)}
+.app.me .t{background:none;box-shadow:0 6px 14px rgb(0 0 0 / .25)}
+.app.me .t svg{width:68px;height:68px}
+.hdock{position:absolute;left:14px;right:14px;bottom:28px;height:90px;border-radius:32px;background:rgb(255 255 255 / .35);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:space-around;padding:0 10px}
+.phone.dk .hdock{background:rgb(255 255 255 / .1)}
+.hdock .t{width:62px;height:62px;border-radius:14px;background:rgb(255 255 255 / .55)}
+.phone.dk .hdock .t{background:rgb(255 255 255 / .14)}
+.sizes{display:flex;align-items:flex-end;gap:16px;margin-top:14px;padding:14px 16px;background:#fff;border:1px solid var(--hairline);border-radius:12px}
+.sizes figure{display:flex;flex-direction:column;align-items:center;gap:6px}
+.sizes figcaption{font-size:14px;color:var(--mute)}
+.circle{border-radius:50%;overflow:hidden}
+
+/* name mocks */
+.card{background:#fff;border:1px solid var(--hairline);border-radius:12px;padding:16px;margin-bottom:12px}
+.card h3{font-size:14px;font-weight:500;color:var(--mute);margin-bottom:10px}
+.homecrop{display:flex;gap:18px;padding:18px;border-radius:14px;background:linear-gradient(160deg,#dbe6f6,#f2e8f4 60%,#ffe9d9)}
+.homecrop.dk{background:linear-gradient(160deg,#10172a,#1d1636 60%,#2c1a2a)}
+.homecrop .app span{color:#222}.homecrop.dk .app span{color:#fff}
+.sheetmock{border-radius:16px;background:#f2f2f6;padding:14px;border:1px solid var(--hairline-2)}
+.sheetmock .row{display:flex;align-items:center;gap:12px;background:#fff;border-radius:12px;padding:12px}
+.sheetmock .nm{font-size:16px;flex:1;border-bottom:0;font-weight:500}
+.sheetmock small{display:block;font-size:14px;color:var(--mute);margin-top:2px}
+.notif{display:flex;gap:10px;padding:12px;border-radius:20px;background:rgb(255 255 255 / .8);border:1px solid var(--hairline-2);box-shadow:0 4px 14px rgb(0 0 0 / .08)}
+.notif b{font-size:15px;font-weight:600}.notif .top{display:flex;justify-content:space-between;gap:8px}.notif .top span{font-size:14px;color:var(--mute)}
+.notif p{font-size:15px;line-height:1.35;margin-top:1px}
+
+/* launch + door */
+.dark-bg{position:absolute;inset:0;background:var(--rail);overflow:hidden}
+.dark-bg::before{content:"";position:absolute;inset:0;background:radial-gradient(56rem 36rem at 0% 0%,rgb(255 255 255 / 7%),transparent 62%)}
+.glow{position:absolute;top:-160px;right:-144px;width:320px;height:320px;border-radius:50%;background:rgb(37 99 235 / .17);filter:blur(96px)}
+.grain{position:absolute;inset:0;opacity:.14;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='.6'/%3E%3C/svg%3E")}
+.mark{position:absolute;transition:transform 520ms var(--ease-drawer),opacity 220ms var(--ease-out);transform-origin:0 0}
+.word{position:absolute;font-weight:700;letter-spacing:-.045em;color:#fff;line-height:1;transition:transform 520ms var(--ease-drawer),opacity 260ms var(--ease-out),font-size 520ms var(--ease-drawer);white-space:nowrap}
+.word b{color:var(--accent);font-weight:700}
+.sub{position:absolute;color:var(--rail-text);font-size:15px;line-height:1.5;max-width:300px;transition:opacity 260ms var(--ease-out),transform 520ms var(--ease-drawer)}
+.rise{opacity:0;transform:translateY(8px)}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:24px 24px 0 0;transition:transform 520ms var(--ease-drawer),opacity 200ms;display:flex;flex-direction:column;padding:28px 20px 44px}
+.sheet.hid{transform:translateY(105%)}
+.stat{position:absolute;display:flex;align-items:center;gap:10px;font-size:14px;color:var(--rail-text);transition:opacity 260ms var(--ease-out)}
+.stat i{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 0 rgb(22 163 74 / .5);animation:pulse 2s infinite}
+@keyframes pulse{70%{box-shadow:0 0 0 7px rgb(22 163 74 / 0)}100%{box-shadow:0 0 0 0 rgb(22 163 74 / 0)}}
+.skel{position:absolute;inset:0;background:var(--page);transition:opacity 320ms var(--ease-out)}
+.replay{margin-top:12px;display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 14px;border-radius:999px;background:#fff;border:1px solid var(--hairline-2);font-size:14px;font-weight:500}
+.replay:active{scale:.97}
+
+/* login form */
+.f{margin-bottom:14px}
+.f label{display:block;font-size:14px;color:var(--mute);margin-bottom:6px}
+.in{height:47px;border:1px solid var(--hairline-2);border-radius:10px;background:#fff;padding:0 14px;display:flex;align-items:center;font-size:16px;color:var(--ink);gap:8px}
+.in.foc{border-color:var(--accent);box-shadow:0 0 0 3px rgb(37 99 235 / .14)}
+.in.err{border-color:var(--bad)}
+.in span.ph{color:var(--faint)}.in .eye{margin-left:auto;color:var(--mute);font-size:14px}
+.err-msg{font-size:14px;color:var(--bad);margin:-6px 0 12px}
+.cta{height:47px;border-radius:10px;background:var(--accent);color:#fff;font-size:16px;font-weight:600;display:flex;align-items:center;justify-content:center;width:100%;transition:scale 120ms var(--ease-out)}
+.cta:active{scale:.98}
+.cta.off{background:#c9d6f4}
+.link{display:block;text-align:center;font-size:14px;color:var(--body);margin-top:14px}
+.dim .in{background:rgb(255 255 255 / .06);border-color:var(--rail-hair);color:#fff}
+.dim .in.foc{border-color:var(--accent)}
+.dim .f label{color:var(--rail-mute)}
+.dim .in .ph{color:#6e7075}
+.kbd{position:absolute;left:0;right:0;bottom:0;height:300px;background:#d2d5db;z-index:25;padding:12px 4px 0;display:grid;grid-template-rows:repeat(4,1fr);gap:8px}
+.kbd div{display:flex;gap:5px;justify-content:center}
+.kbd span{flex:1;max-width:36px;border-radius:5px;background:#fff;box-shadow:0 1px 0 rgb(0 0 0 / .3)}
+.kbd .wide{max-width:none;flex:3}
+.av{width:84px;height:84px;border-radius:50%;background:#2a2c2e;border:1px solid var(--rail-hair);display:grid;place-items:center;font-size:32px;font-weight:600;color:#fff;position:relative}
+.av::after{content:"";position:absolute;right:2px;bottom:2px;width:14px;height:14px;border-radius:50%;background:var(--accent);border:3px solid var(--rail)}
+.fid{width:64px;height:64px;border-radius:20px;background:rgb(255 255 255 / .08);border:1px solid var(--rail-hair);display:grid;place-items:center;color:#fff}
+.ghost{height:47px;border-radius:10px;border:1px solid var(--hairline-2);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:500;width:100%;gap:8px;background:#fff}
+.dim .ghost{background:rgb(255 255 255 / .06);border-color:var(--rail-hair);color:#fff}
+.apps{position:absolute;top:88px;left:16px;right:16px;display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.apps div{height:96px;border-radius:12px;background:#fff;border:1px solid var(--hairline);padding:14px;font-size:15px;font-weight:600}
+.apps div i{display:block;width:10px;height:10px;border-radius:50%;margin-bottom:26px}
+@media (prefers-reduced-motion:reduce){.mark,.word,.sub,.sheet,.skel{transition:none}.stat i{animation:none}}
+</style>
+</head>
+<body>
+<div class="bar">
+  <h1>Central · App identity · Mobile</h1>
+  <span><span class="lab">Part</span><span class="seg" id="part"></span></span>
+  <span id="wallw"><span class="lab">Wallpaper</span><span class="seg" id="wall"></span></span>
+  <span id="statew"><span class="lab">State</span><span class="seg" id="state"></span></span>
+</div>
+<div class="stage" id="stage"></div>
+<script>
+const ACC="#2563eb";
+/* ---------- the icon, five ways. viewBox 32 — rx 7.2 is the iOS squircle's radius at that size ---------- */
+let gid=0;
+function icon(kind,size,round){
+  const g=++gid, clip=round?`<clipPath id="c${g}"><circle cx="16" cy="16" r="16"/></clipPath>`:"";
+  const wrap=b=>`<svg viewBox="0 0 32 32" width="${size}" height="${size}" aria-hidden="true"><defs>${clip}</defs><g ${round?`clip-path="url(#c${g})"`:""}>${b}</g></svg>`;
+  const rx=round?0:7.2;
+  const C=(c,w=3.6)=>`<path d="M18.2 11.6A6.5 6.5 0 1 0 18.2 20.4" fill="none" stroke="${c}" stroke-width="${w}" stroke-linecap="round"/>`;
+  if(kind==="A")return wrap(`<rect width="32" height="32" rx="${rx}" fill="#111214"/>${C("#fff")}<circle cx="23.4" cy="16" r="2.2" fill="${ACC}"/>`);
+  if(kind==="B")return wrap(`<defs><radialGradient id="r${g}" cx="0" cy="0" r="1"><stop offset="0" stop-color="#fff" stop-opacity=".16"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient><radialGradient id="b${g}" cx="1" cy="1" r="1"><stop offset="0" stop-color="${ACC}" stop-opacity=".55"/><stop offset="1" stop-color="${ACC}" stop-opacity="0"/></radialGradient></defs><rect width="32" height="32" rx="${rx}" fill="#242526"/><rect width="32" height="32" rx="${rx}" fill="url(#r${g})"/><rect width="32" height="32" rx="${rx}" fill="url(#b${g})"/>${C("#fff")}<circle cx="23.4" cy="16" r="2.2" fill="#5b8cff"/>`);
+  if(kind==="C")return wrap(`<rect width="32" height="32" rx="${rx}" fill="#fff"/><rect x=".5" y=".5" width="31" height="31" rx="${Math.max(rx-.5,0)}" fill="none" stroke="#dadade"/>${C("#111214")}<circle cx="23.4" cy="16" r="2.2" fill="${ACC}"/>`);
+  if(kind==="D")return wrap(`<defs><linearGradient id="d${g}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3b78f5"/><stop offset="1" stop-color="#1d4ed8"/></linearGradient></defs><rect width="32" height="32" rx="${rx}" fill="url(#d${g})"/>${C("#fff")}<circle cx="23.4" cy="16" r="2.2" fill="#fff"/>`);
+  return wrap(`<rect width="32" height="32" rx="${rx}" fill="#111214"/><path d="M22.4 11.2A8.4 8.4 0 1 0 22.4 20.8" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round"/><circle cx="16" cy="16" r="2.6" fill="${ACC}"/>`); // E: the dot at the centre
+}
+const OPTS=[
+  ["A","Black tile","The tile the app already has: near-black, white C, the blue dot in the C's gap. It is the mark on the sign-in door, the favicon and the notification badge. Nothing to relearn.",true],
+  ["B","Charcoal, lit","The sign-in door's own charcoal with a light falling from the top corner and the dot glowing: the icon looks like the screen you open. Costs depth on a busy wallpaper.",false],
+  ["C","White tile","Inverted: white tile, black C, blue dot. Stands out on a dark wallpaper and in dark mode's dim grid, loses on a light one.",false],
+  ["D","Blue tile","The accent as the whole tile, dot turned white. Loudest of the five and the one nearest to every other blue app.",false],
+  ["E","Dot at the centre","The C opens a little more and the dot moves to its middle: Central, literally. A new mark everywhere it is used.",false],
+];
+const APPNAMES=["Notes","Maps","Camera","Clock","Photos","Mail","Wallet","Weather","Music","Files","Books","Health","Home"];
+const status=`<div class="sb"><i>9:41</i><i>5G ▮▮▮</i></div>`;
+const home=(kind,name,dark)=>`<div class="phone ${dark?"dk":""}"><div class="wall"></div>${status}<div class="grid">${APPNAMES.slice(0,6).map(n=>`<div class="app"><div class="t"></div><span>${n}</span></div>`).join("")}<div class="app me"><div class="t">${icon(kind,68)}</div><span>${name}</span></div>${APPNAMES.slice(6,9).map(n=>`<div class="app"><div class="t"></div><span>${n}</span></div>`).join("")}${APPNAMES.slice(9,13).map(n=>`<div class="app"><div class="t"></div><span>${n}</span></div>`).join("")}</div><div class="hdock"><div class="t"></div><div class="t"></div><div class="t"></div><div class="t"></div></div><div class="hi ${dark?"w":""}"></div></div>`;
+const sizes=kind=>`<div class="sizes"><figure>${icon(kind,120)}<figcaption>120</figcaption></figure><figure>${icon(kind,60)}<figcaption>60</figcaption></figure><figure>${icon(kind,40)}<figcaption>40</figcaption></figure><figure>${icon(kind,29)}<figcaption>29</figcaption></figure><figure><span class="circle" style="display:block">${icon(kind,60,true)}</span><figcaption>Android</figcaption></figure></div>`;
+
+/* ---------- names ---------- */
+const NAMES=[
+  ["Central","Central","What the app is called today (manifest short name) and what the sign-in door says. Seven letters: it never truncates, and the blue dot after it is the icon's.",true],
+  ["Central Hub","Central Hub","Says what it is, to somebody who has never seen it. Ten letters: still fits under the icon.",false],
+  ["Central Retail","Central Retail","Names the business. Fourteen letters: iOS cuts it to “Central Ret…” under the icon.",false],
+  ["Itulah Central","Itulah Central","The company before the product. The owner's rule is that the hub says Central and no itulah wordmark; shown to see why.",false],
+];
+const nameCard=(kind,nm,dark)=>`<div class="card"><h3>Under the icon</h3><div class="homecrop ${dark?"dk":""}"><div class="app"><div class="t" style="background:none;box-shadow:0 6px 14px rgb(0 0 0 / .25)">${icon(kind,68)}</div><span>${nm}</span></div><div class="app"><div class="t"></div><span>Maps</span></div><div class="app"><div class="t"></div><span>Notes</span></div></div></div><div class="card"><h3>Add to Home Screen</h3><div class="sheetmock"><div class="row">${icon(kind,52)}<div class="nm">${nm}<small>central.example.com</small></div></div></div></div><div class="card"><h3>A notification</h3><div class="notif">${icon(kind,36)}<div style="flex:1;min-width:0"><div class="top"><b>${nm}</b><span>now</span></div><p>PO-041026-006 was received. 8 pieces are waiting to be counted.</p></div></div></div>`;
+
+/* ---------- launch + door (one stage, two states: the launch screen, then where it lands) ---------- */
+const MARK=`<svg viewBox="0 0 32 32" width="100%" height="100%"><rect width="32" height="32" rx="7.2" fill="#111214"/><rect x=".5" y=".5" width="31" height="31" rx="6.7" fill="none" stroke="rgb(255 255 255 / .1)"/><path d="M18.2 11.6A6.5 6.5 0 1 0 18.2 20.4" fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round"/><circle cx="23.4" cy="16" r="2.2" fill="${ACC}"/></svg>`;
+const MARK_LIGHT=`<svg viewBox="0 0 32 32" width="100%" height="100%"><rect width="32" height="32" rx="7.2" fill="#111214"/><path d="M18.2 11.6A6.5 6.5 0 1 0 18.2 20.4" fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round"/><circle cx="23.4" cy="16" r="2.2" fill="${ACC}"/></svg>`;
+const kbd=`<div class="kbd"><div>${"<span></span>".repeat(10)}</div><div>${"<span></span>".repeat(9)}</div><div>${"<span></span>".repeat(7)}</div><div><span class="wide"></span><span class="wide" style="flex:5"></span><span class="wide"></span></div></div>`;
+const LAUNCH=[
+ ["A","Charcoal, then the door","The launch screen IS the top of the sign-in door: the same charcoal, the mark where it will sit. Nothing changes colour on the way in — the mark settles into its corner and the form rises under it. For somebody who has to sign in.",true],
+ ["B","White, then Home","For somebody already signed in: a white launch screen (the app's theme colour), the mark, and it dissolves into the Home grid as soon as the session answers. No wordmark, no wait shown.",false],
+ ["D","White, then the sign-in (signed out)","The same white launch, for somebody who has to sign in: the mark rises from the middle to the top, the name settles under it and the form comes up. White all the way, so nothing changes colour between the launch and the door.",false],
+ ["C","Charcoal with the server's word","As A, with the line the door already carries — “Checking Central…” — under the mark, so a slow server is a sentence on the screen and not a frozen picture.",false],
+];
+function launchPhone(id,v){
+  const dark=v!=="B"&&v!=="D";
+  return `<div class="phone" data-launch="${v}" id="${id}">${dark?`<div class="dark-bg"><div class="glow"></div><div class="grain"></div></div>`:`<div class="skel" style="opacity:1;background:#fff"></div>`}
+  ${v==="D"?`<div class="skel" style="opacity:1;background:#fff"></div>`:""}
+  ${v==="B"?`<div class="skel s2" style="opacity:0;z-index:1"><div style="position:absolute;top:60px;left:16px;font-size:22px;font-weight:600">Home</div><div class="apps"><div><i style="background:#2563eb"></i>Procurement</div><div><i style="background:#f59e0b"></i>Merchandise</div><div><i style="background:#16a34a"></i>Ops</div><div><i style="background:#8b5cf6"></i>Inventory</div></div></div>`:""}
+  <div class="mark" style="width:88px;height:88px;left:163px;top:370px;opacity:0;z-index:2">${v==="B"||v==="D"?MARK_LIGHT:MARK}</div>
+  ${v==="D"?`<div class="word rise wd" style="left:0;right:0;text-align:center;top:480px;font-size:34px;z-index:2;color:#20242c;opacity:0">Central<b>.</b></div><div class="formd rise" style="position:absolute;left:24px;right:24px;top:300px;z-index:2;opacity:0;transition:opacity 320ms var(--ease-out),transform 520ms var(--ease-drawer)"><div class="f"><label>Username</label><div class="in"><span class="ph">rina</span></div></div><div class="f"><label>Password</label><div class="in"><span class="ph">Password</span><span class="eye">Show</span></div></div></div><div class="ctad rise" style="position:absolute;left:24px;right:24px;bottom:44px;z-index:2;opacity:0;transition:opacity 320ms var(--ease-out),transform 520ms var(--ease-drawer)"><div class="cta">Sign in</div><span class="link">Switch business</span></div>`:""}
+  ${dark?`<div class="word rise" style="left:0;right:0;text-align:center;top:480px;font-size:34px;z-index:2">Central<b>.</b></div>`:""}
+  ${v==="C"?`<div class="stat" style="left:0;right:0;justify-content:center;top:560px;opacity:0;z-index:2"><i></i>Checking Central…</div>`:""}
+  ${dark?`<div class="sub rise" style="left:20px;top:380px;opacity:0;z-index:2">The stores, the stock, the buying and the money, in one place.</div>
+  <div class="sheet hid" style="z-index:3;height:440px"><div class="f"><label>Username</label><div class="in"><span class="ph">rina</span></div></div><div class="f"><label>Password</label><div class="in"><span class="ph">Password</span><span class="eye">Show</span></div></div><div style="flex:1"></div><div class="cta">Sign in</div><span class="link">Switch business</span></div>`:""}
+  ${status.replace('class="sb"','class="sb" style="color:'+(dark?"#fff":"#111")+'"')}<div class="hi ${dark?"w":""}" style="z-index:30"></div></div>
+  <button class="replay" data-replay="${id}">↻ Replay the launch</button>`;
+}
+function playLaunch(id){
+  const p=document.getElementById(id);if(!p)return;const v=p.dataset.launch;
+  if(v==="D")return playWhiteDoor(p);
+  const mark=p.querySelector(".mark"),word=p.querySelector(".word"),sub=p.querySelector(".sub"),sheet=p.querySelector(".sheet"),st=p.querySelector(".stat"),s2=p.querySelector(".s2");
+  const reset=()=>{mark.style.transition="none";mark.style.opacity=0;mark.style.transform="scale(.9)";mark.style.left="163px";mark.style.top="370px";mark.style.width="88px";mark.style.height="88px";
+    if(word){word.style.transition="none";word.classList.add("rise");word.style.top="480px";word.style.fontSize="34px";word.style.textAlign="center";word.style.left="0";word.style.right="0";word.style.opacity=""}
+    if(sub){sub.style.transition="none";sub.classList.add("rise");sub.style.opacity=0}
+    if(sheet){sheet.style.transition="none";sheet.classList.add("hid")}
+    if(st){st.style.opacity=0}
+    if(s2){s2.style.transition="none";s2.style.opacity=0}
+    void p.offsetWidth;[mark,word,sub,sheet,s2].forEach(e=>e&&(e.style.transition=""))};
+  reset();
+  const t=(ms,f)=>setTimeout(f,ms);
+  t(60,()=>{mark.style.opacity=1;mark.style.transform="scale(1)";if(word){word.classList.remove("rise")}});
+  if(v==="C")t(380,()=>{st.style.opacity=1});
+  if(v==="B"){
+    t(900,()=>{s2.style.opacity=1;mark.style.opacity=0;mark.style.transform="scale(.94)"});
+    return;
+  }
+  // the door: the mark goes to its corner, the name to under it, the line appears, the form rises
+  t(1100,()=>{if(st)st.style.opacity=0;mark.style.width="40px";mark.style.height="40px";mark.style.left="24px";mark.style.top="64px";
+    word.style.textAlign="left";word.style.left="24px";word.style.right="auto";word.style.top="130px";word.style.fontSize="36px";
+    sub.style.top="186px";sub.classList.remove("rise");sub.style.opacity=1;sheet.classList.remove("hid")});
+}
+
+function playWhiteDoor(p){
+  const mark=p.querySelector(".mark"),word=p.querySelector(".wd"),form=p.querySelector(".formd"),cta=p.querySelector(".ctad");
+  [mark,word,form,cta].forEach(e=>{e.style.transition="none"});
+  mark.style.opacity=0;mark.style.transform="scale(.9)";mark.style.left="163px";mark.style.top="370px";mark.style.width="88px";mark.style.height="88px";
+  word.style.opacity=0;word.style.top="480px";word.style.fontSize="34px";
+  form.style.opacity=0;form.style.transform="translateY(10px)";cta.style.opacity=0;cta.style.transform="translateY(10px)";
+  void p.offsetWidth;[mark,word,form,cta].forEach(e=>{e.style.transition=""});
+  const t=(ms,f)=>setTimeout(f,ms);
+  t(60,()=>{mark.style.opacity=1;mark.style.transform="scale(1)"});
+  t(1000,()=>{mark.style.width="64px";mark.style.height="64px";mark.style.left="175px";mark.style.top="130px";word.classList.remove("rise");word.style.opacity=1;word.style.top="214px"});
+  t(1250,()=>{form.classList.remove("rise");form.style.opacity=1;form.style.transform="none";cta.classList.remove("rise");cta.style.opacity=1;cta.style.transform="none"});
+}
+
+/* ---------- login ---------- */
+const LOGIN=[
+  ["A","The sheet","Charcoal on top with the mark and the name, the form on white pulled up over it. Sign in is at the bottom of the sheet, where the thumb is; the server's word under it.",true],
+  ["B","All charcoal","No sheet: the form sits on the charcoal itself, fields as quiet outlines, the mark centred above. Calmer and more private; the white sheet's “this is a form” cue is gone.",false],
+  ["W","All white (chosen: B, in white)","B's layout in white, as chosen: no sheet, the mark centred above the name, fields as plain outlines on the page, Sign in at the bottom above the keyboard, the server's word under it. The page is the same white as the launch screen before it.",false],
+  ["C","Welcome back","For a device that already knows you (one device, one person): your initial and name, the password only, Face ID as the first thing to press. Nothing to type but the password.",false],
+];
+function loginPhone(v,state){
+  const kb=state==="Keyboard",err=state==="Error",off=state==="Offline";
+  const word=`<span style="font-weight:700;letter-spacing:-.045em">Central<b style="color:var(--accent)">.</b></span>`;
+  const statline=(light)=>`<div style="display:flex;justify-content:center;align-items:center;gap:10px;font-size:14px;color:${light?"var(--body)":"var(--rail-text)"};margin-top:14px"><i style="width:8px;height:8px;border-radius:50%;background:${off?"var(--bad)":"var(--ok)"}"></i>${off?"Central can’t be reached":"Central is online"}</div>`;
+  const user=(foc)=>`<div class="f"><label>Username</label><div class="in ${foc?"foc":""} ${err?"err":""}">${foc||err?"rina":'<span class="ph">rina</span>'}${foc?'<i style="width:1px;height:20px;background:var(--accent);margin-left:-6px"></i>':""}</div></div>`;
+  const pass=(foc)=>`<div class="f"><label>Password</label><div class="in ${foc?"foc":""} ${err?"err":""}">${foc||err?"••••••••":'<span class="ph">Password</span>'}<span class="eye">Show</span></div></div>${err?'<div class="err-msg">Wrong username or password.</div>':""}`;
+  const cta=(label)=>`<div class="cta ${off?"off":""}">${off?"Try again":label}</div>`;
+  let body="";
+  if(v==="A"){
+    body=`<div class="dark-bg" style="height:${kb?170:330}px;bottom:auto;transition:height .4s var(--ease-drawer)"><div class="glow"></div><div class="grain"></div></div>
+    <div style="position:absolute;left:24px;top:${kb?58:64}px;width:${kb?32:40}px;height:${kb?32:40}px">${MARK}</div>
+    <div class="word" style="left:24px;top:${kb?100:130}px;font-size:${kb?26:36}px">Central<b>.</b></div>
+    ${kb?"":`<div class="sub" style="left:24px;top:186px">The stores, the stock, the buying and the money, in one place.</div>`}
+    <div class="sheet" style="top:${kb?150:300}px;height:auto;bottom:${kb?300:0}px;padding:24px 20px ${kb?16:44}px">${user(kb)}${pass(false)}<div style="flex:1"></div>${cta("Sign in")}${kb?"":`<span class="link">Switch business</span>${statline(true)}`}</div>`;
+  }
+  if(v==="B"){
+    body=`<div class="dark-bg" style="height:100%"><div class="glow"></div><div class="grain"></div></div>
+    <div style="position:absolute;left:0;right:0;top:${kb?60:120}px;display:flex;flex-direction:column;align-items:center;gap:${kb?8:16}px;transition:top .4s var(--ease-drawer)"><div style="width:${kb?44:64}px;height:${kb?44:64}px">${MARK}</div><div class="word" style="position:static;font-size:${kb?26:34}px">Central<b>.</b></div></div>
+    <div class="dim" style="position:absolute;left:24px;right:24px;top:${kb?176:300}px">${user(kb)}${pass(false)}</div>
+    <div style="position:absolute;left:24px;right:24px;bottom:${kb?316:44}px">${cta("Sign in")}${kb?"":`<span class="link" style="color:var(--rail-text)">Switch business</span>${statline(false)}`}</div>`;
+  }
+  if(v==="W"){
+    body=`<div style="position:absolute;inset:0;background:#fff"></div>
+    <div style="position:absolute;left:0;right:0;top:${kb?60:130}px;display:flex;flex-direction:column;align-items:center;gap:${kb?8:16}px;transition:top .4s var(--ease-drawer)"><div style="width:${kb?44:64}px;height:${kb?44:64}px">${MARK_LIGHT}</div><div class="word" style="position:static;font-size:${kb?26:34}px;color:#20242c">Central<b>.</b></div></div>
+    <div style="position:absolute;left:24px;right:24px;top:${kb?176:300}px">${user(kb)}${pass(false)}</div>
+    <div style="position:absolute;left:24px;right:24px;bottom:${kb?316:44}px">${cta("Sign in")}${kb?"":`<span class="link">Switch business</span>${statline(true)}`}</div>`;
+  }
+  if(v==="C"){
+    body=`<div class="dark-bg" style="height:100%"><div class="glow"></div><div class="grain"></div></div>
+    <div style="position:absolute;left:0;right:0;top:${kb?70:150}px;display:flex;flex-direction:column;align-items:center;gap:10px"><div class="av" style="${kb?"width:64px;height:64px;font-size:24px":""}">R</div><div class="word" style="position:static;font-size:${kb?22:28}px;letter-spacing:-.03em">Rina Agustina</div><div style="font-size:14px;color:var(--rail-text)">Purchasing · Central is ${off?"not reachable":"online"}</div></div>
+    <div class="dim" style="position:absolute;left:24px;right:24px;top:${kb?220:340}px">${pass(kb)}</div>
+    <div style="position:absolute;left:24px;right:24px;bottom:${kb?316:44}px;display:flex;flex-direction:column;gap:12px">${kb?"":`<div style="display:flex;justify-content:center;margin-bottom:10px"><div class="fid"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M9 10v1M15 10v1M12 10v3h-1M9.5 15.5c1.5 1.3 3.5 1.3 5 0"/></svg></div></div>`}${cta("Sign in")}<span class="link" style="color:var(--rail-text);margin-top:2px">Not Rina? Switch user</span></div>`;
+  }
+  const lightPage=v==="W";
+  return `<div class="phone">${body}${kb?kbd:""}${status.replace('class="sb"',`class="sb" style="color:${lightPage?"#111":"#fff"}"`)}<div class="hi ${lightPage?"":"w"}" style="z-index:30"></div></div>`;
+}
+
+/* ---------- paint ---------- */
+const PARTS=["Decision","Icon","Name","Launch screen","Login"];
+const q=new URLSearchParams(location.search);
+let part=PARTS.includes(q.get("part"))?q.get("part"):"Decision";
+let wall=q.get("wall")==="Dark"?"Dark":"Light";
+let state=["Default","Keyboard","Error","Offline"].includes(q.get("state"))?q.get("state"):"Default";
+function paint(){
+  const st=document.getElementById("stage");let html="";
+  if(part==="Decision")html=`<section class="opt"><h2>1 · Icon: the black tile</h2><p>Unchanged: near-black, white C, the blue dot in its gap.</p>${home("A","Central",wall==="Dark")}</section><section class="opt"><h2>2 · Launch, signed in</h2><p>White, the mark, then Home as soon as the session answers.</p>${launchPhone("LB","B")}</section><section class="opt"><h2>3 · Launch, signed out</h2><p>The same white: the mark rises, the name settles, the form comes up.</p>${launchPhone("LD","D")}</section><section class="opt"><h2>4 · Login: all white</h2><p>Name: Central. Sign in at the bottom, above the keyboard.</p>${loginPhone("W",state)}</section>`;
+  if(part==="Icon")html=OPTS.map(([k,t,b,rec])=>`<section class="opt"><h2>${k} · ${t}${rec?'<span class="rec">Today</span>':""}</h2><p>${b}</p>${home(k,"Central",wall==="Dark")}${sizes(k)}</section>`).join("");
+  if(part==="Name")html=NAMES.map(([t,nm,b,rec])=>`<section class="opt"><h2>${t}${rec?'<span class="rec">Today</span>':""}</h2><p>${b}</p>${nameCard("A",nm,wall==="Dark")}</section>`).join("");
+  if(part==="Launch screen")html=LAUNCH.map(([k,t,b,rec])=>`<section class="opt"><h2>${k} · ${t}${rec?'<span class="rec">Recommended</span>':""}</h2><p>${b}</p>${launchPhone("L"+k,k)}</section>`).join("");
+  if(part==="Login")html=LOGIN.map(([k,t,b,rec])=>`<section class="opt"><h2>${k} · ${t}${rec?'<span class="rec">Today</span>':""}</h2><p>${b}</p>${loginPhone(k,state)}</section>`).join("");
+  st.innerHTML=html;
+  seg("part",PARTS,part,v=>{part=v;paint();sync()});
+  seg("wall",["Light","Dark"],wall,v=>{wall=v;paint();sync()});
+  seg("state",["Default","Keyboard","Error","Offline"],state,v=>{state=v;paint();sync()});
+  document.getElementById("wallw").style.display=part==="Icon"||part==="Name"||part==="Decision"?"":"none";
+  document.getElementById("statew").style.display=part==="Login"||part==="Decision"?"":"none";
+  if(part==="Launch screen")["LA","LB","LC","LD"].forEach((id,i)=>setTimeout(()=>playLaunch(id),200+i*50));
+  if(part==="Decision")["LB","LD"].forEach((id,i)=>setTimeout(()=>playLaunch(id),300+i*50));
+}
+function seg(id,values,cur,on){const el=document.getElementById(id);el.innerHTML=values.map(v=>`<button aria-pressed="${v===cur}">${v}</button>`).join("");[...el.children].forEach((b,i)=>b.onclick=()=>on(values[i]))}
+function sync(){history.replaceState(null,"","?"+new URLSearchParams({part,wall,state}))}
+document.getElementById("stage").addEventListener("click",e=>{const b=e.target.closest("[data-replay]");if(b)playLaunch(b.dataset.replay)});
+paint();
+</script>
+</body>
+</html>

@@ -8,6 +8,7 @@ import { Field, Input } from "@/components/ui/field"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
 import { count } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   fleetPools,
   idempotencyKey,
@@ -22,6 +23,7 @@ import {
 } from "@/screens/inventory/missing-data"
 import { Choice } from "@/screens/inventory/parts"
 import { useActor, writablePools } from "@/screens/inventory/shared"
+import { CardFigure, CardName, PhoneCard } from "@/components/ui/phone-cards"
 
 /// Missing, grouped by SKU and the pool it went missing from.
 ///
@@ -36,6 +38,7 @@ const OVERDUE_DAYS = 30
 export function MissingList({ canWriteOff }: { canWriteOff: boolean }) {
   const { query, rows } = useMissingRows()
   const groups = useMemo(() => groupMissing(rows), [rows])
+  const phone = useLayout() === "phone"
   const [move, setMove] = useState<string | null>(null)
   const [off, setOff] = useState<string | null>(null)
 
@@ -46,9 +49,80 @@ export function MissingList({ canWriteOff }: { canWriteOff: boolean }) {
 
   return (
     <>
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {groups.length === 0 ? (
           <EmptyState>Nothing missing.</EmptyState>
+        ) : phone ? (
+          // A phone's cards: the article over its SKU, what is missing, where
+          // from and how long ago on the foot, and the two things to do.
+          <ul className="flex flex-col gap-2.5">
+            {groups.map((group) => (
+              <PhoneCard
+                key={group.key}
+                onOpen={() => setMove(group.key)}
+                head={
+                  <CardName
+                    name={group.name ?? group.sku}
+                    code={group.name ? group.sku : undefined}
+                  />
+                }
+                lead={
+                  <CardFigure value={count(group.left)} caption="missing" />
+                }
+                body={
+                  <div className="flex flex-col gap-1 text-[0.875rem]">
+                    <span className="text-ink">
+                      {group.poolLabel} · {group.site}
+                    </span>
+                    {group.from !== null && (
+                      <span className="text-mute">
+                        From {group.from}
+                        {group.fromRef && ` · ${group.fromRef}`}
+                      </span>
+                    )}
+                  </div>
+                }
+                foot={
+                  <span
+                    className={cn(
+                      "tabular-nums",
+                      group.days !== null &&
+                        group.days > OVERDUE_DAYS &&
+                        "font-medium text-bad-fg"
+                    )}
+                  >
+                    {group.days === null ? "—" : `${group.days} days`}
+                  </span>
+                }
+                action={
+                  <span className="inline-flex gap-2">
+                    <Button
+                      variant="tint"
+                      size="card"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        setMove(group.key)
+                      }}
+                    >
+                      Move
+                    </Button>
+                    {canWriteOff && (
+                      <Button
+                        variant="tint"
+                        size="card"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          setOff(group.key)
+                        }}
+                      >
+                        Write off
+                      </Button>
+                    )}
+                  </span>
+                }
+              />
+            ))}
+          </ul>
         ) : (
           <table className="w-full border-collapse text-body">
             <thead>

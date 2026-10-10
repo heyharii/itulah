@@ -1,15 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import type { ColumnDef, SortingState } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
+import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Field, Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { count, day } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { problemOf } from "@/lib/problem"
 import {
   appointPic,
@@ -20,6 +25,149 @@ import {
 } from "@/lib/queries/organisation"
 import { listEmployees, peopleKeys } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
+import { tableSetup, type TableSetup } from "@/lib/table"
+
+/// What kind of unit it is, in words.
+function kindOf(unit: UnitView): string {
+  return unit.kind === "HO"
+    ? "Head office"
+    : unit.kind === "STORE"
+      ? "Store"
+      : unit.kind === "ONLINE"
+        ? "Online"
+        : unit.kind
+}
+
+const premisesOf = (unit: UnitView) =>
+  unit.sites.map((site) => site.name).join(", ")
+
+const picOf = (unit: UnitView) =>
+  unit.pic === null ? "" : (unit.pic.name ?? unit.pic.employee_code)
+
+/// The phone's list: a card per unit (the desk keeps its table). The name over
+/// its code, the head count as the figure, and under the hairline who is in
+/// charge and where, with the one button this screen has — a word, as every
+/// other card's. The first five columns are never drawn: they are what the
+/// search reads and the sort sheet names.
+function cardColumns(
+  onChoose: (unit: UnitView) => void
+): ColumnDef<TableSetup, UnitView>[] {
+  return [
+    {
+      id: "name",
+      accessorFn: (unit) => unit.name,
+      header: "Name",
+      meta: { card: "hide" },
+    },
+    {
+      id: "code",
+      accessorFn: (unit) => unit.code,
+      header: "Code",
+      meta: { card: "hide" },
+    },
+    {
+      id: "staff",
+      accessorFn: (unit) => unit.headcount,
+      header: "Staff",
+      meta: { card: "hide" },
+    },
+    {
+      id: "pic",
+      accessorFn: picOf,
+      header: "Person in Charge",
+      enableSorting: false,
+      meta: { card: "hide" },
+    },
+    {
+      id: "premises",
+      accessorFn: premisesOf,
+      header: "Premises",
+      enableSorting: false,
+      meta: { card: "hide" },
+    },
+    {
+      id: "head",
+      accessorFn: (unit) => unit.name,
+      header: "",
+      enableSorting: false,
+      meta: { card: "title" },
+      cell: ({ row }) => (
+        <span className="flex min-w-0 flex-col gap-1">
+          <span className="min-w-0 text-[1rem] font-semibold break-words text-ink">
+            {row.original.name}
+          </span>
+          <span className="text-[0.875rem] font-normal text-mute">
+            <span className="font-mono">{row.original.code}</span>
+            {` · ${kindOf(row.original)}`}
+            {row.original.status !== "ACTIVE" &&
+              ` · ${row.original.status === "CLOSED" ? "Closed" : row.original.status}`}
+          </span>
+        </span>
+      ),
+    },
+    {
+      id: "lead",
+      accessorFn: (unit) => unit.headcount,
+      header: "",
+      enableSorting: false,
+      meta: { card: "lead" },
+      cell: ({ row }) => (
+        <span className="flex flex-col items-end tabular-nums">
+          <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
+            {count(row.original.headcount)}
+          </span>
+          <span className="text-[0.875rem] text-mute">staff</span>
+        </span>
+      ),
+    },
+    {
+      id: "foot",
+      accessorFn: picOf,
+      header: "",
+      enableSorting: false,
+      meta: { card: "foot" },
+      cell: ({ row }) => {
+        const unit = row.original
+        const premises = premisesOf(unit)
+        return (
+          <span className="flex min-w-0 flex-col break-words">
+            {unit.pic === null ? (
+              <span>Nobody in charge</span>
+            ) : (
+              <span>
+                <span className="text-ink">
+                  {unit.pic.name ?? unit.pic.employee_code}
+                </span>
+                {` · since ${day(unit.pic.valid_from)}`}
+              </span>
+            )}
+            {premises !== "" && <span>{premises}</span>}
+          </span>
+        )
+      },
+    },
+    {
+      id: "set",
+      header: "",
+      enableSorting: false,
+      meta: { align: "right", card: "status" },
+      cell: ({ row }) => (
+        <Button
+          variant="tint"
+          size="card"
+          disabled={row.original.status !== "ACTIVE"}
+          aria-label={`${row.original.pic === null ? "Set PIC" : "Change PIC"} of ${row.original.name}`}
+          onClick={(event) => {
+            event.stopPropagation()
+            onChoose(row.original)
+          }}
+        >
+          {row.original.pic === null ? "Set PIC" : "Change PIC"}
+        </Button>
+      ),
+    },
+  ]
+}
 
 /// The organisation's units: head office and each store, with the premises
 /// each owns and the person in charge.
@@ -36,6 +184,26 @@ import { queryState } from "@/lib/query-state"
 export function Organisation() {
   const units = useUnits()
   const [choosing, setChoosing] = useState<UnitView | null>(null)
+  const phone = useLayout() === "phone"
+  /// What the phone's dock field typed: a name, a code, a person, a place.
+  const [query, setQuery] = useState("")
+  const [sorting, setSorting] = useState<SortingState>([])
+
+  const columns = useMemo(() => cardColumns(setChoosing), [])
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: units.data ?? [],
+        columns,
+        getRowId: (unit: UnitView) => unit.id,
+        state: { globalFilter: query, sorting },
+        onSortingChange: setSorting,
+        onGlobalFilterChange: setQuery,
+      }),
+      [units.data, columns, query, sorting]
+    )
+  )
 
   return (
     <PageContent>
@@ -45,12 +213,29 @@ export function Organisation() {
         sub="Head office and the stores — who owns which premises, and who is in charge of each."
       />
 
-      <Card className="overflow-hidden">
+      <DockTools
+        search={{ value: query, onChange: setQuery, label: "Search units" }}
+        sort={dockSortOf(table)}
+      />
+
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(units, {
           loading: "Reading the units…",
           render: (rows) =>
             rows.length === 0 ? (
               <EmptyState>No unit has been set up.</EmptyState>
+            ) : phone ? (
+              <DataTable<UnitView>
+                table={table}
+                onRowClick={(unit) =>
+                  unit.status === "ACTIVE" && setChoosing(unit)
+                }
+                empty="Nothing matches that search."
+                pageScroll
+                cardSort={false}
+                cardsApart
+                cardLead
+              />
             ) : (
               <table className="w-full text-[0.875rem]">
                 <thead>
@@ -83,13 +268,7 @@ export function Organisation() {
                       </td>
                       <td className="px-3 py-2">
                         <Pill tone={unit.kind === "HO" ? "accent" : "neutral"}>
-                          {unit.kind === "HO"
-                            ? "Head office"
-                            : unit.kind === "STORE"
-                              ? "Store"
-                              : unit.kind === "ONLINE"
-                                ? "Online"
-                                : unit.kind}
+                          {kindOf(unit)}
                         </Pill>
                       </td>
                       <td className="px-3 py-2 text-body">

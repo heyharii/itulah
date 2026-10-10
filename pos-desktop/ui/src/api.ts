@@ -239,6 +239,9 @@ export type QuoteReply = {
   readonly lines?: readonly unknown[]
   readonly promotions?: readonly PromotionOutcome[]
   readonly granted_lines?: readonly GrantedLine[]
+  /// Limited coupons (a cap across every shop) that came without a hold from
+  /// head office, so did not apply. The till's cue to hold them — `coupons.ts`.
+  readonly coupons_to_authorize?: readonly string[]
 }
 
 export type PromotionOutcome = {
@@ -247,7 +250,15 @@ export type PromotionOutcome = {
   readonly applied: boolean
   readonly benefit_minor: number
   readonly coupon_code?: string | null
+  /// Head office's hold behind a limited coupon that applied.
+  readonly coupon_authorization_id?: string | null
   readonly reason?: string | null
+}
+
+/// A hold head office granted for a limited coupon, as the node takes it.
+export type CouponAuthorization = {
+  readonly code: string
+  readonly authorization_id: string
 }
 
 export type GrantedLine = {
@@ -275,12 +286,14 @@ export const quote = (
   couponCodes: readonly string[] = [],
   customerId: string | null = null,
   charges: readonly Charge[] = [],
+  couponAuthorizations: readonly CouponAuthorization[] = [],
 ) =>
   edge<QuoteReply>("POST", "/api/v1/store/quote", {
     epcs,
     coupon_codes: couponCodes,
     customer_id: customerId,
     charges,
+    coupon_authorizations: couponAuthorizations,
   })
 
 // ── taking the money ────────────────────────────────────────────────────
@@ -350,6 +363,9 @@ export const sell = (body: {
   /// caller that added a bag to a garment's price would get a discount on the
   /// bag and loyalty points for it.
   charges?: readonly Charge[]
+  /// The holds the quote was priced with. The node refuses a sale naming a
+  /// hold it cannot vouch for, rather than quietly charging without it.
+  coupon_authorizations?: readonly CouponAuthorization[]
 }) => edge<SaleReply>("POST", "/api/v1/store/sales", body)
 
 /// `GET /api/v1/store/sales/{id}/receipt` — what the node says the sale was.

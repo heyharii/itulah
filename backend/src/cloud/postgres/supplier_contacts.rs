@@ -123,6 +123,293 @@ pub struct UpdateSupplierContactRequest {
     pub retired: Option<bool>,
 }
 
+/// One contact correction riding a supplier write: who, at what version, and
+/// what to change. The version is the same `If-Match` quote the per-contact
+/// PATCH takes.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SupplierContactUpdate {
+    pub contact_id: Uuid,
+    pub expected_version: i32,
+    pub change: UpdateSupplierContactRequest,
+}
+
+/// The contact sheet of a supplier write, in one command: new people to add
+/// and corrections to people already filed. Retiring rides `update` with
+/// `retired: true`, exactly as the per-contact PATCH spells it.
+///
+/// This is what a composer used to spend N+1 round trips on — one POST per
+/// person after the party itself, each opening its own transaction.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct SupplierContactsPatch {
+    #[serde(default)]
+    pub create: Vec<CreateSupplierContactRequest>,
+    #[serde(default)]
+    pub update: Vec<SupplierContactUpdate>,
+}
+
+/// Validate and normalize one new contact without touching the database:
+/// the same rules [`create_supplier_contact`] applies, run before the party's
+/// transaction opens so a bad sheet costs no supplier number.
+pub(super) fn normalized_new_contact(
+    request: &CreateSupplierContactRequest,
+) -> Result<NewContactRow, AppError> {
+    let (name, name_normalized) = normalize_name(&request.name)?;
+    let row = NewContactRow {
+        name,
+        name_normalized,
+        role: optional(request.role.as_deref()),
+        phone: optional(request.phone.as_deref()),
+        email: optional(request.email.as_deref()),
+        note: optional(request.note.as_deref()),
+        address: optional(request.address.as_deref()),
+        wants_primary: request.is_primary,
+    };
+    // Said here as well as by the CHECK, because a sentence beats an SQLSTATE
+    // and this is the mistake the form makes most.
+    if row.phone.is_none() && row.email.is_none() {
+        return Err(AppError::Validation(
+            "a contact needs a phone number or an email address".to_owned(),
+        ));
+    }
+    Ok(row)
+}
+
+/// A validated new contact, ready for the batch INSERT.
+pub(super) struct NewContactRow {
+    pub name: String,
+    pub name_normalized: String,
+    pub role: Option<String>,
+    pub phone: Option<String>,
+    pub email: Option<String>,
+    pub note: Option<String>,
+    pub address: Option<String>,
+    pub wants_primary: Option<bool>,
+}
+
+/// Write every new contact of a supplier in one statement.
+///
+/// The primary flag follows [`create_supplier_contact`]'s rule: one asked for
+/// explicitly wins, else the first contact a supplier has. `fresh_party`
+/// says the supplier was minted in the same transaction (so it has no live
+/// contacts and the first row is the answer); otherwise one count decides
+/// whether a default-primary exists, and one UPDATE clears the flag from
+/// whoever held it before an explicit claim takes it.
+pub(super) async fn insert_supplier_contacts_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    supplier_id: Uuid,
+    requests: &[CreateSupplierContactRequest],
+    actor: &str,
+    fresh_party: bool,
+) -> Result<(), AppError> {
+    if requests.is_empty() {
+        return Ok(());
+    }
+    let rows: Vec<NewContactRow> = requests
+        .iter()
+        .map(normalized_new_contact)
+        .collect::<Result<_, _>>()?;
+    // Who is primary: an explicit claim first; on a fresh party the first
+    // row, on an existing one the first row only when nobody lives there yet.
+    let explicit = rows.iter().position(|row| row.wants_primary == Some(true));
+    let default_first = if fresh_party {
+        true
+    } else {
+        let live: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM supplier_contact
+              WHERE supplier_id = $1 AND retired_at IS NULL",
+        )
+        .bind(supplier_id)
+        .fetch_one(&mut **tx)
+        .await?;
+        live == 0
+    };
+    let primary_index = explicit.or(if default_first { Some(0) } else { None });
+    if primary_index.is_some() && !fresh_party {
+        sqlx::query(
+            "UPDATE supplier_contact SET is_primary = false
+              WHERE supplier_id = $1 AND is_primary",
+        )
+        .bind(supplier_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+    sqlx::query(
+        "INSERT INTO supplier_contact
+             (contact_id, supplier_id, name, name_normalized, role, phone, email,
+              note, is_primary, created_by, updated_by, address)
+         SELECT gen_random_uuid(), $1, line.name, line.name_normalized, line.role,
+                line.phone, line.email, line.note,
+                line.ordinal = $3, $2, $2, line.address
+           FROM unnest($4::text[], $5::text[], $6::text[], $7::text[], $8::text[],
+                       $9::text[], $10::text[])
+                WITH ORDINALITY AS line(name, name_normalized, role, phone,
+                                        email, note, address, ordinal)",
+    )
+    .bind(supplier_id)
+    .bind(actor)
+    .bind((primary_index.map(|index| index as i64)).unwrap_or(0))
+    .bind(rows.iter().map(|row| row.name.clone()).collect::<Vec<_>>())
+    .bind(
+        rows.iter()
+            .map(|row| row.name_normalized.clone())
+            .collect::<Vec<_>>(),
+    )
+    .bind(rows.iter().map(|row| row.role.clone()).collect::<Vec<_>>())
+    .bind(rows.iter().map(|row| row.phone.clone()).collect::<Vec<_>>())
+    .bind(rows.iter().map(|row| row.email.clone()).collect::<Vec<_>>())
+    .bind(rows.iter().map(|row| row.note.clone()).collect::<Vec<_>>())
+    .bind(
+        rows.iter()
+            .map(|row| row.address.clone())
+            .collect::<Vec<_>>(),
+    )
+    .execute(&mut **tx)
+    .await
+    .map_err(map_write_error)?;
+    Ok(())
+}
+
+/// The heart of [`update_supplier_contact`], callable inside a caller's
+/// transaction: a supplier write that carries contact corrections answers for
+/// all of them in its one transaction, not one per person.
+pub(super) async fn update_supplier_contact_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    contact_id: Uuid,
+    expected_version: i32,
+    request: UpdateSupplierContactRequest,
+    actor: &str,
+) -> Result<SupplierContact, AppError> {
+    if expected_version <= 0 {
+        return Err(AppError::Validation(
+            "If-Match version must be positive".into(),
+        ));
+    }
+
+    let name = request.name.as_deref().map(normalize_name).transpose()?;
+    let changes_role = !matches!(request.role, NullablePatch::Missing);
+    let changes_phone = !matches!(request.phone, NullablePatch::Missing);
+    let changes_email = !matches!(request.email, NullablePatch::Missing);
+    let changes_note = !matches!(request.note, NullablePatch::Missing);
+    let changes_address = !matches!(request.address, NullablePatch::Missing);
+    if name.is_none()
+        && !changes_role
+        && !changes_phone
+        && !changes_email
+        && !changes_note
+        && !changes_address
+        && request.is_primary.is_none()
+        && request.retired.is_none()
+    {
+        return Err(AppError::Validation(
+            "Supplier contact update must contain at least one field".into(),
+        ));
+    }
+
+    let current = sqlx::query(
+        "SELECT supplier_id, version FROM supplier_contact WHERE contact_id = $1 FOR UPDATE",
+    )
+    .bind(contact_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or_else(|| AppError::NotFound("Supplier contact".to_owned()))?;
+    let supplier_id: Uuid = current.try_get("supplier_id")?;
+    let actual_version: i32 = current.try_get("version")?;
+    if actual_version != expected_version {
+        return Err(AppError::Conflict(format!(
+            "Supplier contact has moved on: If-Match said {expected_version}, it is now \
+             {actual_version}"
+        )));
+    }
+
+    // Retiring takes the primary flag with it. The index in 0302 only counts
+    // live rows, so a retired row could keep the flag and nothing would
+    // complain — and the next screen to read "the contact" would name somebody
+    // who has left.
+    let retiring = request.retired == Some(true);
+    let becoming_primary = request.is_primary == Some(true) && !retiring;
+    if becoming_primary {
+        sqlx::query(
+            "UPDATE supplier_contact SET is_primary = false
+              WHERE supplier_id = $1 AND contact_id <> $2 AND is_primary",
+        )
+        .bind(supplier_id)
+        .bind(contact_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    sqlx::query(
+        "UPDATE supplier_contact
+            SET name            = COALESCE($2, name),
+                name_normalized = COALESCE($3, name_normalized),
+                role            = CASE WHEN $4 THEN $5 ELSE role END,
+                phone           = CASE WHEN $6 THEN $7 ELSE phone END,
+                email           = CASE WHEN $8 THEN $9 ELSE email END,
+                note            = CASE WHEN $10 THEN $11 ELSE note END,
+                address         = CASE WHEN $16 THEN $17 ELSE address END,
+                is_primary      = CASE
+                                      WHEN $12 THEN false
+                                      WHEN $13 IS NULL THEN is_primary
+                                      ELSE $13
+                                  END,
+                retired_at      = CASE
+                                      WHEN $14 IS NULL THEN retired_at
+                                      WHEN $14 THEN COALESCE(retired_at, now())
+                                      ELSE NULL
+                                  END,
+                version         = version + 1,
+                updated_by      = $15,
+                updated_at      = now()
+          WHERE contact_id = $1",
+    )
+    .bind(contact_id)
+    .bind(name.as_ref().map(|(display, _)| display))
+    .bind(name.as_ref().map(|(_, normalized)| normalized))
+    .bind(changes_role)
+    .bind(match &request.role {
+        NullablePatch::Value(value) => optional(Some(value.as_str())),
+        _ => None,
+    })
+    .bind(changes_phone)
+    .bind(match &request.phone {
+        NullablePatch::Value(value) => optional(Some(value.as_str())),
+        _ => None,
+    })
+    .bind(changes_email)
+    .bind(match &request.email {
+        NullablePatch::Value(value) => optional(Some(value.as_str())),
+        _ => None,
+    })
+    .bind(changes_note)
+    .bind(match &request.note {
+        NullablePatch::Value(value) => optional(Some(value.as_str())),
+        _ => None,
+    })
+    .bind(retiring)
+    .bind(request.is_primary)
+    .bind(request.retired)
+    .bind(actor)
+    .bind(changes_address)
+    .bind(match &request.address {
+        NullablePatch::Value(value) => optional(Some(value.as_str())),
+        _ => None,
+    })
+    .execute(&mut **tx)
+    .await
+    .map_err(map_write_error)?;
+
+    contact_from_row(
+        &sqlx::query(&format!(
+            "SELECT {CONTACT_COLUMNS} FROM supplier_contact WHERE contact_id = $1"
+        ))
+        .bind(contact_id)
+        .fetch_one(&mut **tx)
+        .await?,
+    )
+}
+
 const CONTACT_COLUMNS: &str = "contact_id, supplier_id, name, role, phone, email, address, note, \
                                is_primary, (retired_at IS NOT NULL) AS retired, version";
 
@@ -367,32 +654,6 @@ pub async fn update_supplier_contact(
     idempotency_key: &str,
     digest: &str,
 ) -> Result<SupplierContact, AppError> {
-    if expected_version <= 0 {
-        return Err(AppError::Validation(
-            "If-Match version must be positive".into(),
-        ));
-    }
-
-    let name = request.name.as_deref().map(normalize_name).transpose()?;
-    let changes_role = !matches!(request.role, NullablePatch::Missing);
-    let changes_phone = !matches!(request.phone, NullablePatch::Missing);
-    let changes_email = !matches!(request.email, NullablePatch::Missing);
-    let changes_note = !matches!(request.note, NullablePatch::Missing);
-    let changes_address = !matches!(request.address, NullablePatch::Missing);
-    if name.is_none()
-        && !changes_role
-        && !changes_phone
-        && !changes_email
-        && !changes_note
-        && !changes_address
-        && request.is_primary.is_none()
-        && request.retired.is_none()
-    {
-        return Err(AppError::Validation(
-            "Supplier contact update must contain at least one field".into(),
-        ));
-    }
-
     let mut transaction = pool.begin().await?;
     if let Some(response) = begin_idempotent(
         &mut transaction,
@@ -404,108 +665,14 @@ pub async fn update_supplier_contact(
     {
         return Ok(serde_json::from_value(response)?);
     }
-
-    let current = sqlx::query(
-        "SELECT supplier_id, version FROM supplier_contact WHERE contact_id = $1 FOR UPDATE",
+    let contact = update_supplier_contact_tx(
+        &mut transaction,
+        contact_id,
+        expected_version,
+        request,
+        actor,
     )
-    .bind(contact_id)
-    .fetch_optional(&mut *transaction)
-    .await?
-    .ok_or_else(|| AppError::NotFound("Supplier contact".to_owned()))?;
-    let supplier_id: Uuid = current.try_get("supplier_id")?;
-    let actual_version: i32 = current.try_get("version")?;
-    if actual_version != expected_version {
-        return Err(AppError::Conflict(format!(
-            "Supplier contact has moved on: If-Match said {expected_version}, it is now \
-             {actual_version}"
-        )));
-    }
-
-    // Retiring takes the primary flag with it. The index in 0302 only counts
-    // live rows, so a retired row could keep the flag and nothing would
-    // complain — and the next screen to read "the contact" would name somebody
-    // who has left.
-    let retiring = request.retired == Some(true);
-    let becoming_primary = request.is_primary == Some(true) && !retiring;
-    if becoming_primary {
-        sqlx::query(
-            "UPDATE supplier_contact SET is_primary = false
-              WHERE supplier_id = $1 AND contact_id <> $2 AND is_primary",
-        )
-        .bind(supplier_id)
-        .bind(contact_id)
-        .execute(&mut *transaction)
-        .await?;
-    }
-
-    sqlx::query(
-        "UPDATE supplier_contact
-            SET name            = COALESCE($2, name),
-                name_normalized = COALESCE($3, name_normalized),
-                role            = CASE WHEN $4 THEN $5 ELSE role END,
-                phone           = CASE WHEN $6 THEN $7 ELSE phone END,
-                email           = CASE WHEN $8 THEN $9 ELSE email END,
-                note            = CASE WHEN $10 THEN $11 ELSE note END,
-                address         = CASE WHEN $16 THEN $17 ELSE address END,
-                is_primary      = CASE
-                                      WHEN $12 THEN false
-                                      WHEN $13 IS NULL THEN is_primary
-                                      ELSE $13
-                                  END,
-                retired_at      = CASE
-                                      WHEN $14 IS NULL THEN retired_at
-                                      WHEN $14 THEN COALESCE(retired_at, now())
-                                      ELSE NULL
-                                  END,
-                version         = version + 1,
-                updated_by      = $15,
-                updated_at      = now()
-          WHERE contact_id = $1",
-    )
-    .bind(contact_id)
-    .bind(name.as_ref().map(|(display, _)| display))
-    .bind(name.as_ref().map(|(_, normalized)| normalized))
-    .bind(changes_role)
-    .bind(match &request.role {
-        NullablePatch::Value(value) => optional(Some(value.as_str())),
-        _ => None,
-    })
-    .bind(changes_phone)
-    .bind(match &request.phone {
-        NullablePatch::Value(value) => optional(Some(value.as_str())),
-        _ => None,
-    })
-    .bind(changes_email)
-    .bind(match &request.email {
-        NullablePatch::Value(value) => optional(Some(value.as_str())),
-        _ => None,
-    })
-    .bind(changes_note)
-    .bind(match &request.note {
-        NullablePatch::Value(value) => optional(Some(value.as_str())),
-        _ => None,
-    })
-    .bind(retiring)
-    .bind(request.is_primary)
-    .bind(request.retired)
-    .bind(actor)
-    .bind(changes_address)
-    .bind(match &request.address {
-        NullablePatch::Value(value) => optional(Some(value.as_str())),
-        _ => None,
-    })
-    .execute(&mut *transaction)
-    .await
-    .map_err(map_write_error)?;
-
-    let contact = contact_from_row(
-        &sqlx::query(&format!(
-            "SELECT {CONTACT_COLUMNS} FROM supplier_contact WHERE contact_id = $1"
-        ))
-        .bind(contact_id)
-        .fetch_one(&mut *transaction)
-        .await?,
-    )?;
+    .await?;
     complete_idempotent(
         &mut transaction,
         idempotency_key,

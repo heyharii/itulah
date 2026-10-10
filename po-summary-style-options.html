@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PO Summary Styles</title>
+<style>
+:root{
+  --ink:#20242c;--text:#394150;--body:#565f6d;--mute:#666f7d;--line-ico:#89919d;--faint:#b9c0c9;
+  --canvas:#fff;--soft:#f8f8f9;--soft-2:#f0f0f2;--page:#f6f6f7;--hairline:#e6e6e9;--hairline-2:#dadade;
+  --accent:#2563eb;--accent-bg:#eff5ff;--bad:#d05151;--bad-fg:#be123c;--bad-bg:#fbeaea;--ok-fg:#137a37;
+  --shadow-soft:0 1px 2px rgb(24 39 60 / 6%),0 1px 1px rgb(24 39 60 / 4%);
+  --ease-out:cubic-bezier(.23,1,.32,1);--t-press:120ms;--w:375px;
+}
+*{box-sizing:border-box;margin:0}
+body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;background:#e4e4e8;color:var(--ink);-webkit-font-smoothing:antialiased;font-size:15px}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;text-align:inherit;padding:0}
+svg{display:block;flex:none}
+.ico{width:1em;height:1em;stroke:currentColor;fill:none;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.9}
+.bar{position:sticky;top:0;z-index:20;display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center;padding:12px 20px;background:rgb(255 255 255 / .92);backdrop-filter:blur(10px);border-bottom:1px solid var(--hairline-2)}
+.bar h1{font-size:15px;font-weight:600;margin-right:6px}
+.seg{display:inline-flex;gap:2px;padding:2px;border-radius:9px;background:#d9d9de}
+.seg button{padding:5px 11px;border-radius:7px;font-size:14px;font-weight:500;color:#444}
+.seg button[aria-pressed=true]{background:#fff;color:#111;box-shadow:0 1px 2px rgb(0 0 0 / .15)}
+.lab{font-size:14px;color:#555;margin-right:8px}
+.stage{display:flex;gap:28px;padding:24px 20px 60px;overflow-x:auto;align-items:flex-start}
+.opt{flex:none}
+.opt h2{font-size:15px;font-weight:600;margin:0 4px 2px}
+.opt p.blurb{font-size:14px;color:#555;margin:0 4px 10px;max-width:var(--w);min-height:42px}
+.phone{width:var(--w);height:700px;background:var(--page);border-radius:30px;border:1px solid #cfcfd6;box-shadow:0 18px 40px rgb(0 0 0 / .14);overflow:hidden;display:flex;flex-direction:column}
+.topbar{flex:none;background:#fff;border-bottom:1px solid var(--hairline)}
+.topbar .row{height:51px;display:flex;align-items:center;gap:10px;padding:0 12px 0 16px}
+.topbar b.t{font-weight:600;font-size:17px;letter-spacing:-.01em}.topbar .sp{flex:1}
+.topbar .ib{width:36px;height:36px;display:grid;place-items:center;font-size:20px;color:var(--line-ico)}.topbar .ib.ac{color:var(--accent)}
+.av{width:32px;height:32px;border-radius:50%;background:var(--accent-bg);color:var(--accent);display:grid;place-items:center;font-weight:600;font-size:15px}
+.scroll{flex:1;overflow-y:auto;padding:16px 16px 24px}
+.tabs{height:56px;flex:none;background:#fff;border-top:1px solid var(--hairline);display:grid;grid-template-columns:repeat(5,1fr)}
+.tabs button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:14px;font-weight:500;color:var(--mute);position:relative}
+.tabs button .ico{font-size:22px;color:var(--line-ico)}
+.tabs button.on{color:var(--accent);background:linear-gradient(180deg,rgb(37 99 235 / .08),transparent)}.tabs button.on .ico{color:var(--accent)}
+.tabs button.on::before{content:"";position:absolute;top:0;left:30%;right:30%;height:2px;background:var(--accent)}
+.dock{flex:none;display:flex;gap:8px;align-items:center;padding:8px 12px;background:rgb(255 255 255 / .96);border-top:1px solid var(--hairline)}
+.dock .st{display:inline-flex;align-items:center;gap:4px;height:36px;padding:0 10px 0 14px;border-radius:999px;background:var(--soft-2);font-size:14px;font-weight:500}
+.dock .fd{flex:1;display:flex;align-items:center;gap:8px;height:36px;border-radius:999px;background:var(--soft-2);padding:0 12px;color:var(--mute);font-size:14px}
+.dock .fab{width:36px;height:36px;border-radius:50%;background:var(--accent);color:#fff;display:grid;place-items:center;font-size:20px}
+.cards{display:flex;flex-direction:column;gap:10px}
+.po{border:1px solid var(--hairline);border-radius:10px;background:#fff;box-shadow:var(--shadow-soft);padding:16px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.po b{display:block;font-size:17px;font-weight:600;letter-spacing:-.01em}
+.po .id{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace;font-size:14px;color:var(--mute)}
+.po .d{font-size:14px;color:var(--mute)}
+.chip{display:inline-flex;align-items:center;height:28px;padding:0 12px;border-radius:999px;background:var(--accent-bg);color:var(--accent);font-size:14px;font-weight:500;white-space:nowrap}
+.chip.g{background:#fff;border:1px solid #b9dcbf;color:var(--ok-fg);border-radius:8px}
+.cards.only-review .po:not([data-review]){display:none}
+
+/* ── shared sentence marks ── */
+.s b{font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.s .late{color:var(--bad-fg);font-weight:600}
+.s{text-wrap:pretty}
+
+/* A · Plain */
+.A{margin:2px 2px 16px;font-size:16px;line-height:1.5;color:var(--body)}
+.A .hi{color:var(--ink);font-weight:500}
+/* B · Lead */
+.B{margin:4px 2px 20px;font-size:19px;line-height:1.42;letter-spacing:-.012em;color:var(--text)}
+.B .hi{color:var(--ink);font-weight:600}
+.B b{font-weight:650}
+/* C · Greeting Title */
+.C{margin:2px 2px 18px}
+.C .hi{display:block;font-size:22px;line-height:1.2;font-weight:600;letter-spacing:-.02em;color:var(--ink);margin-bottom:6px}
+.C .txt{font-size:15px;line-height:1.5;color:var(--body)}
+/* D · Card */
+.D{margin:0 0 14px;padding:14px 16px;border:1px solid var(--hairline);border-radius:10px;background:var(--canvas);box-shadow:var(--shadow-soft);font-size:15px;line-height:1.5;color:var(--body)}
+.D .hi{color:var(--ink);font-weight:500}
+.D .lateline{display:flex;align-items:baseline;gap:8px;margin-top:8px;padding-top:8px;border-top:1px solid var(--hairline);color:var(--bad-fg)}
+.D .lateline i{width:7px;height:7px;border-radius:50%;background:var(--bad);flex:none;transform:translateY(-1px)}
+/* E · Header Band */
+.E{padding:0 16px 14px;font-size:15px;line-height:1.5;color:var(--body);margin-top:-4px}
+.E .hi{color:var(--ink);font-weight:500}
+/* F · Tappable Figures */
+.F{margin:2px 2px 16px;font-size:16px;line-height:1.5;color:var(--body)}
+.F .hi{color:var(--ink);font-weight:500}
+.F .fig{font-weight:600;color:var(--accent);text-decoration:underline;text-decoration-style:dotted;text-decoration-thickness:1.5px;text-underline-offset:3px;border-radius:5px;transition:background-color var(--t-press) var(--ease-out),scale var(--t-press) var(--ease-out);display:inline-block}
+.F .fig:active{scale:.96}
+.F .fig[aria-pressed=true]{background:var(--accent-bg);text-decoration-style:solid;padding:0 4px;margin:0 -4px}
+.F .shown{display:block;margin-top:4px;font-size:14px;color:var(--mute)}
+.F .shown button{color:var(--accent);font-weight:500}
+/* G · Assistant Note */
+.G{display:flex;gap:10px;align-items:flex-start;margin:2px 0 16px}
+.G .face{width:32px;height:32px;border-radius:50%;background:var(--accent-bg);color:var(--accent);display:grid;place-items:center;font-size:16px;flex:none;margin-top:1px}
+.G .bub{min-width:0;flex:1;padding:10px 14px;border-radius:4px 16px 16px 16px;background:var(--canvas);border:1px solid var(--hairline);box-shadow:var(--shadow-soft);font-size:15px;line-height:1.5;color:var(--body)}
+.G .hi{color:var(--ink);font-weight:500}
+</style>
+</head>
+<body>
+<div class="bar">
+  <h1>PO Summary · Style Options</h1>
+  <span><span class="lab">Tab</span><span class="seg" id="tab"></span></span>
+  <span><span class="lab">Data</span><span class="seg" id="data"></span></span>
+  <span><span class="lab">Width</span><span class="seg" id="width"></span></span>
+</div>
+<div class="stage" id="stage"></div>
+<script>
+const I={clock:'<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',sparkles:'<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/>',chev:'<path d="m6 9 6 6 6-6"/>',search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',back:'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',clip:'<rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>',building:'<path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M10 6h4M10 10h4M10 14h4M10 18h4"/>',cube:'<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>',undo:'<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/>'};
+const svg=n=>`<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">${I[n]}</svg>`;
+
+const DATA={
+ "Demo":      {name:"Rina",review:4,active:8,onOrder:"Rp 4,0 billion",late:0,done:12,got:"Rp 49 million",short:2,gone:1,goneValue:"Rp 320 thousand"},
+ "Late":      {name:"Rina",review:1,active:8,onOrder:"Rp 4,0 billion",late:2,done:12,got:"Rp 49 million",short:1,gone:3,goneValue:"Rp 2,4 million"},
+ "Quiet":     {name:"Rina",review:0,active:3,onOrder:"Rp 18 million",late:0,done:40,got:"Rp 1,2 billion",short:0,gone:0,goneValue:"Rp 0"},
+ "Worst Case":{name:"Aleksandra",review:142,active:1284,onOrder:"Rp 128,4 billion",late:37,done:10432,got:"Rp 912 billion",short:418,gone:97,goneValue:"Rp 3,1 billion"},
+};
+const TABS=["Active","Completed","Cancelled"], WIDTHS=[320,360,375,414];
+const q=new URLSearchParams(location.search);
+let tab=q.get("tab")||"Active", key=q.get("data")||"Demo", width=Number(q.get("w"))||375;
+const pressed={};
+
+/* ── the agreed copy: B's structure, connectors only ── */
+const fmt=n=>new Intl.NumberFormat("id-ID").format(n);
+const nb=s=>s.replace(/ /g," ");
+const orders=n=>n===1?"order":"orders", isAre=n=>n===1?"is":"are", wasWere=n=>n===1?"was":"were", its=n=>n===1?"its":"their";
+/* fig(n, filter) — a figure; the Tappable style turns it into a button. */
+function sentences(d,t,fig){
+  const S=[];
+  if(t==="Active"){
+    if(d.review>0) S.push({h:`${fig(fmt(d.review),"review")} ${orders(d.review)} ${isAre(d.review)} waiting for your review.`});
+    S.push({h:`${fig(fmt(d.active))} ${orders(d.active)} ${isAre(d.active)} active, ${fig(nb(d.onOrder))} in total.`});
+    if(d.late>0) S.push({late:true,h:`<span class="late">${fmt(d.late)}</span> ${isAre(d.late)} past ${its(d.late)} delivery date.`});
+  } else if(t==="Completed"){
+    S.push({h:`${fig(fmt(d.done))} ${orders(d.done)} ${isAre(d.done)} complete, with ${fig(nb(d.got))} received.`});
+    if(d.short>0) S.push({h:`${fig(fmt(d.short),"short")} ${wasWere(d.short)} closed short.`});
+  } else {
+    S.push({h: d.gone===0 ? `Nothing has been cancelled.` : `${fig(fmt(d.gone))} ${orders(d.gone)} for ${fig(nb(d.goneValue))} ${wasWere(d.gone)} cancelled.`});
+  }
+  return S;
+}
+const plain=(v)=>`<b>${v}</b>`;
+const join=S=>S.map(x=>x.h).join(" ");
+/* After "Hi Rina," the first sentence carries on, so a capital "Nothing" becomes "nothing". */
+const after=s=>s.replace(/^Nothing/,"nothing");
+
+const OPTIONS=[
+ {k:"A",name:"A · Plain",blurb:"The sentence as body text on the page's grey: 16px, figures in ink. The quietest.",
+  render:(d,t)=>`<p class="s A"><span class="hi">Hi ${d.name},</span> ${after(join(sentences(d,t,plain)))}</p>`},
+ {k:"B",name:"B · Lead",blurb:"The same words at 19px, like the opening line of an article. Has presence; costs a line.",
+  render:(d,t)=>`<p class="s B"><span class="hi">Hi ${d.name},</span> ${after(join(sentences(d,t,plain)))}</p>`},
+ {k:"C",name:"C · Greeting Title",blurb:"“Hi Rina,” stands as a small title, the sentence under it. Echoes Home’s greeting.",
+  render:(d,t)=>`<div class="s C"><span class="hi">Hi ${d.name},</span><p class="txt">${join(sentences(d,t,plain))}</p></div>`},
+ {k:"D",name:"D · Card",blurb:"In a white card like the rows below it. Anything late gets its own line with a red dot.",
+  render:(d,t)=>{const S=sentences(d,t,plain);const main=S.filter(x=>!x.late),late=S.filter(x=>x.late);
+    return `<div class="s D"><span class="hi">Hi ${d.name},</span> ${after(join(main))}${late.map(x=>`<div class="lateline"><i></i><span>${x.h.replace('<span class="late">','<span class="late" style="color:inherit">')}</span></div>`).join("")}</div>`}},
+ {k:"E",name:"E · Header Band",blurb:"Part of the white header, under the title — no block of its own; the list starts on the grey.",
+  header:true,
+  render:(d,t)=>`<p class="s E"><span class="hi">Hi ${d.name},</span> ${after(join(sentences(d,t,plain)))}</p>`},
+ {k:"F",name:"F · Tappable Figures",blurb:"Figures in blue: tap “4 orders” and the list shows only those. The sentence is also the filter.",
+  render:(d,t,id)=>{const on=pressed[id];const fig=(v,f)=>f?`<button class="fig" data-fig="${f}" data-for="${id}" aria-pressed="${on===f}">${v}</button>`:`<b>${v}</b>`;
+    return `<p class="s F"><span class="hi">Hi ${d.name},</span> ${after(join(sentences(d,t,fig)))}${on?`<span class="shown">Showing only these · <button data-clear="${id}">Show all</button></span>`:""}</p>`}},
+ {k:"G",name:"G · Assistant Note",blurb:"Said by Central, beside its sparkle — the same voice as Ask. Warmer; one more shape on the page.",
+  render:(d,t)=>`<div class="s G"><span class="face">${svg("sparkles")}</span><div class="bub"><span class="hi">Hi ${d.name},</span> ${after(join(sentences(d,t,plain)))}</div></div>`},
+];
+
+const LIST={
+ Active:`<div class="po" data-review><div><b>Indorama, PT</b><div class="id">PO-051026-001</div><div class="d">05 Oct</div></div><span class="chip">Review Count</span></div><div class="po" data-review><div><b>Indorama, PT</b><div class="id">PO-041026-012</div><div class="d">04 Oct</div></div><span class="chip">Review Count</span></div><div class="po"><div><b>Garmen AA, UD</b><div class="id">PO-051026-003</div><div class="d">05 Oct</div></div><span class="chip g">Active</span></div><div class="po"><div><b>Indorama, PT</b><div class="id">PO-051026-002</div><div class="d">05 Oct</div></div><span class="chip g">Active</span></div>`,
+ Completed:`<div class="po"><div><b>Indorama, PT</b><div class="id">PO-041026-009</div><div class="d">04 Oct</div></div><span class="chip g">Fully Received</span></div><div class="po" data-short><div><b>Indorama, PT</b><div class="id">PO-041026-004</div><div class="d">04 Oct</div></div><span class="chip g">Closed Short</span></div>`,
+ Cancelled:`<div class="po"><div><b>Indorama, PT</b><div class="id">PO-041026-008</div><div class="d">04 Oct</div></div><span class="chip g">Cancelled</span></div>`,
+};
+const tabsBar=`<div class="tabs"><button>${svg("back")}Back</button><button class="on">${svg("clip")}Orders</button><button>${svg("building")}Suppliers</button><button>${svg("cube")}Sourcing</button><button>${svg("undo")}Return PO</button></div>`;
+const dock=t=>`<div class="dock"><span class="st">${t} ${svg("chev")}</span><span class="fd">${svg("search")}Search Orders</span><span class="fab">${svg("plus")}</span></div>`;
+const head=(extra="")=>`<div class="topbar"><div class="row"><b class="t">Purchase Orders</b><span class="sp"></span><span class="ib">${svg("clock")}</span><span class="ib ac">${svg("sparkles")}</span><div class="av">R</div></div>${extra}</div>`;
+
+function paint(){
+  document.documentElement.style.setProperty("--w",width+"px");
+  const d=DATA[key];
+  document.getElementById("stage").innerHTML=OPTIONS.map(o=>{
+    const sum=o.render(d,tab,o.k);
+    const filter=pressed[o.k]==="review"?"only-review":"";
+    return `<section class="opt"><h2>${o.name}</h2><p class="blurb">${o.blurb}</p>
+      <div class="phone">${o.header?head(sum):head()}<div class="scroll">${o.header?"":sum}<div class="cards ${filter}">${LIST[tab]}</div></div>${dock(tab)}${tabsBar}</div></section>`}).join("");
+  document.querySelectorAll("[data-fig]").forEach(b=>b.onclick=()=>{const id=b.dataset.for;pressed[id]=pressed[id]===b.dataset.fig?undefined:b.dataset.fig;paint()});
+  document.querySelectorAll("[data-clear]").forEach(b=>b.onclick=()=>{pressed[b.dataset.clear]=undefined;paint()});
+  seg("tab",TABS,tab,v=>{tab=v;for(const k in pressed)pressed[k]=undefined;paint();sync()});
+  seg("data",Object.keys(DATA),key,v=>{key=v;paint();sync()});
+  seg("width",WIDTHS.map(String),String(width),v=>{width=Number(v);paint();sync()});
+}
+function seg(id,values,cur,on){const el=document.getElementById(id);el.innerHTML=values.map(v=>`<button aria-pressed="${v===cur}">${v}</button>`).join("");[...el.children].forEach((b,i)=>b.onclick=()=>on(values[i]))}
+function sync(){history.replaceState(null,"","?"+new URLSearchParams({tab,data:key,w:String(width)}))}
+paint();
+</script>
+</body>
+</html>

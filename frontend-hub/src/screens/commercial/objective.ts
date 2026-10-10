@@ -202,7 +202,7 @@ export function percentOfBps(bps: number | null | undefined): string {
 ///
 /// `BEAT_BASELINE` is the half migration 0161 could not write down: it rejected
 /// "+20%" because nobody could say +20% OF WHAT, and stored the answer
-/// (`baseline_campaign_id`) without ever reading it into a target. Lebaran moves
+/// (`baseline_campaign_id`) without ever reading it into a target. Eid moves
 /// about eleven days a year, so the comparison is campaign-to-campaign and the
 /// day counts are normalised by the server.
 ///
@@ -254,7 +254,7 @@ export const TARGET_MODELS: readonly TargetModelKind[] = [
   {
     value: "BEAT_BASELINE",
     label: "Beat the precedent",
-    hint: "Better than the campaign this one is read against, per day, by this much. 20% means a fifth better than last Lebaran.",
+    hint: "Better than the campaign this one is read against, per day, by this much. 20% means a fifth better than last Eid.",
     needsBaseline: true,
     needsUpper: false,
     needsAdditive: false,

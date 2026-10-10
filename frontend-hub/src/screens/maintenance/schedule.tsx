@@ -8,8 +8,10 @@ import { CalendarCheck, CalendarPlus, ClipboardCheck, Plus } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockChoice } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Fab } from "@/components/ui/fab"
 import { Choices, Section, Toggle } from "@/components/ui/form"
 import { Field, Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
@@ -21,6 +23,7 @@ import {
   type Pageable,
 } from "@/components/ui/states"
 import { count as formatCount, day } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { procurementKeys, supplierPage } from "@/lib/queries/procurement"
 import {
   gaAssets,
@@ -39,7 +42,12 @@ import {
   intervalLabel,
   nextDueAfter,
 } from "@/screens/maintenance/format"
-import type { GaMaintenanceTaskRow } from "@itulah/contract"
+import {
+  CardFigure,
+  type CardSpec,
+  PhoneCards,
+} from "@/components/ui/phone-cards"
+import type { GaInspectionRow, GaMaintenanceTaskRow } from "@itulah/contract"
 
 /// Jadwal & inspeksi — the quiet half of maintenance.
 ///
@@ -64,6 +72,10 @@ export function Schedule() {
   const [addingInspection, setAddingInspection] = useState(false)
   // The task whose service is being recorded as done, if any.
   const [doing, setDoing] = useState<GaMaintenanceTaskRow | null>(null)
+  // On a phone one list at a time, so the page scrolls it: two infinite lists
+  // stacked on one page cannot both scroll with the page.
+  const phone = useLayout() === "phone"
+  const [view, setView] = useState<"tasks" | "inspections">("tasks")
 
   // Both lists page from the server in the order they are read — tasks
   // soonest due first (undated last), inspections newest first — so neither
@@ -100,140 +112,227 @@ export function Schedule() {
         title="Service Schedule"
         sub="Set up recurring service and record inspection results. A finding can be carried forward as a repair."
         actions={
-          <>
-            <Button variant="soft" onClick={() => setAddingTask(true)}>
-              <Plus />
-              Add task
-            </Button>
-            <Button variant="primary" onClick={() => setAddingInspection(true)}>
-              <CalendarPlus />
-              Record inspection
-            </Button>
-          </>
+          // On a phone the list is the dock's button and the one thing it can
+          // make is the round button beside it.
+          phone ? undefined : (
+            <>
+              <Button variant="soft" onClick={() => setAddingTask(true)}>
+                <Plus />
+                Add task
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => setAddingInspection(true)}
+              >
+                <CalendarPlus />
+                Record inspection
+              </Button>
+            </>
+          )
         }
       />
 
-      <TableCard
-        title="Tasks"
-        count={taskRows.length}
-        total={tasks.data?.pages[0]?.total ?? 0}
-        more={tasks}
-        empty="No recurring tasks yet. A task is recorded for one asset (genset service) or one location (AC wash across 13 stores)."
-        emptyAction={
-          <Button variant="ghost" onClick={() => setAddingTask(true)}>
-            Add the first task
-          </Button>
-        }
-        loading={tasks.isPending}
-      >
-        <div className="min-w-[74rem]">
-          <div className="grid h-10 grid-cols-[minmax(13rem,1fr)_minmax(13rem,1fr)_9rem_9rem_10rem_9rem_8rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
-            <span>Task</span>
-            <span>Asset / location</span>
-            <span>Interval</span>
-            <span>Next due</span>
-            <span>Contract</span>
-            <span>Status</span>
-            <span />
-          </div>
-          {taskRows.map((row) => (
-            <div
-              key={row.task_id}
-              className="grid grid-cols-[minmax(13rem,1fr)_minmax(13rem,1fr)_9rem_9rem_10rem_9rem_8rem] items-center gap-3 border-b border-hairline px-3.5 py-2.5 last:border-b-0"
-            >
-              <div className="min-w-0">
-                <span className="block truncate text-cell font-medium text-ink">
-                  {row.title}
-                </span>
-                {row.notes !== null && (
-                  <span className="block truncate text-pill text-mute">
-                    {row.notes}
-                  </span>
-                )}
-              </div>
-              <div className="min-w-0">
-                <span className="block truncate text-meta text-body">
-                  {row.asset_name ?? row.site_id}
-                </span>
-                <span className="block truncate text-pill text-mute">
-                  {row.asset_name !== null
-                    ? "per asset"
-                    : "per location · every point at the location"}
-                </span>
-              </div>
-              <span className="truncate text-meta text-body tabular-nums">
-                {intervalLabel(row.interval_kind, row.interval_value)}
-              </span>
-              <span className="truncate text-meta text-body tabular-nums">
-                {row.next_due === null ? "—" : day(row.next_due)}
-              </span>
-              <span className="min-w-0 truncate font-mono text-id text-body">
-                {row.contract_number ??
-                  (row.contract_id === null
-                    ? "—"
-                    : row.contract_id.slice(0, 8))}
-              </span>
-              <span>
-                <TaskStatePill nextDue={row.next_due} />
-              </span>
-              <span className="flex justify-end">
-                {row.status === "ACTIVE" && (
-                  <Button variant="ghost" onClick={() => setDoing(row)}>
-                    <CalendarCheck />
-                    Record done
-                  </Button>
-                )}
-              </span>
-            </div>
-          ))}
-        </div>
-      </TableCard>
+      <DockChoice
+        value={view}
+        onChange={(next) => setView(next as typeof view)}
+        options={[
+          {
+            value: "tasks",
+            label: `Tasks · ${formatCount(tasks.data?.pages[0]?.total ?? 0)}`,
+            short: "Tasks",
+          },
+          {
+            value: "inspections",
+            label: `Inspections · ${formatCount(inspections.data?.pages[0]?.total ?? 0)}`,
+            short: "Inspections",
+          },
+        ]}
+      />
+      {view === "tasks" ? (
+        <Fab label="Add task" onClick={() => setAddingTask(true)} />
+      ) : (
+        <Fab
+          label="Record inspection"
+          onClick={() => setAddingInspection(true)}
+        />
+      )}
 
-      <TableCard
-        title="Inspections"
-        count={inspectionRows.length}
-        total={inspections.data?.pages[0]?.total ?? 0}
-        more={inspections}
-        empty="No inspections yet. Inspection results are recorded here, and a finding can become a repair right away."
-        emptyAction={
-          <Button variant="ghost" onClick={() => setAddingInspection(true)}>
-            Record the first inspection
-          </Button>
-        }
-        loading={inspections.isPending}
-      >
-        <div className="min-w-[64rem]">
-          <div className="grid h-10 grid-cols-[minmax(14rem,1fr)_9rem_12rem_minmax(14rem,1fr)_10rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
-            <span>Asset</span>
-            <span>Date</span>
-            <span>By</span>
-            <span>Finding</span>
-            <span>Result</span>
-          </div>
-          {inspectionRows.map((row) => (
-            <div
-              key={row.inspection_id}
-              className="grid grid-cols-[minmax(14rem,1fr)_9rem_12rem_minmax(14rem,1fr)_10rem] items-center gap-3 border-b border-hairline px-3.5 py-2.5 last:border-b-0"
-            >
-              <span className="min-w-0 truncate text-cell font-medium text-ink">
-                {row.asset_name ?? "—"}
-              </span>
-              <span className="truncate text-meta text-body tabular-nums">
-                {day(row.inspected_on)}
-              </span>
-              <span className="min-w-0 truncate text-meta text-body">
-                {row.inspected_by}
-              </span>
-              <span className="min-w-0 truncate text-meta text-body">
-                {row.findings}
-              </span>
-              <span>
-                <ResultPill result={row.result} />
-              </span>
+      {phone ? (
+        view === "tasks" ? (
+          taskRows.length === 0 ? (
+            tasks.isPending ? null : (
+              <Card>
+                <EmptyState
+                  action={
+                    <Button variant="ghost" onClick={() => setAddingTask(true)}>
+                      Add the first task
+                    </Button>
+                  }
+                >
+                  No recurring tasks yet. A task is recorded for one asset
+                  (genset service) or one location (AC wash across 13 stores).
+                </EmptyState>
+              </Card>
+            )
+          ) : (
+            <PhoneCards
+              rows={taskRows}
+              rowId={(row) => row.task_id}
+              spec={taskCard(setDoing)}
+              more={tasks}
+            />
+          )
+        ) : inspectionRows.length === 0 ? (
+          inspections.isPending ? null : (
+            <Card>
+              <EmptyState
+                action={
+                  <Button
+                    variant="ghost"
+                    onClick={() => setAddingInspection(true)}
+                  >
+                    Record the first inspection
+                  </Button>
+                }
+              >
+                No inspections yet. Inspection results are recorded here, and a
+                finding can become a repair right away.
+              </EmptyState>
+            </Card>
+          )
+        ) : (
+          <PhoneCards
+            rows={inspectionRows}
+            rowId={(row) => row.inspection_id}
+            spec={INSPECTION_CARD}
+            more={inspections}
+          />
+        )
+      ) : (
+        <>
+          <TableCard
+            title="Tasks"
+            count={taskRows.length}
+            total={tasks.data?.pages[0]?.total ?? 0}
+            more={tasks}
+            empty="No recurring tasks yet. A task is recorded for one asset (genset service) or one location (AC wash across 13 stores)."
+            emptyAction={
+              <Button variant="ghost" onClick={() => setAddingTask(true)}>
+                Add the first task
+              </Button>
+            }
+            loading={tasks.isPending}
+          >
+            <div className="min-w-[74rem]">
+              <div className="grid h-10 grid-cols-[minmax(13rem,1fr)_minmax(13rem,1fr)_9rem_9rem_10rem_9rem_8rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
+                <span>Task</span>
+                <span>Asset / location</span>
+                <span>Interval</span>
+                <span>Next due</span>
+                <span>Contract</span>
+                <span>Status</span>
+                <span />
+              </div>
+              {taskRows.map((row) => (
+                <div
+                  key={row.task_id}
+                  className="grid grid-cols-[minmax(13rem,1fr)_minmax(13rem,1fr)_9rem_9rem_10rem_9rem_8rem] items-center gap-3 border-b border-hairline px-3.5 py-2.5 last:border-b-0"
+                >
+                  <div className="min-w-0">
+                    <span className="block truncate text-cell font-medium text-ink">
+                      {row.title}
+                    </span>
+                    {row.notes !== null && (
+                      <span className="block truncate text-pill text-mute">
+                        {row.notes}
+                      </span>
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <span className="block truncate text-meta text-body">
+                      {row.asset_name ?? row.site_id}
+                    </span>
+                    <span className="block truncate text-pill text-mute">
+                      {row.asset_name !== null
+                        ? "per asset"
+                        : "per location · every point at the location"}
+                    </span>
+                  </div>
+                  <span className="truncate text-meta text-body tabular-nums">
+                    {intervalLabel(row.interval_kind, row.interval_value)}
+                  </span>
+                  <span className="truncate text-meta text-body tabular-nums">
+                    {row.next_due === null ? "—" : day(row.next_due)}
+                  </span>
+                  <span className="min-w-0 truncate font-mono text-id text-body">
+                    {row.contract_number ??
+                      (row.contract_id === null
+                        ? "—"
+                        : row.contract_id.slice(0, 8))}
+                  </span>
+                  <span>
+                    <TaskStatePill nextDue={row.next_due} />
+                  </span>
+                  <span className="flex justify-end">
+                    {row.status === "ACTIVE" && (
+                      <Button variant="ghost" onClick={() => setDoing(row)}>
+                        <CalendarCheck />
+                        Record done
+                      </Button>
+                    )}
+                  </span>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      </TableCard>
+          </TableCard>
+
+          <TableCard
+            title="Inspections"
+            count={inspectionRows.length}
+            total={inspections.data?.pages[0]?.total ?? 0}
+            more={inspections}
+            empty="No inspections yet. Inspection results are recorded here, and a finding can become a repair right away."
+            emptyAction={
+              <Button variant="ghost" onClick={() => setAddingInspection(true)}>
+                Record the first inspection
+              </Button>
+            }
+            loading={inspections.isPending}
+          >
+            <div className="min-w-[64rem]">
+              <div className="grid h-10 grid-cols-[minmax(14rem,1fr)_9rem_12rem_minmax(14rem,1fr)_10rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
+                <span>Asset</span>
+                <span>Date</span>
+                <span>By</span>
+                <span>Finding</span>
+                <span>Result</span>
+              </div>
+              {inspectionRows.map((row) => (
+                <div
+                  key={row.inspection_id}
+                  className="grid grid-cols-[minmax(14rem,1fr)_9rem_12rem_minmax(14rem,1fr)_10rem] items-center gap-3 border-b border-hairline px-3.5 py-2.5 last:border-b-0"
+                >
+                  <span className="min-w-0 truncate text-cell font-medium text-ink">
+                    {row.asset_name ?? "—"}
+                  </span>
+                  <span className="truncate text-meta text-body tabular-nums">
+                    {day(row.inspected_on)}
+                  </span>
+                  <span className="min-w-0 truncate text-meta text-body">
+                    {row.inspected_by}
+                  </span>
+                  <span className="min-w-0 truncate text-meta text-body">
+                    {row.findings}
+                  </span>
+                  <span>
+                    <ResultPill result={row.result} />
+                  </span>
+                </div>
+              ))}
+            </div>
+          </TableCard>
+        </>
+      )}
 
       <TaskComposer open={addingTask} onClose={() => setAddingTask(false)} />
 
@@ -260,6 +359,64 @@ export function Schedule() {
       />
     </PageContent>
   )
+}
+
+/// A recurring task as a phone's card: the job over what it is for, when it is
+/// next due, how often, and the one button — Record done — while it is active.
+function taskCard(
+  onDone: (row: GaMaintenanceTaskRow) => void
+): CardSpec<GaMaintenanceTaskRow> {
+  return {
+    title: (row) => <span className="min-w-0 break-words">{row.title}</span>,
+    meta: [
+      (row) => row.asset_name ?? `${row.site_id} · every point at the location`,
+      (row) =>
+        row.contract_number === null && row.contract_id === null
+          ? null
+          : `Contract ${row.contract_number ?? row.contract_id?.slice(0, 8)}`,
+    ],
+    lead: (row) => (
+      <CardFigure
+        value={row.next_due === null ? "—" : day(row.next_due)}
+        caption="Next due"
+        tone={row.next_due === null ? "quiet" : undefined}
+      />
+    ),
+    foot: (row) => (
+      <span className="flex flex-wrap items-center gap-2">
+        <TaskStatePill nextDue={row.next_due} />
+        <span className="tabular-nums">
+          {intervalLabel(row.interval_kind, row.interval_value)}
+        </span>
+      </span>
+    ),
+    action: (row) =>
+      row.status === "ACTIVE" ? (
+        <Button
+          variant="tint"
+          size="card"
+          onClick={(event) => {
+            event.stopPropagation()
+            onDone(row)
+          }}
+        >
+          Record done
+        </Button>
+      ) : null,
+  }
+}
+
+/// An inspection as a phone's card: the asset, when and by whom, what was found,
+/// and the result.
+const INSPECTION_CARD: CardSpec<GaInspectionRow> = {
+  title: (row) => (
+    <span className="min-w-0 break-words">{row.asset_name ?? "—"}</span>
+  ),
+  meta: [
+    (row) => `${day(row.inspected_on)} · ${row.inspected_by}`,
+    (row) => row.findings,
+  ],
+  action: (row) => <ResultPill result={row.result} />,
 }
 
 /// One table, in its own scrolling box — the same answer the register gives:
@@ -583,7 +740,7 @@ function InspectionComposer({
   const client = useQueryClient()
   const blankForm = (): Record<string, string> => ({
     result: "BAIK",
-    by: "Staf GA",
+    by: "GA staff",
     inspected_on: new Date().toISOString().slice(0, 10),
     ...(task !== null && task.asset_id !== null
       ? { asset: task.asset_id, findings: `${task.title} done` }

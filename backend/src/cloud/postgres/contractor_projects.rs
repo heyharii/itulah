@@ -367,7 +367,13 @@ pub async fn open_contractor_project(
     .bind(request.name.trim())
     .bind(&request.supplier_id)
     .bind(&request.unit_id)
-    .bind(request.note.as_deref().map(str::trim).filter(|n| !n.is_empty()))
+    .bind(
+        request
+            .note
+            .as_deref()
+            .map(str::trim)
+            .filter(|n| !n.is_empty()),
+    )
     .bind(actor)
     .execute(pool)
     .await?;
@@ -382,7 +388,9 @@ pub async fn pay_project_advance(
     actor: &str,
 ) -> Result<ContractorProjectDetail, AppError> {
     if request.amount_minor <= 0 {
-        return Err(AppError::Validation("an advance is a positive amount".into()));
+        return Err(AppError::Validation(
+            "an advance is a positive amount".into(),
+        ));
     }
     let head = project(pool, project_id).await?;
     open_only(&head)?;
@@ -401,8 +409,12 @@ pub async fn pay_project_advance(
             PostingLine::debit("advance", &head.unit_id, request.amount_minor)
                 .with_qualifier("CONTRACTOR")
                 .for_supplier(&head.supplier_id),
-            PostingLine::credit(request.account_key.as_str(), &head.unit_id, request.amount_minor)
-                .with_qualifier(&request.account_qualifier),
+            PostingLine::credit(
+                request.account_key.as_str(),
+                &head.unit_id,
+                request.amount_minor,
+            )
+            .with_qualifier(&request.account_qualifier),
         ],
     };
     let mut tx = pool.begin().await?;
@@ -419,7 +431,12 @@ pub async fn pay_project_advance(
     .bind(request.amount_minor)
     .bind(&request.account_key)
     .bind(&request.account_qualifier)
-    .bind(request.reference.as_deref().filter(|r| !r.trim().is_empty()))
+    .bind(
+        request
+            .reference
+            .as_deref()
+            .filter(|r| !r.trim().is_empty()),
+    )
     .bind(posted.entry_id)
     .bind(actor)
     .execute(&mut *tx)
@@ -456,16 +473,19 @@ pub async fn add_project_invoice(
     actor: &str,
 ) -> Result<ContractorProjectDetail, AppError> {
     if request.amount_minor <= 0 {
-        return Err(AppError::Validation("an invoice is a positive amount".into()));
+        return Err(AppError::Validation(
+            "an invoice is a positive amount".into(),
+        ));
     }
     let head = project(pool, project_id).await?;
     open_only(&head)?;
     let cip = cip_account(pool, &head.unit_id).await?;
-    let site: String = sqlx::query_scalar("SELECT id FROM site WHERE unit_id = $1 ORDER BY id LIMIT 1")
-        .bind(&head.unit_id)
-        .fetch_optional(pool)
-        .await?
-        .ok_or_else(|| AppError::Validation(format!("unit {} keeps no site", head.unit_id)))?;
+    let site: String =
+        sqlx::query_scalar("SELECT id FROM site WHERE unit_id = $1 ORDER BY id LIMIT 1")
+            .bind(&head.unit_id)
+            .fetch_optional(pool)
+            .await?
+            .ok_or_else(|| AppError::Validation(format!("unit {} keeps no site", head.unit_id)))?;
     let note = request
         .note
         .clone()
@@ -521,7 +541,9 @@ pub async fn add_project_invoice(
                     .for_supplier(&head.supplier_id),
             ],
         };
-        let entry_id = post(&mut tx, &intent, Some("APPLIED"), actor).await?.entry_id;
+        let entry_id = post(&mut tx, &intent, Some("APPLIED"), actor)
+            .await?
+            .entry_id;
         // The bill is that much paid in the Payment Ledger too, as a supplier
         // advance set against a bill is (CONTROL_AP, 1 Oct).
         super::payables_flow::payable_settled(
@@ -758,7 +780,9 @@ async fn register_split_assets(
                     "acquired_via_line_id": null,
                 }))
                 .map_err(|error| AppError::Validation(format!("asset: {error}")))?;
-                super::register_asset(pool, &register, actor).await?.asset_id
+                super::register_asset(pool, &register, actor)
+                    .await?
+                    .asset_id
             }
         };
         // Assessed already means it has a decision on file; the register's

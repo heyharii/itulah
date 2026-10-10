@@ -152,9 +152,7 @@ pub fn accrual_due(
     let already: i32 = ledger
         .entries()
         .iter()
-        .filter(|entry| {
-            entry.event() == LeaveEvent::Accrual && entry.on().year() == as_of.year()
-        })
+        .filter(|entry| entry.event() == LeaveEvent::Accrual && entry.on().year() == as_of.year())
         .map(|entry| entry.amount().centidays())
         .sum();
     let missing = earned.centidays() - already;
@@ -182,9 +180,8 @@ mod tests {
     }
 
     fn policy(annual_days: i32, accrual: Accrual, from: &str) -> LeavePolicy {
-        let days = |n: i32| {
-            LeaveDays::from_days(n).unwrap_or_else(|error| panic!("days {n}: {error}"))
-        };
+        let days =
+            |n: i32| LeaveDays::from_days(n).unwrap_or_else(|error| panic!("days {n}: {error}"));
         LeavePolicy::try_new(
             1,
             from.parse().unwrap_or_else(|error| panic!("from: {error}")),
@@ -290,8 +287,7 @@ mod tests {
                     "acc-earlier",
                     date("2026-11-30"),
                     LeaveEvent::Accrual,
-                    LeaveDays::from_days(9)
-                        .unwrap_or_else(|error| panic!("days: {error}")),
+                    LeaveDays::from_days(9).unwrap_or_else(|error| panic!("days: {error}")),
                     "hr-scheduler",
                 )
                 .unwrap_or_else(|error| panic!("{error}")),

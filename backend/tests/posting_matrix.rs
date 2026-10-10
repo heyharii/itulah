@@ -980,19 +980,19 @@ async fn every_account_every_path_matches_the_written_rules(pool: PgPool) {
         let detail = format!("{key}({qualifier})");
         let resolved =
             match cloud::resolve_account_from(&pool, key, site, source_type, qualifier).await {
-            Ok(resolved) => resolved.account_code,
-            Err(error) => {
-                m.assert(
-                    "meaning:resolve",
-                    "?",
-                    site,
-                    &detail,
-                    false,
-                    &error.to_string(),
-                );
-                continue;
-            }
-        };
+                Ok(resolved) => resolved.account_code,
+                Err(error) => {
+                    m.assert(
+                        "meaning:resolve",
+                        "?",
+                        site,
+                        &detail,
+                        false,
+                        &error.to_string(),
+                    );
+                    continue;
+                }
+            };
         let leaf: Option<(bool, bool)> = sqlx::query_as(
             "SELECT is_active, is_group FROM ledger_account WHERE account_code = $1",
         )
@@ -1064,8 +1064,8 @@ async fn every_account_every_path_matches_the_written_rules(pool: PgPool) {
         // (`EXPENSE_CATEGORY`, an asset class, a supplier) is reached through
         // that source, and a plain qualifier would look for the company's
         // default link, which a per-category chart does not keep.
-        let mut line = PostingLine::debit(key.as_str(), site, AMOUNT)
-            .from_source(source_type, qualifier);
+        let mut line =
+            PostingLine::debit(key.as_str(), site, AMOUNT).from_source(source_type, qualifier);
         if let Some(counter) = &counter {
             line = line.with_counter_unit(counter);
         }
@@ -1106,10 +1106,11 @@ async fn every_account_every_path_matches_the_written_rules(pool: PgPool) {
     }
 
     // ── 7. The affiliate convention through the balancer ────────────────────
-    let units: Vec<String> = sqlx::query_scalar("SELECT id FROM unit WHERE kind <> 'HO' ORDER BY id")
-        .fetch_all(&pool)
-        .await
-        .unwrap_or_else(|error| panic!("units: {error}"));
+    let units: Vec<String> =
+        sqlx::query_scalar("SELECT id FROM unit WHERE kind <> 'HO' ORDER BY id")
+            .fetch_all(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("units: {error}"));
     for unit in &units {
         for (family, kind, piutang, hutang) in FAMILIES {
             for (debit_site, credit_site) in [(unit.as_str(), HO), (HO, unit.as_str())] {

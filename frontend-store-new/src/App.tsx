@@ -2,12 +2,14 @@ import { useQueryClient } from "@tanstack/react-query"
 import { RouterProvider } from "@tanstack/react-router"
 import { useEffect } from "react"
 
+import { Launch } from "@/components/brand-mark"
 import { LoginForm } from "@/components/login-form"
 import { ServerStatus } from "@/components/server-status"
+import { SignInDoor } from "@/components/sign-in-door"
 import { cacheKey } from "@/lib/api"
 import { startBasket } from "@/lib/basket"
 import { startSaleQueue } from "@/lib/sale-queue"
-import { useIdentity, useNodeIdentity } from "@/lib/session"
+import { useIdentity } from "@/lib/session"
 import { router } from "@/routes"
 import { ApiError } from "@itulah/contract/client"
 
@@ -18,7 +20,6 @@ export function App() {
   // asked anything: showing a login box during that moment makes an
   // already-signed-in cashier type their password for nothing.
   const session = useIdentity()
-  const where = useNodeIdentity()
 
   // The pump runs above the login gate, and that is deliberate. A session can
   // lapse with sales still queued — the tablet sat idle over lunch — and those
@@ -43,12 +44,14 @@ export function App() {
         ? session.error.message
         : "could not reach this shop's node"
 
+  // The launch screen: white, the mark in the middle — the same picture
+  // `index.html` painted before any script ran.
   if (session.isPending) {
     return (
-      <main className="grid h-svh place-items-center">
+      <>
         <ServerStatus />
-        <p className="text-meta text-body">Checking your session…</p>
-      </main>
+        <Launch />
+      </>
     )
   }
 
@@ -56,20 +59,22 @@ export function App() {
     return (
       <main className="h-svh">
         <ServerStatus />
-        <LoginForm
-          problem={problem}
-          node={where.data ?? null}
-          onSignedIn={() => {
-            // Asked again rather than written from the answer, and the
-            // difference matters: a login response carries `SessionUser`,
-            // which is NOT what `/auth/me` answers — the Edge's `me` also
-            // names the site the caller stands in and the Cloud's also names
-            // the job role and the sections. Writing the login's shape into
-            // this cache would leave every screen reading fields the value
-            // does not have. One round trip, once, on the way in.
-            void queryClient.invalidateQueries({ queryKey: cacheKey.me() })
-          }}
-        />
+        <SignInDoor>
+          <LoginForm
+            problem={problem}
+            titleOnPhone={false}
+            onSignedIn={() => {
+              // Asked again rather than written from the answer, and the
+              // difference matters: a login response carries `SessionUser`,
+              // which is NOT what `/auth/me` answers — the Edge's `me` also
+              // names the site the caller stands in and the Cloud's also names
+              // the job role and the sections. Writing the login's shape into
+              // this cache would leave every screen reading fields the value
+              // does not have. One round trip, once, on the way in.
+              void queryClient.invalidateQueries({ queryKey: cacheKey.me() })
+            }}
+          />
+        </SignInDoor>
       </main>
     )
   }

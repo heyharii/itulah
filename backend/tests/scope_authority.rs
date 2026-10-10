@@ -63,7 +63,11 @@ const ALLOWED: &[(&str, &str, &str)] = &[
         "the unit picks which leaf a category resolves to in that unit's chart; the \
          categories themselves are the company's",
     ),
-    ("categories.rs", "unmapped_transaction_categories", "as above"),
+    (
+        "categories.rs",
+        "unmapped_transaction_categories",
+        "as above",
+    ),
     ("categories.rs", "transaction_category", "as above"),
     (
         "fleet.rs",

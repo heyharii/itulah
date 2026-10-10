@@ -4,8 +4,9 @@ import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Card } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Input } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
@@ -15,6 +16,7 @@ import { Tag } from "@/components/ui/tag"
 import { SHOW_MISSING, withoutMissing } from "@/lib/features"
 import { useFilters } from "@/lib/filters"
 import { moment } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   fleetPools,
   inventoryAsOf,
@@ -24,6 +26,8 @@ import {
 import { queryState } from "@/lib/query-state"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { Choice, Metric, MetricRow } from "@/screens/inventory/parts"
+import { CardFigure, CardName } from "@/components/ui/phone-cards"
+import { DockSettings } from "@/components/ui/filter-sheet"
 import {
   instantFromLocal,
   localInput,
@@ -54,6 +58,7 @@ function poolColumns(display: DisplayUnit): ColumnDef<TableSetup, Pool>[] {
       size: 240,
       // Same reason as Site below: the toolbar already picks a pool, and it
       // picks it on the wire.
+      meta: { card: "hide" },
       cell: ({ row }) => (
         <div className="min-w-0">
           <span className="block truncate font-medium text-ink">
@@ -72,6 +77,7 @@ function poolColumns(display: DisplayUnit): ColumnDef<TableSetup, Pool>[] {
       // REQUEST parameter, and a second site question answered in the browser
       // would be a place the narrowing is decided twice. The day the two
       // disagreed, this one would look right.
+      meta: { card: "hide" },
       cell: ({ row }) => (
         <span className="text-body">
           {row.original.site_name ?? row.original.site_id}
@@ -84,7 +90,7 @@ function poolColumns(display: DisplayUnit): ColumnDef<TableSetup, Pool>[] {
       size: 140,
       /// The one closed set on the row the toolbar cannot ask for: the kind of
       /// place, faceted from what the replay actually returned.
-      meta: { filter: { kind: "option" } },
+      meta: { card: "hide", filter: { kind: "option" } },
       cell: ({ row }) => <Tag>{row.original.group}</Tag>,
     },
     {
@@ -92,14 +98,22 @@ function poolColumns(display: DisplayUnit): ColumnDef<TableSetup, Pool>[] {
       header: "Stock",
       size: 110,
       // The only number worth sorting a historical read by: how much was there.
-      meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
+      meta: {
+        align: "right",
+        card: "hide",
+        filter: { kind: "number", unit: "pcs" },
+      },
       cell: ({ row }) => display.format(row.original.stock),
     },
     {
       accessorKey: "on_hand",
       header: "On Hand",
       size: 110,
-      meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
+      meta: {
+        align: "right",
+        card: "hide",
+        filter: { kind: "number", unit: "pcs" },
+      },
       cell: ({ row }) => display.format(row.original.on_hand),
     },
     {
@@ -110,7 +124,11 @@ function poolColumns(display: DisplayUnit): ColumnDef<TableSetup, Pool>[] {
       /// anything out of is not a pool that promised zero. The accessor hands
       /// the predicate the raw `null`, so "is empty" asks for exactly those rows
       /// and no comparison quietly counts them as 0.
-      meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
+      meta: {
+        align: "right",
+        card: "hide",
+        filter: { kind: "number", unit: "pcs" },
+      },
       cell: ({ row }) =>
         row.original.allotted === null ? (
           <span className="text-mute">—</span>
@@ -122,7 +140,11 @@ function poolColumns(display: DisplayUnit): ColumnDef<TableSetup, Pool>[] {
       accessorKey: "missing",
       header: "Missing",
       size: 110,
-      meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
+      meta: {
+        align: "right",
+        card: "hide",
+        filter: { kind: "number", unit: "pcs" },
+      },
       cell: ({ row }) => (
         <span
           className={row.original.missing > 0 ? "text-bad-fg" : "text-mute"}
@@ -140,6 +162,7 @@ function poolColumns(display: DisplayUnit): ColumnDef<TableSetup, Pool>[] {
       /// pools losing more than 5% types 5, not 0.05.
       meta: {
         align: "right",
+        card: "hide",
         filter: { kind: "number", scale: 0.01, unit: "%" },
       },
       cell: ({ row }) => percent(row.original.lost_rate),
@@ -147,7 +170,80 @@ function poolColumns(display: DisplayUnit): ColumnDef<TableSetup, Pool>[] {
   ]
 }
 
+/// The card a phone draws for a pool, as columns of their own that exist there
+/// only (`cardLead`): the pool over its site and id, what it held, what was on
+/// hand and promised and lost, and what kind of place it is.
+function poolCards(display: DisplayUnit): ColumnDef<TableSetup, Pool>[] {
+  return [
+    {
+      id: "head",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "title" },
+      accessorFn: (row) => `${row.label} ${row.id}`,
+      cell: ({ row }) => (
+        <CardName
+          name={row.original.label}
+          line={
+            <>
+              {row.original.site_name ?? row.original.site_id} ·{" "}
+              <span className="font-mono">{row.original.id}</span>
+            </>
+          }
+        />
+      ),
+    },
+    {
+      id: "lead",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "lead" },
+      accessorFn: (row) => row.stock,
+      cell: ({ row }) => (
+        <CardFigure
+          value={display.format(row.original.stock)}
+          caption="stock"
+          tone={row.original.stock === 0 ? "quiet" : undefined}
+        />
+      ),
+    },
+    {
+      id: "foot",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "foot" },
+      accessorFn: (row) => row.on_hand,
+      cell: ({ row }) => (
+        <span className="flex flex-col leading-6 tabular-nums">
+          <span>
+            On hand {display.format(row.original.on_hand)}
+            {row.original.allotted !== null &&
+              ` · Allotted ${display.format(row.original.allotted)}`}
+          </span>
+          {row.original.lost_rate !== null && row.original.lost_rate > 0 && (
+            <span>Lost {percent(row.original.lost_rate)}</span>
+          )}
+        </span>
+      ),
+    },
+    {
+      id: "kind",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { align: "right", card: "status" },
+      accessorFn: (row) => row.group,
+      cell: ({ row }) => <Tag>{row.original.group}</Tag>,
+    },
+  ]
+}
+
 export function AsOf() {
+  const phone = useLayout() === "phone"
+  const [query, setQuery] = useState("")
   const [when, setWhen] = useState(() =>
     localInput(new Date(Date.now() - 24 * 60 * 60 * 1000))
   )
@@ -176,7 +272,15 @@ export function AsOf() {
   )
 
   const display = useDisplayUnit()
-  const columns = useMemo(() => withoutMissing(poolColumns(display)), [display])
+  const columns = useMemo(
+    () =>
+      withoutMissing([
+        ...poolColumns(display),
+        // The card's own columns exist on a phone only.
+        ...(phone ? poolCards(display) : []),
+      ]),
+    [display, phone]
+  )
   const filters = useFilters(columns)
 
   const table = useTable(
@@ -186,10 +290,15 @@ export function AsOf() {
         data: rows,
         columns: filters.columns,
         getRowId: (row: Pool) => row.id,
-        state: { columnFilters: filters.columnFilters, sorting },
+        state: {
+          columnFilters: filters.columnFilters,
+          globalFilter: query,
+          sorting,
+        },
         onSortingChange: setSorting,
+        onGlobalFilterChange: setQuery,
       }),
-      [rows, filters.columns, filters.columnFilters, sorting]
+      [rows, filters.columns, filters.columnFilters, query, sorting]
     )
   )
 
@@ -218,7 +327,43 @@ export function AsOf() {
         sub="What every pool held at a moment, replayed from the ledger rather than remembered."
       />
 
-      <Toolbar>
+      {/* On a phone WHAT is replayed (the moment, the place, the unit) is one
+          chip in the dock, and the search, the filter and the order of the
+          pools are the dock's too. */}
+      <DockSettings label="Replay" title="Replay">
+        <Input
+          type="datetime-local"
+          aria-label="As of"
+          value={when}
+          onChange={(event) => setWhen(event.target.value)}
+        />
+        <Choice
+          value={site}
+          onChange={(value) => {
+            setSite(value)
+            setPool("")
+          }}
+          options={sites}
+          className="h-10 max-w-none"
+        />
+        <Choice
+          value={pool}
+          onChange={setPool}
+          options={pools}
+          className="h-10 max-w-none"
+        />
+        <DisplayUnitPicker display={display} />
+      </DockSettings>
+      <DockTools
+        search={{ value: query, onChange: setQuery, label: "Search pools" }}
+        filter={{
+          count: filters.filters.length,
+          panel: { model: filters, table },
+        }}
+        sort={dockSortOf(table)}
+      />
+
+      <Toolbar className="max-md:hidden">
         <Input
           type="datetime-local"
           value={when}
@@ -306,11 +451,11 @@ export function AsOf() {
                 </p>
               </Card>
 
-              <Toolbar>
+              <Toolbar className="max-md:hidden">
                 <FilterPanel model={filters} table={table} />
               </Toolbar>
 
-              <Card className="overflow-hidden">
+              <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
                 {rows.length === 0 ? (
                   <EmptyState>
                     {site === "" && pool === ""
@@ -319,9 +464,13 @@ export function AsOf() {
                   </EmptyState>
                 ) : (
                   <DataTable<Pool>
+                    refresh={[history]}
                     table={table}
                     empty="No pool in this replay matches the filters in force."
                     className="max-h-[calc(100dvh-28rem)]"
+                    cardSort={false}
+                    cardsApart
+                    cardLead
                   />
                 )}
               </Card>

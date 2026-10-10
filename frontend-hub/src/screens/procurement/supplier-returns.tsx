@@ -6,7 +6,7 @@ import { PageContent } from "@/components/shell/app-shell"
 import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { ConfirmButton, SavedDialog } from "@/components/ui/dialog"
+import { ConfirmButton } from "@/components/ui/dialog"
 import { Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Segmented } from "@/components/ui/segmented"
@@ -17,8 +17,9 @@ import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
 import { EmptyState, Problem } from "@/components/ui/states"
 import { Timeline, type TimelineEvent } from "@/components/ui/timeline"
-import { count, day, money } from "@/lib/format"
+import { count, day, money, quantity } from "@/lib/format"
 import { useAppNavigate } from "@/lib/navigate"
+import { pullIn, useSaid } from "@/lib/pull-in"
 import {
   fleetPools,
   idempotencyKey,
@@ -78,9 +79,6 @@ import {
   useSupplierContact,
   useSupplierName,
 } from "@/screens/procurement/supplier-name"
-
-/// "3 pcs", "1 pc": the kit's `quantity` is not in this tree yet.
-const quantity = (n: number) => `${count(n)} ${n === 1 ? "pc" : "pcs"}`
 
 /// Buying › Return PO.
 ///
@@ -310,8 +308,6 @@ export function useReturnRows() {
 export function SupplierReturns() {
   const [tab, setTab] = useState<Tab>("open")
   const [asking, setAsking] = useState(false)
-  /// The return the confirm minted, held in the receipt dialog until read.
-  const [savedReturn, setSavedReturn] = useState<string | null>(null)
   const sheet = useSheet("allotment")
   /// What was typed in the search, in the URL like the order list's: a supplier,
   /// a return's number or the order it came from.
@@ -338,22 +334,7 @@ export function SupplierReturns() {
   const poDates = usePoDates()
   const groups = useMemo(() => groupBySupplier(rows, poDates), [rows, poDates])
 
-  if (asking)
-    return (
-      <>
-        <NewReturn
-          onDone={() => setAsking(false)}
-          onConfirmed={setSavedReturn}
-        />
-        <SavedDialog
-          open={savedReturn !== null}
-          onOpenChange={(next) => {
-            if (!next) setSavedReturn(null)
-          }}
-          title={savedReturn ?? ""}
-        />
-      </>
-    )
+  if (asking) return <NewReturn onDone={() => setAsking(false)} />
 
   const openCount = all.filter((row) => row.open).length
 
@@ -499,14 +480,17 @@ export function ReturnSheet({
   const qrUrl = useReturnNoteLink(
     row && extra === undefined ? noteOf([row], row.pic) : null
   )
-  /// The writes this sheet made, held in the receipt dialog until they are
-  /// read. The sheet stays mounted between openings, so the state survives.
-  const [saved, setSaved] = useState<string | null>(null)
+  const expectSaid = useSaid()
   const short = useMutation({
     mutationFn: (reason: string) => closeShort(row!.id, reason),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: supplierReturnKeys.all })
-      setSaved("Closed short")
+      // A confirm dialog has no plain button to say it from: toast only.
+      void pullIn({
+        from: null,
+        pill: "Closed short",
+        title: `${row!.number} closed short`,
+      })
     },
   })
 
@@ -544,7 +528,18 @@ export function ReturnSheet({
     },
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: procurementKeys.orders() })
-      setSaved("Replacement expected")
+      // The button says it, the sheet closes, the toast keeps it (owner,
+      // 2026-10-10: pull in + toast).
+      void expectSaid.say("Expected").then(() => {
+        onClose()
+        expectSaid.reset()
+        void pullIn({
+          from: expectSaid.start(),
+          pill: "Replacement",
+          title: "Replacement expected",
+          description: row?.number,
+        })
+      })
     },
   })
 
@@ -671,12 +666,17 @@ export function ReturnSheet({
                 {money(row.owedMinor)} owed
               </span>
               <span className="flex items-center gap-3">
-                {raw !== null && expectsReplacement(raw) && !waitingOn && (
+                {((raw !== null && expectsReplacement(raw) && !waitingOn) ||
+                  expectSaid.said !== null) && (
                   <Button
                     variant="ghost"
                     pending={expect.isPending}
+                    said={expectSaid.said}
                     disabled={replacements.isPending || destinations.isPending}
-                    onClick={() => expect.mutate()}
+                    onClick={(event) => {
+                      expectSaid.mark(event.currentTarget)
+                      expect.mutate()
+                    }}
                   >
                     Expect replacement
                   </Button>
@@ -718,9 +718,7 @@ export function ReturnSheet({
             {form}
             <Problem error={expect.error} />
             <Facts>
-              {row.noteAt && (
-                <Fact term="Note Date">{day(row.noteAt)}</Fact>
-              )}
+              {row.noteAt && <Fact term="Note Date">{day(row.noteAt)}</Fact>}
               {row.address && <Fact term="Address">{row.address}</Fact>}
               {row.phone && <Fact term="Phone">{row.phone}</Fact>}
               <Fact term="Person in Charge">
@@ -824,13 +822,6 @@ export function ReturnSheet({
           </div>
         )}
       </Sheet>
-      <SavedDialog
-        open={saved !== null}
-        onOpenChange={(next) => {
-          if (!next) setSaved(null)
-        }}
-        title={saved ?? ""}
-      />
     </>
   )
 }
@@ -841,15 +832,8 @@ export function ReturnSheet({
 
 /// Items out of HO return stock, for one supplier. Over-delivery is raised
 /// from the PO sheet and is not offered here.
-function NewReturn({
-  onDone,
-  onConfirmed,
-}: {
-  onDone: () => void
-  /// The confirm went through; the receipt is the caller's to show — this
-  /// page unmounts the moment its `onDone` walks back to the book.
-  onConfirmed: (said: string) => void
-}) {
+function NewReturn({ onDone }: { onDone: () => void }) {
+  const said = useSaid()
   const client = useQueryClient()
   const [supplier, setSupplier] = useState("")
   const [reason, setReason] = useState<SupplierReturnReason>("OVER_DELIVERY")
@@ -932,12 +916,20 @@ function NewReturn({
       void client.invalidateQueries({ queryKey: inventoryKeys.fleet() })
       // Confirming IS the act of issuing the surat: the number on the
       // receipt is the paper the supplier will sign.
-      onConfirmed(
-        raised.letter_number !== null
-          ? `Return confirmed · surat ${raised.letter_number}`
-          : "Return confirmed"
-      )
-      onDone()
+      // The button says it, the page walks back to the book, the toast keeps
+      // the number (owner, 2026-10-10: pull in + toast).
+      void said.say("Confirmed").then(() => {
+        onDone()
+        void pullIn({
+          from: said.start(),
+          pill: quantity(total),
+          title:
+            raised.letter_number !== null
+              ? `Return confirmed · surat ${raised.letter_number}`
+              : "Return confirmed",
+          description: quantity(total),
+        })
+      })
     },
   })
 
@@ -1116,7 +1108,11 @@ function NewReturn({
           variant="primary"
           pending={create.isPending}
           disabled={total === 0 || pool === null}
-          onClick={() => create.mutate()}
+          said={said.said}
+          onClick={(event) => {
+            said.mark(event.currentTarget)
+            create.mutate()
+          }}
         >
           {create.isPending ? "Confirming…" : "Confirm"}
         </Button>

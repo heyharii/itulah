@@ -9,11 +9,15 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState, Problem } from "@/components/ui/states"
+import { DockTools } from "@/components/shell/dock-tools"
+import { Fab } from "@/components/ui/fab"
 import { count } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { financeKeys, saveExpenseCategory } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
 import { Code, Grid, Td, Th } from "@/screens/finance-final/parts"
 import { useExpenseCategories } from "@/screens/finance/master-data"
+import { PhoneCard, PhoneList } from "@/components/ui/phone-cards"
 import {
   EditorCard,
   LinkAccountsButton,
@@ -32,6 +36,7 @@ import type { ExpenseCategory } from "@itulah/contract"
 /// about where money goes. A category with no link is refused at posting, by
 /// name, which is why the reach column is the one to watch.
 export function ExpenseCategories() {
+  const phone = useLayout() === "phone"
   const list = useExpenseCategories()
   const [editing, setEditing] = useState<ExpenseCategory | "new" | null>(null)
   const [needle, setNeedle] = useState("")
@@ -58,36 +63,65 @@ export function ExpenseCategories() {
         crumb="Finance · Setup"
         title="Expense Categories"
         sub="What a shop's expense or an employee's claim is filed under. The account each lands on is an account link."
+        // Search, the status and the new category are in the dock on a phone.
         actions={
-          <>
-            <Input
-              value={needle}
-              onChange={(event) => setNeedle(event.target.value)}
-              className="h-8 w-48"
-            />
-            <Button variant="primary" onClick={() => setEditing("new")}>
-              New category
-            </Button>
-          </>
+          phone ? undefined : (
+            <>
+              <Input
+                value={needle}
+                onChange={(event) => setNeedle(event.target.value)}
+                className="h-8 w-48"
+              />
+              <Button variant="primary" onClick={() => setEditing("new")}>
+                New category
+              </Button>
+            </>
+          )
         }
       />
 
-      <Toolbar>
-        <Checkbox
-          label="Show inactive"
-          checked={inactive}
-          onChange={setInactive}
-        />
-        <Toolbar.Spacer />
-        <span className="text-[0.875rem] text-mute">
-          {count(rows.length)} categories
-          {unlinked > 0 && ` · ${count(unlinked)} with no account yet`}
-        </span>
-      </Toolbar>
+      {phone ? (
+        <>
+          <Fab label="New category" onClick={() => setEditing("new")} />
+          <DockTools
+            search={{
+              value: needle,
+              onChange: setNeedle,
+              label: "Search categories",
+            }}
+            status={{
+              value: inactive ? "all" : "active",
+              options: [
+                {
+                  value: "active",
+                  label: "Active",
+                  count: (list.data ?? []).filter((row) => row.is_active)
+                    .length,
+                },
+                { value: "all", label: "All", count: (list.data ?? []).length },
+              ],
+              onChange: (next) => setInactive(next === "all"),
+            }}
+          />
+        </>
+      ) : (
+        <Toolbar>
+          <Checkbox
+            label="Show inactive"
+            checked={inactive}
+            onChange={setInactive}
+          />
+          <Toolbar.Spacer />
+          <span className="text-[0.875rem] text-mute">
+            {count(rows.length)} categories
+            {unlinked > 0 && ` · ${count(unlinked)} with no account yet`}
+          </span>
+        </Toolbar>
+      )}
 
       <MasterLayout
         list={
-          <Card className="overflow-hidden">
+          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
             {queryState(list, {
               loading: "Reading the categories…",
               render: () =>
@@ -97,6 +131,40 @@ export function ExpenseCategories() {
                       ? "No expense category yet. Nothing can be filed by a shop or claimed by an employee until one exists."
                       : "No category matches the search."}
                   </EmptyState>
+                ) : phone ? (
+                  <PhoneList>
+                    {rows.map((row) => (
+                      <PhoneCard
+                        key={row.code}
+                        title={row.name}
+                        muted={!row.is_active}
+                        line={
+                          <>
+                            <div>
+                              {[
+                                row.code,
+                                row.for_stores ? "Shops" : null,
+                                row.for_claims ? "Claims" : null,
+                                row.is_active ? null : "Inactive",
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </div>
+                            {row.note && <div>{row.note}</div>}
+                          </>
+                        }
+                        foot={<Reach units={row.linked_units} />}
+                        action={
+                          <LinkAccountsButton
+                            role="expense"
+                            sourceType="EXPENSE_CATEGORY"
+                            sourceId={row.code}
+                          />
+                        }
+                        onOpen={() => setEditing(row)}
+                      />
+                    ))}
+                  </PhoneList>
                 ) : (
                   <Grid>
                     <thead>

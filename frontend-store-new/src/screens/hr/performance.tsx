@@ -6,7 +6,8 @@ import { Card } from "@/components/ui/card"
 import { Field, Input } from "@/components/ui/field"
 import { PeopleSheet, SheetSection } from "@/components/ui/people-sheet"
 import { PeopleTable } from "@/components/ui/people-table"
-import { Pill } from "@/components/ui/pill"
+import { PeopleTabs } from "@/components/ui/people-tabs"
+import { Pill, Status } from "@/components/ui/pill"
 import { Segmented } from "@/components/ui/segmented"
 import {
   hrKeys,
@@ -19,8 +20,8 @@ import {
   type StoreScope,
 } from "@/lib/queries/hr"
 import { centreState } from "@/screens/hr/centre"
-import { Facts, Heading, Person, Submit } from "@/screens/hr/parts"
-import { personName, useTeam } from "@/screens/hr/words"
+import { Facts, Heading, Person, personCard, Submit } from "@/screens/hr/parts"
+import { personByLogin, personName, useTeam } from "@/screens/hr/words"
 import { HrWorkspace } from "@/screens/hr/workspace"
 import type { EmployeeList, PerformanceScoreView } from "@itulah/contract"
 
@@ -34,17 +35,23 @@ import type { EmployeeList, PerformanceScoreView } from "@itulah/contract"
 /// derived at head office from the rule numbers and never stored with the
 /// score. Templates and weights are head office's.
 export function HrPerformance() {
-  return (
-    <HrWorkspace>
-      {(scope) => <Performance scope={scope} />}
-    </HrWorkspace>
-  )
+  return <HrWorkspace>{(scope) => <Performance scope={scope} />}</HrWorkspace>
 }
 
 const MONTHS = [
   { value: "this", label: "This month" },
   { value: "last", label: "Last month" },
 ] as const
+
+/// A month's score in a word — the one that says whether it is this shop's move.
+function scoreState(score: PerformanceScoreView | undefined): {
+  label: string
+  tone: "warn" | "ok"
+} {
+  return score === undefined
+    ? { label: "To score", tone: "warn" }
+    : { label: "Scored", tone: "ok" }
+}
 
 function Performance({ scope }: { scope: StoreScope }) {
   const [which, setWhich] = useState<(typeof MONTHS)[number]["value"]>("this")
@@ -79,12 +86,16 @@ function Performance({ scope }: { scope: StoreScope }) {
 
   return (
     <>
-      <div className="mb-4 md:max-w-[20rem]">
-        <Segmented options={MONTHS} value={which} onChange={setWhich} />
-      </div>
+      {/* On a phone the dock's one chip; on a desk the underline tabs. */}
+      <PeopleTabs
+        value={which}
+        onChange={setWhich}
+        tabs={MONTHS}
+        title="Month"
+      />
       <Heading>{readMonth(period)}</Heading>
       {centreState(scores, {
-        loading: "Loading…",
+        loading: "Reading the scores…",
         what: "this month's performance scores",
         render: () => (
           <PeopleTable
@@ -92,6 +103,28 @@ function Performance({ scope }: { scope: StoreScope }) {
             rowKey={(person) => person.employee_id}
             onRowClick={(person) => setOpen(person.employee_id)}
             empty="Nobody is posted here."
+            card={(person) => {
+              const score = scoreOf(person.employee_id)
+              const state = scoreState(score)
+              return {
+                ...personCard(team.data, person.employee_id, [
+                  score === undefined
+                    ? undefined
+                    : `Score ${score.manager_score} / 5 · Bonus ${score.bonus_rate_pct}%`,
+                ]),
+                lead:
+                  score === undefined
+                    ? { figure: "—", caption: "KPI", muted: true }
+                    : { figure: `${score.kpi_pct}%`, caption: "KPI" },
+                foot: {
+                  info: <Status tone={state.tone}>{state.label}</Status>,
+                  action: {
+                    label: score === undefined ? "Score" : "Open",
+                    onClick: () => setOpen(person.employee_id),
+                  },
+                },
+              }
+            }}
             columns={[
               {
                 key: "who",
@@ -134,13 +167,10 @@ function Performance({ scope }: { scope: StoreScope }) {
               {
                 key: "state",
                 header: "Status",
-                card: "status",
-                cell: (person) =>
-                  scoreOf(person.employee_id) === undefined ? (
-                    <Pill tone="warn">To score</Pill>
-                  ) : (
-                    <Pill tone="ok">Scored</Pill>
-                  ),
+                cell: (person) => {
+                  const state = scoreState(scoreOf(person.employee_id))
+                  return <Status tone={state.tone}>{state.label}</Status>
+                },
               },
             ]}
           />
@@ -149,7 +179,7 @@ function Performance({ scope }: { scope: StoreScope }) {
 
       <Heading>Templates, by position</Heading>
       {centreState(templates, {
-        loading: "Loading…",
+        loading: "Reading the templates…",
         what: "the performance templates",
         render: (rows) => {
           const byPosition = new Map<string, typeof rows>()
@@ -160,9 +190,7 @@ function Performance({ scope }: { scope: StoreScope }) {
             ])
           }
           return byPosition.size === 0 ? (
-            <p className="text-meta text-body">
-              No templates yet.
-            </p>
+            <p className="text-meta text-body">No templates yet.</p>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {[...byPosition.entries()].map(([position, metrics]) => (
@@ -179,7 +207,7 @@ function Performance({ scope }: { scope: StoreScope }) {
                       >
                         <span className="min-w-0 text-body">
                           {metric.metric}
-                          <span className="block text-[0.6875rem] text-mute">
+                          <span className="block text-meta text-mute">
                             from{" "}
                             {metric.source.toLowerCase().replace(/_/g, " ")}
                           </span>
@@ -247,6 +275,7 @@ function ScoreSheet({
       onClose()
     },
   })
+  const state = scoreState(current)
 
   return (
     <PeopleSheet
@@ -257,22 +286,16 @@ function ScoreSheet({
       crumb="Performance"
       title={personName(team, employeeId)}
       sub={readMonth(period)}
-      status={
-        current === undefined ? (
-          <Pill tone="warn">Not scored yet</Pill>
-        ) : (
-          <Pill tone="ok">Bonus tier {current.bonus_rate_pct}%</Pill>
-        )
-      }
+      status={<Pill tone={state.tone}>{state.label}</Pill>}
       foot={
         <Submit
-          label={
-            current === undefined ? "Record the score" : "Record a new score"
-          }
+          label={current === undefined ? "Create score" : "Save changes"}
+          pendingLabel={current === undefined ? "Creating…" : "Saving…"}
           pending={record.isPending}
           disabled={kpi === "" || !(Number(kpi) >= 0) || reason.trim() === ""}
           error={record.error}
           onSubmit={() => record.mutate()}
+          onCancel={onClose}
         />
       }
     >
@@ -283,17 +306,15 @@ function ScoreSheet({
               ["KPI", `${current.kpi_pct}%`],
               ["Store head's score", `${current.manager_score} / 5`],
               ["Bonus tier", `${current.bonus_rate_pct}% of base`],
-              ["Recorded by", current.recorded_by],
-              current.note !== null && ["Note", current.note],
+              ["Recorded by", personByLogin(team, current.recorded_by)],
+              current.note !== null && ["Note", current.note, true],
             ]}
           />
         </SheetSection>
       )}
       <SheetSection title="Score">
         <div className="flex flex-col gap-3">
-          <Field
-            label="KPI %"
-          >
+          <Field label="KPI %" required>
             <Input
               inputMode="decimal"
               value={kpi}
@@ -303,7 +324,7 @@ function ScoreSheet({
               }
             />
           </Field>
-          <Field label="Store head's score">
+          <Field label="Store head's score" required>
             <Segmented
               options={["1", "2", "3", "4", "5"].map((value) => ({
                 value,
@@ -313,7 +334,7 @@ function ScoreSheet({
               onChange={setScore}
             />
           </Field>
-          <Field label="Reason">
+          <Field label="Reason" required>
             <Input
               value={reason}
               placeholder="Handled the stock count alone"

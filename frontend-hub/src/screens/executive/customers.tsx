@@ -22,16 +22,16 @@ import { rupiah } from "@/screens/executive/format"
 import { Figure, Figures, Head, ReportPage } from "@/screens/executive/parts"
 import { useReportScope } from "@/screens/executive/scope"
 
-/// Pelanggan & promosi — who the members are and how they are spending, what
+/// Customers & Promotions — who the members are and how they are spending, what
 /// the vouchers in circulation are worth, and what each campaign gave away.
 
 const SEGMENT: Record<SegmentKey, string> = {
-  NEW: "Baru",
-  ACTIVE: "Aktif",
-  LAPSING: "Mulai pasif",
-  LAPSED: "Pasif",
-  NEVER: "Belum belanja",
-  BLOCKED: "Diblokir",
+  NEW: "New",
+  ACTIVE: "Active",
+  LAPSING: "Lapsing",
+  LAPSED: "Lapsed",
+  NEVER: "Never bought",
+  BLOCKED: "Stopped",
 }
 
 /// A trading day as the instants the promotion report is asked in — WIB, the
@@ -86,56 +86,56 @@ export function ExecutiveCustomers() {
   )
 
   return (
-    <ReportPage title="Pelanggan & promosi" scope={scope}>
+    <ReportPage title="Customers & Promotions" scope={scope}>
       <Figures>
         <Figure
-          label="Member terdaftar"
+          label="Registered members"
           value={book ? count(book.member_count) : "…"}
         />
         <Figure
-          label="Member aktif"
+          label="Active members"
           value={active === undefined ? "…" : count(active)}
           note={
-            book ? `Belanja dalam ${book.active_days} hari terakhir` : undefined
+            book ? `Bought within the last ${book.active_days} days` : undefined
           }
         />
         <Figure
-          label="Voucher beredar"
+          label="Vouchers outstanding"
           value={
             vouchers.data ? rupiah(vouchers.data.ledger.outstanding_minor) : "…"
           }
           note={
             vouchers.data
-              ? `${count(vouchers.data.ledger.outstanding_count)} voucher`
+              ? `${count(vouchers.data.ledger.outstanding_count)} ${vouchers.data.ledger.outstanding_count === 1 ? "voucher" : "vouchers"}`
               : undefined
           }
         />
         <Figure
-          label="Kampanye berjalan"
+          label="Campaigns running"
           value={campaigns.data ? count(running.length) : "…"}
-          note="Menghasilkan transaksi periode ini"
+          note="Producing sales this period"
         />
       </Figures>
 
       <div className="grid gap-3 xl:grid-cols-2">
         <Card className="overflow-hidden">
           <Head
-            title="Segmen member"
+            title="Member segments"
             to="/members/segments"
-            link="Buka member"
+            link="Open members"
           />
           <div className="overflow-x-auto px-[1.125rem] pb-3">
             {queryState(segments, {
-              loading: "Membaca member…",
+              loading: "Reading the members…",
               render: (data) => {
                 const rows = SEGMENT_ORDER.map((key) =>
                   data.segments.find((row) => row.key === key)
                 ).filter((row) => row !== undefined)
                 return data.member_count === 0 ? (
-                  <EmptyState>Belum ada member yang terdaftar.</EmptyState>
+                  <EmptyState>No members are registered yet.</EmptyState>
                 ) : (
                   <MiniTable
-                    head={["Segmen", "Member", "Belanja", "Rata-rata"]}
+                    head={["Segment", "Members", "Spent", "Average"]}
                     style={{ minWidth: "26rem" }}
                   >
                     {rows.map((row) => (
@@ -165,21 +165,19 @@ export function ExecutiveCustomers() {
 
         <Card className="overflow-hidden">
           <Head
-            title="Kampanye promosi"
+            title="Promotion campaigns"
             to="/commercial"
-            link="Buka Marketing"
+            link="Open Marketing"
           />
           <div className="overflow-x-auto px-[1.125rem] pb-3">
             {queryState(campaigns, {
-              loading: "Membaca promosi…",
+              loading: "Reading the promotions…",
               render: () =>
                 running.length === 0 ? (
-                  <EmptyState>
-                    Tidak ada kampanye yang terpakai di periode ini.
-                  </EmptyState>
+                  <EmptyState>No campaign was used in this period.</EmptyState>
                 ) : (
                   <MiniTable
-                    head={["Kampanye", "Transaksi", "Penjualan", "Diskon"]}
+                    head={["Campaign", "Transactions", "Sales", "Discount"]}
                     style={{ minWidth: "26rem" }}
                   >
                     {running.map((row) => (

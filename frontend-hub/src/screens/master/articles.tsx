@@ -1,9 +1,13 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
+import { useNavigate } from "@tanstack/react-router"
+import { EyeOff } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
+import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
@@ -28,9 +32,8 @@ import { count, money } from "@/lib/format"
 import { colourwayFill } from "@/lib/colourway-fill"
 import { cn } from "@/lib/utils"
 import {
-  articleKeys,
+  articlePagesQuery,
   articleScopeFromFilters,
-  searchArticles,
   type ArticleRow,
   type ArticleScope,
   type FacetCount,
@@ -38,8 +41,10 @@ import {
 import { colourKeys, listColours, type ColourTerm } from "@/lib/queries/colours"
 import { catalogueVocabulary, procurementKeys } from "@/lib/queries/procurement"
 import { queryState } from "@/lib/query-state"
-import { useSheet } from "@/lib/sheets"
+import { useLayout } from "@/lib/layout"
+import { useSheet, type SheetSearch } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { useFittedVisibility } from "@/screens/procurement/shared"
 import { ColourSwatch, Swatches } from "@/components/ui/swatch"
 import { Thumbnail } from "@/components/ui/thumbnail"
 import { ArticleSheet } from "@/screens/master/detail"
@@ -114,12 +119,17 @@ interface CatalogueRow {
   readonly sizes: string
 }
 
+/// The card-only columns, hidden on a desk.
+const CARD_ONLY = { head: false, lead: false, foot: false, edit: false }
+
 const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
   {
     id: "article",
     accessorFn: (row) => `${row.article.name} ${row.article.article_code}`,
     header: "Article",
     size: 300,
+    // Takes what the others leave, down to 220px: the name is what the row is.
+    meta: { card: "hide", grow: 220 },
     cell: ({ row }) => (
       <span className="flex items-center gap-2.5">
         <Thumbnail
@@ -144,7 +154,11 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
     id: "division",
     accessorFn: (row) => row.divisionLabel,
     header: "Division",
-    size: 150,
+    size: 130,
+    // No sideways scroll (owner, 2026-10-10): on a narrow card the columns go,
+    // SKUs first, then Sizes, then Division — the filters above still offer
+    // all three. Colors, Price Range and Status stay.
+    meta: { card: "hide", priority: 2 },
     // Empty rather than an em dash in the accessor, so unfiled articles sort
     // together at one end instead of under D. The dash is drawn by the cell.
     cell: ({ row }) =>
@@ -160,14 +174,16 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
     // question a merchandiser actually sorts on is "what only comes in one".
     accessorFn: (row) => row.article.colours.length,
     header: "Colors",
-    size: 150,
+    size: 130,
+    meta: { card: "hide" },
     cell: ({ row }) => <Swatches colours={row.original.article.colours} />,
   },
   {
     id: "sizes",
     accessorFn: (row) => row.article.size_codes.length,
     header: "Sizes",
-    size: 140,
+    size: 120,
+    meta: { card: "hide", priority: 3 },
     cell: ({ row }) => row.original.sizes,
   },
   {
@@ -175,7 +191,7 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
     accessorFn: (row) => row.article.sku_count,
     header: "SKUs",
     size: 90,
-    meta: { align: "right" },
+    meta: { align: "right", card: "hide", priority: 4 },
     // Colourways times sizes, in principle. Where it is less, somebody stopped
     // half way through a setup session — which is the thing this column is
     // sorted on to find.
@@ -185,8 +201,8 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
     id: "price",
     accessorFn: (row) => row.article.base_price_min_minor ?? -1,
     header: "Price Range",
-    size: 190,
-    meta: { align: "right" },
+    size: 200,
+    meta: { align: "right", card: "hide" },
     // `-1` rather than null in the accessor: unpriced articles are what
     // somebody sorting by price is usually looking for, and a null sorts
     // wherever the comparator happens to put it.
@@ -197,13 +213,155 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
     accessorFn: (row) => row.article.active,
     header: "Status",
     size: 110,
+    meta: { card: "hide" },
     cell: ({ row }) => (
       <Pill tone={row.original.article.active ? "ok" : "neutral"}>
         {row.original.article.active ? "Active" : "Cancelled"}
       </Pill>
     ),
   },
+  // Four columns that exist only on a card (`cardLead`; a phone), the same card
+  // as every other list: the article over its code, division and colours, the
+  // price it leads with, a foot that says how many SKUs in what sizes, and the
+  // Edit button (owner, 2026-10-06). The desk says the same in its own columns.
+  {
+    id: "head",
+    accessorFn: (row) => row.article.name,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => {
+      const one = row.original.article
+      return (
+        <span className="flex min-w-0 items-center gap-3">
+          <Thumbnail
+            url={one.image_url}
+            name={one.name}
+            division={one.division_code}
+            colours={firstColourway(one)}
+            className="size-11 shrink-0 rounded-inner border border-hairline"
+          />
+          <span className="flex min-w-0 flex-col gap-0.5">
+            <span
+              className={cn(
+                "inline-flex items-center gap-2 text-[1rem] font-semibold",
+                one.active ? "text-ink" : "text-mute"
+              )}
+            >
+              {!one.active && (
+                <EyeOff
+                  aria-label="Cancelled"
+                  className="size-4 shrink-0 text-mute"
+                />
+              )}
+              <span className="min-w-0 break-words">{one.name}</span>
+            </span>
+            <span className="font-mono text-[0.875rem] font-normal text-mute">
+              {one.article_code}
+            </span>
+            {(one.division_code !== null || one.colours.length > 0) && (
+              <span className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 font-normal">
+                {one.division_code !== null && (
+                  <Tag>{row.original.divisionLabel}</Tag>
+                )}
+                <Swatches colours={one.colours} cap={4} />
+              </span>
+            )}
+          </span>
+        </span>
+      )
+    },
+  },
+  {
+    id: "lead",
+    accessorFn: (row) => row.article.base_price_min_minor ?? -1,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "lead" },
+    cell: ({ row }) => {
+      const { base_price_min_minor: low, base_price_max_minor: high } =
+        row.original.article
+      const first = low ?? high
+      return (
+        <span className="flex flex-col items-end tabular-nums">
+          <span
+            className={cn(
+              "text-[1.5rem] leading-tight font-semibold tracking-tight [overflow-wrap:anywhere]",
+              first === null ? "text-mute" : "text-ink"
+            )}
+          >
+            {first === null ? "—" : money(first)}
+          </span>
+          <span className="text-[0.875rem] text-mute">
+            {low !== null && high !== null && high > low
+              ? `up to ${money(high)}`
+              : "price"}
+          </span>
+        </span>
+      )
+    },
+  },
+  {
+    id: "foot",
+    accessorFn: (row) => row.article.sku_count,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => {
+      const n = row.original.article.sku_count
+      const sizes = row.original.sizes
+      return (
+        <span className="tabular-nums">
+          {`${count(n)} ${n === 1 ? "SKU" : "SKUs"}`}
+          {sizes !== "" && sizes !== "—" && ` · ${sizes}`}
+          {!row.original.article.active && " · Cancelled"}
+        </span>
+      )
+    },
+  },
+  {
+    id: "edit",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { align: "right", card: "status" },
+    cell: ({ row }) => (
+      <EditArticle
+        code={row.original.article.article_code}
+        name={row.original.article.name}
+      />
+    ),
+  },
 ]
+
+/// The card's Edit: the article's sheet, already on its edit form.
+function EditArticle({ code, name }: { code: string; name: string }) {
+  const navigate = useNavigate()
+  return (
+    <Button
+      variant="tint"
+      size="card"
+      aria-label={`Edit ${name}`}
+      onClick={(event) => {
+        event.stopPropagation()
+        void navigate({
+          to: ".",
+          search: (prev: SheetSearch) => ({
+            ...prev,
+            article: code,
+            "article-edit": true as const,
+          }),
+          viewTransition: false,
+        })
+      }}
+    >
+      Edit
+    </Button>
+  )
+}
 
 export function Articles() {
   /// Which article is open. In the URL rather than in state beside the list,
@@ -369,13 +527,7 @@ export function Articles() {
     [filters.filters, needle, articleOrder.value]
   )
 
-  const catalogue = useInfiniteQuery({
-    queryKey: articleKeys.list(scope),
-    queryFn: ({ pageParam, signal }) =>
-      searchArticles({ ...scope, cursor: pageParam }, signal),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-  })
+  const catalogue = useInfiniteQuery(articlePagesQuery(scope))
 
   // Append-only: the list grows as more is asked for, and every article
   // fetched stays in the model. Nothing is sliced away to make it look fast.
@@ -404,6 +556,27 @@ export function Articles() {
     [articles, vocabulary.data]
   )
 
+  const phone = useLayout() === "phone"
+  const edit = useSheet("article-edit")
+  const navigate = useNavigate()
+  /// Closing clears the edit flag with the article, in one write, so the next
+  /// plain tap on a row opens the overview.
+  const closeArticle = useCallback(() => {
+    void navigate({
+      to: ".",
+      replace: true,
+      search: (prev: SheetSearch) => ({
+        ...prev,
+        article: undefined,
+        "article-edit": undefined,
+      }),
+      viewTransition: false,
+    })
+  }, [navigate])
+
+  /// What fits the card: the columns with a `priority` go, one at a time,
+  /// before the table would scroll sideways (owner, 2026-10-10).
+  const fit = useFittedVisibility(columns, CARD_ONLY)
   const table = useTable(
     useMemo(
       () => ({
@@ -411,10 +584,17 @@ export function Articles() {
         data: rows,
         columns,
         getRowId: (row: CatalogueRow) => row.article.article_code,
-        state: { sorting },
+        state: {
+          sorting,
+          // The card's own columns are drawn on a phone and never on a desk.
+          columnVisibility: phone
+            ? { head: true, lead: true, foot: true, edit: true }
+            : fit.shown,
+        },
         onSortingChange: setSorting,
+        onColumnVisibilityChange: fit.change,
       }),
-      [rows, sorting]
+      [rows, sorting, phone, fit.hidden, fit.visibility]
     )
   )
 
@@ -489,7 +669,7 @@ export function Articles() {
               the carton. The server does the matching; this only sends `q`.
               EPC is not named (owner, 2026-09-12): it identifies one physical
               unit, and this screen is the product definition. */}
-          <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
+          <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
             <ExpandingSearch
               value={search.value ?? ""}
               onChange={(next) => (next ? search.open(next) : search.close())}
@@ -532,7 +712,39 @@ export function Articles() {
             model={{ ...filters, fields: counted }}
             text={search.value ?? undefined}
             onText={(next) => (next ? search.open(next) : search.close())}
-            className="mb-3 lg:hidden"
+            className="mb-3 max-md:hidden lg:hidden"
+          />
+          {/* On a phone the search, the facets and the order are the dock's,
+              as on every list (owner, 2026-10-06): nothing at the top of the
+              page but the figures. */}
+          <DockTools
+            search={{
+              value: search.value ?? "",
+              onChange: (next) => (next ? search.open(next) : search.close()),
+              label: "Search Articles",
+            }}
+            filter={{
+              count: filters.filters.length,
+              panel: { model: { ...filters, fields: counted } },
+            }}
+            sort={{
+              label:
+                articleOrder.value === "oldest"
+                  ? "Oldest first"
+                  : "Newest first",
+              choices: {
+                options: [
+                  { value: "newest", label: "Newest first" },
+                  { value: "oldest", label: "Oldest first" },
+                ],
+                value: articleOrder.value ?? "newest",
+                desc: false,
+                onChange: (next) =>
+                  next === "oldest"
+                    ? articleOrder.open("oldest")
+                    : articleOrder.close(),
+              },
+            }}
           />
 
           {queryState(catalogue, {
@@ -564,13 +776,14 @@ export function Articles() {
                       ))}
                     </div>
                   ) : (
-                    <Card className="overflow-clip">
+                    <Card ref={fit.ref} className="overflow-clip">
                       {/* Sorting is over what has been loaded, not over the
                           whole catalogue: the cursor is keyed on article code,
                           so a sort by price can only order the pages already
                           fetched. That is honest as long as the count above
                           says how many are shown — which is why it does. */}
                       <DataTable<CatalogueRow>
+                        refresh={[catalogue]}
                         table={table}
                         onRowClick={(row) =>
                           article.open(row.article.article_code)
@@ -582,6 +795,9 @@ export function Articles() {
                         // The window scrolls, not the table (owner,
                         // 2026-10-05): no box inside the card with its own bars.
                         pageScroll
+                        cardsApart
+                        cardLead
+                        cardSort={false}
                       />
                       <div className="flex h-11 items-center border-t border-hairline bg-soft px-5 text-[0.875rem] text-body">
                         <b className="mr-1 font-medium text-ink">
@@ -612,7 +828,8 @@ export function Articles() {
       <ArticleSheet
         articleCode={article.value ?? null}
         open={article.isOpen}
-        onClose={article.close}
+        onClose={closeArticle}
+        edit={edit.isOpen}
       />
     </PageContent>
   )

@@ -4,15 +4,16 @@ import { useMemo, useRef, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Day } from "@/components/ui/day"
-import { Dialog, SavedDialog } from "@/components/ui/dialog"
+import { Dialog } from "@/components/ui/dialog"
 import { Field, Input, Money, Select, Textarea } from "@/components/ui/field"
 import { PickOne, type Choice } from "@/components/ui/pick"
 import { Section } from "@/components/ui/rows"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { ItemsTable } from "@/screens/procurement/items-table"
+import { useVariantRows } from "@/screens/procurement/variant-words"
 import { today as todayIso } from "@/lib/calendar"
-import { count, day, money } from "@/lib/format"
+import { count, day, money, percentBps } from "@/lib/format"
 import { titled } from "@/screens/procurement/po-print"
 import { wholeProduct } from "@/lib/decimal"
 import {
@@ -33,6 +34,8 @@ import {
   type VariantDraft,
 } from "@/screens/procurement/line-pricing-model"
 import { toast } from "@/lib/toast"
+import { pullIn, useSaid } from "@/lib/pull-in"
+import { useSheet } from "@/lib/sheets"
 import { useSupplierName } from "@/screens/procurement/supplier-name"
 import {
   catalogueVocabulary,
@@ -40,7 +43,6 @@ import {
   createSupplierItemWithPhoto,
   listSuppliers,
   paymentTermsBook,
-  cancelPurchaseOrder,
   procurementKeys,
   removeFromBasket,
   purchaseDestinations,
@@ -405,6 +407,7 @@ function fromOrderLine(line: PurchaseOrderDetail["lines"][number]): DraftLine {
       size: one.size_code,
       quantity: String(one.quantity),
       price: one.base_price_minor === null ? "" : String(one.base_price_minor),
+      photos: one.image_urls ?? [],
     })),
     locked: lockOf(line),
   }
@@ -534,6 +537,9 @@ function joinVariants(
                     (Number.parseInt(one.quantity, 10) || 0) +
                       (Number.parseInt(add.quantity, 10) || 0)
                   ),
+                  photos: [
+                    ...new Set([...(one.photos ?? []), ...(add.photos ?? [])]),
+                  ],
                 }
               : one
           )
@@ -602,6 +608,7 @@ function OrderReview({
   notes: string
   conditions: string
 }) {
+  const variantRows = useVariantRows()
   const pieces = lines.reduce((sum, line) => sum + piecesOf(line), 0)
   return (
     <div className="flex flex-col gap-5">
@@ -641,6 +648,14 @@ function OrderReview({
                   ? `${money(perPiece)} / pc`
                   : `${money(orderUnit)} / ${line.unit.toLowerCase()}`,
               amount: amountOf(line),
+              variants: variantRows(
+                line.variants.map((one) => ({
+                  colour: one.colour,
+                  size: one.size,
+                  pieces: Number.parseInt(one.quantity, 10) || 0,
+                  photo: one.photos?.[0],
+                }))
+              ),
             }
           })}
           totals={{
@@ -651,7 +666,7 @@ function OrderReview({
                 ? undefined
                 : {
                     minor: discountMinor,
-                    label: `Discount · ${percentText(percentFromDiscount(discountMinor, gross))} %`,
+                    label: `Discount · ${percentBps(percentFromDiscount(discountMinor, gross))}`,
                     perPiece:
                       pieces > 0 ? Math.round(discountMinor / pieces) : null,
                   },
@@ -763,10 +778,6 @@ const MAX_ORDER_TOTAL = 99_999_999_999
 /// sending it, there being no connection.
 const HELD = { held: true } as const
 
-/// The red Cancel PO on the receipt dialog is built and kept, and hidden for now
-/// (the owner, 2026-10-05: "hide dulu"). Turn this on to bring it back.
-const SHOW_CANCEL_AFTER_CREATE = false
-
 /// What a sent order's form held, for putting it back.
 interface Draft {
   readonly lines: readonly DraftLine[]
@@ -788,7 +799,6 @@ export function OrderComposer({
   resume,
   onClose,
   onRaised,
-  onReopen,
 }: {
   open: boolean
   /// An order made with no connection, taken back from the device to be
@@ -809,6 +819,7 @@ export function OrderComposer({
   /// new order called back from its receipt comes back as the form it was.
   onReopen?: () => void
 }) {
+  const variantRows = useVariantRows()
   const client = useQueryClient()
   const idempotency = useIdempotencyKey()
   /// Whether there is a line to head office. Without one, Submit keeps the
@@ -876,22 +887,9 @@ export function OrderComposer({
   /// being saved; said once, after the save.
   const photoTroubles = useRef<string[]>([])
   const nameOfSupplier = useSupplierName()
-  /// The order the save minted, held in the receipt dialog until it is read.
-  /// The sheet itself closes without waiting for the button — the number
-  /// outlives it because the dialog portals over the list (or over the order,
-  /// when this was an edit).
-  const [raised, setRaised] = useState<{
-    readonly receipt: CatalogPurchaseOrderReceipt
-    /// The form as it was sent, kept for a new order only: the receipt's
-    /// Cancel PO puts it back (2026-10-04). Gone with the dialog.
-    readonly draft?: Draft
-    /// Said at save time, not read from `editing` at render time: by the
-    /// time the dialog is up, an edit has already navigated back to the
-    /// order and `editing` is gone.
-    readonly verb: "created" | "updated"
-    /// Items saved without the photograph that was picked for them.
-    readonly photoLost: readonly string[]
-  } | null>(null)
+  /// The Submit button's "done" words, and the order sheet that View opens.
+  const said = useSaid()
+  const orderSheet = useSheet("order")
 
   // No number here. The server gives the order its number in the same
   // transaction that writes it (`next_po_number`, migration 0385): this
@@ -1121,7 +1119,10 @@ export function OrderComposer({
       }
       return was.map((one, index) =>
         index === at
-          ? { ...one, variants: joinVariants(one.variants, added.variants) }
+          ? {
+              ...one,
+              variants: joinVariants(one.variants, added.variants),
+            }
           : one
       )
     }
@@ -1306,12 +1307,6 @@ export function OrderComposer({
     setDiscountBy(draft.discountBy)
     setStep("edit")
   }
-  /// Puts a sent order's form back, for the receipt's Cancel PO.
-  const restore = (draft: Draft) => {
-    pour(draft)
-    onReopen?.()
-  }
-
   const reset = () => {
     setArrival("")
     setTerms("")
@@ -1521,41 +1516,62 @@ export function OrderComposer({
       // items as soon as they exist, so that second press does not even ask.
       const drafted = lines.filter((line) => line.pending !== undefined)
       let sent = lines
+      // Photographs are filed under the supplier's code. One read serves the
+      // whole save — both loops below — and it is answered from what the
+      // composer already holds (the record read for the standing terms, or
+      // the book the picker read) before it is asked for over the wire.
+      const wantsSupplierCode =
+        drafted.some((line) => line.pending!.photo) ||
+        lines.some(
+          (line) => line.photoEdit !== undefined && line.photoEdit.photo
+        )
+      const supplierCode = wantsSupplierCode
+        ? (supplierRecord.data?.supplier_code ??
+          suppliers.data?.find((one) => one.supplier_id === supplierId)
+            ?.supplier_code ??
+          (
+            await client.fetchQuery({
+              queryKey: procurementKeys.supplier(supplierId!),
+              queryFn: ({ signal }) => supplierDetail(supplierId!, signal),
+            })
+          ).supplier_code)
+        : undefined
       if (drafted.length > 0) {
-        const supplierCode = drafted.some((line) => line.pending!.photo)
-          ? (
-              await client.fetchQuery({
-                queryKey: procurementKeys.supplier(supplierId!),
-                queryFn: ({ signal }) => supplierDetail(supplierId!, signal),
-              })
-            ).supplier_code
-          : undefined
-        const made = new Map<string, DraftLine>()
-        for (const line of drafted) {
-          const { item, photoTrouble } = await createSupplierItemWithPhoto(
-            supplierId!,
-            line.pending!.request,
-            line.pending!.photo,
-            supplierCode,
-            line.pending!.key
+        // The items are independent rows, so they are made side by side —
+        // each still creating, uploading and attaching in its own order.
+        const made = new Map<string, DraftLine>(
+          await Promise.all(
+            drafted.map(async (line) => {
+              const { item, photoTrouble } = await createSupplierItemWithPhoto(
+                supplierId!,
+                line.pending!.request,
+                line.pending!.photo,
+                supplierCode,
+                line.pending!.key
+              )
+              // The order does not wait on a photograph, but the person is
+              // told: a picture that quietly never arrived is worse than one
+              // refused.
+              if (photoTrouble !== null) photoTroubles.current.push(line.name)
+              // What was typed on the line stays; only the identity and the
+              // baseline it is compared against become the real item's.
+              return [
+                line.supplierItemId,
+                {
+                  ...fromItem(item, line.quantity),
+                  name: line.name,
+                  division: line.division,
+                  tags: line.tags,
+                  price: line.price,
+                  unit: line.unit,
+                  basePrice: line.basePrice,
+                  markup: line.markup,
+                  variants: line.variants,
+                },
+              ] as const
+            })
           )
-          // The order does not wait on a photograph, but the person is told:
-          // a picture that quietly never arrived is worse than one refused.
-          if (photoTrouble !== null) photoTroubles.current.push(line.name)
-          // What was typed on the line stays; only the identity and the
-          // baseline it is compared against become the real item's.
-          made.set(line.supplierItemId, {
-            ...fromItem(item, line.quantity),
-            name: line.name,
-            division: line.division,
-            tags: line.tags,
-            price: line.price,
-            unit: line.unit,
-            basePrice: line.basePrice,
-            markup: line.markup,
-            variants: line.variants,
-          })
-        }
+        )
         sent = lines.map((line) => made.get(line.supplierItemId) ?? line)
         setLines(sent)
         void client.invalidateQueries({
@@ -1571,54 +1587,57 @@ export function OrderComposer({
       // item had, and the buyer is told.
       const reshot = sent.filter((line) => line.photoEdit !== undefined)
       if (reshot.length > 0) {
-        const supplierCode = reshot.some((line) => line.photoEdit!.photo)
-          ? (
-              await client.fetchQuery({
-                queryKey: procurementKeys.supplier(supplierId!),
-                queryFn: ({ signal }) => supplierDetail(supplierId!, signal),
-              })
-            ).supplier_code
-          : undefined
-        const done = new Map<string, DraftLine>()
-        for (const line of reshot) {
-          const edit = line.photoEdit!
-          try {
-            const item = await supplierItemDetail(line.supplierItemId)
-            let url: string | null = null
-            if (edit.photo !== null) {
-              if (supplierCode === undefined) {
-                throw new Error(
-                  "the supplier's code has not loaded, so there was nowhere to file it"
+        // One photograph per line, and the lines do not touch each other:
+        // read, upload and attach side by side, each keeping its own order.
+        const done = new Map<string, DraftLine>(
+          await Promise.all(
+            reshot.map(async (line) => {
+              const edit = line.photoEdit!
+              try {
+                const item = await supplierItemDetail(line.supplierItemId)
+                let url: string | null = null
+                if (edit.photo !== null) {
+                  if (supplierCode === undefined) {
+                    throw new Error(
+                      "the supplier's code has not loaded, so there was nowhere to file it"
+                    )
+                  }
+                  url = await uploadSupplierItemImage(
+                    supplierCode,
+                    item.supplier_item_code,
+                    edit.photo
+                  )
+                }
+                await updateSupplierItem(
+                  item.supplier_item_id,
+                  { image_url: url },
+                  item.version,
+                  crypto.randomUUID()
                 )
+                return [
+                  line.supplierItemId,
+                  {
+                    ...line,
+                    image: url,
+                    preview: undefined,
+                    photoEdit: undefined,
+                  },
+                ] as const
+              } catch {
+                photoTroubles.current.push(line.name)
+                return [
+                  line.supplierItemId,
+                  {
+                    ...line,
+                    image: edit.was,
+                    preview: undefined,
+                    photoEdit: undefined,
+                  },
+                ] as const
               }
-              url = await uploadSupplierItemImage(
-                supplierCode,
-                item.supplier_item_code,
-                edit.photo
-              )
-            }
-            await updateSupplierItem(
-              item.supplier_item_id,
-              { image_url: url },
-              item.version,
-              crypto.randomUUID()
-            )
-            done.set(line.supplierItemId, {
-              ...line,
-              image: url,
-              preview: undefined,
-              photoEdit: undefined,
             })
-          } catch {
-            photoTroubles.current.push(line.name)
-            done.set(line.supplierItemId, {
-              ...line,
-              image: edit.was,
-              preview: undefined,
-              photoEdit: undefined,
-            })
-          }
-        }
+          )
+        )
         sent = sent.map((line) => done.get(line.supplierItemId) ?? line)
         setLines(sent)
         void client.invalidateQueries({
@@ -1732,28 +1751,30 @@ export function OrderComposer({
           `${photoLost.join(", ")}: the photo could not be saved. Add it from the item.`
         )
       }
-      setRaised({
-        receipt,
-        photoLost,
-        verb: editing !== undefined ? "updated" : "created",
-        draft:
-          editing === undefined
-            ? {
-                lines,
-                arrival,
-                terms,
-                termsChosenFor,
-                method,
-                notes,
-                conditions,
-                discount,
-                discountPct,
-                discountBy,
-              }
-            : undefined,
+      const verb = editing !== undefined ? "updated" : "created"
+      const supplier = nameOfSupplier(
+        receipt.supplier_code,
+        editing?.supplier_name,
+        receipt.supplier_id
+      )
+      // The button says it, the sheet closes, the order's row takes it in
+      // (owner, 2026-10-10: pull in + toast).
+      void said.say(verb === "created" ? "Created" : "Updated").then(() => {
+        reset()
+        onRaised(receipt)
+        window.setTimeout(said.reset, 400)
+        void pullIn({
+          from: said.start(),
+          rowId: receipt.purchase_order_id,
+          pill: receipt.po_number,
+          title: `${receipt.po_number} ${verb}`,
+          description: `${supplier} · ${money(receipt.net_minor)}`,
+          action: {
+            label: "View",
+            onClick: () => orderSheet.open(receipt.purchase_order_id),
+          },
+        })
       })
-      reset()
-      onRaised(receipt)
     },
     // Reread the book on a refusal: whatever was refused, the list behind
     // this sheet may be what changed.
@@ -1808,6 +1829,18 @@ export function OrderComposer({
 
   /// The line open in the Add item sheet — the first still waiting.
   const adding = toAdd?.lines[0] ?? null
+  /// The catalogue item the open line is of, read whole. A line of an order
+  /// being edited knows only the colours and sizes it was split into; the
+  /// item may come in more, and editing the line may add them.
+  const addingItem = useQuery({
+    queryKey: procurementKeys.supplierItem(adding?.supplierItemId ?? ""),
+    queryFn: ({ signal }) => supplierItemDetail(adding!.supplierItemId, signal),
+    enabled:
+      adding !== null &&
+      adding.pending === undefined &&
+      !adding.supplierItemId.startsWith("draft:"),
+    staleTime: 5 * 60 * 1000,
+  })
   /// Past the one showing: add it, or leave it out, and go on to the next.
   const advance = () =>
     setToAdd((was) =>
@@ -1834,8 +1867,51 @@ export function OrderComposer({
       description: line.description,
       division: line.division,
       tags: line.tags,
-      colours: line.offered.colours.map((one) => one.code),
-      sizes: line.offered.sizes,
+      // A new item is split by whatever was picked on it. A catalogue item is
+      // split by the colours and sizes of its SKU rows so far, chosen from
+      // what it is offered in: with none chosen it is ordered as a whole.
+      colours:
+        line.pending !== undefined
+          ? line.offered.colours.map((one) => one.code)
+          : [
+              ...new Set(
+                line.variants.flatMap((one) =>
+                  one.colour === null ? [] : [one.colour]
+                )
+              ),
+            ],
+      sizes:
+        line.pending !== undefined
+          ? line.offered.sizes
+          : [
+              ...new Set(
+                line.variants.flatMap((one) =>
+                  one.size === null ? [] : [one.size]
+                )
+              ),
+            ],
+      offered:
+        line.pending !== undefined
+          ? undefined
+          : {
+              // What the line has, and everything else the item comes in.
+              colours: [
+                ...new Set([
+                  ...line.offered.colours.map((one) => one.code),
+                  ...(addingItem.data?.supplier_item_id === line.supplierItemId
+                    ? addingItem.data.colours.map((one) => one.colour_code)
+                    : []),
+                ]),
+              ],
+              sizes: [
+                ...new Set([
+                  ...line.offered.sizes,
+                  ...(addingItem.data?.supplier_item_id === line.supplierItemId
+                    ? addingItem.data.size_codes
+                    : []),
+                ]),
+              ],
+            },
       quantity: line.quantity,
       unit: line.unit,
       price: price > 0 ? String(price) : "",
@@ -1993,7 +2069,11 @@ export function OrderComposer({
               <Button
                 variant="primary"
                 pending={raise.isPending}
-                onClick={() => raise.mutate()}
+                said={said.said}
+                onClick={(event) => {
+                  said.mark(event.currentTarget)
+                  raise.mutate()
+                }}
               >
                 {raise.isPending ? "Submitting…" : "Submit"}
               </Button>
@@ -2243,14 +2323,17 @@ export function OrderComposer({
                           amount: lineAmount(line),
                           // A line that arrived unfinished says what it lacks,
                           // with the way to finish it.
+                          variants: variantRows(
+                            line.variants.map((one) => ({
+                              colour: one.colour,
+                              size: one.size,
+                              pieces: Number.parseInt(one.quantity, 10) || 0,
+                              photo: one.photos?.[0],
+                            }))
+                          ),
                           more:
-                            shown.skus > 0 || shown.missing.length > 0 ? (
+                            shown.missing.length > 0 ? (
                               <>
-                                {shown.skus > 0 && (
-                                  <span className="text-[0.875rem] text-body">
-                                    {`${shown.skus} SKUs`}
-                                  </span>
-                                )}
                                 {shown.missing.length > 0 && (
                                   <span
                                     data-problem
@@ -2473,55 +2556,6 @@ export function OrderComposer({
         onCreated={(supplier) => setSupplierId(supplier.supplier_id)}
         savedNote="Chosen as this order's supplier."
       />
-
-      {/* The save's receipt, over whatever the sheet handed over to — the
-          list for a raised order, the order itself for a saved edit. State
-          lives here, not in the screen, because this component outlives the
-          close its own `onRaised` performs. */}
-      <SavedDialog
-        open={raised !== null}
-        // A new order can be called back for a few seconds, like a ride: the
-        // number stays used, and the order stands in the book as cancelled.
-        undo={
-          SHOW_CANCEL_AFTER_CREATE &&
-          raised !== null &&
-          raised.verb === "created"
-            ? {
-                label: "Cancel PO",
-                onClick: async () => {
-                  await cancelPurchaseOrder(
-                    raised.receipt.purchase_order_id,
-                    "Cancelled right after it was created",
-                    crypto.randomUUID()
-                  )
-                  void client.invalidateQueries({
-                    queryKey: procurementKeys.orders(),
-                  })
-                  toast.success(`${raised.receipt.po_number} cancelled`)
-                  if (raised.draft !== undefined) restore(raised.draft)
-                },
-              }
-            : undefined
-        }
-        onOpenChange={(next) => {
-          if (!next) setRaised(null)
-        }}
-        title={
-          raised !== null && (
-            <>
-              {raised.receipt.po_number} {raised.verb}
-            </>
-          )
-        }
-      >
-        {raised === null
-          ? undefined
-          : raised.photoLost.length > 0
-            ? `${raised.photoLost.join(", ")}: the photo could not be saved. Add it from the item.`
-            : raised.verb === "created"
-              ? undefined
-              : money(raised.receipt.net_minor)}
-      </SavedDialog>
     </>
   )
 }

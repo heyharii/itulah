@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sales — one table</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+/* ──────────────────────────────────────────────────────────────────────────
+   Sales — v2 of sales-sku-store-prototype.html (kept untouched next to it).
+
+   What was confusing in v1: four tabs (Overview · Explorer · Store matrix · All
+   data) that are really ONE table asked four ways; a dock whose controls change
+   with the tab; a hidden "Sort & filter" panel whose sections change with the
+   tab; and ~20 columns on screen at once with no sign of what was being asked.
+
+   v2, one screen:
+     1  A sentence says what the table shows — "Show Net sales by Article in All
+        stores for This year" — and every underlined word is the control for it.
+     2  Questions, not tabs: Best sellers · Slow movers · Discount-driven · High
+        stock. One tap sets the metric and the order.
+     3  Four figures for what is filtered (numbers, no bars).
+     4  ONE table: name, the metric asked (bold), change, and four fixed
+        companions. The other columns are opt-in ("More columns").
+     5  The store question is a switch on that same table — List · By store · Heat
+        — not another tab. Heat is the same matrix, tinted.
+     6  A row opens the article: facts, the 13 stores ranked, its SKUs.
+   Same data, same tokens, same measures as v1 (rows 52, Inter 15/14, r10 cards).
+   ────────────────────────────────────────────────────────────────────────── */
+:root{
+  --ink:#20242c; --text:#394150; --body:#565f6d; --mute:#666f7d; --faint:#b9c0c9; --line-ico:#89919d;
+  --canvas:#fff; --soft:#f8f8f9; --soft-2:#f0f0f2; --soft-3:#f6f6f7;
+  --hairline:#e6e6e9; --hairline-2:#dadade; --hairline-strong:#c6c6cc;
+  --dark:#191b20; --accent:#2563eb; --accent-ink:#2c57bf; --accent-bg:#eff5ff; --bad:#d05151; --good:#1f8a5b;
+  --r-card:10px; --r-inner:8px; --row:52px;
+  --out:cubic-bezier(.23,1,.32,1); --drawer:cubic-bezier(.32,.72,0,1);
+  --sans:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+  --shadow-pop:0 4px 8px rgb(24 39 60/4%),0 12px 32px rgb(24 39 60/10%);
+  --shadow-float:0 2px 6px rgb(24 39 60/5%),0 24px 64px rgb(24 39 60/16%);
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--soft-3);color:var(--text);font:15px/1.4 var(--sans);-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer;border:0;background:none;padding:0;text-align:left;-webkit-tap-highlight-color:transparent}
+.mono{font-family:var(--mono);font-size:14px}
+
+.shell{display:grid;grid-template-columns:56px minmax(0,1fr);min-height:100vh}
+.rail{background:var(--dark);display:flex;flex-direction:column;align-items:center;padding:14px 0;gap:10px}
+.rail .mark{width:32px;height:32px;border-radius:9px;background:#000;color:#fff;display:grid;place-items:center;font-weight:600;position:relative;margin-bottom:8px}
+.rail .mark::after{content:"";position:absolute;width:5px;height:5px;border-radius:50%;background:var(--accent);right:5px;bottom:5px}
+.rail i{width:34px;height:34px;border-radius:9px;background:rgba(255,255,255,.06)}
+.rail i.on{background:rgba(255,255,255,.16)}
+main{min-width:0;display:flex;flex-direction:column;height:100vh}
+.head{display:flex;align-items:center;gap:16px;height:56px;padding:0 24px;background:var(--canvas);border-bottom:1px solid var(--hairline);flex-shrink:0}
+.head h1{margin:0;font-size:15px;font-weight:600;color:var(--ink)}
+.head .sp{flex:1}
+.search{width:min(360px,40vw);height:40px;display:flex;align-items:center;gap:8px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:var(--canvas);transition:box-shadow 150ms var(--out),border-color 150ms var(--out)}
+.search:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgb(37 99 235/.14)}
+.search input{flex:1;border:0;outline:0;background:transparent;height:38px;min-width:0}
+.page{flex:1;min-height:0;overflow:auto;padding:20px 24px 28px}
+
+/* the sentence */
+.sentence{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;font-size:18px;line-height:32px;color:var(--body);letter-spacing:-.01em}
+.w{display:inline-flex;align-items:center;gap:4px;height:36px;padding:0 10px;border-radius:var(--r-inner);color:var(--ink);font-weight:500;background:var(--canvas);box-shadow:inset 0 0 0 1px var(--hairline-2);transition:background 150ms var(--out),transform 160ms var(--out)}
+.w:active{transform:scale(.97)}
+@media (hover:hover){.w:hover{background:var(--soft)}}
+.w[aria-expanded="true"]{box-shadow:inset 0 0 0 1.5px var(--accent);background:var(--accent-bg);color:var(--accent-ink)}
+.w svg{width:14px;height:14px;color:var(--line-ico)}
+.sentence .w{height:34px;margin:0 -2px;font-weight:600}
+.sentence .grow{flex:1}
+.seg{display:inline-flex;height:40px;padding:3px;border-radius:var(--r-inner);background:var(--soft-2)}
+.seg button{padding:0 14px;border-radius:6px;color:var(--body);font-size:15px;font-weight:500;transition:background 150ms var(--out),color 150ms var(--out),transform 160ms var(--out);display:inline-flex;align-items:center}
+.seg button:active{transform:scale(.97)}
+.seg button.on{background:var(--canvas);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+
+.row2{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:16px 0 14px}
+.q{height:36px;padding:0 14px;border-radius:99px;color:var(--body);font-weight:500;box-shadow:inset 0 0 0 1px var(--hairline-2);background:var(--canvas);display:inline-flex;align-items:center;transition:background 150ms var(--out),color 150ms var(--out),transform 160ms var(--out)}
+.q:active{transform:scale(.97)}
+@media (hover:hover){.q:hover{background:var(--soft)}}
+.q.on{background:var(--ink);color:#fff;box-shadow:none}
+.chip{height:36px;padding:0 6px 0 12px;border-radius:99px;background:var(--accent-bg);color:var(--accent-ink);font-weight:500;display:inline-flex;align-items:center;gap:4px}
+.chip b{font-weight:500}
+.chip button{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;color:var(--accent-ink)}
+@media (hover:hover){.chip button:hover{background:rgba(37,99,235,.12)}}
+.link{height:36px;padding:0 10px;border-radius:var(--r-inner);color:var(--accent);font-weight:500;display:inline-flex;align-items:center}
+@media (hover:hover){.link:hover{background:var(--accent-bg)}}
+
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px}
+.kpi{background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);padding:14px 16px}
+.kpi .l{color:var(--mute);font-size:14px}
+.kpi .v{margin-top:4px;font-size:18px;line-height:24px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.kpi .d{margin-top:2px;font-size:14px;color:var(--mute);font-variant-numeric:tabular-nums}
+.up{color:var(--good)}.down{color:var(--bad)}
+
+.tbar{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.tbar .n{color:var(--mute)}
+.tbar .sp{flex:1}
+.card{background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden}
+.scroll{overflow:auto;max-height:calc(100vh - 430px);min-height:260px;overscroll-behavior:contain}
+table{border-collapse:separate;border-spacing:0;font-size:15px;font-variant-numeric:tabular-nums;width:100%}
+th,td{white-space:nowrap;height:var(--row);padding:0 14px;border-bottom:1px solid var(--hairline);text-align:right;background:var(--canvas)}
+thead th{position:sticky;top:0;z-index:3;height:44px;background:var(--soft);color:var(--body);font-weight:500;font-size:14px}
+th.l,td.l{text-align:left}
+th.sort{cursor:pointer;user-select:none}
+th.sort .ar{color:var(--faint);margin-left:4px}
+th.sort.on{color:var(--ink)}
+th.sort.on .ar{color:var(--accent)}
+.s1{position:sticky;left:0;z-index:2;min-width:240px}
+thead .s1{z-index:4}
+td.s1{box-shadow:1px 0 0 var(--hairline)}
+td.main{font-weight:600;color:var(--ink)}
+th.main{color:var(--ink)}
+.name{font-weight:500;color:var(--ink)}
+.code{font-family:var(--mono);font-size:14px;color:var(--mute)}
+tr.go{cursor:pointer}
+@media (hover:hover){tr.go:hover td{background:#fafbff}tr.go:hover .name{color:var(--accent)}}
+tfoot td{position:sticky;bottom:0;z-index:2;background:var(--soft);font-weight:600;color:var(--ink);border-top:1px solid var(--hairline-strong);border-bottom:0}
+tfoot td.s1{z-index:3}
+.zero{color:var(--faint)}
+.neg{color:var(--bad)}
+.swap{animation:swap 200ms var(--out)}
+@keyframes swap{from{opacity:.4;filter:blur(2px)}}
+.empty{padding:48px 16px;text-align:center;color:var(--mute)}
+
+/* popover */
+.pop{position:fixed;z-index:60;min-width:220px;max-height:min(420px,70vh);overflow:auto;background:var(--canvas);border:1px solid var(--hairline);border-radius:12px;box-shadow:var(--shadow-pop);padding:6px;opacity:0;transform:scale(.97) translateY(-4px);transform-origin:top left;pointer-events:none;transition:opacity 150ms var(--out),transform 150ms var(--out)}
+.pop.on{opacity:1;transform:none;pointer-events:auto}
+.pop h6{margin:8px 10px 4px;font-size:14px;font-weight:500;color:var(--mute)}
+.pop button{width:100%;height:40px;padding:0 10px;border-radius:7px;display:flex;align-items:center;justify-content:space-between;gap:12px;color:var(--text)}
+@media (hover:hover){.pop button:hover{background:var(--soft)}}
+.pop button.on{color:var(--accent);font-weight:500}
+.pop button .ck{width:16px;height:16px;color:var(--accent)}
+.pop button .box{width:18px;height:18px;border-radius:5px;box-shadow:inset 0 0 0 1.5px var(--hairline-strong);display:grid;place-items:center;color:#fff}
+.pop button .box.on{background:var(--accent);box-shadow:none}
+
+/* sheet */
+.scrim{position:fixed;inset:0;background:rgba(25,27,32,.18);opacity:0;pointer-events:none;transition:opacity 160ms var(--out);z-index:30}
+.scrim.on{opacity:1;pointer-events:auto;transition-duration:220ms}
+.sheet{position:fixed;top:0;right:0;bottom:0;width:min(560px,94vw);background:var(--canvas);border-left:1px solid var(--hairline);box-shadow:var(--shadow-float);transform:translateX(102%);transition:transform 200ms var(--drawer),visibility 0s linear 200ms;visibility:hidden;z-index:40;display:flex;flex-direction:column}
+.sheet.on{transform:none;visibility:visible;transition:transform 280ms var(--drawer)}
+.sh{display:flex;gap:12px;align-items:flex-start;padding:18px 12px 14px 24px;border-bottom:1px solid var(--hairline)}
+.sh .t{flex:1;min-width:0}
+.sh .id{display:block;color:var(--mute);margin-bottom:2px}
+.sh h3{margin:0;font-size:18px;font-weight:600;letter-spacing:-.015em;color:var(--ink)}
+.x{width:44px;height:44px;border-radius:var(--r-inner);display:grid;place-items:center;color:var(--mute);font-size:20px;margin-top:-4px}
+@media (hover:hover){.x:hover{background:var(--soft-2);color:var(--ink)}}
+.sb{flex:1;overflow:auto;padding:20px 24px 28px;display:flex;flex-direction:column;gap:22px}
+.facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin:0}
+.facts dt{color:var(--mute);font-size:14px;margin-bottom:2px}
+.facts dd{margin:0;color:var(--ink)}
+.sb h4{margin:0 0 8px;font-size:15px;font-weight:600;color:var(--ink)}
+.mini{border-radius:var(--r-card);box-shadow:0 0 0 1px var(--hairline);overflow:clip}
+.mini table th,.mini table td{height:44px}
+.mini table thead th{position:static;height:40px}
+.mini table tr:last-child td{border-bottom:0}
+.dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:7px;border:1px solid rgba(0,0,0,.12);vertical-align:-1px}
+
+.note{margin-top:14px;color:var(--mute);font-size:14px}
+.note a{color:var(--accent)}
+@media (prefers-reduced-motion:reduce){.pop,.sheet,.swap{transition:opacity 150ms linear;animation:none}.sheet{transform:none}}
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="rail"><div class="mark">C</div><i></i><i></i><i class="on"></i><i></i><i></i><i></i></aside>
+  <main>
+    <div class="head"><h1>Sales</h1><span class="sp"></span>
+      <label class="search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#89919d" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" placeholder="Search articles, SKUs, suppliers" aria-label="Search" /></label>
+    </div>
+    <div class="page" id="page"></div>
+  </main>
+</div>
+<div class="pop" id="pop" role="menu"></div>
+<div class="scrim" id="scrim"></div>
+<aside class="sheet" id="sheet" aria-hidden="true"></aside>
+
+<script>
+/* ── data: the same model as v1 ─────────────────────────────────────────── */
+const STORES=Array.from({length:13},(_,i)=>"S"+String(i+1).padStart(2,"0"));
+const DIVISIONS=["Women","Men","Kids","Accessories"];
+const TAGS=["Basic","Casual","Formal","New season","Sale"];
+const SUPPLIERS=["Supplier A","Garmen Nusantara","Indorama","Garmen AA","Sepatu Sejahtera"];
+const COLOURS=[["Navy","#1b2a4a"],["Black","#1a1a1a"],["White","#f4f4f2"],["Olive","#6b7039"],["Maroon","#6d1f2c"],["Beige","#d8c8a8"]];
+const SIZES=["S","M","L","XL"];
+const NAMES=["Kemeja Oxford","Kaos Basic","Celana Chino","Jaket Denim","Blus Linen","Rok Plisket","Polo Pique","Hoodie Fleece","Dress Midi","Celana Jogger","Kemeja Flanel","Cardigan Rajut"];
+let seed=7;const rnd=()=>(seed=(seed*16807)%2147483647)/2147483647;const pick=a=>a[Math.floor(rnd()*a.length)];
+const ARTICLES=NAMES.map((name,i)=>{
+  const code=String(12345678+i*13).padStart(8,"0");
+  const hpp=(45+Math.floor(rnd()*14)*5)*1000;
+  const price=Math.round((hpp*(1.9+rnd()*.6))/5000)*5000;
+  const colours=[pick(COLOURS),pick(COLOURS)].filter((c,j,a)=>a.findIndex(x=>x[0]===c[0])===j);
+  const sizes=SIZES.slice(0,2+Math.floor(rnd()*3));
+  const skus=[];
+  colours.forEach((c,ci)=>sizes.forEach((s,si)=>{
+    const hot=.35+rnd()*1.3;
+    const perStore=STORES.map((_,k)=>{
+      const lean=.5+((k*7+i*3)%13)/9;
+      const full=Math.floor(rnd()*8*hot*lean),disc=Math.floor(rnd()*6*lean),stock=Math.floor(rnd()*9*(2-hot)),drift=.7+rnd()*.6;
+      return{full,disc,stock,pf:Math.round(full*drift),pd:Math.round(disc*drift)};
+    });
+    skus.push({code:code+(ci+1)+String(si+3).padStart(2,"0"),colour:c,size:s,perStore,rate:.15+rnd()*.25});
+  }));
+  return{code,name,hpp,price,skus,division:DIVISIONS[i%4],tags:[TAGS[i%5],TAGS[(i+2)%5]],supplier:SUPPLIERS[i%5]};
+});
+const DAYS=281;
+const PERIODS=[["This year","1 Jan – 8 Oct 2026",1],["Last 90 days","10 Jul – 8 Oct 2026",.32],["Last 30 days","9 Sep – 8 Oct 2026",.107],["Last 7 days","2 – 8 Oct 2026",.025]];
+
+/* ── state ─────────────────────────────────────────────────────────────── */
+const S={metric:"sales",by:"article",store:-1,period:0,basis:"net",view:"list",quick:"all",sort:{key:"sales",dir:-1},q:"",div:"",tag:"",extra:new Set(),sheet:null};
+const QUICK=[["all","All",{metric:"sales",sort:["sales",-1]}],["best","Best sellers",{metric:"sales",sort:["sales",-1]}],["slow","Slow movers",{metric:"qty",sort:["qty",1]}],["disc","Discount-driven",{metric:"discPct",sort:["discPct",-1]}],["stock","High stock",{metric:"stockDays",sort:["stockDays",-1]}]];
+const BY=[["article","Article"],["sku","SKU"],["division","Division"],["supplier","Supplier"],["colour","Colour"],["size","Size"],["store","Store"]];
+const MET=()=>({sales:[S.basis==="net"?"Net sales":"Gross sales","rp"],qty:["Sold","n"],gp:["Gross profit","rp"],discPct:["Discounted","pct"],stockDays:["Days of stock","d"]});
+const CORE=["sales","qty","discPct","stockDays","gp"];
+const EXTRA=[["fullSales","Full price sales","rp"],["discSales","Discounted sales","rp"],["discount","Discount","rp"],["stockQty","Stock quantity","n"],["stockRp","Stock value","rp"]];
+
+/* ── figures ───────────────────────────────────────────────────────────── */
+const zero=()=>({full:0,disc:0,stock:0,fullSales:0,discGross:0,discount:0,hppSold:0,stockRp:0,prevSales:0});
+function rec(a,sku,storeIdx){
+  const sc=PERIODS[S.period][2],net=S.basis==="net",o=zero();
+  sku.perStore.forEach((p,i)=>{
+    if(storeIdx>=0&&i!==storeIdx)return;
+    const dg=p.disc*a.price*sc,ds=dg*sku.rate;
+    o.full+=p.full*sc;o.disc+=p.disc*sc;o.stock+=p.stock;
+    o.fullSales+=p.full*a.price*sc;o.discGross+=dg;o.discount+=ds;o.hppSold+=(p.full+p.disc)*a.hpp*sc;o.stockRp+=p.stock*a.hpp;
+    o.prevSales+=p.pf*a.price*sc+p.pd*a.price*sc*(net?1-sku.rate:1);
+  });
+  return o;
+}
+const addr=(t,o)=>{for(const k in o)t[k]+=o[k];return t};
+function fig(o){
+  const net=S.basis==="net",sc=PERIODS[S.period][2];
+  const qty=o.full+o.disc,discSales=net?o.discGross-o.discount:o.discGross,sales=o.fullSales+discSales;
+  const gp=(net?sales:sales-o.discount)-o.hppSold;
+  return{qty,sales,fullSales:o.fullSales,discSales,discount:o.discount,stockQty:o.stock,stockRp:o.stockRp,gp,
+    discPct:sales>0?discSales/sales:0,stockDays:qty>0?o.stock*DAYS*sc/qty:0,
+    change:o.prevSales>0?sales/o.prevSales-1:null,prev:o.prevSales};
+}
+
+/* ── formats ───────────────────────────────────────────────────────────── */
+const n0=new Intl.NumberFormat("id-ID");
+const fn=(v,k)=>{
+  if(k==="n")return v<.5?'<span class="zero">0</span>':n0.format(Math.round(v));
+  if(k==="rp"){if(Math.abs(v)<5e3)return'<span class="zero">0</span>';const s=(Math.abs(v)/1e6).toLocaleString("id-ID",{minimumFractionDigits:2,maximumFractionDigits:2})+" jt";return v<0?'<span class="neg">−'+s+"</span>":s}
+  if(k==="pct")return(v*100).toLocaleString("id-ID",{minimumFractionDigits:1,maximumFractionDigits:1})+"%";
+  if(k==="d")return v>0?n0.format(Math.round(v)):'<span class="zero">—</span>';
+  return v;
+};
+const chg=c=>c==null?'<span class="zero">—</span>':`<span class="${c<0?"down":"up"}">${c>0?"+":"−"}${(Math.abs(c)*100).toLocaleString("id-ID",{minimumFractionDigits:1,maximumFractionDigits:1})}%</span>`;
+const kind=k=>k in MET()?MET()[k][1]:(EXTRA.find(e=>e[0]===k)||[])[2];
+const label=k=>k in MET()?MET()[k][0]:(EXTRA.find(e=>e[0]===k)||[])[1];
+
+/* ── rows ──────────────────────────────────────────────────────────────── */
+function units(){
+  const q=S.q.toLowerCase(),out=[];
+  ARTICLES.forEach(a=>{
+    if(S.div&&a.division!==S.div)return;if(S.tag&&!a.tags.includes(S.tag))return;
+    if(q&&!(a.code.includes(q)||a.name.toLowerCase().includes(q)||a.supplier.toLowerCase().includes(q)||a.skus.some(s=>s.code.includes(q))))return;
+    a.skus.forEach(s=>out.push({a,s}));
+  });
+  return out;
+}
+function rows(){
+  const us=units(),map=new Map();
+  const keyOf={article:u=>[u.a.code,u.a.name,u.a.code],sku:u=>[u.s.code,u.a.name,u.s.code+" · "+u.s.colour[0]+" "+u.s.size],division:u=>[u.a.division,u.a.division,""],supplier:u=>[u.a.supplier,u.a.supplier,""],colour:u=>[u.s.colour[0],u.s.colour[0],""],size:u=>[u.s.size,"Size "+u.s.size,""]};
+  if(S.by==="store"){
+    return STORES.map((st,i)=>{const t=zero();us.forEach(u=>addr(t,rec(u.a,u.s,i)));const stores=null;return{key:st,name:st,sub:"",r:t,f:fig(t),stores}});
+  }
+  us.forEach(u=>{
+    const[k,name,sub]=keyOf[S.by](u);
+    let g=map.get(k);if(!g){g={key:k,name,sub,r:zero(),per:STORES.map(()=>zero()),colour:u.s.colour[1]};map.set(k,g)}
+    addr(g.r,rec(u.a,u.s,S.store));
+    u.s.perStore.forEach((_,i)=>addr(g.per[i],rec(u.a,u.s,i)));
+  });
+  return[...map.values()].map(g=>({...g,f:fig(g.r),stores:g.per.map(fig)}));
+}
+function sorted(list){
+  const k=S.sort.key,d=S.sort.dir;
+  return list.slice().sort((x,y)=>((x.f[k]??0)-(y.f[k]??0))*d);
+}
+
+/* ── render ────────────────────────────────────────────────────────────── */
+const ic={down:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',ck:'<svg class="ck" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',x:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>'};
+const word=(id,txt)=>`<button class="w" id="w-${id}" data-w="${id}" aria-haspopup="menu" aria-expanded="false">${txt}${ic.down}</button>`;
+function render(swap){
+  const list=sorted(rows()),M=MET();
+  const all=zero();rows().forEach(r=>addr(all,r.r));const T=fig(all);
+  const storeName=S.store<0?"All stores":STORES[S.store];
+  const sentence=`<div class="sentence">Show ${word("metric",M[S.metric][0])} by ${word("by",BY.find(b=>b[0]===S.by)[1])} in ${word("store",storeName)} for ${word("period",PERIODS[S.period][0])}
+    <span class="grow"></span><div class="seg" id="basis"><button data-basis="net" class="${S.basis==="net"?"on":""}">Net</button><button data-basis="gross" class="${S.basis==="gross"?"on":""}">Gross</button></div></div>`;
+  const chips=[S.div&&`<span class="chip"><b>${S.div}</b><button data-clear="div" aria-label="Clear division">${ic.x}</button></span>`,S.tag&&`<span class="chip"><b>${S.tag}</b><button data-clear="tag" aria-label="Clear tag">${ic.x}</button></span>`].filter(Boolean).join("");
+  const row2=`<div class="row2">${QUICK.map(([k,l])=>`<button class="q ${S.quick===k?"on":""}" data-quick="${k}">${l}</button>`).join("")}<span style="width:8px"></span>${word("filter","Filter")}${chips}</div>`;
+  const kpis=`<div class="kpis"><div class="kpi"><div class="l">${M.sales[0]}</div><div class="v">Rp ${(T.sales/1e6).toLocaleString("id-ID",{minimumFractionDigits:2,maximumFractionDigits:2})} jt</div><div class="d">${chg(T.change)} vs previous period</div></div>
+    <div class="kpi"><div class="l">Sold</div><div class="v">${n0.format(Math.round(T.qty))} pcs</div><div class="d">${list.length} ${S.by==="article"?"articles":S.by==="sku"?"SKUs":"rows"}</div></div>
+    <div class="kpi"><div class="l">Discounted</div><div class="v">${fn(T.discPct,"pct")}</div><div class="d">${fn(T.discSales,"rp")} of sales</div></div>
+    <div class="kpi"><div class="l">Gross profit</div><div class="v">${fn(T.gp,"rp")}</div><div class="d">${fn(T.stockDays,"d")} days of stock</div></div></div>`;
+  const canStore=S.by!=="store"&&S.store<0;
+  if(!canStore&&S.view!=="list")S.view="list";
+  const tbar=`<div class="tbar"><span class="n">${list.length} ${S.by==="article"?"articles":S.by==="sku"?"SKUs":"rows"}</span><span class="sp"></span>
+    ${S.view==="list"?word("cols","More columns"+(S.extra.size?" · "+S.extra.size:"")):""}
+    ${canStore?`<div class="seg" id="view"><button data-view="list" class="${S.view==="list"?"on":""}">List</button><button data-view="store" class="${S.view==="store"?"on":""}">By store</button><button data-view="heat" class="${S.view==="heat"?"on":""}">Heat</button></div>`:""}</div>`;
+  document.getElementById("page").innerHTML=sentence+row2+kpis+tbar+`<div class="card"><div class="scroll ${swap?"swap":""}">${table(list,T)}</div></div>
+    <div class="note">Rows open the article. Division, supplier, colour, size and store rows open the articles inside them. <a href="sales-sku-store-prototype.html">Compare with v1</a></div>`;
+}
+const arrow=k=>`<span class="ar">${S.sort.key===k?(S.sort.dir<0?"↓":"↑"):"↕"}</span>`;
+function table(list,T){
+  if(!list.length)return'<div class="empty">Nothing matches.</div>';
+  const M=MET(),nameHead={article:"Article",sku:"SKU",division:"Division",supplier:"Supplier",colour:"Colour",size:"Size",store:"Store"}[S.by];
+  const sub=r=>S.by==="colour"?`<span class="dot" style="background:${r.colour}"></span>`:"";
+  const first=r=>`<td class="l s1"><span>${sub(r)}<span class="name">${r.name}</span>${r.sub?`<br><span class="code">${r.sub}</span>`:""}</span></td>`;
+  const go=r=>`class="go" data-go="${r.key}"`;
+  if(S.view==="list"){
+    const cols=[S.metric,"change",...CORE.filter(k=>k!==S.metric),...[...S.extra]];
+    const head=`<thead><tr><th class="l s1">${nameHead}</th>${cols.map((k,i)=>k==="change"?'<th>Change</th>':`<th class="sort ${S.sort.key===k?"on":""} ${i===0?"main":""}" data-sort="${k}">${label(k)}${arrow(k)}</th>`).join("")}</tr></thead>`;
+    const body=list.map(r=>`<tr ${go(r)}>${first(r)}${cols.map((k,i)=>k==="change"?`<td>${chg(r.f.change)}</td>`:`<td class="${i===0?"main":""}">${fn(r.f[k],kind(k))}</td>`).join("")}</tr>`).join("");
+    const foot=`<tfoot><tr><td class="l s1">Total</td>${cols.map(k=>k==="change"?`<td>${chg(T.change)}</td>`:`<td>${fn(T[k],kind(k))}</td>`).join("")}</tr></tfoot>`;
+    return`<table>${head}${body ? "<tbody>"+body+"</tbody>" : ""}${foot}</table>`;
+  }
+  /* by store / heat: the same rows, the metric asked, 13 stores */
+  const k=S.metric,kd=kind(k);
+  let max=0;list.forEach(r=>r.stores.forEach(s=>{max=Math.max(max,Math.abs(s[k]))}));
+  const head=`<thead><tr><th class="l s1">${nameHead}</th><th class="main sort ${S.sort.key===k?"on":""}" data-sort="${k}">Total${arrow(k)}</th>${STORES.map(s=>`<th>${s}</th>`).join("")}</tr></thead>`;
+  const cell=v=>{
+    if(S.view==="heat"){const t=max>0?Math.min(1,Math.abs(v)/max):0;return`<td style="background:rgba(37,99,235,${(.04+t*.5).toFixed(3)})">${fn(v,kd)}</td>`}
+    return`<td>${fn(v,kd)}</td>`;
+  };
+  const body=list.map(r=>`<tr ${go(r)}>${first(r)}<td class="main">${fn(r.f[k],kd)}</td>${r.stores.map(s=>cell(s[k])).join("")}</tr>`).join("");
+  const totS=STORES.map((_,i)=>{const t=zero();list.forEach(r=>addr(t,r.per[i]));return fig(t)});
+  const foot=`<tfoot><tr><td class="l s1">Total</td><td>${fn(T[k],kd)}</td>${totS.map(s=>`<td>${fn(s[k],kd)}</td>`).join("")}</tr></tfoot>`;
+  return`<table>${head}<tbody>${body}</tbody>${foot}</table>`;
+}
+
+/* ── popovers ──────────────────────────────────────────────────────────── */
+const pop=document.getElementById("pop");let popFor=null;
+function openPop(id,anchor){
+  if(popFor===id){closePop();return}
+  const M=MET();let h="";
+  const item=(on,txt,act,box)=>`<button class="${on?"on":""}" data-pick="${act}">${txt}${box?`<span class="box ${on?"on":""}">${on?ic.ck.replace('class="ck"','style="width:12px;height:12px;color:#fff"'):""}</span>`:on?ic.ck:""}</button>`;
+  if(id==="metric")h=Object.keys(M).map(k=>item(S.metric===k,M[k][0],"metric:"+k)).join("");
+  if(id==="by")h=BY.map(([k,l])=>item(S.by===k,l,"by:"+k)).join("");
+  if(id==="store")h=item(S.store<0,"All stores","store:-1")+STORES.map((s,i)=>item(S.store===i,s,"store:"+i)).join("");
+  if(id==="period")h=PERIODS.map(([l,r],i)=>item(S.period===i,`<span>${l}<br><span style="color:var(--mute);font-size:14px">${r}</span></span>`,"period:"+i)).join("").replace(/height:40px/g,"");
+  if(id==="filter")h=`<h6>Division</h6>`+DIVISIONS.map(d=>item(S.div===d,d,"div:"+d)).join("")+`<h6>Tag</h6>`+TAGS.map(t=>item(S.tag===t,t,"tag:"+t)).join("");
+  if(id==="cols")h=EXTRA.map(([k,l])=>item(S.extra.has(k),l,"col:"+k,true)).join("");
+  pop.innerHTML=h;
+  if(id==="period")pop.querySelectorAll("button").forEach(b=>b.style.height="52px");
+  const r=anchor.getBoundingClientRect();
+  pop.style.left=Math.min(r.left,innerWidth-250)+"px";pop.style.top=(r.bottom+6)+"px";
+  popFor=id;
+  requestAnimationFrame(()=>{if(popFor===id)pop.classList.add("on")});
+  document.querySelectorAll("[data-w]").forEach(b=>b.setAttribute("aria-expanded",String(b.dataset.w===id)));
+}
+function closePop(){pop.classList.remove("on");popFor=null;document.querySelectorAll("[data-w]").forEach(b=>b.setAttribute("aria-expanded","false"))}
+
+/* ── sheet ─────────────────────────────────────────────────────────────── */
+const sheet=document.getElementById("sheet"),scrim=document.getElementById("scrim");
+function openSheet(key){
+  const a=ARTICLES.find(x=>x.code===key||x.skus.some(s=>s.code===key));if(!a)return;
+  const tot=zero(),per=STORES.map(()=>zero());
+  a.skus.forEach(s=>{addr(tot,rec(a,s,-1));s.perStore.forEach((_,i)=>addr(per[i],rec(a,s,i)))});
+  const T=fig(tot),k=S.metric,kd=kind(k);
+  const stores=per.map((r,i)=>({n:STORES[i],f:fig(r)})).sort((x,y)=>(y.f[k]-x.f[k]));
+  const skus=a.skus.map(s=>({s,f:fig(rec(a,s,-1))})).sort((x,y)=>y.f.sales-x.f.sales);
+  sheet.innerHTML=`<div class="sh"><div class="t"><span class="id mono">${a.code}</span><h3>${a.name}</h3></div><button class="x" data-close aria-label="Close">×</button></div>
+  <div class="sb"><dl class="facts"><div><dt>Division</dt><dd>${a.division}</dd></div><div><dt>Supplier</dt><dd>${a.supplier}</dd></div><div><dt>Tags</dt><dd>${a.tags.join(", ")}</dd></div>
+   <div><dt>Price</dt><dd>${n0.format(a.price)}</dd></div><div><dt>HPP</dt><dd>${n0.format(a.hpp)}</dd></div><div><dt>Stock</dt><dd>${n0.format(T.stockQty)} pcs</dd></div></dl>
+   <dl class="facts"><div><dt>${MET().sales[0]}</dt><dd>${fn(T.sales,"rp")}</dd></div><div><dt>Sold</dt><dd>${n0.format(Math.round(T.qty))} pcs</dd></div><div><dt>Discounted</dt><dd>${fn(T.discPct,"pct")}</dd></div>
+   <div><dt>Days of stock</dt><dd>${fn(T.stockDays,"d")}</dd></div><div><dt>Gross profit</dt><dd>${fn(T.gp,"rp")}</dd></div><div><dt>Change</dt><dd>${chg(T.change)}</dd></div></dl>
+   <div><h4>Stores · ${label(k)}</h4><div class="mini"><table><thead><tr><th class="l">Store</th><th>${label(k)}</th><th>Change</th></tr></thead><tbody>${stores.map(s=>`<tr><td class="l">${s.n}</td><td>${fn(s.f[k],kd)}</td><td>${chg(s.f.change)}</td></tr>`).join("")}</tbody></table></div></div>
+   <div><h4>SKUs</h4><div class="mini"><table><thead><tr><th class="l">Colour · size</th><th>Sold</th><th>${MET().sales[0]}</th><th>Stock</th></tr></thead><tbody>${skus.map(({s,f})=>`<tr><td class="l"><span class="dot" style="background:${s.colour[1]}"></span>${s.colour[0]} · ${s.size}</td><td>${fn(f.qty,"n")}</td><td>${fn(f.sales,"rp")}</td><td>${fn(f.stockQty,"n")}</td></tr>`).join("")}</tbody></table></div></div></div>`;
+  sheet.classList.add("on");scrim.classList.add("on");sheet.setAttribute("aria-hidden","false");S.sheet=key;
+}
+function closeSheet(){sheet.classList.remove("on");scrim.classList.remove("on");sheet.setAttribute("aria-hidden","true");S.sheet=null}
+
+/* ── events ────────────────────────────────────────────────────────────── */
+document.addEventListener("click",e=>{
+  const t=e.target;
+  const w=t.closest("[data-w]");if(w){e.stopPropagation();openPop(w.dataset.w,w);return}
+  const pk=t.closest("[data-pick]");
+  if(pk){
+    const[k,v]=pk.dataset.pick.split(":");
+    if(k==="metric"){S.metric=v;S.sort={key:v,dir:v==="qty"&&S.quick==="slow"?1:-1};S.quick="all";}
+    if(k==="by"){S.by=v;if(v==="store")S.view="list"}
+    if(k==="store"){S.store=+v;if(+v>=0)S.view="list"}
+    if(k==="period")S.period=+v;
+    if(k==="div")S.div=S.div===v?"":v;
+    if(k==="tag")S.tag=S.tag===v?"":v;
+    if(k==="col"){S.extra.has(v)?S.extra.delete(v):S.extra.add(v)}
+    const keep=(k==="div"||k==="tag"||k==="col");
+    const id=popFor;render(false);
+    if(keep){const a=document.getElementById("w-"+id);if(a){popFor=null;openPop(id,a)}}else closePop();
+    return;
+  }
+  if(!t.closest("#pop"))closePop();
+  const qk=t.closest("[data-quick]");
+  if(qk){const q=QUICK.find(x=>x[0]===qk.dataset.quick);S.quick=q[0];S.metric=q[2].metric;S.sort={key:q[2].sort[0],dir:q[2].sort[1]};render(true);return}
+  const ba=t.closest("[data-basis]");if(ba){S.basis=ba.dataset.basis;render(false);return}
+  const vw=t.closest("[data-view]");if(vw){S.view=vw.dataset.view;render(true);return}
+  const so=t.closest("[data-sort]");if(so){const k=so.dataset.sort;S.sort=S.sort.key===k?{key:k,dir:-S.sort.dir}:{key:k,dir:-1};render(false);return}
+  const cl=t.closest("[data-clear]");if(cl){S[cl.dataset.clear]="";render(false);return}
+  const g=t.closest("[data-go]");
+  if(g){
+    const key=g.dataset.go;
+    if(S.by==="article"||S.by==="sku"){openSheet(key);return}
+    if(S.by==="division"){S.div=key;S.by="article"}
+    else if(S.by==="supplier"){S.q=key;document.getElementById("q").value=key;S.by="article"}
+    else if(S.by==="colour"||S.by==="size"){S.by="article"}
+    else if(S.by==="store"){S.store=STORES.indexOf(key);S.by="article"}
+    S.view="list";render(true);return;
+  }
+  if(t.closest("[data-close]")||t===scrim)closeSheet();
+});
+document.getElementById("q").addEventListener("input",e=>{S.q=e.target.value;render(false)});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"){if(popFor)closePop();else if(S.sheet)closeSheet()}});
+render(false);
+</script>
+</body>
+</html>

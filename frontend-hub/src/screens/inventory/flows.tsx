@@ -3,15 +3,18 @@ import { ArrowDown, ArrowUp, GripVertical, Plus, Trash2 } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockChoice } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Checkbox, Field, Input, Select, Textarea } from "@/components/ui/field"
+import { Fab } from "@/components/ui/fab"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
+import { Pill, Status } from "@/components/ui/pill"
 import { Segmented } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { count, day } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { problemOf } from "@/lib/problem"
 import {
   createFlowTemplate,
@@ -39,11 +42,12 @@ import { queryState } from "@/lib/query-state"
 import { useIdentity } from "@/lib/session"
 import { useDebounced } from "@/lib/use-debounced"
 import { cn } from "@/lib/utils"
+import { CardFigure, CardName, PhoneCard } from "@/components/ui/phone-cards"
 
 /// Goods flows — the flow templates.
 ///
 /// What a stage MEANS is fixed on the server: pick takes goods off the racks,
-/// "Ship (surat jalan)" puts sealed koli into one SJ for one destination,
+/// "Ship (delivery note)" puts sealed koli into one SJ for one destination,
 /// "Load (dispatch)" puts them on a vehicle run, receive is one confirm with no
 /// refusal. What this screen edits is the order of those stages for a route,
 /// who raises the plan (the allotment, or the PO from a supplier), who does
@@ -55,8 +59,8 @@ import { cn } from "@/lib/utils"
 ///
 /// The invariants hold whatever is typed: a flow to our own site ends in
 /// Receive; to a supplier or customer in Handover with proof; goods
-/// between our sites travel under a surat jalan; suppliers only meet the
-/// Gudang. The server answers every problem with the row it belongs to, as
+/// between our sites travel under a delivery note; suppliers only meet the
+/// warehouse. The server answers every problem with the row it belongs to, as
 /// the author types, and this screen puts each sentence beside that row.
 
 /// Used before the catalogue has answered, and for codes it does not name.
@@ -64,8 +68,8 @@ const STAGE_LABEL: Record<StageKindCode, string> = {
   APPROVAL: "Approval",
   PICK: "Pick",
   PACK: "Pack",
-  CLOSE_KOLI: "Close koli",
-  SHIP: "Ship (surat jalan)",
+  CLOSE_KOLI: "Close carton",
+  SHIP: "Ship (delivery note)",
   LOAD: "Load (dispatch)",
   DEPART: "Depart",
   RECEIVE: "Receive",
@@ -80,7 +84,7 @@ const STAGE_LABEL: Record<StageKindCode, string> = {
 }
 
 const END_LABEL: Record<RouteEndCode, string> = {
-  HO: "Gudang (HO)",
+  HO: "Warehouse (HO)",
   STORE: "Store",
   SUPPLIER: "Supplier",
   CUSTOMER: "Customer",
@@ -136,6 +140,7 @@ function cleanDraft(draft: FlowTemplateDraft): FlowTemplateDraft {
 export function Flows() {
   const identity = useIdentity()
   const isAdmin = identity.data?.role === "ADMIN"
+  const phone = useLayout() === "phone"
   const vocabulary = useFlowVocabulary()
   const [showRetired, setShowRetired] = useState(false)
   const [editing, setEditing] = useState<
@@ -156,7 +161,7 @@ export function Flows() {
         title="Goods Flows"
         sub="The stages each route of goods runs: who raises its plan, who does each stage, the proof and the deadline. What a stage means is fixed in the system; the order is set here."
         actions={
-          isAdmin ? (
+          isAdmin && !phone ? (
             <Button
               variant="primary"
               onClick={() => setEditing({ mode: "new" })}
@@ -168,7 +173,25 @@ export function Flows() {
         }
       />
 
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+      {/* On a phone the one thing this makes and the choice of which flows
+          are listed are the dock's. */}
+      {isAdmin && (
+        <Fab label="New flow" onClick={() => setEditing({ mode: "new" })} />
+      )}
+      <DockChoice
+        value={showRetired ? "all" : "active"}
+        options={[
+          { value: "active", label: "Active", short: "Active" },
+          {
+            value: "all",
+            label: "Including retired",
+            short: "Including retired",
+          },
+        ]}
+        onChange={(next) => setShowRetired(next === "all")}
+      />
+
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3 max-md:hidden">
         <Segmented
           options={[
             { value: "active", label: "Active" },
@@ -184,12 +207,18 @@ export function Flows() {
         )}
       </div>
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(templates, {
           loading: "Reading the flows…",
           render: (rows) =>
             rows.length === 0 ? (
               <EmptyState>No flows yet.</EmptyState>
+            ) : phone ? (
+              <TemplateCards
+                rows={rows}
+                stageLabel={stageLabel}
+                onOpen={(id) => setEditing({ mode: "edit", id })}
+              />
             ) : (
               <TemplateTable
                 rows={rows}
@@ -199,6 +228,11 @@ export function Flows() {
             ),
         })}
       </Card>
+      {!isAdmin && identity.data !== undefined && (
+        <p className="mt-3 text-[0.875rem] text-mute md:hidden">
+          Only a head-office Admin can change a flow.
+        </p>
+      )}
 
       <TemplateEditor
         target={editing}
@@ -218,6 +252,82 @@ function useStageLabel(vocabulary: FlowVocabulary | undefined) {
     return (code: string) =>
       labels.get(code) ?? STAGE_LABEL[code as StageKindCode] ?? code
   }, [vocabulary])
+}
+
+/// The flows as a phone's cards: the name over its code, how many stages it
+/// runs, the route and version on the foot beside whether it is live, and the
+/// one button.
+function TemplateCards({
+  rows,
+  stageLabel,
+  onOpen,
+}: {
+  rows: readonly FlowTemplateSummary[]
+  stageLabel: (code: string) => string
+  onOpen: (id: string) => void
+}) {
+  return (
+    <ul className="flex flex-col gap-2.5">
+      {rows.map((row) => (
+        <PhoneCard
+          key={row.id}
+          onOpen={() => onOpen(row.id)}
+          head={
+            <CardName
+              name={row.name}
+              code={row.code}
+              muted={row.status === "RETIRED"}
+            />
+          }
+          lead={
+            <CardFigure
+              value={count(row.stages.length)}
+              caption={row.stages.length === 1 ? "stage" : "stages"}
+              tone={row.stages.length === 0 ? "quiet" : undefined}
+            />
+          }
+          body={
+            <div className="flex flex-col gap-1.5 text-[0.875rem]">
+              <span className="text-ink">
+                {END_LABEL[row.origin] ?? row.origin} →{" "}
+                {END_LABEL[row.destination] ?? row.destination}
+              </span>
+              {row.stages.length > 0 && (
+                <span className="text-body">
+                  {row.stages.map(stageLabel).join(" · ")}
+                </span>
+              )}
+            </div>
+          }
+          foot={
+            <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              {row.status === "RETIRED" ? (
+                <Status tone="neutral">Retired</Status>
+              ) : (
+                <Status tone="ok">Active</Status>
+              )}
+              {row.current_version !== null && (
+                <span className="tabular-nums">v{row.current_version}</span>
+              )}
+              {row.is_default && <span>Route default</span>}
+            </span>
+          }
+          action={
+            <Button
+              variant="tint"
+              size="card"
+              onClick={(event) => {
+                event.stopPropagation()
+                onOpen(row.id)
+              }}
+            >
+              Open
+            </Button>
+          }
+        />
+      ))}
+    </ul>
+  )
 }
 
 function TemplateTable({

@@ -23,13 +23,14 @@
 //! cost is one extra round trip inside a transaction that is already doing
 //! several, and it buys a rule that can be tested with no database at all.
 //!
-//! The one exception is [`record_told`], where the SQL *is* the rule because
+//! The one exception is [`record_told_batch`], where the SQL *is* the rule because
 //! the rule is "change nothing": `ON CONFLICT DO NOTHING` is exactly
 //! `settle_rollout(Some(anything), RolloutReport::Told)`, and a test says so.
 
 use crate::cloud::application::AppError;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
+use serde_json::json;
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
@@ -129,32 +130,38 @@ pub fn settle_rollout(current: Option<RolloutState>, report: RolloutReport) -> R
     }
 }
 
-/// Write down that this shop has been handed this book.
-///
-/// Called from the transaction that publishes it, so "which shops are
-/// outstanding" is a record with a time on it rather than a subtraction. The
-/// subtraction could count; it could never say WHEN a shop was told, and the
-/// gap between told and applied is the number worth watching.
-///
-/// `DO NOTHING` on conflict, which is [`settle_rollout`]'s `Told` arm written in SQL:
-/// nothing the centre does may overwrite what the shop itself has reported.
-pub(super) async fn record_told(
+/// Record the shops in one publication-dispatch chunk. Kept separate from
+/// command insertion so the command and rollout ledgers retain their own
+/// constraints. `DO NOTHING` is `settle_rollout(Some(anything), Told)`: nothing
+/// the centre does may overwrite what the shop itself has reported.
+pub(super) async fn record_told_batch(
     tx: &mut Transaction<'_, Postgres>,
     publication_id: Uuid,
     version: i64,
-    origin_id: &str,
-    site_id: &str,
+    shops: &[(String, String)],
     told_at: DateTime<Utc>,
 ) -> Result<(), AppError> {
+    if shops.is_empty() {
+        return Ok(());
+    }
+    if shops.len() > 8 {
+        return Err(AppError::Validation(
+            "publication rollout batch may contain at most eight shops".into(),
+        ));
+    }
+    let rows: Vec<_> = shops
+        .iter()
+        .map(|(origin_id, site_id)| json!({"origin_id": origin_id, "site_id": site_id}))
+        .collect();
     sqlx::query(
         "INSERT INTO commercial_publication_rollout
              (publication_id, origin_id, site_id, version, state, told_at, attempt_count)
-         VALUES ($1,$2,$3,$4,'PENDING',$5,0)
+         SELECT $1, row.origin_id, row.site_id, $3, 'PENDING', $4, 0
+           FROM jsonb_to_recordset($2::jsonb) AS row(origin_id text, site_id text)
          ON CONFLICT (publication_id, origin_id) DO NOTHING",
     )
     .bind(publication_id)
-    .bind(origin_id)
-    .bind(site_id)
+    .bind(json!(rows))
     .bind(version)
     .bind(told_at)
     .execute(&mut **tx)

@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
+import { Fab } from "@/components/ui/fab"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { Day } from "@/components/ui/day"
@@ -35,7 +37,7 @@ import type {
 /// The BPJS rates and wage caps move — the JP cap every March, JKK with the
 /// company's risk class — so head office states them from a date, forward
 /// only, and a month already paid keeps the rates it was paid at. The TER
-/// tables, Pasal 17 and PTKP are regulation: shown here so a payslip can be
+/// tables, Article 17 and PTKP are regulation: shown here so a payslip can be
 /// checked against them, and changed only by a release.
 
 type RateField = keyof BpjsRates
@@ -64,6 +66,7 @@ function shown(rates: BpjsRates, field: (typeof FIELDS)[number]): string {
 
 export function RateSettings() {
   const canWrite = useCanWrite()
+  const phone = useLayout() === "phone"
   const rates = useQuery({
     queryKey: payKeys.statutoryRates(),
     queryFn: ({ signal }) => statutoryRates(signal),
@@ -73,11 +76,15 @@ export function RateSettings() {
 
   return (
     <PageContent>
+      {canWrite && rates.isSuccess && (
+        <Fab label="New rates" onClick={() => create.show()} />
+      )}
       <PageHeader
         crumb="People"
         title="Tax & BPJS Rates"
         sub="The BPJS rates head office states from a date, and the tax tables of the law payslips are checked against."
         actions={
+          !phone &&
           canWrite && (
             <Button
               variant="primary"
@@ -341,8 +348,8 @@ function TaxTables() {
             <p className="px-4 pb-3.5 text-[0.875rem] text-body">
               Every month but the last: gross × the TER rate of the table the
               PTKP status selects (PP 58/2023). In December, or the month
-              employment ends: the year&rsquo;s Pasal 17 tax on its actual
-              income, less biaya jabatan ({percent(law.biaya_jabatan_bp)}, at
+              employment ends: the year&rsquo;s Article 17 tax on its actual
+              income, less position expense ({percent(law.biaya_jabatan_bp)}, at
               most {money(law.biaya_jabatan_month_cap_minor)} a month) and the
               employee&rsquo;s JHT and JP, less what the other months withheld
               (PMK 168/2023). Set by regulation and changed only by a release.
@@ -399,7 +406,7 @@ function TaxTables() {
             )}
           </ListCard>
 
-          <ListCard title="Pasal 17 · the year">
+          <ListCard title="Article 17 · the year">
             <MiniTable
               head={[
                 "Taxable Income a Year",

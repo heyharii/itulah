@@ -565,9 +565,7 @@ pub async fn run(
     let bind: SocketAddr = match (&data_dir, std::env::var("BIND_ADDR").ok()) {
         // An installed node serves the shop's tills over the LAN; the
         // firewall rule the installer writes keeps it off anything else.
-        (Some(_), None) if std::env::var("PORT").is_err() => {
-            format!("0.0.0.0:{port}").parse()?
-        }
+        (Some(_), None) if std::env::var("PORT").is_err() => format!("0.0.0.0:{port}").parse()?,
         _ => crate::bind_addr(port)?,
     };
 
@@ -656,12 +654,13 @@ pub async fn run(
         }
     }
 
-    let site_id = SiteId::new(
-        std::env::var("INVENTORY_SITE_ID").unwrap_or_else(|_| match default_role {
-            EdgeRole::Dc => "dc-01".into(),
-            EdgeRole::Store => "store-07".into(),
-        }),
-    )?;
+    let site_id =
+        SiteId::new(
+            std::env::var("INVENTORY_SITE_ID").unwrap_or_else(|_| match default_role {
+                EdgeRole::Dc => "dc-01".into(),
+                EdgeRole::Store => "store-07".into(),
+            }),
+        )?;
     let node_id = std::env::var("INVENTORY_NODE_ID").unwrap_or_else(|_| format!("{site_id}-edge"));
     // What head office enrolled this machine as: a shop's server or the
     // Gudang's. One program serves both; the routes follow the role. A

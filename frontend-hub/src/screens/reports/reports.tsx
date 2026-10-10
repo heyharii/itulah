@@ -1,20 +1,23 @@
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { ArrowLeft, Download, Share2, Sparkles } from "lucide-react"
+import { ArrowLeft, Download, ListFilter, Share2, Sparkles } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockPortal } from "@/components/shell/dock"
 import { useAssistant } from "@/components/assistant/state"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { BarSeries, ChartLegend } from "@/components/ui/chart"
+import { Fab } from "@/components/ui/fab"
+import { ListOptionsSheet } from "@/components/ui/list-chrome"
 import {
   chartSeries,
   measuresOf,
   plottedRows,
   plottedSeries,
 } from "@/lib/report-chart"
-import { DataTable } from "@/components/ui/data-table"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
@@ -27,6 +30,7 @@ import {
   type FilterModel,
 } from "@/lib/filters"
 import { count, day, money, moment } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { queryState } from "@/lib/query-state"
 import {
   toCsv,
@@ -70,6 +74,7 @@ export function Reports() {
 function SavedList({ onOpen }: { onOpen: (id: string) => void }) {
   const saved = useSavedReports()
   const assistant = useAssistant()
+  const phone = useLayout() === "phone"
 
   return (
     <PageContent>
@@ -77,16 +82,22 @@ function SavedList({ onOpen }: { onOpen: (id: string) => void }) {
         title="Reports"
         sub="Definitions somebody kept. Each one runs against today's data, not the day it was written."
         actions={
-          <Button
-            variant="primary"
-            onClick={() => assistant.setOpen(true)}
-            className="gap-1.5"
-          >
-            <Sparkles className="size-3.5" />
-            Compose one
-          </Button>
+          // On a phone the one thing this page makes is the round button over
+          // the bottom bar.
+          phone ? undefined : (
+            <Button
+              variant="primary"
+              onClick={() => assistant.setOpen(true)}
+              className="gap-1.5"
+            >
+              <Sparkles className="size-3.5" />
+              Compose one
+            </Button>
+          )
         }
       />
+
+      <Fab label="Compose one" onClick={() => assistant.setOpen(true)} />
 
       {queryState(saved, {
         loading: "Reading what has been kept…",
@@ -102,9 +113,9 @@ function SavedList({ onOpen }: { onOpen: (id: string) => void }) {
                 </Button>
               }
             >
-              Nothing kept yet. Describe the report you want — “penjualan per
-              warna bulan ini, per toko” — and save the answer. It becomes a
-              report anybody can open, and it never has to be asked for again.
+              Nothing kept yet. Describe the report you want — “sales by colour
+              this month, by store” — and save the answer. It becomes a report
+              anybody can open, and it never has to be asked for again.
             </EmptyState>
           ) : (
             <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-3">
@@ -206,6 +217,28 @@ function OneReport({ id, onBack }: { id: string; onBack: () => void }) {
     [state.filters]
   )
   const result = useReportRun(id, filters)
+  const phone = useLayout() === "phone"
+  const actions = (saved: SavedReport) => (
+    <>
+      {saved.editable && (
+        <Button
+          onClick={() => amend.mutate({ shared: !saved.shared })}
+          className="gap-1.5"
+        >
+          <Share2 className="size-3.5" />
+          {saved.shared ? "Shared" : "Share"}
+        </Button>
+      )}
+      <Button
+        onClick={() => result.data && download(saved, result.data)}
+        disabled={!result.data}
+        className="gap-1.5"
+      >
+        <Download className="size-3.5" />
+        CSV
+      </Button>
+    </>
+  )
 
   return (
     <PageContent>
@@ -230,27 +263,8 @@ function OneReport({ id, onBack }: { id: string; onBack: () => void }) {
                   ? `“${saved.prompt}” · v${saved.version}`
                   : `Version ${saved.version}, edited by hand`
               }
-              actions={
-                <>
-                  {saved.editable && (
-                    <Button
-                      onClick={() => amend.mutate({ shared: !saved.shared })}
-                      className="gap-1.5"
-                    >
-                      <Share2 className="size-3.5" />
-                      {saved.shared ? "Shared" : "Share"}
-                    </Button>
-                  )}
-                  <Button
-                    onClick={() => result.data && download(saved, result.data)}
-                    disabled={!result.data}
-                    className="gap-1.5"
-                  >
-                    <Download className="size-3.5" />
-                    CSV
-                  </Button>
-                </>
-              }
+              // On a phone Share and CSV close the page instead of opening it.
+              actions={phone ? undefined : actions(saved)}
             />
 
             {queryState(result, {
@@ -265,6 +279,12 @@ function OneReport({ id, onBack }: { id: string; onBack: () => void }) {
                 />
               ),
             })}
+
+            {phone && (
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                {actions(saved)}
+              </div>
+            )}
           </>
         ),
       })}
@@ -291,6 +311,7 @@ function Answer({
 }) {
   const [sorting, setSorting] = useState<SortingState>([])
   const revise = useReviseReport(saved.report_id)
+  const [showAt, setShowAt] = useState<"menu" | "filter" | "sort" | null>(null)
 
   const columns = useMemo(() => columnsOf(answer.columns), [answer.columns])
   const rows = useMemo(() => answer.rows as ResultRow[], [answer.rows])
@@ -331,8 +352,60 @@ function Answer({
   )
   const plotted = useMemo(() => plottedRows(answer, series), [answer, series])
 
+  // Narrowing is a reading position, not a change to the report — until
+  // somebody says otherwise. This is the one button that turns one into the
+  // other, and it writes a version rather than editing the one that is there.
+  const keep =
+    overlay.length > 0 && saved.editable ? (
+      <Button
+        variant="soft"
+        pending={revise.isPending}
+        onClick={() =>
+          revise.mutate(
+            {
+              spec: {
+                ...saved.spec,
+                filters: [...(saved.spec.filters ?? []), ...overlay],
+              },
+            },
+            { onSuccess: () => state.clear() }
+          )
+        }
+      >
+        {revise.isPending
+          ? "Keeping…"
+          : `Keep ${overlay.length === 1 ? "this filter" : "these filters"} in the report`}
+      </Button>
+    ) : null
+  const sortChoices = dockSortOf(table)?.choices
+
   return (
     <>
+      {/* On a phone the filter and the sort are one button in the dock. */}
+      <DockPortal slot="tabs">
+        <button
+          type="button"
+          onClick={() =>
+            setShowAt(sortChoices === undefined ? "filter" : "menu")
+          }
+          aria-haspopup="dialog"
+          className="inline-flex h-9 max-w-full items-center gap-1.5 rounded-full bg-soft-2 pr-3.5 pl-3 text-[0.875rem] font-medium text-ink transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.97]"
+        >
+          <ListFilter className="size-4 shrink-0 text-line-ico" />
+          {state.filters.length > 0
+            ? `Filter · ${state.filters.length}`
+            : "Filter"}
+        </button>
+      </DockPortal>
+      <ListOptionsSheet
+        hideTrigger
+        openAt={showAt}
+        onOpenAtChange={setShowAt}
+        model={model}
+        table={table}
+        sortChoices={sortChoices}
+      />
+
       {kpis.length > 0 && answer.totals && (
         <KpiStrip className="grid-cols-2 md:grid-cols-4 xl:grid-cols-4">
           {kpis.map((key) => (
@@ -363,15 +436,15 @@ function Answer({
         </Card>
       )}
 
-      <Card>
-        <CardHeader>
+      <Card className="max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+        <CardHeader className="max-md:px-1">
           <CardTitle>
             {count(answer.row_count)} row{answer.row_count === 1 ? "" : "s"}
           </CardTitle>
           <span className="text-[0.875rem] text-mute">
             {answer.period
               ? `${day(answer.period.from)} – ${day(answer.period.to)}`
-              : "Sepanjang catatan"}
+              : "All time"}
           </span>
         </CardHeader>
 
@@ -386,33 +459,9 @@ function Answer({
             gesture that reads a report standing next to the one that changes
             it. The clauses now open in the shell's right column and the row
             holds what is in force and the one act. */}
-        <div className="flex flex-wrap items-center gap-2 border-b border-hairline px-4 pb-3">
+        <div className="flex flex-wrap items-center gap-2 border-b border-hairline px-4 pb-3 max-md:hidden">
           <FilterPanel model={model} table={table} />
-          {/* Narrowing is a reading position, not a change to the report —
-              until somebody says otherwise. This is the one button that turns
-              one into the other, and it writes a version rather than editing
-              the one that is there. */}
-          {overlay.length > 0 && saved.editable && (
-            <Button
-              variant="soft"
-              pending={revise.isPending}
-              onClick={() =>
-                revise.mutate(
-                  {
-                    spec: {
-                      ...saved.spec,
-                      filters: [...(saved.spec.filters ?? []), ...overlay],
-                    },
-                  },
-                  { onSuccess: () => state.clear() }
-                )
-              }
-            >
-              {revise.isPending
-                ? "Keeping…"
-                : `Keep ${overlay.length === 1 ? "this filter" : "these filters"} in the report`}
-            </Button>
-          )}
+          {keep}
         </div>
 
         {untranslated.length > 0 && (
@@ -433,6 +482,8 @@ function Answer({
 
         <DataTable
           table={table}
+          cardSort={false}
+          cardsApart
           empty={
             <EmptyState>
               Nothing matched. The report ran; there is simply no trade in that
@@ -441,6 +492,8 @@ function Answer({
           }
         />
       </Card>
+
+      {keep !== null && <div className="mt-3 md:hidden">{keep}</div>}
     </>
   )
 }

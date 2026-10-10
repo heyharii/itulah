@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Supplier Card Options</title>
+<style>
+:root{
+  --ink:#20242c;--text:#394150;--body:#565f6d;--mute:#666f7d;--faint:#b9c0c9;--line-ico:#89919d;
+  --canvas:#fff;--soft:#f8f8f9;--soft-2:#f0f0f2;--page:#f6f6f7;--hairline:#e6e6e9;--hairline-2:#dadade;
+  --accent:#2563eb;--accent-bg:#eff5ff;--ok-fg:#137a37;--ok-line:#b9dcbf;
+  --shadow-soft:0 1px 2px rgb(24 39 60 / 6%),0 1px 1px rgb(24 39 60 / 4%);
+  --ease-out:cubic-bezier(.23,1,.32,1);--t-press:120ms;--w:414px;
+}
+*{box-sizing:border-box;margin:0}
+body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;background:#e4e4e8;color:var(--ink);-webkit-font-smoothing:antialiased;font-size:15px}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;text-align:inherit}
+svg{display:block;flex:none}
+.ico{width:1em;height:1em;stroke:currentColor;fill:none;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.9}
+.bar{position:sticky;top:0;z-index:20;display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center;padding:12px 20px;background:rgb(255 255 255 / .92);backdrop-filter:blur(10px);border-bottom:1px solid var(--hairline-2)}
+.bar h1{font-size:15px;font-weight:600;margin-right:6px}
+.seg{display:inline-flex;gap:2px;padding:2px;border-radius:9px;background:#d9d9de}
+.seg button{padding:5px 11px;border-radius:7px;font-size:14px;font-weight:500;color:#444}
+.seg button[aria-pressed=true]{background:#fff;color:#111;box-shadow:0 1px 2px rgb(0 0 0 / .15)}
+.lab{font-size:14px;color:#555;margin-right:8px}
+.stage{display:flex;gap:28px;padding:24px 20px 60px;overflow-x:auto;align-items:flex-start}
+.opt{flex:none}
+.opt h2{font-size:15px;font-weight:600;margin:0 4px 2px}
+.opt p{font-size:14px;color:#555;margin:0 4px 10px;max-width:var(--w);min-height:63px}
+.phone{width:var(--w);height:812px;background:var(--page);border-radius:30px;border:1px solid #cfcfd6;box-shadow:0 18px 40px rgb(0 0 0 / .14);overflow:hidden;display:flex;flex-direction:column}
+.top{height:51px;flex:none;background:#fff;border-bottom:1px solid var(--hairline);display:flex;align-items:center;gap:10px;padding:0 12px 0 16px}
+.top b{font-weight:600;font-size:17px;letter-spacing:-.01em}.top .sp{flex:1}
+.top .ib{width:36px;height:36px;display:grid;place-items:center;font-size:20px;color:var(--line-ico)}
+.top .ib.ac{color:var(--accent)}
+.av{width:32px;height:32px;border-radius:50%;background:var(--accent-bg);color:var(--accent);display:grid;place-items:center;font-weight:600;font-size:15px}
+.scroll{flex:1;overflow-y:auto;padding:16px 16px 24px}
+.kpis{display:flex;gap:10px;margin:0 -16px 14px;padding:0 16px;overflow:hidden}
+.kpi{flex:none;width:140px;padding:12px 14px;border:1px solid var(--hairline);border-radius:10px;background:#fff;box-shadow:var(--shadow-soft)}
+.kpi span{display:block;font-size:14px;color:var(--mute)}.kpi b{display:block;margin-top:2px;font-size:20px;font-weight:600}
+.tools{display:flex;align-items:center;gap:14px;margin-bottom:14px;font-size:14px;color:var(--body)}
+.tools .sw{display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:8px;background:#fff;box-shadow:var(--shadow-soft);color:var(--text)}
+.tools .sw i{width:30px;height:18px;border-radius:9px;background:#d4d6db;position:relative}
+.tools .sw i::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff}
+.tools .t{display:flex;align-items:center;gap:6px}
+.cards{display:flex;flex-direction:column;gap:10px}
+.card{position:relative;border:1px solid var(--hairline);border-radius:10px;background:var(--canvas);box-shadow:var(--shadow-soft);padding:16px;transition:scale var(--t-press) var(--ease-out);width:100%}
+.card:active{scale:.985}
+.nm{font-size:17px;font-weight:600;color:var(--ink);letter-spacing:-.01em;overflow-wrap:anywhere;line-height:1.25}
+.nm.c2{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.code{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace;font-size:14px;color:var(--mute)}
+.q{font-size:14px;color:var(--mute)}
+.q b{font-weight:500;color:var(--ink)}
+.q .z{color:var(--mute)}
+.pill{display:inline-flex;align-items:center;height:30px;padding:0 12px;border-radius:8px;border:1px solid var(--ok-line);color:var(--ok-fg);font-size:14px;font-weight:500;background:#fff;white-space:nowrap}
+.pill.n{border-color:var(--hairline-2);color:var(--body)}
+.row{display:flex;gap:12px}
+.grow{min-width:0;flex:1}
+.stack{display:flex;flex-direction:column;gap:6px}
+/* now */
+.now dl{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;margin-top:6px}
+.now dt{font-size:14px;color:var(--mute)}.now dd{margin-top:2px;font-size:15px;color:var(--ink)}
+/* strip */
+.strip{display:grid;grid-template-columns:repeat(3,1fr);margin:14px -16px -16px;border-top:1px solid var(--hairline)}
+.strip div{padding:10px 8px 12px;text-align:center}
+.strip div+div{border-left:1px solid var(--hairline)}
+.strip b{display:block;font-size:17px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.strip b.z{color:var(--mute);font-weight:500}
+.strip span{display:block;font-size:14px;color:var(--mute)}
+/* lead */
+.lead{min-width:56px;text-align:right}
+.lead b{display:block;font-size:24px;line-height:1;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.lead b.z{color:var(--mute)}
+.lead span{display:block;margin-top:3px;font-size:14px;color:var(--mute)}
+/* ledger */
+.led{text-align:right;font-size:14px;color:var(--mute);line-height:1.55;font-variant-numeric:tabular-nums;white-space:nowrap}
+.led b{font-weight:500;color:var(--ink)}.led .z{color:var(--mute)}
+.tabs{height:56px;flex:none;background:#fff;border-top:1px solid var(--hairline);display:grid;grid-template-columns:repeat(4,1fr)}
+.tabs button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:14px;font-weight:500;color:var(--mute);position:relative}
+.tabs button .ico{font-size:22px;color:var(--line-ico)}
+.tabs button.on{color:var(--accent);background:linear-gradient(180deg,rgb(37 99 235 / .08),transparent)}.tabs button.on .ico{color:var(--accent)}
+.tabs button.on::before{content:"";position:absolute;top:0;left:30%;right:30%;height:2px;background:var(--accent)}
+.dock{flex:none;display:flex;gap:8px;align-items:center;padding:8px 12px;background:rgb(255 255 255 / .96);border-top:1px solid var(--hairline)}
+.dock .st{display:inline-flex;align-items:center;gap:4px;height:36px;padding:0 10px 0 14px;border-radius:999px;background:var(--soft-2);font-size:14px;font-weight:500}
+.dock .fd{flex:1;display:flex;align-items:center;gap:8px;height:36px;border-radius:999px;background:var(--soft-2);padding:0 12px;color:var(--mute);font-size:14px}
+.dock .fab{width:36px;height:36px;border-radius:50%;background:var(--accent);color:#fff;display:grid;place-items:center;font-size:20px}
+.empty{padding:36px 16px;text-align:center;font-size:14px;color:var(--body)}
+</style>
+</head>
+<body>
+<div class="bar">
+  <h1>Suppliers · Phone Card Options</h1>
+  <span><span class="lab">Data</span><span class="seg" id="data"></span></span>
+  <span><span class="lab">Width</span><span class="seg" id="width"></span></span>
+</div>
+<div class="stage" id="stage"></div>
+<script>
+const ICON = {
+  clock:'<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+  sparkles:'<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/>',
+  chevron:'<path d="m6 9 6 6 6-6"/>', search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>', plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+  columns:'<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="M15 3v18"/>',
+  download:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
+  back:'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>', list:'<path d="M3 5h.01M3 12h.01M3 19h.01M8 5h13M8 12h13M8 19h13"/>',
+  building:'<path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4M10 10h4M10 14h4M10 18h4"/>',
+  cube:'<path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>',
+  undo:'<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/>',
+  clip:'<rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>'
+};
+const svg=(n)=>`<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">${ICON[n]}</svg>`;
+const fmt=(n)=>new Intl.NumberFormat("id-ID").format(n);
+
+const DATA={
+ "Demo":[
+  {name:"Garmen AA, UD",code:"0004",on:true,a:2,c:1,x:0,last:"05 Oct"},
+  {name:"Indorama, PT",code:"0001",on:true,a:6,c:8,x:1,last:"05 Oct"},
+  {name:"PT Sumber Sandang, PT",code:"0005",on:true,a:0,c:0,x:0,last:null},
+  {name:"Supplier Garms, PT",code:"0003",on:true,a:3,c:5,x:2,last:"28 Sep"},
+ ],
+ "Worst Case":[
+  {name:"Perusahaan Dagang Sinar Jaya Abadi Sentosa Makmur Sejahtera, PT",code:"0001284",on:true,a:1284,c:10432,x:97,last:"28 Dec"},
+  {name:"CV Maju",code:"0002",on:false,a:0,c:0,x:0,last:null},
+  {name:"Indorama, PT",code:"0001",on:true,a:1,c:1,x:1,last:"05 Oct"},
+  {name:"Toko Kain & Benang “Tiga Saudara”, UD",code:"0007",on:false,a:0,c:12,x:3,last:"14 Jun"},
+ ],
+ "One":[{name:"Indorama, PT",code:"0001",on:true,a:6,c:8,x:1,last:"05 Oct"}],
+ "None":[],
+};
+const WIDTHS=[320,360,375,414];
+const q=new URLSearchParams(location.search);
+let key=q.get("data")||"Demo"; if(!DATA[key]) key="Demo";
+let width=Number(q.get("w"))||414;
+
+const pill=s=>`<span class="pill ${s.on?"":"n"}">${s.on?"Active":"Non-active"}</span>`;
+const n=(v,w)=>`<span class="${v===0?"z":""}">${v===0?"":"<b>"}${fmt(v)}${v===0?"":"</b>"} ${w}</span>`;
+const counts=(s,sep=" · ")=>`${n(s.a,"active")}${sep}${n(s.c,"completed")}${sep}${n(s.x,"cancelled")}`;
+
+const CARDS={
+ now:s=>`<button class="card now"><div class="row"><div class="grow"><div class="nm c2">${s.name}</div><div class="code">${s.code}</div>
+   <dl><div><dt>Active Order</dt><dd>${fmt(s.a)}</dd></div><div><dt>Completed Order</dt><dd>${fmt(s.c)}</dd></div><div><dt>Cancelled Order</dt><dd>${fmt(s.x)}</dd></div>${s.last?`<div><dt>Last Purchased</dt><dd>${s.last}</dd></div>`:""}</dl></div>
+   <div style="align-self:center">${pill(s)}</div></div></button>`,
+ A:s=>`<button class="card"><div class="row"><div class="grow stack"><div><div class="nm c2">${s.name}</div><div class="code">${s.code}</div></div>
+   <div class="q">${counts(s)}</div>${s.last?`<div class="q">Last purchased ${s.last}</div>`:""}</div><div style="align-self:flex-start">${pill(s)}</div></div></button>`,
+ B:s=>`<button class="card"><div class="row"><div class="grow stack"><div><div class="nm c2">${s.name}</div><div class="code">${s.code}${s.last?` · ${s.last}`:""}</div></div>
+   <div class="q">${n(s.c,"completed")} · ${n(s.x,"cancelled")}</div>${s.on?"":`<div><span class="pill n">Non-active</span></div>`}</div>
+   <div class="lead"><b class="${s.a===0?"z":""}">${fmt(s.a)}</b><span>active</span></div></div></button>`,
+ C:s=>`<button class="card"><div class="row"><div class="grow"><div class="nm c2">${s.name}</div><div class="code">${s.code}${s.last?` · Last purchased ${s.last}`:""}</div></div><div style="align-self:flex-start">${pill(s)}</div></div>
+   <div class="strip"><div><b class="${s.a===0?"z":""}">${fmt(s.a)}</b><span>Active</span></div><div><b class="${s.c===0?"z":""}">${fmt(s.c)}</b><span>Completed</span></div><div><b class="${s.x===0?"z":""}">${fmt(s.x)}</b><span>Cancelled</span></div></div></button>`,
+ D:s=>`<button class="card"><div class="row"><div class="grow"><div class="nm c2">${s.name}</div></div><div style="align-self:flex-start">${pill(s)}</div></div>
+   <div class="row" style="margin-top:4px;justify-content:space-between;align-items:baseline"><span class="code">${s.code}</span><span class="q">${n(s.a,"active")}</span></div></button>`,
+ E:s=>`<button class="card"><div class="row"><div class="grow stack"><div><div class="nm c2">${s.name}</div><div class="code">${s.code}</div></div><div>${pill(s)}</div>${s.last?`<div class="q">Last purchased ${s.last}</div>`:""}</div>
+   <div class="led" style="align-self:flex-end"><div>${n(s.a,"active")}</div><div>${n(s.c,"completed")}</div><div>${n(s.x,"cancelled")}</div></div></div></button>`,
+};
+const OPTIONS=[
+ {k:"now",name:"Now",blurb:"What the app draws today: a two-by-two of labelled figures. Reads as a form, and is the tallest."},
+ {k:"A",name:"A · One Line",blurb:"The PO card's shape: name and code, one line of counts, the date. Every fact stays; nothing is labelled twice."},
+ {k:"B",name:"B · Open Orders Lead",blurb:"The one number a buyer scans for — open orders — large on the right. The rest is a quiet line; the pill appears only for Non-active."},
+ {k:"C",name:"C · Stat Strip",blurb:"Header, then a footer of three equal cells. Tidy and scannable; the most card-like, a little taller."},
+ {k:"D",name:"D · Minimal",blurb:"Name, code, status, open orders. Completed, cancelled and last purchased wait in the detail sheet (tap)."},
+ {k:"E",name:"E · Ledger",blurb:"Name and status on the left, the three counts right-aligned like a ledger. Compact, but two columns to read across."},
+];
+const topBar=`<div class="top"><b>Suppliers</b><span class="sp"></span><span class="ib">${svg("clock")}</span><span class="ib ac">${svg("sparkles")}</span><div class="av">R</div></div>`;
+const kpis=(rows)=>`<div class="kpis"><div class="kpi"><span>Active suppliers</span><b>${rows.filter(r=>r.on).length}</b></div><div class="kpi"><span>Non-active suppliers</span><b>${rows.filter(r=>!r.on).length}</b></div><div class="kpi"><span>Active PO</span><b>${rows.reduce((t,r)=>t+r.a,0)>99?"99+":rows.reduce((t,r)=>t+r.a,0)}</b></div></div>`;
+const tools=`<div class="tools"><span class="sw"><i></i>Active order</span><span class="t">${svg("columns")}Columns</span><span class="t">${svg("download")}Export CSV</span></div>`;
+const tabs=`<div class="tabs"><button>${svg("back")}Back</button><button>${svg("clip")}Orders</button><button class="on">${svg("building")}Suppliers</button><button>${svg("cube")}Sourcing</button></div>`;
+const dock=`<div class="dock"><span class="st">Active ${svg("chevron")}</span><span class="fd">${svg("search")}Search Suppliers</span><span class="fab">${svg("plus")}</span></div>`;
+
+function paint(){
+  document.documentElement.style.setProperty("--w",width+"px");
+  const rows=DATA[key];
+  document.getElementById("stage").innerHTML=OPTIONS.map(o=>`<section class="opt"><h2>${o.name}</h2><p>${o.blurb}</p>
+    <div class="phone">${topBar}<div class="scroll">${kpis(rows)}${tools}${rows.length?`<div class="cards">${rows.map(CARDS[o.k]).join("")}</div>`:`<p class="empty">Nobody has been set up as a supplier yet.</p>`}</div>${dock}${tabs}</div></section>`).join("");
+  seg("data",Object.keys(DATA),key,v=>{key=v;paint();sync()});
+  seg("width",WIDTHS.map(String),String(width),v=>{width=Number(v);paint();sync()});
+}
+function seg(id,values,cur,on){const el=document.getElementById(id);el.innerHTML=values.map(v=>`<button aria-pressed="${v===cur}">${v}</button>`).join("");[...el.children].forEach((b,i)=>b.onclick=()=>on(values[i]))}
+function sync(){history.replaceState(null,"","?"+new URLSearchParams({data:key,w:String(width)}))}
+paint();
+</script>
+</body>
+</html>

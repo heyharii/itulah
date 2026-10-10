@@ -28,7 +28,7 @@ counted_quantity: number,
  * refuses a count whose pieces disagree with `counted_quantity`, or that
  * is not a whole number of pieces. Absent means pieces.
  */
-counted_unit_code?: string | null, counted_unit_quantity?: string | null,
+counted_unit_code?: string | null, counted_unit_quantity?: string | null, 
 /**
  * Of the counted pieces, how many are NOT the article the line names —
  * the supplier's picker put another colour, model or article in the

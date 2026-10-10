@@ -17,7 +17,9 @@ pub struct SimClock {
 
 impl SimClock {
     pub fn start(local_start: DateTime<FixedOffset>) -> Self {
-        Self { now: local_start.with_timezone(&Utc) }
+        Self {
+            now: local_start.with_timezone(&Utc),
+        }
     }
 
     pub fn now(&self) -> DateTime<Utc> {

@@ -4,8 +4,10 @@ import { PageContent } from "@/components/shell/app-shell"
 import { Plus } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { Fab } from "@/components/ui/fab"
 import { PageHeader } from "@/components/ui/page-header"
 import { SubTabs } from "@/components/ui/sub-tabs"
+import { useLayout } from "@/lib/layout"
 import { InstallSheet } from "@/screens/system/enrolments"
 import { FleetHealth } from "@/screens/system/fleet-health"
 import { FleetIncidents } from "@/screens/system/fleet-incidents"
@@ -48,6 +50,7 @@ const TABS: readonly { value: Tab; label: string }[] = [
 export function StoreServers() {
   const [tab, setTab] = useState<Tab>("servers")
   const [installing, setInstalling] = useState(false)
+  const phone = useLayout() === "phone"
 
   return (
     <PageContent>
@@ -58,12 +61,17 @@ export function StoreServers() {
         actions={
           // On the page, not inside one tab: installing a server is the
           // thing somebody opens this page to do on a new store's first day.
-          <Button variant="primary" onClick={() => setInstalling(true)}>
-            <Plus className="size-4" />
-            Install server
-          </Button>
+          // On a phone it is the round button over the bottom bar.
+          phone ? undefined : (
+            <Button variant="primary" onClick={() => setInstalling(true)}>
+              <Plus className="size-4" />
+              Install server
+            </Button>
+          )
         }
       />
+
+      <Fab label="Install server" onClick={() => setInstalling(true)} />
 
       <SubTabs
         tabs={TABS}

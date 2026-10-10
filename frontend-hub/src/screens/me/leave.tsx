@@ -127,7 +127,7 @@ export function Leave() {
                             // decision, this one included. A phone is the wrong
                             // place to demand an essay, so the act is the
                             // reason and it is stated rather than left blank.
-                            reason: "ditarik oleh pemohon",
+                            reason: "withdrawn by the requester",
                           })
                         }
                       >

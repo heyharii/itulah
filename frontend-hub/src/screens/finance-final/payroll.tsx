@@ -21,7 +21,7 @@ import {
   LoadMore,
   LoadingState,
 } from "@/components/ui/states"
-import { day, money } from "@/lib/format"
+import { day, money, monthYear } from "@/lib/format"
 import {
   financeKeys,
   journalEntry,
@@ -58,10 +58,7 @@ type Slice = "all" | "RECEIVED" | "PAID"
 function monthName(period: string): string {
   const [year, month] = period.split("-").map(Number)
   if (!year || !month) return period
-  return new Date(year, month - 1, 1).toLocaleDateString("id-ID", {
-    month: "long",
-    year: "numeric",
-  })
+  return monthYear(new Date(year, month - 1, 1), true)
 }
 
 function stateOf(run: PayrollRunView): "RECEIVED" | "PAID" | "NONE" {

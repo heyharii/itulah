@@ -41,7 +41,13 @@ export function Section({
     <section
       className={cn(
         "flex flex-col gap-3",
-        flush ? "" : rule ? "border-t border-hairline pt-5" : quiet || tight ? "pt-0" : "pt-7"
+        flush
+          ? ""
+          : rule
+            ? "border-t border-hairline pt-5"
+            : quiet || tight
+              ? "pt-0"
+              : "pt-7"
       )}
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -141,11 +147,21 @@ export function TotalsLadder({
 /// The in-card item table. Its heading reads like every other table's —
 /// sentence case, 14px, quiet by colour (owner, 2 Oct 2026: no uppercase, no
 /// text under 14px, nothing cramped).
+///
+/// **On a phone it stacks, by default**: each row becomes a block — its first
+/// cell across the top, every other cell under the name of its column — and
+/// nothing scrolls sideways (`.mini-stack` in styles/index.css; the names are
+/// copied from the head by `useStackLabels`). A table drawn by hand with raw
+/// `<tr>`/`<td>` does not stack, which is how Finance's grids came to print
+/// one row over another on a phone: draw record tables with `MiniTable`,
+/// `MiniRow` and `MiniCell` only. `stack={false}` is for a two- or
+/// three-column table short enough to read as a table at 375px.
 export function MiniTable({
   head,
   children,
   className,
   style,
+  stack = true,
 }: {
   /// `align` defaults to right for everything but the first column, which is
   /// what every mini-table in the reference does.
@@ -156,6 +172,8 @@ export function MiniTable({
   /// lets an `overflow-x-auto` parent scroll. A class cannot carry a value the
   /// caller derives at render time.
   style?: React.CSSProperties
+  /// Stack into blocks under 48rem. On unless a short table says otherwise.
+  stack?: boolean
 }) {
   // On a phone this table stacks instead of scrolling sideways — see
   // `useStackLabels` and `.mini-stack` in styles/index.css.
@@ -163,8 +181,8 @@ export function MiniTable({
 
   return (
     <table
-      ref={table}
-      className={cn("mini-stack w-full border-collapse", className)}
+      ref={stack ? table : undefined}
+      className={cn(stack && "mini-stack", "w-full border-collapse", className)}
       style={style}
     >
       <thead>
@@ -179,7 +197,9 @@ export function MiniTable({
                 : (column.align ?? (index === 0 ? "left" : "right"))
             return (
               <th
-                key={label}
+                // By position: a head with two blank labels (a select column
+                // and an actions column) is two headers, not one key twice.
+                key={index}
                 className={cn(
                   "pb-2.5 text-[0.875rem] font-medium text-body",
                   align === "right"
@@ -244,19 +264,62 @@ export function MiniCell({
   )
 }
 
-/// A heading inside a card or a sheet, one step below `<CardTitle>`, with an
-/// optional muted note on the right.
+/// A heading inside a card or a sheet — the ONE section heading: 15px, weight
+/// 500, ink, with an optional muted note on the right (a count, a hint, "of Rp
+/// 8.400.000"). Not 16/600 like the sheet's own title: the head is the only
+/// bold line in a sheet, and a section reads as one by being a heading, not by
+/// shouting (the 6 Oct 2026 audit found seven heading styles in sheets).
+///
+/// Counts go in `aside` ("Items" + `12`), never in the heading's own words.
 export function SubHead({
   children,
   aside,
+  className,
 }: {
   children: React.ReactNode
   aside?: React.ReactNode
+  className?: string
 }) {
   return (
-    <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
-      <h4 className="text-card-title font-semibold text-ink">{children}</h4>
-      {aside && <span className="text-[0.875rem] text-mute">{aside}</span>}
+    <div
+      className={cn(
+        "mb-2 flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1",
+        className
+      )}
+    >
+      <h4 className="text-[0.9375rem] font-medium text-ink">{children}</h4>
+      {aside && (
+        <span className="text-[0.875rem] text-mute tabular-nums">{aside}</span>
+      )}
     </div>
+  )
+}
+
+/// A section of a record sheet: `SubHead` over its content, 12px apart, and
+/// nothing else — no rule, no card, no margin of its own. The sheet's body
+/// (`<Sheet stack>`) puts 24px between sections, so a section never sets its
+/// own air; that is what keeps two sheets from reading as two systems.
+///
+/// Fixed order inside a record: Items, Totals, Timeline, Notes. Items are a
+/// `MiniTable` (it stacks on a phone); there is never a `Card` inside a sheet —
+/// the sheet is the card.
+export function SheetSection({
+  title,
+  aside,
+  children,
+  className,
+}: {
+  title: React.ReactNode
+  aside?: React.ReactNode
+  children: React.ReactNode
+  className?: string
+}) {
+  return (
+    <section className={cn("flex flex-col gap-3", className)}>
+      <SubHead aside={aside} className="mb-0">
+        {title}
+      </SubHead>
+      {children}
+    </section>
   )
 }

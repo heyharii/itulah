@@ -9,7 +9,9 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { EmptyState, Problem } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
-import { label } from "@/lib/format"
+import { Fab } from "@/components/ui/fab"
+import { label, percentBps } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   financeKeys,
   listTaxTypeSettings,
@@ -20,6 +22,7 @@ import { queryState } from "@/lib/query-state"
 import { Grid, Td, Th } from "@/screens/finance-final/parts"
 import { useLocations } from "@/screens/finance/hooks"
 import { useTaxTemplates } from "@/screens/finance/master-data"
+import { PhoneCard, PhoneList } from "@/components/ui/phone-cards"
 import {
   EditorCard,
   LinkAccountsButton,
@@ -28,9 +31,9 @@ import {
 } from "@/screens/finance/master-parts"
 import type { TaxTemplate, TaxType } from "@itulah/contract"
 
-/// Basis points as a rate: 200 → "2.00%".
+/// Basis points as a rate: 200 → "2%", 250 → "2,5%".
 function rateOf(bps: number): string {
-  return `${(bps / 100).toFixed(2)}%`
+  return percentBps(bps)
 }
 
 /// A percentage typed by a person, to basis points: "2", "2.5", "2,5".
@@ -50,6 +53,7 @@ function bpsOf(text: string): number | null {
 /// Withholding Category). The amount kept back is owed to the tax office on
 /// an account link — role `withholding_payable`, source the template.
 export function TaxWithholding() {
+  const phone = useLayout() === "phone"
   const list = useTaxTemplates()
   const [editing, setEditing] = useState<TaxTemplate | "new" | null>(null)
 
@@ -58,15 +62,19 @@ export function TaxWithholding() {
       <PageHeader
         crumb="Finance · Tax Masters"
         title="Tax Withholding Category"
+        // The new category is the dock's + on a phone.
         actions={
-          <Button variant="primary" onClick={() => setEditing("new")}>
-            New category
-          </Button>
+          phone ? undefined : (
+            <Button variant="primary" onClick={() => setEditing("new")}>
+              New category
+            </Button>
+          )
         }
       />
+      {phone && <Fab label="New category" onClick={() => setEditing("new")} />}
       <MasterLayout
         list={
-          <Card className="overflow-hidden">
+          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
             {queryState(list, {
               loading: "Reading the withholding categories…",
               render: (rows) =>
@@ -75,6 +83,37 @@ export function TaxWithholding() {
                     No withholding category yet. A payment that should keep tax
                     back has nothing to keep it under.
                   </EmptyState>
+                ) : phone ? (
+                  <PhoneList>
+                    {rows.map((row) => (
+                      <PhoneCard
+                        key={row.code}
+                        title={row.name}
+                        muted={!row.is_active}
+                        line={
+                          <>
+                            <div>
+                              {row.code}
+                              {row.is_final ? " · Final" : ""}
+                              {row.is_active ? "" : " · inactive"}
+                            </div>
+                            {row.note && <div>{row.note}</div>}
+                          </>
+                        }
+                        lead={rateOf(row.rate_bps)}
+                        caption="rate"
+                        action={
+                          <LinkAccountsButton
+                            role="withholding_payable"
+                            sourceType="TAX_TEMPLATE"
+                            sourceId={row.code}
+                          />
+                        }
+                        foot={row.is_final ? "Final tax" : "Creditable"}
+                        onOpen={() => setEditing(row)}
+                      />
+                    ))}
+                  </PhoneList>
                 ) : (
                   <Grid>
                     <thead>
@@ -257,26 +296,51 @@ export function TaxTypes() {
     queryFn: ({ signal }) => listTaxTypeSettings(signal),
   })
   const [editing, setEditing] = useState<TaxType | "new" | null>(null)
+  const phone = useLayout() === "phone"
 
   return (
     <PageContent>
       <PageHeader
         crumb="Finance · Tax Masters"
         title="Tax Types"
+        // The new tax type is the dock's + on a phone.
         actions={
-          <Button variant="primary" onClick={() => setEditing("new")}>
-            New tax type
-          </Button>
+          phone ? undefined : (
+            <Button variant="primary" onClick={() => setEditing("new")}>
+              New tax type
+            </Button>
+          )
         }
       />
+      {phone && <Fab label="New tax type" onClick={() => setEditing("new")} />}
       <MasterLayout
         list={
-          <Card className="overflow-hidden">
+          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
             {queryState(list, {
               loading: "Reading the tax types…",
               render: (rows) =>
                 rows.length === 0 ? (
                   <EmptyState>No tax type yet.</EmptyState>
+                ) : phone ? (
+                  <PhoneList>
+                    {rows.map((row) => (
+                      <PhoneCard
+                        key={row.code}
+                        title={row.name}
+                        muted={!row.active}
+                        line={`${row.code}${row.active ? "" : " · inactive"}`}
+                        foot={`${label(row.nature)} · ${row.semantic_key}${row.authority === "" ? "" : ` · ${row.authority}`}`}
+                        action={
+                          <LinkAccountsButton
+                            role={row.semantic_key}
+                            sourceType="COMPANY"
+                            sourceId=""
+                          />
+                        }
+                        onOpen={() => setEditing(row)}
+                      />
+                    ))}
+                  </PhoneList>
                 ) : (
                   <Grid>
                     <thead>

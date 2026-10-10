@@ -1,14 +1,20 @@
 import { Checkbox as BaseCheckbox } from "@base-ui/react/checkbox"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
 import { Check } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
+import { Fab } from "@/components/ui/fab"
 import { Field, Input, Select, Textarea } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
+import { Pill } from "@/components/ui/pill"
 import { Sheet } from "@/components/ui/sheet"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import {
   createUnit,
   createUnitConversion,
@@ -19,7 +25,9 @@ import {
   type UnitConversion,
   type UnitOfMeasure,
 } from "@/lib/queries/units"
+import { useLayout } from "@/lib/layout"
 import { useIdentity } from "@/lib/session"
+import { tableSetup, type TableSetup } from "@/lib/table"
 import { cn } from "@/lib/utils"
 
 /// Units of measure and how many of one another is worth.
@@ -46,13 +54,16 @@ export function Units() {
   const isAdmin = identity.data?.role === "ADMIN"
   const [editing, setEditing] = useState<Editing | null>(null)
   const close = useCallback(() => setEditing(null), [])
+  const phone = useLayout() === "phone"
+  /// A phone shows one of the two lists at a time, as the dock's one button.
+  const [view, setView] = useState<"units" | "conversions">("units")
 
   const retiredUnits = book.units.filter((unit) => !unit.active).length
 
   return (
     <PageContent>
-      <PageHeader title="Satuan & Conversions" />
-      <p className="-mt-3 mb-5 max-w-[46rem] text-[0.875rem] leading-[1.375rem] text-body">
+      <PageHeader title="Units & Conversions" />
+      <p className="-mt-3 mb-5 max-w-[46rem] text-[0.875rem] leading-[1.375rem] text-body max-md:hidden">
         Stock is kept in the main unit. A conversion says how many of the main
         unit one other unit is worth — one LUSIN is 12 PCS — so an order typed
         in lusin or kodi is sent in pieces.
@@ -66,12 +77,72 @@ export function Units() {
         <Card className="px-4 py-10 text-center text-[0.875rem] text-bad">
           {said(book.error)}
         </Card>
+      ) : phone ? (
+        <>
+          <SubTabs
+            tabs={[
+              { value: "units", label: "Units" },
+              { value: "conversions", label: "Conversions" },
+            ]}
+            value={view}
+            onChange={(next) => setView(next as "units" | "conversions")}
+          />
+          {view === "units" ? (
+            <>
+              <p className="mb-3 text-[0.875rem] text-mute tabular-nums">
+                <b className="font-medium text-ink">{book.units.length}</b>{" "}
+                {book.units.length === 1 ? "unit" : "units"}
+                {retiredUnits > 0 && ` · ${retiredUnits} cancelled`}
+              </p>
+              <PhoneUnits
+                units={book.units}
+                selected={
+                  editing?.kind === "unit" ? (editing.unit?.code ?? null) : null
+                }
+                onPick={(unit) => setEditing({ kind: "unit", unit })}
+              />
+              <Fab
+                label="New Unit"
+                onClick={() => setEditing({ kind: "unit", unit: null })}
+              />
+            </>
+          ) : (
+            <>
+              <p className="mb-3 text-[0.875rem] text-mute tabular-nums">
+                <b className="font-medium text-ink">
+                  {book.conversions.length}
+                </b>{" "}
+                {book.conversions.length === 1 ? "conversion" : "conversions"}
+              </p>
+              <PhoneConversions
+                conversions={book.conversions}
+                units={book.units}
+                selected={
+                  editing?.kind === "conversion"
+                    ? (editing.conversion?.conversion_id ?? null)
+                    : null
+                }
+                onPick={(conversion) =>
+                  setEditing({ kind: "conversion", conversion })
+                }
+              />
+              {book.units.length >= 2 && (
+                <Fab
+                  label="New Conversion"
+                  onClick={() =>
+                    setEditing({ kind: "conversion", conversion: null })
+                  }
+                />
+              )}
+            </>
+          )}
+        </>
       ) : (
         <div className="flex min-w-0 flex-col gap-5">
           <Card className="overflow-hidden">
             <CardHeader>
               <CardTitle>
-                Satuan
+                Units
                 <span className="ml-2 text-[0.875rem] font-normal text-body">
                   {book.units.length}
                   {retiredUnits > 0 && ` · ${retiredUnits} cancelled`}
@@ -363,6 +434,235 @@ function ConversionsTable({
         </tbody>
       </table>
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// The phone's cards
+
+/// What a unit is worth, as the card's figure: "12 pcs".
+function worthOf(unit: UnitOfMeasure): string {
+  return unit.is_base
+    ? "1 pcs"
+    : unit.pieces === null
+      ? "—"
+      : `${unit.pieces} pcs`
+}
+
+const UNIT_CARDS: ColumnDef<TableSetup, UnitOfMeasure>[] = [
+  {
+    id: "head",
+    accessorFn: (unit) => unit.label,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <span className="flex min-w-0 flex-col gap-1">
+        <span className="min-w-0 text-[1rem] font-semibold break-words text-ink">
+          {row.original.label}
+        </span>
+        {/* The code only where it says more than the label does. */}
+        {row.original.label.toUpperCase() !== row.original.code && (
+          <span className="font-mono text-[0.875rem] font-normal text-mute">
+            {row.original.code}
+          </span>
+        )}
+      </span>
+    ),
+  },
+  {
+    id: "lead",
+    accessorFn: (unit) => unit.pieces,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "lead" },
+    // Most units are worth nothing in pieces: a figure of "—" would only shout
+    // it, so the card leaves the figure out.
+    cell: ({ row }) =>
+      worthOf(row.original) === "—" ? null : (
+        <span className="flex flex-col items-end tabular-nums">
+          <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
+            {worthOf(row.original)}
+          </span>
+          <span className="text-[0.875rem] text-mute">worth</span>
+        </span>
+      ),
+  },
+  {
+    id: "foot",
+    accessorFn: (unit) => unit.category,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => (
+      <span className="flex flex-col">
+        <span>
+          {categoryLabel(row.original.category)}
+          {row.original.whole_number ? " · whole numbers" : ""}
+          {row.original.is_base ? " · " : ""}
+          {row.original.is_base && (
+            <span className="font-medium text-accent">Main unit</span>
+          )}
+        </span>
+        {row.original.aliases.length > 0 && (
+          <span className="truncate">{row.original.aliases.join(", ")}</span>
+        )}
+      </span>
+    ),
+  },
+  {
+    id: "state",
+    accessorFn: (unit) => unit.active,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { align: "right", card: "status" },
+    cell: ({ row }) => (
+      <Pill tone={row.original.active ? "ok" : "neutral"}>
+        {row.original.active ? "Active" : "Cancelled"}
+      </Pill>
+    ),
+  },
+]
+
+function PhoneUnits({
+  units,
+  selected,
+  onPick,
+}: {
+  units: readonly UnitOfMeasure[]
+  selected: string | null
+  onPick: (unit: UnitOfMeasure) => void
+}) {
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: units as UnitOfMeasure[],
+        columns: UNIT_CARDS,
+        getRowId: (unit: UnitOfMeasure) => unit.code,
+      }),
+      [units]
+    )
+  )
+  return (
+    <DataTable<UnitOfMeasure>
+      table={table}
+      onRowClick={onPick}
+      isSelected={(unit) => unit.code === selected}
+      empty="No unit has been declared yet."
+      cardSort={false}
+      cardsApart
+      cardLead
+    />
+  )
+}
+
+function PhoneConversions({
+  conversions,
+  units,
+  selected,
+  onPick,
+}: {
+  conversions: readonly UnitConversion[]
+  units: readonly UnitOfMeasure[]
+  selected: string | null
+  onPick: (conversion: UnitConversion) => void
+}) {
+  const columns = useMemo<ColumnDef<TableSetup, UnitConversion>[]>(() => {
+    const labels = new Map(units.map((unit) => [unit.code, unit.label]))
+    return [
+      {
+        id: "head",
+        accessorFn: (one) => one.from_unit,
+        header: "",
+        enableHiding: false,
+        enableSorting: false,
+        meta: { card: "title" },
+        cell: ({ row }) => {
+          const label = labels.get(row.original.from_unit)
+          return (
+            <span className="flex min-w-0 flex-col gap-1">
+              <span className="min-w-0 text-[1rem] font-semibold break-words text-ink">
+                1 {row.original.from_unit}
+              </span>
+              {label !== undefined && label !== row.original.from_unit && (
+                <span className="text-[0.875rem] font-normal text-mute">
+                  {label}
+                </span>
+              )}
+            </span>
+          )
+        },
+      },
+      {
+        id: "lead",
+        accessorFn: (one) => one.factor,
+        header: "",
+        enableHiding: false,
+        enableSorting: false,
+        meta: { card: "lead" },
+        cell: ({ row }) => (
+          <span className="flex flex-col items-end tabular-nums">
+            <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
+              {row.original.factor}
+            </span>
+            <span className="font-mono text-[0.875rem] text-mute">
+              {row.original.to_unit}
+            </span>
+          </span>
+        ),
+      },
+      {
+        id: "foot",
+        accessorFn: (one) => one.note,
+        header: "",
+        enableHiding: false,
+        enableSorting: false,
+        meta: { card: "foot" },
+        cell: ({ row }) => (
+          <span className="block truncate">{row.original.note ?? ""}</span>
+        ),
+      },
+      {
+        id: "state",
+        accessorFn: (one) => one.active,
+        header: "",
+        enableHiding: false,
+        enableSorting: false,
+        meta: { align: "right", card: "status" },
+        cell: ({ row }) => (
+          <Pill tone={row.original.active ? "ok" : "neutral"}>
+            {row.original.active ? "Active" : "Cancelled"}
+          </Pill>
+        ),
+      },
+    ]
+  }, [units])
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: conversions as UnitConversion[],
+        columns,
+        getRowId: (one: UnitConversion) => one.conversion_id,
+      }),
+      [conversions, columns]
+    )
+  )
+  return (
+    <DataTable<UnitConversion>
+      table={table}
+      onRowClick={onPick}
+      isSelected={(one) => one.conversion_id === selected}
+      empty="No conversion yet."
+      cardSort={false}
+      cardsApart
+      cardLead
+    />
   )
 }
 

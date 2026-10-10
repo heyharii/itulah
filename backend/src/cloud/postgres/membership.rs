@@ -101,6 +101,34 @@ pub fn segment_case(now: DateTime<Utc>) -> String {
     SEGMENT_CASE.replace("$NOW", &crate::clock::sql_now_literal(now))
 }
 
+// A macro rather than only a const because `concat!` takes literals, and
+// [`MEMBER_SOURCE`] and [`MEMBER_RANK_SOURCE`] are spliced from it at compile time.
+macro_rules! member_sales {
+    () => {
+        "
+        SELECT customer_id,
+               count(*)::bigint                                AS transaction_count,
+               COALESCE(sum(total_minor), 0)::bigint           AS spent_minor,
+               COALESCE(sum(discount_total_minor), 0)::bigint  AS saved_minor,
+               COALESCE(sum(points_earned), 0)::bigint         AS points_earned_total,
+               min(occurred_at)                                AS first_purchase_at,
+               max(occurred_at)                                AS last_purchase_at
+          FROM edge_sale
+         WHERE customer_id IS NOT NULL AND btrim(customer_id) <> ''
+           AND status = 'COMPLETED'
+         GROUP BY customer_id"
+    };
+}
+/// What the till's completed sales say about one card, as one row per card:
+/// visits, money, points credited, and the first and last time it was used.
+///
+/// The `s` half of [`MEMBER_SOURCE`], in its own constant because the
+/// directory's ranking pass and the six's counts are drawn from it alone —
+/// see [`MEMBER_RANK_SOURCE`] for why that split exists — and a second
+/// spelling of "what was spent on this card" is how a screen's house order
+/// and its segment card come to disagree.
+pub const MEMBER_SALES: &str = member_sales!();
+
 /// Where a member row comes from: the card, what has been bought on it, and
 /// what is still owed back on vouchers.
 ///
@@ -116,28 +144,16 @@ pub fn segment_case(now: DateTime<Utc>) -> String {
 /// spliced into [`list_members`]'s own `WHERE` when a saved segment narrows
 /// it. Rename one here and the narrowing stops compiling — which is the
 /// failure worth having, rather than the one where it silently matches nobody.
-pub const MEMBER_SOURCE: &str = "
-    FROM member m
-    LEFT JOIN (
-        SELECT customer_id,
-               count(*)::bigint                                AS transaction_count,
-               COALESCE(sum(total_minor), 0)::bigint           AS spent_minor,
-               COALESCE(sum(discount_total_minor), 0)::bigint  AS saved_minor,
-               COALESCE(sum(points_earned), 0)::bigint         AS points_earned_total,
-               min(occurred_at)                                AS first_purchase_at,
-               max(occurred_at)                                AS last_purchase_at
-          FROM edge_sale
-         WHERE customer_id IS NOT NULL AND btrim(customer_id) <> ''
-           AND status = 'COMPLETED'
-         GROUP BY customer_id
-    ) s ON s.customer_id = m.member_id
-    LEFT JOIN (
+pub const MEMBER_SOURCE: &str = concat!(
+    "    FROM member m\n",
+    "    LEFT JOIN (", member_sales!(), ") s ON s.customer_id = m.member_id\n",
+    "    LEFT JOIN (
         SELECT member_id, sum(balance_minor)::bigint AS voucher_balance_minor
           FROM voucher
          WHERE member_id IS NOT NULL AND status = 'ACTIVE'
          GROUP BY member_id
-    ) h ON h.member_id = m.member_id
-    -- Pieces, which `edge_sale` does not carry: it holds one row per receipt
+    ) h ON h.member_id = m.member_id\n",
+    "    -- Pieces, which `edge_sale` does not carry: it holds one row per receipt
     -- and the quantities are on the lines. Its OWN subquery rather than a join
     -- inside `s` above — joining the lines in there would multiply every sum
     -- in it by the number of lines on the receipt, which is the classic way a
@@ -150,13 +166,13 @@ pub const MEMBER_SOURCE: &str = "
          WHERE es.customer_id IS NOT NULL AND btrim(es.customer_id) <> ''
            AND es.status = 'COMPLETED'
          GROUP BY es.customer_id
-    ) n ON n.customer_id = m.member_id
-    -- What they hold now. `points_account` is a cache of the ledger's sum and
+    ) n ON n.customer_id = m.member_id\n",
+    "    -- What they hold now. `points_account` is a cache of the ledger's sum and
     -- 0165 says so plainly, but it is the cache the tills read, so a directory
     -- reading anything else would show a member a different balance from the
     -- one the counter just quoted them.
-    LEFT JOIN points_account pa ON pa.customer_id = m.member_id
-    -- What they have already turned into vouchers, as a positive number: the
+    LEFT JOIN points_account pa ON pa.customer_id = m.member_id\n",
+    "    -- What they have already turned into vouchers, as a positive number: the
     -- ledger stores a redemption as a negative movement, and a person says
     -- they spent 1.200 points rather than that they earned minus 1.200.
     LEFT JOIN (
@@ -164,7 +180,38 @@ pub const MEMBER_SOURCE: &str = "
           FROM points_ledger
          WHERE entry_type = 'REDEEM_TO_VOUCHER'
          GROUP BY customer_id
-    ) pr ON pr.customer_id = m.member_id";
+    ) pr ON pr.customer_id = m.member_id",
+);
+
+/// The half of [`MEMBER_SOURCE`] the directory's ranking pass and the six's
+/// counts are drawn from: the card, what was spent on it, and the two points
+/// figures — and deliberately NOT the pieces or the vouchers.
+///
+/// [`list_members`] ranks the whole scheme before it keeps a page, and a rank
+/// has a hard floor: "who spent most" cannot be answered without every
+/// member's spend, however the query is shaped. Everything else the page
+/// PRINTS is needed only for the two hundred rows it keeps, and joining it
+/// into the ranking pass is what made an unfiltered open aggregate the whole
+/// till history — every receipt of every customer, twice, once for the page
+/// and once for the facets — to hand back one screen. The pieces subquery is
+/// the expensive half by far (it walks every line of every completed sale),
+/// and no sort the screen offers ranks on it except `units` and `upt`; the
+/// points halves are carried here because they are one small table each and
+/// two sorts DO rank on them, which keeps the ranking pass to one shape.
+///
+/// The same aliases as [`MEMBER_SOURCE`], so a narrowing clause spliced into
+/// this source's `WHERE` compiles or fails exactly as it would there.
+pub const MEMBER_RANK_SOURCE: &str = concat!(
+    "    FROM member m\n",
+    "    LEFT JOIN (", member_sales!(), ") s ON s.customer_id = m.member_id\n",
+    "    LEFT JOIN points_account pa ON pa.customer_id = m.member_id\n",
+    "    LEFT JOIN (
+        SELECT customer_id, COALESCE(-sum(points), 0)::bigint AS points_spent_total
+          FROM points_ledger
+         WHERE entry_type = 'REDEEM_TO_VOUCHER'
+         GROUP BY customer_id
+    ) pr ON pr.customer_id = m.member_id",
+);
 
 /// How long since somebody was last in, in whole days.
 ///
@@ -601,6 +648,25 @@ fn checked_segment(raw: Option<&str>) -> Result<Option<String>, AppError> {
 /// the thing somebody is choosing between, so it is applied outside and the
 /// counts ignore it.
 ///
+/// The page is read in two halves: rank, then enrich. Ranking — the sort, the
+/// seek, the limit — runs over [`MEMBER_RANK_SOURCE`], because a rank has a
+/// hard floor ("who spent most" needs every member's spend) while everything
+/// else the page prints is needed for only the rows it keeps. The enrichment —
+/// pieces, vouchers, the pairing — is then fetched for those rows alone, as
+/// scalar subqueries under the limit rather than joins above it. Before the
+/// halves were split, an unfiltered open folded every line of every completed
+/// sale before it could hand back one screen; the halves are what let
+/// `ix_edge_sale_member_spend` (0952) answer the rank from one aggregate and
+/// the enrichment from a handful of index probes.
+///
+/// The whole envelope comes off that one fold, in one statement: the six group
+/// the pass's rows, `total` counts what the segment filter keeps of them, and
+/// `member_count` rides along as the one number that reads no fold at all.
+/// The statement used to run three times — once for the page, once to recount
+/// the searched set for the facets, once for `member_count` — and the second
+/// run walked the whole till history again to learn numbers the first had
+/// already produced.
+///
 /// # Placeholders
 ///
 /// `$1` the search pattern, `$2` the segment filter, then the narrowing's own
@@ -636,61 +702,79 @@ pub async fn list_members(
     let cursor_at = 3 + params;
     let limit_at = 4 + params;
 
-    // One row definition, used by the page and by the facet counts. That is the
-    // whole reason it is built once here: the facets are only honest if they
-    // count exactly what the page can show.
+    // Which sources the one whole-scheme pass reads: the card and what was
+    // spent on it and nothing else — except that `units` and `upt` RANK on the
+    // pieces, which costs the lines of every completed sale, and that a
+    // narrowing clause arrives compiled rather than parsed, so which aliases it
+    // reads cannot be known here. A narrowed directory folds the whole source
+    // rather than guessing at its own clauses.
+    let rank_wide =
+        narrowing.is_some() || matches!(query.sort.as_deref(), Some("units") | Some("upt"));
+    let rank_source = if rank_wide { MEMBER_SOURCE } else { MEMBER_RANK_SOURCE };
+
+    // The pass's row definition. It carries the columns the page prints that
+    // the pass source already joins, plus every sort key. The six and `total`
+    // read the same rows, but only ever their `segment`.
     //
-    // The two `*_key` columns are computed rather than only named in ORDER BY,
+    // The `*_key` columns are computed rather than only named in ORDER BY,
     // because a keyset has to COMPARE the sort value in a WHERE and a sort
-    // expression that is not a column is one a WHERE cannot see. Both are
-    // non-null, which is the rule that is easy to miss and expensive to find: a
-    // row comparison against NULL is NULL rather than true, so one member who
-    // has never bought — and `NEVER` is a segment precisely because there are
-    // many — would end paging at whatever row happened to carry it, silently,
-    // with the rest of the scheme below the fold.
+    // expression that is not a column is one a WHERE cannot see. All are
+    // non-null, which is the rule that is easy to miss and expensive to find:
+    // a row comparison against NULL is NULL rather than true, so one member
+    // who has never bought — and `NEVER` is a segment precisely because there
+    // are many — would end paging at whatever row happened to carry it,
+    // silently, with the rest of the scheme below the fold.
     //
     // `-infinity` is that rule for a last purchase, and it is also the more
     // useful answer: somebody who has never been in sorts after everybody who
     // has, which is where a reader looking for the most recent visit expects
     // them. A sentinel VALUE rather than a `NULLS LAST` decoration, because
     // `NULLS LAST` orders a result and says nothing a keyset can seek against.
-    let rows_sql = format!(
-        "SELECT m.member_id, m.display_name, m.joined_on, m.blocked_at,
-                {PAIRED}                                         AS paired,
-                COALESCE(s.transaction_count, 0)                 AS transaction_count,
-                COALESCE(s.spent_minor, 0)                       AS spent_minor,
-                COALESCE(s.saved_minor, 0)                       AS saved_minor,
-                COALESCE(n.units_total, 0)                       AS units_total,
-                COALESCE(s.points_earned_total, 0)               AS points_earned_total,
-                COALESCE(pa.balance_points, 0)                   AS points_balance,
-                COALESCE(pr.points_spent_total, 0)               AS points_spent_total,
-                s.first_purchase_at,
-                s.last_purchase_at,
-                {days_since}                                     AS days_since_purchase,
-                COALESCE(h.voucher_balance_minor, 0)             AS voucher_balance_minor,
-                {segment}                                        AS segment,
-                COALESCE(s.spent_minor, 0)                       AS spent_key,
-                upper(COALESCE(m.display_name, ''))              AS name_key,
-                COALESCE(s.last_purchase_at,
-                         TIMESTAMPTZ '-infinity')                AS last_key,
-                -- The two averages the screen draws, for sorting on. Never
-                -- bought is no average rather than a zero one, so it takes -1
-                -- and sorts below the cheapest shopper — non-null for the same
-                -- reason `last_key` is.
-                COALESCE(COALESCE(s.spent_minor, 0)::numeric
-                         / NULLIF(COALESCE(s.transaction_count, 0), 0),
-                         -1)                                     AS atv_key,
+    let wide_columns = if rank_wide {
+        ",
+                COALESCE(n.units_total, 0)                 AS units_total,
+                COALESCE(h.voucher_balance_minor, 0)       AS voucher_balance_minor,
+                -- The second average, on the pieces rather than the receipts,
+                -- so it lives and dies with the `units` sorts that rank on it.
                 COALESCE(COALESCE(n.units_total, 0)::numeric
                          / NULLIF(COALESCE(s.transaction_count, 0), 0),
-                         -1)                                     AS upt_key
-           {MEMBER_SOURCE}
+                         -1)                               AS upt_key"
+    } else {
+        ""
+    };
+    let rank_sql = format!(
+        "SELECT m.member_id, m.display_name, m.joined_on, m.blocked_at,
+                COALESCE(s.transaction_count, 0)           AS transaction_count,
+                COALESCE(s.spent_minor, 0)                 AS spent_minor,
+                COALESCE(s.saved_minor, 0)                 AS saved_minor,
+                COALESCE(s.points_earned_total, 0)         AS points_earned_total,
+                COALESCE(pa.balance_points, 0)             AS points_balance,
+                COALESCE(pr.points_spent_total, 0)         AS points_spent_total,
+                s.first_purchase_at,
+                s.last_purchase_at,
+                {days_since}                               AS days_since_purchase,
+                {segment}                                  AS segment,
+                COALESCE(s.spent_minor, 0)                 AS spent_key,
+                upper(COALESCE(m.display_name, ''))        AS name_key,
+                COALESCE(s.last_purchase_at,
+                         TIMESTAMPTZ '-infinity')          AS last_key,
+                -- The average transaction the screen draws, for sorting on.
+                -- Never bought is no average rather than a zero one, so it
+                -- takes -1 and sorts below the cheapest shopper — non-null
+                -- for the same reason `last_key` is.
+                COALESCE(COALESCE(s.spent_minor, 0)::numeric
+                         / NULLIF(COALESCE(s.transaction_count, 0), 0),
+                         -1)                               AS atv_key{wide_columns}
+           {rank_source}
           -- The card number and the name on it. Not personal data this list
           -- deliberately does not carry — see `MemberQuery::q`.
           WHERE ($1::text IS NULL
                  OR upper(m.member_id) LIKE '%' || $1 || '%'
                  OR upper(COALESCE(m.display_name, '')) LIKE '%' || $1 || '%'){extra}",
         days_since = days_since_purchase(now),
-        segment = segment_case(now)
+        segment = segment_case(now),
+        wide_columns = wide_columns,
+        rank_source = rank_source,
     );
 
     // The sort, and the tie-break that makes it total. Every order ends in the
@@ -746,28 +830,85 @@ pub async fn list_members(
         .map(MemberCursor::decode)
         .transpose()?;
 
+    // The enrichment: the columns the page prints that the ranking pass does
+    // not carry, fetched for the kept rows alone. Each is the subquery it is
+    // named for in [`MEMBER_SOURCE`], narrowed to one card — the `IS NOT NULL`
+    // and `btrim` clauses of the whole-table spelling are implied by that
+    // equality, because the card comes off `member`'s primary key and is
+    // neither null nor blank — and an aggregate over no rows is one row of
+    // `COALESCE`'d zero, which is the LEFT JOIN's missing-row answer exactly.
+    // `m` is the page, on purpose: [`PAIRED`] is spelt against an `m` and the
+    // catalogue splices that same spelling, so one letter keeps it single.
+    let (units, vouchers): (String, String) = if rank_wide {
+        (
+            "m.units_total".to_owned(),
+            "m.voucher_balance_minor".to_owned(),
+        )
+    } else {
+        (
+            "(SELECT COALESCE(sum(esl.quantity), 0)::bigint
+               FROM edge_sale es
+               JOIN edge_sale_line esl ON esl.sale_id = es.sale_id
+              WHERE es.customer_id = m.member_id
+                AND es.status = 'COMPLETED')".to_owned(),
+            "(SELECT COALESCE(sum(v.balance_minor), 0)::bigint
+               FROM voucher v
+              WHERE v.member_id = m.member_id
+                AND v.status = 'ACTIVE')".to_owned(),
+        )
+    };
+
     // The seek re-reads the previous row's own sort value rather than trusting
     // one encoded in the cursor — see [`MemberCursor`]. A cursor whose row the
     // filters no longer keep — somebody blocked, or moved out of the segment
     // being listed, between one page and the next — finds no row to compare
     // against, so the page comes back empty. The list ends early rather than
     // starting again, which is the safer of the two wrong answers.
-    // `NOT MATERIALIZED`: `kept` is referenced twice — as the page and
-    // inside the seek — and two references makes PostgreSQL materialise a
-    // CTE, which is an optimisation fence the `ORDER BY … LIMIT` cannot be
-    // pushed through. Materialised, this reads the whole table and sorts it
-    // to hand back one page; inlined, it seeks the index. See
-    // `postgres::audit::list_audit`, where the difference was measured.
+    //
+    // One statement, because everything the envelope carries is drawn from one
+    // fold: the page, the six and both totals all read `searched`, and
+    // `searched` is referenced by all of them — which makes PostgreSQL
+    // materialise it, and here that is the right answer rather than the fence
+    // it was in `postgres::audit::list_audit`. There the CTE stood over the
+    // raw table, and materialising it meant writing millions of rows to hand
+    // back one page; here it stands over what the fold produced — one row per
+    // member, tens of thousands of them — and materialising it means the
+    // till history is folded ONCE and read three ways: the page seeks and
+    // sorts it, the six group it, `total` counts it. The counts ride as a
+    // one-row `LEFT JOIN`, so an answer that keeps no member still returns
+    // its counts — a search that matches nobody says so as 0 of 30,000 rather
+    // than as an error about a row that is not there.
     let sql = format!(
-        "WITH searched AS NOT MATERIALIZED ({rows_sql}),
-              kept AS NOT MATERIALIZED (
+        "WITH searched AS ({rank_sql}),
+              kept AS (
              SELECT * FROM searched WHERE ($2::text IS NULL OR segment = $2)
          )
-         SELECT * FROM kept
-          WHERE ${cursor_at}::text IS NULL
-             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE member_id = ${cursor_at})
-          ORDER BY {order}
-          LIMIT ${limit_at}"
+         SELECT m.member_id, m.display_name, m.joined_on, m.blocked_at,
+                {PAIRED}                                     AS paired,
+                m.transaction_count, m.spent_minor, m.saved_minor,
+                {units}                                      AS units_total,
+                m.points_earned_total,
+                m.points_balance, m.points_spent_total,
+                m.first_purchase_at, m.last_purchase_at,
+                m.days_since_purchase,
+                {vouchers}                                   AS voucher_balance_minor,
+                m.segment,
+                c.total, c.member_count, c.facets
+           FROM (SELECT (SELECT count(*)::bigint FROM kept)   AS total,
+                        (SELECT count(*)::bigint FROM member) AS member_count,
+                        COALESCE((
+                            SELECT jsonb_agg(jsonb_build_object('value', value,
+                                                                'count', count))
+                              FROM (SELECT segment AS value, count(*)::bigint AS count
+                                      FROM searched GROUP BY 1) six
+                        ), '[]'::jsonb)                       AS facets
+             ) c
+           LEFT JOIN (SELECT * FROM kept
+                       WHERE ${cursor_at}::text IS NULL
+                          OR ({cols}) {seek} (SELECT {cols} FROM kept
+                                              WHERE member_id = ${cursor_at})
+                       ORDER BY {order}
+                       LIMIT ${limit_at}) m ON true"
     );
     let mut statement = sqlx::query(&sql).bind(&search).bind(&segment);
     if let Some(one) = narrowing {
@@ -779,11 +920,36 @@ pub async fn list_members(
         .fetch_all(pool)
         .await?;
 
+    // The counts are on every row and read off the first; the members are the
+    // rows whose page half exists. When nothing matches, the counts row is the
+    // whole answer and the members are none.
+    let Some(counted) = rows.first() else {
+        // Unreachable while the counts row is a LEFT JOIN's left side — kept
+        // here the way a seatbelt is, for the day somebody reshapes the join.
+        return Ok(MemberDirectory {
+            members: Vec::new(),
+            member_count: 0,
+            next_cursor: None,
+            total: 0,
+            facets: MemberFacets { segments: Vec::new() },
+        });
+    };
+    let total: i64 = counted.try_get("total")?;
+    let member_count: i64 = counted.try_get("member_count")?;
+    let mut segments: Vec<MemberFacet> = serde_json::from_value(
+        counted.try_get::<serde_json::Value, _>("facets")?,
+    )?;
+
+    let page: Vec<PgRow> = rows
+        .into_iter()
+        .filter(|row| matches!(row.try_get::<Option<String>, _>("member_id"), Ok(Some(_))))
+        .collect();
+
     // A short page is the last page. A full one may not be — the next request
     // can come back empty — and that is the honest answer: knowing whether more
     // rows exist without asking costs a second pass over the same query.
-    let next_cursor = match rows.last() {
-        Some(row) if rows.len() as i64 == limit => Some(
+    let next_cursor = match page.last() {
+        Some(row) if page.len() as i64 == limit => Some(
             MemberCursor {
                 member_id: row.try_get("member_id")?,
             }
@@ -792,36 +958,6 @@ pub async fn list_members(
         _ => None,
     };
 
-    let facets_sql = format!(
-        "WITH searched AS ({rows_sql}), kept AS (
-             SELECT * FROM searched WHERE ($2::text IS NULL OR segment = $2)
-         )
-         SELECT 'segment' AS kind, segment AS value, COUNT(*)::bigint AS n
-           FROM searched GROUP BY segment
-          UNION ALL
-         SELECT 'all', '', COUNT(*)::bigint FROM kept"
-    );
-    let mut statement = sqlx::query(&facets_sql).bind(&search).bind(&segment);
-    if let Some(one) = narrowing {
-        statement = bind_params(statement, &one.params);
-    }
-    let counted = statement.fetch_all(pool).await?;
-
-    let mut total = 0i64;
-    let mut segments = Vec::new();
-    for row in &counted {
-        let kind: String = row.try_get("kind")?;
-        let facet = MemberFacet {
-            value: row.try_get("value")?,
-            label: None,
-            count: row.try_get("n")?,
-        };
-        if kind == "segment" {
-            segments.push(facet);
-        } else {
-            total = facet.count;
-        }
-    }
     // In the six's own reading order rather than biggest-first, which is where
     // this list parts company with every other facet panel here on purpose. The
     // six are a sequence — from the people who just arrived to the people who
@@ -833,13 +969,8 @@ pub async fn list_members(
             .position(|key| *key == facet.value)
             .unwrap_or(SEGMENT_ORDER.len())
     });
-
-    let member_count = sqlx::query_scalar::<_, i64>("SELECT count(*)::bigint FROM member")
-        .fetch_one(pool)
-        .await?;
-
     Ok(MemberDirectory {
-        members: rows
+        members: page
             .iter()
             .map(member_from_row)
             .collect::<Result<Vec<_>, _>>()?,

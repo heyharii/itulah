@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sales totals prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* frontend-hub tokens (src/styles/index.css) */
+:root{
+  --ink:#20242c;--text:#394150;--body:#565f6d;--mute:#666f7d;--faint:#b9c0c9;--line-ico:#89919d;
+  --canvas:#ffffff;--soft:#f8f8f9;--soft-2:#f0f0f2;--soft-3:#f6f6f7;
+  --hairline:#e6e6e9;--hairline-2:#dadade;--hairline-strong:#c6c6cc;
+  --rail:#242526;--rail-2:#303234;--rail-text:#c3c4c7;--rail-mute:#a1a3a8;--rail-hair:#343638;
+  --accent:#2563eb;--accent-bg:#eff5ff;--bad-fg:#be123c;--good-fg:#15803d;
+  --r-card:10px;--r-inner:8px;
+  --ease-out:cubic-bezier(0.23,1,0.32,1);
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--soft-3);color:var(--ink);font:400 15px/1.45 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;padding:0}
+.pressable{transition:transform 120ms var(--ease-out),background-color 150ms ease,color 150ms ease}
+.pressable:active{transform:scale(.97)}
+
+/* prototype chrome: option switcher, outside the app */
+.proto{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:6px;padding:10px 16px;background:var(--dark,#191b20);color:#fff;font-size:14px}
+.proto b{font-weight:600;margin-right:8px}
+.proto button{padding:6px 12px;border-radius:999px;color:#c3c4c7}
+.proto button.on{background:#fff;color:#191b20}
+.proto .note{margin-left:auto;color:#a1a3a8}
+
+/* app shell: rail + page, no department sidebar */
+.app{display:flex;min-height:calc(100vh - 44px)}
+.rail{width:64px;flex:none;background:var(--rail);display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 0}
+.rail .logo{width:32px;height:32px;border-radius:8px;background:#000;color:#fff;font-weight:700;display:grid;place-items:center;margin-bottom:12px;position:relative}
+.rail .logo:after{content:"";position:absolute;right:7px;top:14px;width:5px;height:5px;border-radius:50%;background:var(--accent)}
+.rail i{width:36px;height:36px;border-radius:8px;display:block;background:transparent;position:relative}
+.rail i:before{content:"";position:absolute;inset:11px;border:1.6px solid var(--rail-mute);border-radius:4px}
+.rail i.on{background:var(--rail-2)}
+.rail i.on:before{border-color:#fff}
+.page{flex:1;min-width:0;padding:22px 28px 28px}
+
+/* header */
+.head{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap}
+.title h1{margin:0;font-size:22px;line-height:28px;font-weight:600}
+.title p{margin:2px 0 0;color:var(--mute)}
+.head .grow{flex:1}
+.seg{display:inline-flex;background:var(--soft-2);border-radius:var(--r-inner);padding:3px;gap:2px}
+.seg button{height:30px;padding:0 12px;border-radius:6px;color:var(--body);font-size:14px;font-weight:500}
+.seg button.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(16,24,40,.08)}
+.search{height:36px;width:240px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:#fff;display:flex;align-items:center;gap:8px;padding:0 12px;color:var(--mute)}
+.search input{border:0;outline:0;font:inherit;flex:1;min-width:0;color:var(--ink);background:transparent}
+
+/* the totals band: transactions → pieces → gross − discount − returns = net */
+.band{margin-top:18px;background:#fff;border:1px solid var(--hairline);border-radius:var(--r-card);display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) 1px minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr) 1px minmax(0,1fr);align-items:stretch}
+.fig{padding:14px 16px;min-width:0}
+.fig .l{color:var(--mute);font-size:14px}
+.fig .v{font-size:22px;line-height:30px;font-weight:600;margin-top:2px;white-space:nowrap}
+.fig .s{color:var(--mute);font-size:14px;margin-top:2px;line-height:20px}
+.op{display:grid;place-items:center;color:var(--faint);font-size:20px;padding:0 2px}
+.vr{background:var(--hairline);margin:14px 0}
+.fig.net .v{color:var(--ink)}
+.delta{font-size:14px;font-weight:500;margin-left:6px}
+.up{color:var(--good-fg)}.down{color:var(--bad-fg)}
+
+/* results card */
+.card{margin-top:16px;background:#fff;border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden}
+.card-h{display:flex;align-items:center;gap:12px;padding:0 16px;border-bottom:1px solid var(--hairline);min-height:52px;flex-wrap:wrap}
+.tabs{display:flex;gap:2px;align-self:stretch}
+.tabs button{position:relative;padding:0 10px;color:var(--body);font-weight:500;font-size:14px;min-height:52px}
+.tabs button.on{color:var(--ink)}
+.tabs button.on:after{content:"";position:absolute;left:10px;right:10px;bottom:-1px;height:2px;background:var(--ink);border-radius:2px}
+.card-h .grow{flex:1}
+.btn{height:34px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:#fff;font-size:14px;font-weight:500;display:inline-flex;align-items:center;gap:6px;color:var(--text)}
+.btn .badge{background:var(--ink);color:#fff;border-radius:999px;font-size:12px;line-height:18px;padding:0 6px}
+.crumb{display:flex;align-items:center;gap:6px;padding:10px 16px;border-bottom:1px solid var(--hairline);color:var(--mute);font-size:14px}
+.crumb button{color:var(--accent);font-weight:500}
+
+.scroll{overflow:auto;max-height:calc(100vh - 360px)}
+table{border-collapse:separate;border-spacing:0;width:100%}
+th,td{padding:0 16px;height:56px;border-bottom:1px solid var(--hairline);text-align:right;white-space:nowrap}
+th{height:44px;font-size:14px;font-weight:500;color:var(--mute);background:#fff;position:sticky;top:0;z-index:2}
+th:first-child,td:first-child{text-align:left;position:sticky;left:0;background:#fff;z-index:1}
+th:first-child{z-index:3}
+td.name{min-width:240px}
+td.name .n{font-weight:500;color:var(--ink)}
+td.name .d{color:var(--mute);font-size:14px}
+tbody tr{cursor:pointer;transition:background-color 120ms ease}
+tbody tr:hover td{background:var(--soft)}
+tfoot td{position:sticky;bottom:0;background:var(--soft);font-weight:600;border-top:1px solid var(--hairline-2);z-index:2}
+tfoot td:first-child{z-index:3}
+.num-b{font-weight:600;color:var(--ink)}
+.q{color:var(--mute)}
+.share{color:var(--body)}
+.rank{color:var(--faint);width:40px}
+td.heat{transition:background-color 150ms ease}
+table.tight th,table.tight td{padding:0 9px}
+table.tight th:first-child,table.tight td:first-child{padding-left:16px}
+table.tight td.name{min-width:200px}
+.unit{color:var(--faint);font-weight:400}
+.caret{display:inline-block;width:16px;color:var(--line-ico);transition:transform 150ms var(--ease-out)}
+.open>.name .caret{transform:rotate(90deg)}
+tr.lvl2 td.name{padding-left:40px}
+tr.lvl3 td.name{padding-left:64px}
+tr.lvl2 td,tr.lvl3 td{background:#fcfcfd}
+.fade{animation:fade 160ms var(--ease-out)}
+@keyframes fade{from{opacity:.4;transform:translateY(2px)}to{opacity:1;transform:none}}
+.foot{display:flex;align-items:center;gap:12px;padding:12px 16px;color:var(--mute);font-size:14px}
+.legend{display:inline-flex;align-items:center;gap:6px}
+.legend span{display:inline-block;width:72px;height:10px;border-radius:5px;background:linear-gradient(90deg,rgba(37,99,235,.04),rgba(37,99,235,.45))}
+
+@media (max-width:760px){
+  .page{padding:16px}
+  .rail{display:none}
+  .band{grid-template-columns:1fr 1fr}
+  .band .op,.band .vr{display:none}
+  .head .grow{display:none}
+  .search{width:100%}
+  .seg{overflow:hidden}
+  .seg button{padding:0 8px}
+  .tabs{flex-wrap:wrap}
+  .tabs button{min-height:44px}
+  .hide-phone{display:none}
+  th,td{padding:0 8px;height:52px}
+  th:first-child,td:first-child{padding-left:12px}
+  td.name{min-width:0;white-space:normal}
+  .proto .note{display:none}
+  .proto{overflow-x:auto}
+}
+</style>
+</head>
+<body>
+<div class="proto">
+  <b>Sales — prototype</b>
+  <button class="pressable on" data-opt="A">A · One table</button>
+  <button class="pressable" data-opt="B">B · Store board</button>
+  <button class="pressable" data-opt="C">C · Division tree</button>
+  <span class="note">Real 2025 totals from the 1M-sale server · tag, supplier, colour and size splits are sample (the load data has none)</span>
+</div>
+<div class="app">
+  <nav class="rail"><div class="logo">C</div><i></i><i></i><i></i><i></i><i class="on"></i><i></i><i></i></nav>
+  <main class="page" id="page"></main>
+</div>
+<script>
+const D = {"div": [{"code": "ANAK_LAKI", "label": "Anak Laki-laki", "sold": 133344, "net": 40051237392, "articles": 800}, {"code": "WANITA", "label": "Wanita", "sold": 133328, "net": 40046649496, "articles": 800}, {"code": "WOMENSWEAR", "label": "Womenswear", "sold": 133328, "net": 40033440408, "articles": 800}, {"code": "ANAK_PEREMPUAN", "label": "Anak Perempuan", "sold": 133344, "net": 40018055568, "articles": 800}, {"code": "MENSWEAR", "label": "Menswear", "sold": 133328, "net": 40007104024, "articles": 800}, {"code": "PERLENGKAPAN_BAYI", "label": "Perlengkapan Bayi", "sold": 133328, "net": 40004685848, "articles": 800}, {"code": "NON_DIVISI", "label": "Non Divisi", "sold": 133328, "net": 39948694936, "articles": 800}, {"code": "DIVIDED", "label": "Divided", "sold": 133344, "net": 39946873744, "articles": 800}, {"code": "TAS", "label": "Tas", "sold": 133328, "net": 39941058584, "articles": 800}, {"code": "PRIA", "label": "Pria", "sold": 124995, "net": 37544616760, "articles": 800}, {"code": "KIDS", "label": "Kids", "sold": 124995, "net": 37535786245, "articles": 800}, {"code": "AKSESORIS", "label": "Aksesoris", "sold": 125010, "net": 37504020110, "articles": 800}, {"code": "FOOTWEAR", "label": "Footwear", "sold": 125010, "net": 37479134080, "articles": 800}, {"code": "SANDAL_SEPATU", "label": "Sandal dan Sepatu", "sold": 124995, "net": 37467818645, "articles": 800}, {"code": "ACCESSORY", "label": "Accessories", "sold": 124995, "net": 37458649160, "articles": 800}], "store": [{"id": "store-c001", "code": "C001-TOKO", "name": "Toko Load 01", "sold": 150000, "net": 44998495168}, {"id": "store-c002", "code": "C002-TOKO", "name": "Toko Load 02", "sold": 150000, "net": 44998154832}, {"id": "store-c003", "code": "C003-TOKO", "name": "Toko Load 03", "sold": 150000, "net": 44998649860}, {"id": "store-c004", "code": "C004-TOKO", "name": "Toko Load 04", "sold": 150000, "net": 44999144888}, {"id": "store-c005", "code": "C005-TOKO", "name": "Toko Load 05", "sold": 150000, "net": 44999239916}, {"id": "store-c006", "code": "C006-TOKO", "name": "Toko Load 06", "sold": 150000, "net": 45000534944}, {"id": "store-c007", "code": "C007-TOKO", "name": "Toko Load 07", "sold": 150000, "net": 44999829972}, {"id": "store-c008", "code": "C008-TOKO", "name": "Toko Load 08", "sold": 150000, "net": 44998725000}, {"id": "store-c009", "code": "C009-TOKO", "name": "Toko Load 09", "sold": 150000, "net": 44998820028}, {"id": "store-c010", "code": "C010-TOKO", "name": "Toko Load 10", "sold": 150000, "net": 44999715056}, {"id": "store-c011", "code": "C011-TOKO", "name": "Toko Load 11", "sold": 150000, "net": 44999410084}, {"id": "store-c012", "code": "C012-TOKO", "name": "Toko Load 12", "sold": 150000, "net": 44998305112}, {"id": "store-c013", "code": "C013-TOKO", "name": "Toko Load 13", "sold": 150000, "net": 44998800140}], "rcpt": {"store-c001": {"done": 75000, "voided": 1923}, "store-c002": {"done": 75000, "voided": 1924}, "store-c003": {"done": 75000, "voided": 1923}, "store-c004": {"done": 75000, "voided": 1923}, "store-c005": {"done": 75000, "voided": 1923}, "store-c006": {"done": 75000, "voided": 1923}, "store-c007": {"done": 75000, "voided": 1923}, "store-c008": {"done": 75000, "voided": 1923}, "store-c009": {"done": 75000, "voided": 1923}, "store-c010": {"done": 75000, "voided": 1923}, "store-c011": {"done": 75000, "voided": 1923}, "store-c012": {"done": 75000, "voided": 1923}, "store-c013": {"done": 75000, "voided": 1923}}, "divstore": {"DIVIDED": {"store-c007": {"sold": 10257, "net": 3073359512}, "store-c003": {"sold": 10258, "net": 3073090183}, "store-c002": {"sold": 10258, "net": 3074447547}, "store-c010": {"sold": 10256, "net": 3072633576}, "store-c013": {"sold": 10258, "net": 3072800755}, "store-c011": {"sold": 10256, "net": 3071644536}, "store-c008": {"sold": 10256, "net": 3072077176}, "store-c005": {"sold": 10258, "net": 3073136975}, "store-c006": {"sold": 10258, "net": 3072579611}, "store-c012": {"sold": 10257, "net": 3072391527}, "store-c004": {"sold": 10258, "net": 3072932819}, "store-c009": {"sold": 10256, "net": 3072336136}, "store-c001": {"sold": 10258, "net": 3073443391}}, "ANAK_LAKI": {"store-c013": {"sold": 10258, "net": 3080430919}, "store-c003": {"sold": 10258, "net": 3080720347}, "store-c005": {"sold": 10256, "net": 3079924728}, "store-c010": {"sold": 10258, "net": 3081341491}, "store-c011": {"sold": 10258, "net": 3081584127}, "store-c004": {"sold": 10257, "net": 3081353656}, "store-c009": {"sold": 10257, "net": 3080385671}, "store-c006": {"sold": 10256, "net": 3080583688}, "store-c008": {"sold": 10256, "net": 3079892088}, "store-c001": {"sold": 10258, "net": 3080273555}, "store-c007": {"sold": 10256, "net": 3081281128}, "store-c012": {"sold": 10258, "net": 3082188283}, "store-c002": {"sold": 10258, "net": 3081277711}}, "KIDS": {"store-c011": {"sold": 9615, "net": 2886820745}, "store-c005": {"sold": 9615, "net": 2886776905}, "store-c008": {"sold": 9615, "net": 2887960345}, "store-c007": {"sold": 9615, "net": 2888496025}, "store-c009": {"sold": 9615, "net": 2887424665}, "store-c013": {"sold": 9615, "net": 2887074345}, "store-c002": {"sold": 9615, "net": 2887593465}, "store-c006": {"sold": 9615, "net": 2887441225}, "store-c001": {"sold": 9615, "net": 2886977145}, "store-c004": {"sold": 9615, "net": 2886960585}, "store-c003": {"sold": 9615, "net": 2887057785}, "store-c010": {"sold": 9615, "net": 2887317945}, "store-c012": {"sold": 9615, "net": 2887885065}}, "ANAK_PEREMPUAN": {"store-c011": {"sold": 10258, "net": 3077649979}, "store-c009": {"sold": 10258, "net": 3078403187}, "store-c012": {"sold": 10257, "net": 3077756584}, "store-c001": {"sold": 10256, "net": 3078459912}, "store-c007": {"sold": 10258, "net": 3079117915}, "store-c013": {"sold": 10256, "net": 3078600952}, "store-c010": {"sold": 10258, "net": 3077407343}, "store-c002": {"sold": 10256, "net": 3077157352}, "store-c006": {"sold": 10258, "net": 3079313759}, "store-c004": {"sold": 10257, "net": 3078388599}, "store-c005": {"sold": 10258, "net": 3078671123}, "store-c003": {"sold": 10256, "net": 3077768312}, "store-c008": {"sold": 10258, "net": 3079360551}}, "PERLENGKAPAN_BAYI": {"store-c008": {"sold": 10256, "net": 3077647336}, "store-c007": {"sold": 10256, "net": 3077797896}, "store-c003": {"sold": 10256, "net": 3077792536}, "store-c012": {"sold": 10256, "net": 3077425656}, "store-c011": {"sold": 10256, "net": 3077614696}, "store-c005": {"sold": 10256, "net": 3076614456}, "store-c006": {"sold": 10256, "net": 3077986936}, "store-c009": {"sold": 10256, "net": 3077458296}, "store-c004": {"sold": 10256, "net": 3076803496}, "store-c001": {"sold": 10256, "net": 3077009096}, "store-c002": {"sold": 10256, "net": 3076820056}, "store-c010": {"sold": 10256, "net": 3077317256}, "store-c013": {"sold": 10256, "net": 3076398136}}, "ACCESSORY": {"store-c011": {"sold": 9615, "net": 2881436280}, "store-c001": {"sold": 9615, "net": 2881371720}, "store-c008": {"sold": 9615, "net": 2881452840}, "store-c007": {"sold": 9615, "net": 2881188520}, "store-c004": {"sold": 9615, "net": 2882232120}, "store-c012": {"sold": 9615, "net": 2881652600}, "store-c013": {"sold": 9615, "net": 2880755400}, "store-c003": {"sold": 9615, "net": 2881138840}, "store-c010": {"sold": 9615, "net": 2881571960}, "store-c006": {"sold": 9615, "net": 2881647240}, "store-c005": {"sold": 9615, "net": 2881696440}, "store-c002": {"sold": 9615, "net": 2880436040}, "store-c009": {"sold": 9615, "net": 2882069160}}, "MENSWEAR": {"store-c011": {"sold": 10256, "net": 3077656648}, "store-c003": {"sold": 10256, "net": 3077434488}, "store-c002": {"sold": 10256, "net": 3077262008}, "store-c008": {"sold": 10256, "net": 3076262248}, "store-c010": {"sold": 10256, "net": 3077445688}, "store-c004": {"sold": 10256, "net": 3078445448}, "store-c012": {"sold": 10256, "net": 3077867608}, "store-c013": {"sold": 10256, "net": 3077240088}, "store-c005": {"sold": 10256, "net": 3078294888}, "store-c007": {"sold": 10256, "net": 3077164808}, "store-c009": {"sold": 10256, "net": 3077273208}, "store-c006": {"sold": 10256, "net": 3077305848}, "store-c001": {"sold": 10256, "net": 3077451048}}, "WOMENSWEAR": {"store-c007": {"sold": 10256, "net": 3079368056}, "store-c003": {"sold": 10256, "net": 3079001176}, "store-c012": {"sold": 10256, "net": 3079395816}, "store-c013": {"sold": 10256, "net": 3080406776}, "store-c005": {"sold": 10256, "net": 3080584616}, "store-c006": {"sold": 10256, "net": 3078795576}, "store-c009": {"sold": 10256, "net": 3079028456}, "store-c008": {"sold": 10256, "net": 3079579016}, "store-c010": {"sold": 10256, "net": 3080439416}, "store-c002": {"sold": 10256, "net": 3079590216}, "store-c011": {"sold": 10256, "net": 3079098376}, "store-c001": {"sold": 10256, "net": 3078579256}, "store-c004": {"sold": 10256, "net": 3079573656}}, "WANITA": {"store-c007": {"sold": 10256, "net": 3081313992}, "store-c002": {"sold": 10256, "net": 3080963192}, "store-c013": {"sold": 10256, "net": 3080102792}, "store-c005": {"sold": 10256, "net": 3079730552}, "store-c009": {"sold": 10256, "net": 3080497432}, "store-c012": {"sold": 10256, "net": 3079891832}, "store-c010": {"sold": 10256, "net": 3079908392}, "store-c011": {"sold": 10256, "net": 3080519352}, "store-c006": {"sold": 10256, "net": 3080303032}, "store-c001": {"sold": 10256, "net": 3080352232}, "store-c003": {"sold": 10256, "net": 3081622152}, "store-c004": {"sold": 10256, "net": 3079919592}, "store-c008": {"sold": 10256, "net": 3081524952}}, "NON_DIVISI": {"store-c009": {"sold": 10256, "net": 3073327272}, "store-c006": {"sold": 10256, "net": 3072732872}, "store-c007": {"sold": 10256, "net": 3072143832}, "store-c010": {"sold": 10256, "net": 3072738232}, "store-c012": {"sold": 10256, "net": 3073121672}, "store-c005": {"sold": 10256, "net": 3072521912}, "store-c001": {"sold": 10256, "net": 3073982072}, "store-c011": {"sold": 10256, "net": 3072910712}, "store-c002": {"sold": 10256, "net": 3072641032}, "store-c003": {"sold": 10256, "net": 3072538472}, "store-c008": {"sold": 10256, "net": 3073116312}, "store-c004": {"sold": 10256, "net": 3072749432}, "store-c013": {"sold": 10256, "net": 3074171112}}, "AKSESORIS": {"store-c009": {"sold": 9616, "net": 2883936329}, "store-c011": {"sold": 9615, "net": 2884590265}, "store-c007": {"sold": 9617, "net": 2884836480}, "store-c001": {"sold": 9615, "net": 2883898665}, "store-c013": {"sold": 9615, "net": 2885682345}, "store-c006": {"sold": 9617, "net": 2884540484}, "store-c008": {"sold": 9617, "net": 2885532476}, "store-c010": {"sold": 9615, "net": 2885125945}, "store-c003": {"sold": 9617, "net": 2885710016}, "store-c005": {"sold": 9617, "net": 2886654008}, "store-c004": {"sold": 9617, "net": 2884358012}, "store-c002": {"sold": 9617, "net": 2885775540}, "store-c012": {"sold": 9615, "net": 2883379545}}, "FOOTWEAR": {"store-c010": {"sold": 9617, "net": 2883352539}, "store-c003": {"sold": 9615, "net": 2882706840}, "store-c005": {"sold": 9615, "net": 2881798920}, "store-c004": {"sold": 9615, "net": 2883057640}, "store-c008": {"sold": 9617, "net": 2882408547}, "store-c002": {"sold": 9615, "net": 2882442520}, "store-c009": {"sold": 9617, "net": 2883504543}, "store-c001": {"sold": 9617, "net": 2883765483}, "store-c012": {"sold": 9617, "net": 2883535011}, "store-c007": {"sold": 9616, "net": 2882580775}, "store-c013": {"sold": 9617, "net": 2882631007}, "store-c006": {"sold": 9615, "net": 2883263240}, "store-c011": {"sold": 9617, "net": 2884087015}}, "TAS": {"store-c011": {"sold": 10256, "net": 3072826808}, "store-c005": {"sold": 10256, "net": 3073026568}, "store-c013": {"sold": 10256, "net": 3072448728}, "store-c007": {"sold": 10256, "net": 3071886968}, "store-c012": {"sold": 10256, "net": 3072637768}, "store-c002": {"sold": 10256, "net": 3071232168}, "store-c009": {"sold": 10256, "net": 3072843368}, "store-c001": {"sold": 10256, "net": 3072221208}, "store-c003": {"sold": 10256, "net": 3071443128}, "store-c010": {"sold": 10256, "net": 3072654328}, "store-c006": {"sold": 10256, "net": 3073276008}, "store-c008": {"sold": 10256, "net": 3072145928}, "store-c004": {"sold": 10256, "net": 3072415608}}, "PRIA": {"store-c005": {"sold": 9615, "net": 2888752440}, "store-c006": {"sold": 9615, "net": 2888293720}, "store-c009": {"sold": 9615, "net": 2887877160}, "store-c004": {"sold": 9615, "net": 2888401640}, "store-c002": {"sold": 9615, "net": 2887844040}, "store-c003": {"sold": 9615, "net": 2888137320}, "store-c008": {"sold": 9615, "net": 2887574360}, "store-c012": {"sold": 9615, "net": 2887460600}, "store-c007": {"sold": 9615, "net": 2887358040}, "store-c010": {"sold": 9615, "net": 2888541480}, "store-c011": {"sold": 9615, "net": 2888357800}, "store-c001": {"sold": 9615, "net": 2887941240}, "store-c013": {"sold": 9615, "net": 2888076920}}, "SANDAL_SEPATU": {"store-c005": {"sold": 9615, "net": 2881055385}, "store-c013": {"sold": 9615, "net": 2881979865}, "store-c009": {"sold": 9615, "net": 2882455145}, "store-c012": {"sold": 9615, "net": 2881715545}, "store-c007": {"sold": 9615, "net": 2881936025}, "store-c010": {"sold": 9615, "net": 2881919465}, "store-c004": {"sold": 9615, "net": 2881552585}, "store-c006": {"sold": 9615, "net": 2882471705}, "store-c008": {"sold": 9615, "net": 2882190825}, "store-c002": {"sold": 9615, "net": 2882671945}, "store-c001": {"sold": 9615, "net": 2882769145}, "store-c011": {"sold": 9615, "net": 2882612745}, "store-c003": {"sold": 9615, "net": 2882488265}}}, "month": [{"m": "2025-01-01", "sold": 167776, "net": 50335969224}, {"m": "2025-02-01", "sold": 151940, "net": 45573402542}, {"m": "2025-03-01", "sold": 168204, "net": 50459733434}, {"m": "2025-04-01", "sold": 163068, "net": 48926046586}, {"m": "2025-05-01", "sold": 167776, "net": 50331122504}, {"m": "2025-06-01", "sold": 163068, "net": 48921481066}, {"m": "2025-07-01", "sold": 168204, "net": 50460059946}, {"m": "2025-08-01", "sold": 168204, "net": 50454245522}, {"m": "2025-09-01", "sold": 161882, "net": 48564516723}, {"m": "2025-10-01", "sold": 167418, "net": 50226482091}, {"m": "2025-11-01", "sold": 161880, "net": 48562375240}, {"m": "2025-12-01", "sold": 140580, "net": 42172390122}], "tags": [{"code": "AKSESORI", "label": "Aksesori"}, {"code": "BASIC", "label": "Basic"}, {"code": "BLUS", "label": "Blus"}, {"code": "CELANA", "label": "Celana"}, {"code": "CELANA_PENDEK", "label": "Celana Pendek"}, {"code": "DENIM", "label": "Denim"}, {"code": "FORMAL", "label": "Formal"}, {"code": "GAUN", "label": "Gaun"}, {"code": "JAKET", "label": "Jaket"}, {"code": "KAOS", "label": "Kaos"}, {"code": "KAUS_KAKI", "label": "Kaus Kaki"}, {"code": "KEMEJA", "label": "Kemeja"}, {"code": "LENGAN_PANJANG", "label": "Lengan Panjang"}, {"code": "LENGAN_PENDEK", "label": "Lengan Pendek"}, {"code": "MUSIMAN", "label": "Musiman"}, {"code": "DALAMAN", "label": "Pakaian Dalam"}, {"code": "RENANG", "label": "Pakaian Renang"}, {"code": "TIDUR", "label": "Pakaian Tidur"}, {"code": "RAJUT", "label": "Rajut"}, {"code": "ROK", "label": "Rok"}, {"code": "SEPATU", "label": "Sepatu"}], "art": {"ACCESSORY": [{"code": "80000180", "name": "Artikel Load 180", "sold": 165, "net": 73155720}, {"code": "80002835", "name": "Artikel Load 2835", "sold": 165, "net": 73010520}, {"code": "80000120", "name": "Artikel Load 120", "sold": 165, "net": 72786120}, {"code": "80002775", "name": "Artikel Load 2775", "sold": 165, "net": 72640920}, {"code": "80000060", "name": "Artikel Load 60", "sold": 165, "net": 72416520}, {"code": "80002715", "name": "Artikel Load 2715", "sold": 165, "net": 72271320}, {"code": "80002655", "name": "Artikel Load 2655", "sold": 165, "net": 71901720}, {"code": "80002595", "name": "Artikel Load 2595", "sold": 165, "net": 71532120}], "AKSESORIS": [{"code": "80001951", "name": "Artikel Load 1951", "sold": 165, "net": 73271715}, {"code": "80004606", "name": "Artikel Load 4606", "sold": 165, "net": 73126515}, {"code": "80001891", "name": "Artikel Load 1891", "sold": 165, "net": 72902115}, {"code": "80004546", "name": "Artikel Load 4546", "sold": 165, "net": 72756915}, {"code": "80001831", "name": "Artikel Load 1831", "sold": 165, "net": 72532515}, {"code": "80004486", "name": "Artikel Load 4486", "sold": 165, "net": 72387315}, {"code": "80001771", "name": "Artikel Load 1771", "sold": 165, "net": 72162915}, {"code": "80004426", "name": "Artikel Load 4426", "sold": 165, "net": 72017715}], "ANAK_LAKI": [{"code": "80001247", "name": "Artikel Load 1247", "sold": 176, "net": 77527208}, {"code": "80003902", "name": "Artikel Load 3902", "sold": 176, "net": 77372328}, {"code": "80001187", "name": "Artikel Load 1187", "sold": 176, "net": 77132968}, {"code": "80003842", "name": "Artikel Load 3842", "sold": 176, "net": 76978088}, {"code": "80001127", "name": "Artikel Load 1127", "sold": 176, "net": 76738728}, {"code": "80003782", "name": "Artikel Load 3782", "sold": 176, "net": 76583848}, {"code": "80001067", "name": "Artikel Load 1067", "sold": 176, "net": 76344488}, {"code": "80003722", "name": "Artikel Load 3722", "sold": 176, "net": 76189608}], "ANAK_PEREMPUAN": [{"code": "80003198", "name": "Artikel Load 3198", "sold": 176, "net": 77439912}, {"code": "80000483", "name": "Artikel Load 483", "sold": 176, "net": 77200552}, {"code": "80003138", "name": "Artikel Load 3138", "sold": 176, "net": 77045672}, {"code": "80000423", "name": "Artikel Load 423", "sold": 176, "net": 76806312}, {"code": "80003078", "name": "Artikel Load 3078", "sold": 176, "net": 76651432}, {"code": "80000363", "name": "Artikel Load 363", "sold": 176, "net": 76412072}, {"code": "80003018", "name": "Artikel Load 3018", "sold": 176, "net": 76257192}, {"code": "80000303", "name": "Artikel Load 303", "sold": 176, "net": 76017832}], "DIVIDED": [{"code": "80002494", "name": "Artikel Load 2494", "sold": 176, "net": 77507496}, {"code": "80002434", "name": "Artikel Load 2434", "sold": 176, "net": 77113256}, {"code": "80002374", "name": "Artikel Load 2374", "sold": 176, "net": 76719016}, {"code": "80002314", "name": "Artikel Load 2314", "sold": 176, "net": 76324776}, {"code": "80004969", "name": "Artikel Load 4969", "sold": 176, "net": 76169896}, {"code": "80002254", "name": "Artikel Load 2254", "sold": 176, "net": 75930536}, {"code": "80004909", "name": "Artikel Load 4909", "sold": 176, "net": 75775656}, {"code": "80002194", "name": "Artikel Load 2194", "sold": 176, "net": 75536296}], "FOOTWEAR": [{"code": "80001970", "name": "Artikel Load 1970", "sold": 165, "net": 73182120}, {"code": "80004625", "name": "Artikel Load 4625", "sold": 165, "net": 73036920}, {"code": "80001910", "name": "Artikel Load 1910", "sold": 165, "net": 72812520}, {"code": "80004565", "name": "Artikel Load 4565", "sold": 165, "net": 72667320}, {"code": "80001850", "name": "Artikel Load 1850", "sold": 165, "net": 72442920}, {"code": "80004505", "name": "Artikel Load 4505", "sold": 165, "net": 72297720}, {"code": "80001790", "name": "Artikel Load 1790", "sold": 165, "net": 72073320}, {"code": "80004445", "name": "Artikel Load 4445", "sold": 165, "net": 71928120}], "KIDS": [{"code": "80003741", "name": "Artikel Load 3741", "sold": 165, "net": 73298115}, {"code": "80001026", "name": "Artikel Load 1026", "sold": 165, "net": 73073715}, {"code": "80003681", "name": "Artikel Load 3681", "sold": 165, "net": 72928515}, {"code": "80000966", "name": "Artikel Load 966", "sold": 165, "net": 72704115}, {"code": "80003621", "name": "Artikel Load 3621", "sold": 165, "net": 72558915}, {"code": "80000906", "name": "Artikel Load 906", "sold": 165, "net": 72334515}, {"code": "80003561", "name": "Artikel Load 3561", "sold": 165, "net": 72189315}, {"code": "80000846", "name": "Artikel Load 846", "sold": 165, "net": 71964915}], "MENSWEAR": [{"code": "80000322", "name": "Artikel Load 322", "sold": 176, "net": 77316008}, {"code": "80002977", "name": "Artikel Load 2977", "sold": 176, "net": 77161128}, {"code": "80000262", "name": "Artikel Load 262", "sold": 176, "net": 76921768}, {"code": "80002917", "name": "Artikel Load 2917", "sold": 176, "net": 76766888}, {"code": "80000202", "name": "Artikel Load 202", "sold": 176, "net": 76527528}, {"code": "80002857", "name": "Artikel Load 2857", "sold": 176, "net": 76372648}, {"code": "80000142", "name": "Artikel Load 142", "sold": 176, "net": 76133288}, {"code": "80002797", "name": "Artikel Load 2797", "sold": 176, "net": 75978408}], "NON_DIVISI": [{"code": "80004988", "name": "Artikel Load 4988", "sold": 176, "net": 77468072}, {"code": "80002273", "name": "Artikel Load 2273", "sold": 176, "net": 77228712}, {"code": "80004928", "name": "Artikel Load 4928", "sold": 176, "net": 77073832}, {"code": "80002213", "name": "Artikel Load 2213", "sold": 176, "net": 76834472}, {"code": "80004868", "name": "Artikel Load 4868", "sold": 176, "net": 76679592}, {"code": "80002153", "name": "Artikel Load 2153", "sold": 176, "net": 76440232}, {"code": "80004808", "name": "Artikel Load 4808", "sold": 176, "net": 76285352}, {"code": "80002093", "name": "Artikel Load 2093", "sold": 176, "net": 76045992}], "PERLENGKAPAN_BAYI": [{"code": "80004284", "name": "Artikel Load 4284", "sold": 176, "net": 77535656}, {"code": "80001569", "name": "Artikel Load 1569", "sold": 176, "net": 77296296}, {"code": "80004224", "name": "Artikel Load 4224", "sold": 176, "net": 77141416}, {"code": "80001509", "name": "Artikel Load 1509", "sold": 176, "net": 76902056}, {"code": "80004164", "name": "Artikel Load 4164", "sold": 176, "net": 76747176}, {"code": "80001449", "name": "Artikel Load 1449", "sold": 176, "net": 76507816}, {"code": "80004104", "name": "Artikel Load 4104", "sold": 176, "net": 76352936}, {"code": "80001389", "name": "Artikel Load 1389", "sold": 176, "net": 76113576}], "PRIA": [{"code": "80003760", "name": "Artikel Load 3760", "sold": 165, "net": 73208520}, {"code": "80001045", "name": "Artikel Load 1045", "sold": 165, "net": 72984120}, {"code": "80003700", "name": "Artikel Load 3700", "sold": 165, "net": 72838920}, {"code": "80000985", "name": "Artikel Load 985", "sold": 165, "net": 72614520}, {"code": "80003640", "name": "Artikel Load 3640", "sold": 165, "net": 72469320}, {"code": "80000925", "name": "Artikel Load 925", "sold": 165, "net": 72244920}, {"code": "80003580", "name": "Artikel Load 3580", "sold": 165, "net": 72099720}, {"code": "80000865", "name": "Artikel Load 865", "sold": 165, "net": 71875320}], "SANDAL_SEPATU": [{"code": "80000161", "name": "Artikel Load 161", "sold": 165, "net": 73245315}, {"code": "80002816", "name": "Artikel Load 2816", "sold": 165, "net": 73100115}, {"code": "80000101", "name": "Artikel Load 101", "sold": 165, "net": 72875715}, {"code": "80002756", "name": "Artikel Load 2756", "sold": 165, "net": 72730515}, {"code": "80000041", "name": "Artikel Load 41", "sold": 165, "net": 72506115}, {"code": "80002696", "name": "Artikel Load 2696", "sold": 165, "net": 72360915}, {"code": "80002636", "name": "Artikel Load 2636", "sold": 165, "net": 71991315}, {"code": "80002576", "name": "Artikel Load 2576", "sold": 165, "net": 71621715}], "TAS": [{"code": "80002112", "name": "Artikel Load 2112", "sold": 176, "net": 77344168}, {"code": "80004767", "name": "Artikel Load 4767", "sold": 176, "net": 77189288}, {"code": "80002052", "name": "Artikel Load 2052", "sold": 176, "net": 76949928}, {"code": "80004707", "name": "Artikel Load 4707", "sold": 176, "net": 76795048}, {"code": "80001992", "name": "Artikel Load 1992", "sold": 176, "net": 76555688}, {"code": "80004647", "name": "Artikel Load 4647", "sold": 176, "net": 76400808}, {"code": "80001932", "name": "Artikel Load 1932", "sold": 176, "net": 76161448}, {"code": "80004587", "name": "Artikel Load 4587", "sold": 176, "net": 76006568}], "WANITA": [{"code": "80001408", "name": "Artikel Load 1408", "sold": 176, "net": 77411752}, {"code": "80004063", "name": "Artikel Load 4063", "sold": 176, "net": 77256872}, {"code": "80001348", "name": "Artikel Load 1348", "sold": 176, "net": 77017512}, {"code": "80004003", "name": "Artikel Load 4003", "sold": 176, "net": 76862632}, {"code": "80001288", "name": "Artikel Load 1288", "sold": 176, "net": 76623272}, {"code": "80003943", "name": "Artikel Load 3943", "sold": 176, "net": 76468392}, {"code": "80001228", "name": "Artikel Load 1228", "sold": 176, "net": 76229032}, {"code": "80003883", "name": "Artikel Load 3883", "sold": 176, "net": 76074152}], "WOMENSWEAR": [{"code": "80000704", "name": "Artikel Load 704", "sold": 176, "net": 77479336}, {"code": "80003359", "name": "Artikel Load 3359", "sold": 176, "net": 77324456}, {"code": "80000644", "name": "Artikel Load 644", "sold": 176, "net": 77085096}, {"code": "80003299", "name": "Artikel Load 3299", "sold": 176, "net": 76930216}, {"code": "80000584", "name": "Artikel Load 584", "sold": 176, "net": 76690856}, {"code": "80003239", "name": "Artikel Load 3239", "sold": 176, "net": 76535976}, {"code": "80000524", "name": "Artikel Load 524", "sold": 176, "net": 76296616}, {"code": "80003179", "name": "Artikel Load 3179", "sold": 176, "net": 76141736}]}, "total": {"sold": 1950000, "list": 584987825000, "net": 584987825000, "refund": 0}, "receipts": {"done": 975000, "voided": 25000, "voided_minor": 14993095000}};
+const S = { opt: "A", period: "year", group: "division", drill: null, perStore: false, metric: "net", tint: true, open: new Set(["WANITA"]), q: "" };
+
+/* ── numbers ─────────────────────────────────────────── */
+const nf = new Intl.NumberFormat("id-ID");
+const num = (n) => nf.format(Math.round(n));
+const pct = (x) => (x * 100).toLocaleString("id-ID", { maximumFractionDigits: 1, minimumFractionDigits: 1 }) + "%";
+const rp = (minor) => "Rp " + num(minor);
+const short = (minor) => rpc(minor).replace("Rp ", "");
+function rpc(minor) {
+  const v = Math.abs(minor), s = minor < 0 ? "−" : "";
+  const f = (x, u) => s + "Rp " + x.toLocaleString("id-ID", { maximumFractionDigits: x < 10 ? 2 : 1, minimumFractionDigits: x < 10 ? 2 : 1 }) + " " + u;
+  if (v >= 1e12) return f(v / 1e12, "T");
+  if (v >= 1e9) return f(v / 1e9, "B");
+  if (v >= 1e6) return f(v / 1e6, "M");
+  return s + rp(v);
+}
+
+/* ── the window ──────────────────────────────────────── */
+const YEAR = { sold: D.total.sold, net: D.total.net };
+const PERIODS = {
+  month: { label: "This month", text: "1–31 Dec 2025", m: D.month[11] },
+  last: { label: "Last month", text: "1–30 Nov 2025", m: D.month[10] },
+  year: { label: "This year", text: "1 Jan – 31 Dec 2025", m: YEAR },
+  all: { label: "All time", text: "1 Jan – 26 Dec 2025", m: YEAR },
+};
+function scale() {
+  const m = PERIODS[S.period].m;
+  return { sold: m.sold / YEAR.sold, net: m.net / YEAR.net };
+}
+function totals() {
+  const k = scale();
+  const done = D.receipts.done * k.sold, voided = D.receipts.voided * k.sold;
+  const sold = YEAR.sold * k.sold, net = YEAR.net * k.net;
+  return { done, voided, sold, gross: net, discount: 0, returns: 0, net, perTx: net / done };
+}
+
+/* ── rows per grouping ───────────────────────────────── */
+const STORES = D.store;
+function sampleSplit(labels, weights, salt) {
+  const k = scale();
+  const tw = weights.reduce((a, b) => a + b, 0);
+  return labels.map((label, i) => {
+    const w = weights[i] / tw;
+    const perStore = {};
+    STORES.forEach((s, j) => { const wob = 1 + (((i * 7 + j * 3 + salt) % 9) - 4) / 400; perStore[s.id] = { sold: s.sold * w * wob * k.sold, net: s.net * w * wob * k.net }; });
+    return { key: label, label, detail: null, articles: Math.round(12000 * w), sold: YEAR.sold * w * k.sold, net: YEAR.net * w * k.net, perStore };
+  });
+}
+const TAGS = D.tags.map((t) => t.label);
+const TAG_W = [9, 14, 7, 8, 5, 6, 4, 5, 3, 11, 2, 7, 5, 6, 3, 2, 2, 3, 4, 3, 2];
+function rows() {
+  const k = scale();
+  if (S.drill) {
+    const d = D.div.find((x) => x.code === S.drill);
+    const arts = D.art[S.drill].map((a, i) => ({
+      key: a.code, label: a.name, detail: a.code + " · " + d.label + " · " + TAGS[(i * 5 + 3) % TAGS.length],
+      articles: 1, sold: a.sold * k.sold, net: a.net * k.net, perStore: perStoreOf(a.net * k.net, a.sold * k.sold, i),
+    }));
+    return arts;
+  }
+  switch (S.group) {
+    case "division":
+      return D.div.map((d) => ({
+        key: d.code, label: d.label, detail: null, articles: d.articles, sold: d.sold * k.sold, net: d.net * k.net,
+        perStore: Object.fromEntries(STORES.map((s) => [s.id, { sold: D.divstore[d.code][s.id].sold * k.sold, net: D.divstore[d.code][s.id].net * k.net }])),
+      }));
+    case "tag": return sampleSplit(TAGS, TAG_W, 1).sort((a, b) => b.net - a.net);
+    case "store":
+      return STORES.map((s) => ({ key: s.id, label: s.name, detail: s.code, articles: 12000, sold: s.sold * k.sold, net: s.net * k.net, perStore: { [s.id]: { sold: s.sold * k.sold, net: s.net * k.net } }, tx: D.rcpt[s.id].done * k.sold }));
+    case "supplier": return sampleSplit(["CV Benang Mas", "PT Sandang Prima", "UD Tenun Jaya", "PT Garmen Nusantara", "CV Kain Indah", "PT Busana Utama", "No supplier"], [18, 16, 15, 14, 13, 12, 12], 2);
+    case "colour": return sampleSplit(["Black", "White", "Navy", "Grey"], [27, 25, 24, 24], 3);
+    case "size": return sampleSplit(["XS", "S", "M", "L"], [21, 26, 29, 24], 4);
+    case "article": {
+      const all = Object.entries(D.art).flatMap(([code, list]) => list.slice(0, 2).map((a) => ({ ...a, div: D.div.find((x) => x.code === code).label })));
+      return all.sort((a, b) => b.net - a.net).map((a, i) => ({ key: a.code, label: a.name, detail: a.code + " · " + a.div, articles: 1, sold: a.sold * k.sold, net: a.net * k.net, perStore: perStoreOf(a.net * k.net, a.sold * k.sold, i) }));
+    }
+    case "sku": return sampleSplit(["90001408 · Black / M", "90004063 · Navy / S", "90001348 · White / L", "90004003 · Grey / M", "90001288 · Black / S", "90003943 · Navy / M"], [6, 6, 5, 5, 5, 5], 5);
+    case "month":
+      return D.month.map((m) => ({ key: m.m, label: new Date(m.m + "T00:00:00").toLocaleDateString("en-GB", { month: "long", year: "numeric" }), detail: null, articles: 12000, sold: m.sold, net: m.net, perStore: perStoreOf(m.net, m.sold, 1) }));
+  }
+}
+function perStoreOf(net, sold, salt) {
+  return Object.fromEntries(STORES.map((s, j) => { const w = (1 + (((salt + j * 5) % 7) - 3) / 60) / STORES.length; return [s.id, { net: net * w, sold: sold * w }]; }));
+}
+const GROUPS = [["division", "Division"], ["tag", "Tag"], ["article", "Article"], ["sku", "SKU"], ["store", "Store"], ["supplier", "Supplier"], ["colour", "Colour"], ["size", "Size"], ["month", "Month"]];
+const NOUN = { division: ["division", "divisions"], tag: ["tag", "tags"], article: ["article", "articles"], sku: ["SKU", "SKUs"], store: ["store", "stores"], supplier: ["supplier", "suppliers"], colour: ["colour", "colours"], size: ["size", "sizes"], month: ["month", "months"] };
+
+/* ── pieces of the screen ────────────────────────────── */
+function header() {
+  const p = PERIODS[S.period];
+  return `<div class="head">
+    <div class="title"><h1>Sales</h1><p>${p.text} · 13 stores</p></div>
+    <div class="grow"></div>
+    <div class="seg" role="tablist">${Object.entries(PERIODS).map(([k, v]) => `<button class="pressable ${S.period === k ? "on" : ""}" data-period="${k}">${v.label}</button>`).join("")}</div>
+    <label class="search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" placeholder="Search" value="${S.q}"></label>
+  </div>`;
+}
+function band() {
+  const t = totals();
+  return `<section class="band" aria-label="Totals">
+    <div class="fig"><div class="l">Transactions</div><div class="v">${num(t.done + t.voided)}</div><div class="s">${num(t.done)} completed<br>${num(t.voided)} voided</div></div>
+    <div class="fig"><div class="l">Sold</div><div class="v">${num(t.sold)} pcs</div><div class="s">${(t.sold / t.done).toLocaleString("id-ID", { maximumFractionDigits: 1 })} per transaction</div></div>
+    <div class="vr"></div>
+    <div class="fig"><div class="l">Gross sales</div><div class="v">${rpc(t.gross)}</div><div class="s">at full price</div></div>
+    <div class="op">−</div>
+    <div class="fig"><div class="l">Discount</div><div class="v">${rpc(t.discount)}</div><div class="s">${pct(t.discount / t.gross)} of gross</div></div>
+    <div class="op">−</div>
+    <div class="fig"><div class="l">Returns</div><div class="v">${rpc(t.returns)}</div><div class="s">0 pcs back</div></div>
+    <div class="op">=</div>
+    <div class="fig net"><div class="l">Net sales</div><div class="v">${rpc(t.net)}</div><div class="s">${rp(t.perTx)}<br>per transaction</div></div>
+    <div class="vr"></div>
+    <div class="fig"><div class="l">Gross profit</div><div class="v">—</div><div class="s">${num(t.sold)} pcs<br>without cost</div></div>
+  </section>`;
+}
+function tabs(extra) {
+  const g = S.drill ? "article" : S.group;
+  return `<div class="card-h">
+    <div class="tabs">${GROUPS.map(([k, l]) => `<button class="pressable ${g === k ? "on" : ""}" data-group="${k}">${l}</button>`).join("")}</div>
+    <div class="grow"></div>${extra}
+    <button class="btn pressable">Filter</button>
+    <button class="btn pressable hide-phone">Export</button>
+  </div>`;
+}
+function crumb() {
+  if (!S.drill) return "";
+  const d = D.div.find((x) => x.code === S.drill);
+  return `<div class="crumb"><button data-up="1">All divisions</button><span>›</span><span>${d.label}</span><span>·</span><span>${num(d.articles)} articles, top 8 shown</span></div>`;
+}
+function filtered(list) {
+  const q = S.q.trim().toLowerCase();
+  return q ? list.filter((r) => (r.label + " " + (r.detail || "")).toLowerCase().includes(q)) : list;
+}
+function nameCell(r, i) {
+  return `<td class="name"><div class="n">${r.label}</div>${r.detail ? `<div class="d">${r.detail}</div>` : ""}</td>`;
+}
+function countLine(list) {
+  const g = S.drill ? "article" : S.group;
+  const n = NOUN[g];
+  return `<div class="foot">${num(list.length)} ${list.length === 1 ? n[0] : n[1]}${S.group === "tag" && !S.drill ? " · an article under two tags counts in both" : ""}</div>`;
+}
+
+/* A — one table: totals band, the grouping as tabs, one table; stores on request */
+function optA() {
+  const list = filtered(rows()).sort((a, b) => b.net - a.net);
+  const t = totals();
+  const per = S.perStore;
+  const head = per
+    ? `<th>${GROUPS.find((x) => x[0] === (S.drill ? "article" : S.group))[1]}</th>${STORES.map((s) => `<th>${s.code.replace("-TOKO", "")}</th>`).join("")}<th>All stores</th>`
+    : `<th>${GROUPS.find((x) => x[0] === (S.drill ? "article" : S.group))[1]}</th><th class="hide-phone">Articles</th><th>Sold</th><th class="hide-phone">Gross sales</th><th class="hide-phone">Discount</th><th>Net sales</th><th>Share</th>`;
+  const body = list.map((r, i) => per
+    ? `<tr data-row="${r.key}">${nameCell(r, i)}${STORES.map((s) => `<td>${short(r.perStore[s.id] ? r.perStore[s.id].net : 0)}</td>`).join("")}<td class="num-b">${short(r.net)}</td></tr>`
+    : `<tr data-row="${r.key}">${nameCell(r, i)}<td class="hide-phone q">${num(r.articles)}</td><td>${num(r.sold)}</td><td class="hide-phone">${rpc(r.net)}</td><td class="hide-phone q">Rp 0</td><td class="num-b">${rpc(r.net)}</td><td class="share">${pct(r.net / t.net)}</td></tr>`).join("");
+  const foot = per
+    ? `<tr><td>Total <span class="unit">Rp</span></td>${STORES.map((s) => `<td>${short(s.net * scale().net)}</td>`).join("")}<td>${short(t.net)}</td></tr>`
+    : `<tr><td>Total</td><td class="hide-phone">${num(S.drill ? D.div.find((x) => x.code === S.drill).articles : 12000)}</td><td>${num(S.drill ? list.reduce((a, r) => a + r.sold, 0) : t.sold)}</td><td class="hide-phone">${rpc(S.drill ? list.reduce((a, r) => a + r.net, 0) : t.net)}</td><td class="hide-phone">Rp 0</td><td>${rpc(S.drill ? list.reduce((a, r) => a + r.net, 0) : t.net)}</td><td>${S.drill ? pct(list.reduce((a, r) => a + r.net, 0) / t.net) : "100,0%"}</td></tr>`;
+  const toggle = `<div class="seg"><button class="pressable ${!per ? "on" : ""}" data-per="0">Totals</button><button class="pressable ${per ? "on" : ""}" data-per="1">Per store</button></div>`;
+  return `${band()}<section class="card">${tabs(toggle)}${crumb()}<div class="scroll fade"><table class="${per ? "tight" : ""}"><thead><tr>${head}</tr></thead><tbody>${body}</tbody><tfoot>${foot}</tfoot></table></div>${countLine(list)}</section>`;
+}
+
+/* B — store board: the grouping down, the 13 stores across, one number per cell */
+function optB() {
+  const list = filtered(rows()).sort((a, b) => b.net - a.net);
+  const key = S.metric;
+  const vals = list.flatMap((r) => STORES.map((s) => (r.perStore[s.id] ? r.perStore[s.id][key] : 0)));
+  const max = Math.max(...vals, 1), min = Math.min(...vals.filter((v) => v > 0), max);
+  const tint = (v) => (S.tint && v > 0 ? `style="background:rgba(37,99,235,${(0.04 + 0.41 * ((v - min) / (max - min || 1))).toFixed(3)})"` : "");
+  const fmt = (v) => (key === "net" ? short(v) : num(v));
+  const t = totals(), k = scale();
+  const head = `<th>${GROUPS.find((x) => x[0] === (S.drill ? "article" : S.group))[1]}</th>${STORES.map((s) => `<th title="${s.name}">${s.code.replace("-TOKO", "")}</th>`).join("")}<th>All stores</th>`;
+  const txRow = !S.drill ? `<tr class="q" style="cursor:default"><td class="name"><div class="n">Transactions</div></td>${STORES.map((s) => `<td>${num(D.rcpt[s.id].done * k.sold)}</td>`).join("")}<td class="num-b">${num(t.done)}</td></tr>` : "";
+  const body = list.map((r) => `<tr data-row="${r.key}">${nameCell(r)}${STORES.map((s) => { const v = r.perStore[s.id] ? r.perStore[s.id][key] : 0; return `<td class="heat" ${tint(v)}>${v ? fmt(v) : "—"}</td>`; }).join("")}<td class="num-b">${fmt(r[key])}</td></tr>`).join("");
+  const foot = `<tr><td>Total${key === "net" ? ' <span class="unit">Rp</span>' : ' <span class="unit">pcs</span>'}</td>${STORES.map((s) => `<td>${fmt(key === "net" ? s.net * k.net : s.sold * k.sold)}</td>`).join("")}<td>${fmt(key === "net" ? t.net : t.sold)}</td></tr>`;
+  const extra = `<div class="seg"><button class="pressable ${key === "net" ? "on" : ""}" data-metric="net">Net sales</button><button class="pressable ${key === "sold" ? "on" : ""}" data-metric="sold">Sold</button></div>
+    <div class="seg"><button class="pressable ${S.tint ? "on" : ""}" data-tint="1">Tint</button><button class="pressable ${!S.tint ? "on" : ""}" data-tint="0">Plain</button></div>`;
+  return `${band()}<section class="card">${tabs(extra)}${crumb()}<div class="scroll fade"><table class="tight"><thead><tr>${head}</tr></thead><tbody>${txRow}${body}</tbody><tfoot>${foot}</tfoot></table></div><div class="foot">${S.tint ? `<span class="legend">Low <span></span> High</span> · ` : ""}${num(list.length)} ${NOUN[S.drill ? "article" : S.group][1]}</div></section>`;
+}
+
+/* C — division tree: division → tag → article, one set of columns */
+function optC() {
+  const k = scale(), t = totals();
+  const divs = filtered(D.div.map((d) => ({ ...d, sold: d.sold * k.sold, net: d.net * k.net }))).sort((a, b) => b.net - a.net);
+  const cols = (r) => `<td>${num(r.sold)}</td><td class="hide-phone">${rpc(r.net)}</td><td class="hide-phone q">Rp 0</td><td class="num-b">${rpc(r.net)}</td><td class="share">${pct(r.net / t.net)}</td>`;
+  let body = "";
+  divs.forEach((d, di) => {
+    const open = S.open.has(d.code);
+    body += `<tr class="${open ? "open" : ""}" data-tree="${d.code}"><td class="name"><span class="caret">›</span><span class="n">${d.label}</span> <span class="d">· ${num(d.articles)} articles</span></td>${cols(d)}</tr>`;
+    if (!open) return;
+    const picks = [0, 1, 2, 3].map((j) => TAGS[(di * 3 + j * 5) % TAGS.length]);
+    const w = [0.38, 0.27, 0.21, 0.14];
+    picks.forEach((tag, j) => {
+      const tr = { sold: d.sold * w[j], net: d.net * w[j] };
+      body += `<tr class="lvl2" data-tag="${d.code}:${j}"><td class="name"><span class="n">${tag}</span></td>${cols(tr)}</tr>`;
+      if (j === 0) D.art[d.code].slice(0, 3).forEach((a) => {
+        body += `<tr class="lvl3"><td class="name"><span class="n">${a.name}</span> <span class="d">${a.code}</span></td>${cols({ sold: a.sold * k.sold, net: a.net * k.net })}</tr>`;
+      });
+    });
+  });
+  const head = `<th>Division › Tag › Article</th><th>Sold</th><th class="hide-phone">Gross sales</th><th class="hide-phone">Discount</th><th>Net sales</th><th>Share</th>`;
+  const foot = `<tr><td>Total</td><td>${num(t.sold)}</td><td class="hide-phone">${rpc(t.net)}</td><td class="hide-phone">Rp 0</td><td>${rpc(t.net)}</td><td>100,0%</td></tr>`;
+  const card = `<div class="card-h"><div class="tabs"><button class="on">Division › Tag › Article</button></div><div class="grow"></div><button class="btn pressable" data-expand="1">Open all</button><button class="btn pressable" data-collapse="1">Close all</button><button class="btn pressable">Filter</button></div>`;
+  return `${band()}<section class="card">${card}<div class="scroll fade"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody><tfoot>${foot}</tfoot></table></div><div class="foot">${divs.length} divisions</div></section>`;
+}
+
+/* ── render & wire ───────────────────────────────────── */
+function render() {
+  const page = document.getElementById("page");
+  const focus = document.activeElement && document.activeElement.id === "q";
+  page.innerHTML = header() + (S.opt === "A" ? optA() : S.opt === "B" ? optB() : optC());
+  document.querySelectorAll(".proto [data-opt]").forEach((b) => b.classList.toggle("on", b.dataset.opt === S.opt));
+  if (focus) { const q = document.getElementById("q"); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("button,tr");
+  if (!b) return;
+  const ds = b.dataset;
+  if (ds.opt) { S.opt = ds.opt; S.drill = null; }
+  else if (ds.period) S.period = ds.period;
+  else if (ds.group) { S.group = ds.group; S.drill = null; }
+  else if (ds.per) S.perStore = ds.per === "1";
+  else if (ds.metric) S.metric = ds.metric;
+  else if (ds.tint) S.tint = ds.tint === "1";
+  else if (ds.up) S.drill = null;
+  else if (ds.expand) S.open = new Set(D.div.map((d) => d.code));
+  else if (ds.collapse) S.open = new Set();
+  else if (ds.tree) { S.open.has(ds.tree) ? S.open.delete(ds.tree) : S.open.add(ds.tree); }
+  else if (ds.row && S.group === "division" && !S.drill) S.drill = ds.row;
+  else return;
+  render();
+});
+document.addEventListener("input", (e) => { if (e.target.id === "q") { S.q = e.target.value; render(); } });
+render();
+</script>
+</body>
+</html>

@@ -184,10 +184,12 @@ pub async fn finish_run(pool: &PgPool, run: FinishedRun<'_>) -> Result<(), AppEr
         .await?;
         // Prune now and then rather than on every run.
         if runs % 200 == 0 {
-            sqlx::query("DELETE FROM job_run WHERE finished_at < now() - make_interval(days => $1)")
-                .bind(KEEP_DAYS)
-                .execute(pool)
-                .await?;
+            sqlx::query(
+                "DELETE FROM job_run WHERE finished_at < now() - make_interval(days => $1)",
+            )
+            .bind(KEEP_DAYS)
+            .execute(pool)
+            .await?;
         }
     }
     Ok(())

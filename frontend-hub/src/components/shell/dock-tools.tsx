@@ -72,8 +72,9 @@ export function DockTools({
   filter,
   sort,
   status,
+  actions,
 }: {
-  search: {
+  search?: {
     value: string
     onChange: (value: string) => void
     /// What is searched: "Search Orders".
@@ -90,6 +91,9 @@ export function DockTools({
     choices?: DockSortChoices
   }
   status?: DockStatus
+  /// Acts on the list as a whole, as rows at the foot of the ⚙ menu: Export,
+  /// Sync. Shown on the sheet of a list that has a filter panel.
+  actions?: readonly { readonly label: string; readonly onClick: () => void }[]
 }) {
   const dock = useDock()
   const [sheet, setSheet] = useState<"status" | "search" | "sort" | null>(null)
@@ -107,6 +111,7 @@ export function DockTools({
     proxy.current?.focus()
     setSheet("search")
   }
+  const query = search ?? { value: "", onChange: () => undefined, label: "" }
   // The ⚙ of a list with only a sort goes straight to it: a menu of one row
   // is a tap for nothing.
   const toTools = () => {
@@ -130,7 +135,7 @@ export function DockTools({
             onClick={() => setSheet("status")}
             aria-haspopup="dialog"
             aria-label={`Status: ${current?.label ?? ""}`}
-            className="inline-flex h-9 max-w-full items-center gap-1 rounded-full bg-soft-2 pr-2.5 pl-3.5 text-[0.875rem] font-medium text-ink transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.97]"
+            className="inline-flex h-11 max-w-full items-center gap-1 rounded-full bg-soft-2 pr-3 pl-4 text-[0.875rem] font-medium text-ink transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.97]"
           >
             <span className="truncate">{current?.label}</span>
             <ChevronDown className="size-4 shrink-0 text-line-ico" />
@@ -138,83 +143,105 @@ export function DockTools({
         </DockPortal>
       )}
 
-      <DockPortal slot="search">
-        {/* The field: it says what is searched, or what was. */}
-        {/* Tinted while a search is narrowing the list: the list is not the
-        whole one, and the row says so where the thumb is. */}
-        <div
-          className={cn(
-            "dock-field flex h-9 min-w-0 items-center rounded-full pr-1 pl-3 transition-colors duration-150",
-            search.value === "" ? "bg-soft-2" : "bg-accent-bg"
-          )}
-        >
+      {search === undefined && several && (
+        <DockPortal slot="search">
           <button
             type="button"
-            onClick={toSearch}
-            aria-label={search.label}
-            className="flex h-full min-w-0 flex-1 items-center gap-2 text-left text-[0.875rem]"
+            aria-label="Filter and sort"
+            onClick={toTools}
+            className={cn(
+              "relative grid size-11 shrink-0 place-items-center rounded-full transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.92]",
+              (filter?.count ?? 0) > 0
+                ? "bg-accent-bg text-accent"
+                : "bg-soft-2 text-body"
+            )}
           >
-            <Search
-              className={cn(
-                "size-4 shrink-0",
-                search.value === "" ? "text-mute" : "text-accent"
-              )}
-            />
-            <span
-              className={cn(
-                "truncate",
-                search.value === "" ? "text-mute" : "font-medium text-ink"
-              )}
-            >
-              {search.value === "" ? search.label : search.value}
-            </span>
+            <ListFilter className="size-4" />
           </button>
-          {search.value !== "" && (
-            // One tap to widen the list again: it took a tap into the field,
-            // then another on its ✕, to undo a search.
+        </DockPortal>
+      )}
+      {search !== undefined && (
+        <DockPortal slot="search">
+          {/* The field: it says what is searched, or what was. */}
+          {/* Tinted while a search is narrowing the list: the list is not the
+        whole one, and the row says so where the thumb is. */}
+          <div
+            className={cn(
+              "dock-field flex h-11 min-w-0 items-center rounded-full pr-1 pl-3.5 transition-colors duration-150",
+              query.value === "" ? "bg-soft-2" : "bg-accent-bg"
+            )}
+          >
             <button
               type="button"
-              aria-label="Clear search"
-              onClick={() => search.onChange("")}
-              className="grid size-7 shrink-0 place-items-center rounded-full text-body transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.92]"
+              onClick={toSearch}
+              aria-label={query.label}
+              className="flex h-full min-w-0 flex-1 items-center gap-2 text-left text-[0.875rem]"
             >
-              <X className="size-4" />
+              <Search
+                className={cn(
+                  "size-4 shrink-0",
+                  query.value === "" ? "text-mute" : "text-accent"
+                )}
+              />
+              <span
+                className={cn(
+                  "truncate",
+                  query.value === "" ? "text-mute" : "font-medium text-ink"
+                )}
+              >
+                {query.value === "" ? query.label : query.value}
+              </span>
             </button>
-          )}
-          {several && (
-            <button
-              type="button"
-              aria-label="Filter and sort"
-              onClick={toTools}
-              className={cn(
-                "relative grid size-7 shrink-0 place-items-center rounded-full transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.92]",
-                (filter?.count ?? 0) > 0
-                  ? "bg-accent-bg text-accent"
-                  : "text-body"
-              )}
-            >
-              <ListFilter className="size-4" />
-            </button>
-          )}
-        </div>
-      </DockPortal>
+            {query.value !== "" && (
+              // One tap to widen the list again: it took a tap into the field,
+              // then another on its ✕, to undo a search.
+              <button
+                type="button"
+                aria-label="Clear search"
+                onClick={() => query.onChange("")}
+                // 36 to see, 44 to press (`after`), inside a 44px field.
+                className="relative grid size-9 shrink-0 place-items-center rounded-full text-body transition-[scale] duration-(--t-press) ease-(--ease-out) after:absolute after:-inset-1 after:content-[''] active:scale-[0.92]"
+              >
+                <X className="size-4" />
+              </button>
+            )}
+            {several && (
+              <button
+                type="button"
+                aria-label="Filter and sort"
+                onClick={toTools}
+                className={cn(
+                  // 36 to see, 44 to press (`after`), inside a 44px field.
+                  "relative grid size-9 shrink-0 place-items-center rounded-full transition-[scale] duration-(--t-press) ease-(--ease-out) after:absolute after:-inset-1 after:content-[''] active:scale-[0.92]",
+                  (filter?.count ?? 0) > 0
+                    ? "bg-accent-bg text-accent"
+                    : "text-body"
+                )}
+              >
+                <ListFilter className="size-4" />
+              </button>
+            )}
+          </div>
+        </DockPortal>
+      )}
 
       {dock?.available === true && (
         <>
           {/* The field the keyboard is raised from (see `proxy`). Not inside
               the dock: while somebody types the dock steps aside, and a field
               that stepped aside with it would drop the keyboard. */}
-          {createPortal(
-            <input
-              ref={proxy}
-              type="search"
-              inputMode="search"
-              aria-hidden
-              tabIndex={-1}
-              className="pointer-events-none fixed top-0 left-0 size-px opacity-0"
-            />,
-            document.body
-          )}
+          {search !== undefined &&
+            createPortal(
+              <input
+                ref={proxy}
+                type="search"
+                inputMode="search"
+                aria-hidden
+                tabIndex={-1}
+                className="pointer-events-none fixed top-0 left-0 size-px opacity-0"
+              />,
+              document.body
+            )}
 
           {status !== undefined && (
             <BottomSheet
@@ -252,66 +279,68 @@ export function DockTools({
             </BottomSheet>
           )}
 
-          <BottomSheet
-            live
-            open={sheet === "search"}
-            onOpenChange={(next) => !next && setSheet(null)}
-            title="Search"
-            action={
-              <button
-                type="button"
-                // Pressed without taking the focus off the field: a press that
-                // did closed the keyboard first, the sheet came down with it,
-                // and the tap was lost — Done closed only the keyboard and
-                // had to be pressed again (owner, 2026-10-06).
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => setSheet(null)}
-                className="h-tap shrink-0 rounded-inner px-3 text-[0.9375rem] font-semibold text-accent active:opacity-60"
-              >
-                Done
-              </button>
-            }
-          >
-            <div className="px-4 pb-3">
-              <div className="relative">
-                <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-mute" />
-                <input
-                  autoFocus
-                  type="search"
-                  enterKeyHint="search"
-                  // A PO number or a supplier's code is searched as typed: no
-                  // capital for the first letter, no correction into a word.
-                  autoCapitalize="none"
-                  autoCorrect="off"
-                  spellCheck={false}
-                  value={search.value}
-                  onChange={(event) => search.onChange(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") setSheet(null)
-                  }}
-                  aria-label={search.label}
-                  placeholder={search.label}
-                  // 16px: iOS zooms the page into any field set smaller, and
-                  // a page that has zoomed itself is a worse search than none.
-                  className="h-11 w-full rounded-full bg-soft-2 pr-9 pl-9 text-base text-ink outline-none placeholder:text-mute [&::-webkit-search-cancel-button]:hidden"
-                />
-                {search.value !== "" && (
-                  <button
-                    type="button"
-                    aria-label="Clear search"
-                    // Keeps the focus: a clear that blurred the field would
-                    // drop the keyboard just when somebody is about to type
-                    // again.
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => search.onChange("")}
-                    className="absolute top-1/2 right-2 grid size-6 -translate-y-1/2 place-items-center rounded-full bg-mute/20 text-body"
-                  >
-                    <X className="size-3.5" />
-                  </button>
-                )}
+          {search !== undefined && (
+            <BottomSheet
+              live
+              open={sheet === "search"}
+              onOpenChange={(next) => !next && setSheet(null)}
+              title="Search"
+              action={
+                <button
+                  type="button"
+                  // Pressed without taking the focus off the field: a press that
+                  // did closed the keyboard first, the sheet came down with it,
+                  // and the tap was lost — Done closed only the keyboard and
+                  // had to be pressed again (owner, 2026-10-06).
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => setSheet(null)}
+                  className="h-tap shrink-0 rounded-inner px-3 text-[0.9375rem] font-semibold text-accent active:opacity-60"
+                >
+                  Done
+                </button>
+              }
+            >
+              <div className="px-4 pb-3">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-mute" />
+                  <input
+                    autoFocus
+                    type="search"
+                    enterKeyHint="search"
+                    // A PO number or a supplier's code is searched as typed: no
+                    // capital for the first letter, no correction into a word.
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    value={query.value}
+                    onChange={(event) => query.onChange(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") setSheet(null)
+                    }}
+                    aria-label={query.label}
+                    placeholder={query.label}
+                    // 16px: iOS zooms the page into any field set smaller, and
+                    // a page that has zoomed itself is a worse search than none.
+                    className="h-11 w-full rounded-full bg-soft-2 pr-9 pl-9 text-base text-ink outline-none placeholder:text-mute [&::-webkit-search-cancel-button]:hidden"
+                  />
+                  {query.value !== "" && (
+                    <button
+                      type="button"
+                      aria-label="Clear search"
+                      // Keeps the focus: a clear that blurred the field would
+                      // drop the keyboard just when somebody is about to type
+                      // again.
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => query.onChange("")}
+                      className="absolute top-1/2 right-2 grid size-6 -translate-y-1/2 place-items-center rounded-full bg-mute/20 text-body after:absolute after:-inset-2.5 after:content-['']"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
-          </BottomSheet>
+            </BottomSheet>
+          )}
 
           {filter?.panel !== undefined && (
             <ListOptionsSheet
@@ -322,6 +351,7 @@ export function DockTools({
               filterModel={filter.panel.filterModel}
               table={filter.panel.table}
               sortChoices={sort?.choices}
+              actions={actions}
             />
           )}
 
@@ -341,6 +371,75 @@ export function DockTools({
             </BottomSheet>
           )}
         </>
+      )}
+    </>
+  )
+}
+
+/// A list's one-of-a-few choice as the dock's status button — the chip and the
+/// sheet it opens — for a screen that has a choice and no search to put beside
+/// it: the in-page tabs on a phone (`SubTabs`), which are a row that scrolls
+/// sideways until they are this (owner, 2026-10-06).
+export function DockChoice({
+  value,
+  options,
+  onChange,
+  title = "Status",
+}: {
+  /// The sheet's title: what is being chosen ("Unit", "Day").
+  title?: string
+  value: string
+  options: readonly {
+    readonly value: string
+    readonly label: React.ReactNode
+    /// A plain word for the chip and a screen reader, where `label` carries
+    /// more than words.
+    readonly short?: string
+  }[]
+  onChange: (value: string) => void
+}) {
+  const dock = useDock()
+  const [open, setOpen] = useState(false)
+  const current = options.find((one) => one.value === value)
+  return (
+    <>
+      <DockPortal slot="tabs">
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          aria-haspopup="dialog"
+          aria-label={`Status: ${current?.short ?? ""}`}
+          className="inline-flex h-11 max-w-full items-center gap-1 rounded-full bg-soft-2 pr-3 pl-4 text-[0.875rem] font-medium text-ink transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.97]"
+        >
+          <span className="truncate">{current?.short ?? current?.label}</span>
+          <ChevronDown className="size-4 shrink-0 text-line-ico" />
+        </button>
+      </DockPortal>
+      {dock?.available === true && (
+        <BottomSheet open={open} onOpenChange={setOpen} title={title}>
+          <div className="min-h-0 overflow-y-auto overscroll-contain px-2 pb-3">
+            {options.map((one) => {
+              const on = one.value === value
+              return (
+                <button
+                  key={one.value}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => {
+                    onChange(one.value)
+                    setOpen(false)
+                  }}
+                  className={cn(SHEET_ROW, on && "font-medium text-accent")}
+                >
+                  <span className="flex-1">{one.label}</span>
+                  <Check
+                    className={cn("size-4 shrink-0", on ? "" : "opacity-0")}
+                  />
+                </button>
+              )
+            })}
+          </div>
+        </BottomSheet>
       )}
     </>
   )

@@ -14,7 +14,6 @@
 //! message or your name buzzes it, a group's small talk and a muted room do
 //! not.
 
-
 use axum::body::{to_bytes, Body};
 use http::{header, Request, StatusCode};
 use inventory_backend::cloud::{http as cloud_http, postgres as cloud, AppConfig, AppState};
@@ -191,7 +190,12 @@ async fn create_user(app: &axum::Router, cookies: &str, csrf: &str, username: &s
         })),
     )
     .await;
-    assert_eq!(created.status, StatusCode::OK, "create {username}: {:?}", created.body);
+    assert_eq!(
+        created.status,
+        StatusCode::OK,
+        "create {username}: {:?}",
+        created.body
+    );
 }
 
 struct Person {
@@ -300,7 +304,14 @@ async fn a_thread_carries_replies_edits_reactions_pins_and_deletions(pool: PgPoo
     assert_eq!(resent.body["seq"], json!(1));
     assert_eq!(resent.body["message_id"], first.body["message_id"]);
 
-    let listed = send(app.clone(), "GET", "/api/v1/chat/conversations", budi.read(), None).await;
+    let listed = send(
+        app.clone(),
+        "GET",
+        "/api/v1/chat/conversations",
+        budi.read(),
+        None,
+    )
+    .await;
     assert_eq!(listed.status, StatusCode::OK);
     assert_eq!(listed.body[0]["title"], json!("Sari M"));
     assert_eq!(listed.body[0]["unread_count"], json!(1));
@@ -363,7 +374,10 @@ async fn a_thread_carries_replies_edits_reactions_pins_and_deletions(pool: PgPoo
         )
         .await;
         assert_eq!(on.status, StatusCode::OK, "{:?}", on.body);
-        assert_eq!(on.body["reactions"], json!([{ "emoji": "👍", "users": ["budi"] }]));
+        assert_eq!(
+            on.body["reactions"],
+            json!([{ "emoji": "👍", "users": ["budi"] }])
+        );
     }
     let words = send(
         app.clone(),
@@ -467,10 +481,11 @@ async fn a_thread_carries_replies_edits_reactions_pins_and_deletions(pool: PgPoo
     .unwrap_or_else(|error| panic!("events: {error}"));
     assert_eq!(kinds, vec!["chat.message", "chat.read", "chat.update"]);
     // Marking again is not a second announcement.
-    let before: i64 = sqlx::query_scalar("SELECT count(*) FROM collaboration_event WHERE kind = 'chat.read'")
-        .fetch_one(&pool)
-        .await
-        .unwrap_or_else(|error| panic!("count: {error}"));
+    let before: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM collaboration_event WHERE kind = 'chat.read'")
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("count: {error}"));
     send(
         app.clone(),
         "POST",
@@ -479,21 +494,43 @@ async fn a_thread_carries_replies_edits_reactions_pins_and_deletions(pool: PgPoo
         Some(json!({ "last_read_seq": 50 })),
     )
     .await;
-    let after: i64 = sqlx::query_scalar("SELECT count(*) FROM collaboration_event WHERE kind = 'chat.read'")
-        .fetch_one(&pool)
-        .await
-        .unwrap_or_else(|error| panic!("count: {error}"));
+    let after: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM collaboration_event WHERE kind = 'chat.read'")
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("count: {error}"));
     assert_eq!(before, after);
 
     // Search reaches the rooms you are in and no others; a stranger is told
     // the room does not exist at all.
-    let found = send(app.clone(), "GET", "/api/v1/chat/search?q=SUDAH", sari.read(), None).await;
+    let found = send(
+        app.clone(),
+        "GET",
+        "/api/v1/chat/search?q=SUDAH",
+        sari.read(),
+        None,
+    )
+    .await;
     assert_eq!(found.status, StatusCode::OK);
     assert_eq!(found.body.as_array().map(Vec::len), Some(1));
     assert_eq!(found.body[0]["conversation_title"], json!("Budi S"));
-    let outsider = send(app.clone(), "GET", "/api/v1/chat/search?q=sudah", admin.read(), None).await;
+    let outsider = send(
+        app.clone(),
+        "GET",
+        "/api/v1/chat/search?q=sudah",
+        admin.read(),
+        None,
+    )
+    .await;
     assert_eq!(outsider.body.as_array().map(Vec::len), Some(0));
-    let wildcard = send(app.clone(), "GET", "/api/v1/chat/search?q=%25%25", sari.read(), None).await;
+    let wildcard = send(
+        app.clone(),
+        "GET",
+        "/api/v1/chat/search?q=%25%25",
+        sari.read(),
+        None,
+    )
+    .await;
     assert_eq!(wildcard.body.as_array().map(Vec::len), Some(0));
     let stranger = send(
         app.clone(),
@@ -537,7 +574,15 @@ async fn a_thread_carries_replies_edits_reactions_pins_and_deletions(pool: PgPoo
     // Scrolling back: the newest page, then the one before it, with no gap
     // and no overlap between them.
     for index in 0..60 {
-        let line = say(&app, &sari, &room, &format!("baris {index}"), &format!("page-{index}"), None).await;
+        let line = say(
+            &app,
+            &sari,
+            &room,
+            &format!("baris {index}"),
+            &format!("page-{index}"),
+            None,
+        )
+        .await;
         assert_eq!(line.status, StatusCode::CREATED);
     }
     let latest = send(
@@ -585,7 +630,10 @@ async fn a_group_writes_its_own_history_and_keeps_an_admin(pool: PgPool) {
     assert_eq!(started.status, StatusCode::CREATED, "{:?}", started.body);
     assert_eq!(started.body["is_admin"], json!(true));
     assert_eq!(started.body["latest_message_seq"], json!(1));
-    assert_eq!(started.body["preview"], json!("Sari M created the group “Receiving DC-01”"));
+    assert_eq!(
+        started.body["preview"],
+        json!("Sari M created the group “Receiving DC-01”")
+    );
     assert_eq!(started.body["preview_author"], Value::Null);
     let room = started.body["conversation_id"]
         .as_str()
@@ -624,7 +672,10 @@ async fn a_group_writes_its_own_history_and_keeps_an_admin(pool: PgPool) {
     .await;
     assert_eq!(renamed.status, StatusCode::OK, "{:?}", renamed.body);
     assert_eq!(renamed.body["title"], json!("Receiving DC-02"));
-    assert_eq!(renamed.body["preview"], json!("Sari M renamed the group to “Receiving DC-02”"));
+    assert_eq!(
+        renamed.body["preview"],
+        json!("Sari M renamed the group to “Receiving DC-02”")
+    );
 
     let added = send(
         app.clone(),
@@ -634,7 +685,11 @@ async fn a_group_writes_its_own_history_and_keeps_an_admin(pool: PgPool) {
         Some(json!({ "participants": ["tono", "nobody-here"] })),
     )
     .await;
-    assert_eq!(added.status, StatusCode::BAD_REQUEST, "an unknown name is refused");
+    assert_eq!(
+        added.status,
+        StatusCode::BAD_REQUEST,
+        "an unknown name is refused"
+    );
     let added = send(
         app.clone(),
         "POST",
@@ -648,8 +703,19 @@ async fn a_group_writes_its_own_history_and_keeps_an_admin(pool: PgPool) {
     // Tono joins reading from the line that says he was added.
     let his = send(app.clone(), "GET", &path, tono.read(), None).await;
     assert_eq!(his.body["unread_count"], json!(1));
-    let history = send(app.clone(), "GET", &format!("{path}/messages"), tono.read(), None).await;
-    assert_eq!(seqs(&history.body), vec![1, 2, 3], "the history before him is his to read");
+    let history = send(
+        app.clone(),
+        "GET",
+        &format!("{path}/messages"),
+        tono.read(),
+        None,
+    )
+    .await;
+    assert_eq!(
+        seqs(&history.body),
+        vec![1, 2, 3],
+        "the history before him is his to read"
+    );
 
     let removed_by_member = send(
         app.clone(),
@@ -758,12 +824,13 @@ async fn a_group_writes_its_own_history_and_keeps_an_admin(pool: PgPool) {
     )
     .await;
     assert_eq!(last.status, StatusCode::NO_CONTENT);
-    let remaining: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM chat_conversation WHERE conversation_id = $1::uuid")
-            .bind(&room)
-            .fetch_one(&pool)
-            .await
-            .unwrap_or_else(|error| panic!("count: {error}"));
+    let remaining: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM chat_conversation WHERE conversation_id = $1::uuid",
+    )
+    .bind(&room)
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("count: {error}"));
     assert_eq!(remaining, 0);
 
     // A direct room is not left; it is archived.
@@ -797,7 +864,9 @@ async fn subscribe(pool: &PgPool, username: &str) {
          VALUES ($1, $2, $3, $4)",
     )
     .bind(username)
-    .bind(format!("https://fcm.googleapis.com/fcm/send/{username}-device"))
+    .bind(format!(
+        "https://fcm.googleapis.com/fcm/send/{username}-device"
+    ))
     .bind("B".repeat(87))
     .bind("a".repeat(22))
     .execute(pool)

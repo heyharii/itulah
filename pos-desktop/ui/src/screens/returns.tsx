@@ -107,7 +107,8 @@ const REFUNDS = [
 /// on the wire turns one into the other. A cashier holding only the receipt has
 /// to find the sale another way, and being told that here is worth more than a
 /// refusal that says "sale S01-20260913-A1B2C3 not found".
-const RECEIPT_NUMBER = /^[A-Za-z0-9]+-\d{8}-[A-Za-z0-9]{1,8}$/
+// The shop code itself carries a hyphen (`STORE-01-20261009-D3581A`).
+const RECEIPT_NUMBER = /^[A-Za-z0-9][A-Za-z0-9-]*-\d{8}-[A-Za-z0-9]{1,8}$/
 
 // ── reading what the node sent back ─────────────────────────────────────
 

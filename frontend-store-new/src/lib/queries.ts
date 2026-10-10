@@ -1,4 +1,5 @@
 import { node } from "@/lib/api"
+import { ApiError, readError } from "@itulah/contract/client"
 import type {
   CatalogRow,
   MovementView,
@@ -45,6 +46,77 @@ export interface Catalogue {
 
 export const catalogueKey = () => ["catalogue"] as const
 
+/// The last **complete** book this session joined, and the generation the node
+/// named when it served it. Module-level rather than localStorage-backed on
+/// purpose: the book is thousands of rows, and the refetches a revalidation
+/// saves — the price-drops minute poll, a price book landing, a screen
+/// returning to focus — all happen inside one live session. Paying a
+/// synchronous multi-megabyte `stringify` after every one of those to also
+/// survive a reload trades real jank for a reload that already works.
+let resident: { readonly etag: string; readonly book: Catalogue } | null = null
+
+/// What the first page's answer was: either the resident book the node
+/// confirmed untouched, or a fresh page with the generation that produced it.
+type CatalogueHead =
+  | { readonly resident: Catalogue }
+  | { readonly fresh: Catalogue; readonly etag: string | undefined }
+
+/// The first page, through `fetch` rather than the node client.
+///
+/// `node.get` answers with the parsed body and nothing else, and a 304's whole
+/// value is in its headers — so the one request that may carry `If-None-Match`
+/// travels the client's own transport by hand: same origin, the session
+/// cookie (`node`'s base URL is empty — `lib/api.ts`), and nothing else, a GET
+/// being safe and so owing no CSRF echo. Everything the client does to a
+/// failure is done here too, so a refused or unreachable node reads exactly
+/// as it does on every other call.
+///
+/// Returns `resident` when the node answered 304 — the held book stands and
+/// nothing else need be asked. Only a first page ever goes through here, which
+/// is also the only shape the node will answer 304 to (`edge/http.rs`: a
+/// cursor or a search in the request and the body comes whole).
+async function firstCataloguePage(
+  signal?: AbortSignal,
+): Promise<CatalogueHead> {
+  const held = resident
+  const headers: Record<string, string> = {}
+  if (held !== null) headers["if-none-match"] = held.etag
+  let response: Response
+  try {
+    response = await fetch("/api/v1/store/catalog?limit=500", {
+      method: "GET",
+      credentials: "include",
+      headers,
+      signal,
+    })
+  } catch (error) {
+    // `reach` in the client does the same: a bare network failure is a 503,
+    // not a TypeError for every screen to relearn.
+    if (error instanceof TypeError) {
+      throw new ApiError(
+        503,
+        "Can't reach the server. Check the connection and try again in a moment.",
+      )
+    }
+    throw error
+  }
+  if (response.status === 304) {
+    // A 304 is the answer to the etag this request sent, which is only ever
+    // sent for a held book — a server saying otherwise has nothing it could
+    // confirm, and reads as the error it is.
+    if (held === null) throw await readError(response)
+    return { resident: held.book }
+  }
+  if (!response.ok) throw await readError(response)
+  return {
+    fresh: (await response.json()) as Catalogue,
+    // Absent only if something between here and the node stripped it — and an
+    // etag that cannot be had is a book that cannot be revalidated, so the
+    // caller files no generation for this one.
+    etag: response.headers.get("etag") ?? undefined,
+  }
+}
+
 /// The whole resident book, in pages, joined here.
 ///
 /// Fetched whole rather than searched server-side on every keystroke, because
@@ -68,17 +140,30 @@ export async function fetchCatalogue(signal?: AbortSignal): Promise<Catalogue> {
   let hasBook = false
   let version: number | null = null
   let currency: string | null = null
+  // The generation the first page was served under. Subsequent pages are the
+  // same scan of the same generation, so only the first page names it.
+  let etag: string | undefined
 
   // A shop's range is thousands of rows, not tens of thousands, and the pages
   // are the node's own size. The bound is a guard against a cursor that never
   // terminates, not an expected limit.
   for (let page = 0; page < 200; page += 1) {
-    const parameters = new URLSearchParams({ limit: "500" })
-    if (cursor !== null) parameters.set("cursor", cursor)
-    const answer: Catalogue = await node.get<Catalogue>(
-      `/api/v1/store/catalog?${parameters.toString()}`,
-      { signal },
-    )
+    let answer: Catalogue
+    if (cursor === null) {
+      // The first page is the one that may be asked conditionally — and it is
+      // asked through `fetch` even with no generation held, so that a book
+      // that will be complete is joined to the generation it came from.
+      const head = await firstCataloguePage(signal)
+      if ("resident" in head) return head.resident
+      answer = head.fresh
+      etag = head.etag
+    } else {
+      const parameters = new URLSearchParams({ limit: "500", cursor })
+      answer = await node.get<Catalogue>(
+        `/api/v1/store/catalog?${parameters.toString()}`,
+        { signal },
+      )
+    }
     first ??= answer
     items.push(...answer.items)
     hasBook ||= answer.has_price_book
@@ -93,7 +178,7 @@ export async function fetchCatalogue(signal?: AbortSignal): Promise<Catalogue> {
     if (cursor === null) break
   }
 
-  return {
+  const book: Catalogue = {
     site_id: first?.site_id ?? "",
     channel: first?.channel ?? "STORE",
     as_of: first?.as_of ?? new Date().toISOString(),
@@ -105,6 +190,18 @@ export async function fetchCatalogue(signal?: AbortSignal): Promise<Catalogue> {
     next_cursor: null,
     items,
   }
+
+  // Only a book the cursor loop ran to the end becomes resident — the 200-page
+  // guard above can leave a half-joined one, and a partial book evicting a
+  // complete one would have the next conditional ask confirm a book the till
+  // only half holds. A completed book with no generation named for it is
+  // dropped from the cache rather than filed under the previous one: an etag
+  // held without its book would be confirmed next time against a book the till
+  // no longer has.
+  if (cursor === null) {
+    resident = etag === undefined ? null : { etag, book }
+  }
+  return book
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

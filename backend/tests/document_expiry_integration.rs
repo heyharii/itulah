@@ -143,7 +143,11 @@ async fn file_it(
 
 /// Ask the drawer for one asset's papers. Spelled out because every test that
 /// uses it is asking the same question the hub's Dokumen tab asks.
-async fn papers_of(pool: &PgPool, subject_kind: &str, subject_id: Option<Uuid>) -> Vec<cloud::Document> {
+async fn papers_of(
+    pool: &PgPool,
+    subject_kind: &str,
+    subject_id: Option<Uuid>,
+) -> Vec<cloud::Document> {
     cloud::search_documents(
         pool,
         DocumentQuery {

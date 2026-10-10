@@ -4,6 +4,8 @@ import { useState } from "react"
 import type { LoanView } from "@itulah/contract"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
+import { Fab } from "@/components/ui/fab"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Field } from "@/components/ui/field"
@@ -23,6 +25,12 @@ import {
 import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
 import { GrantLoan, LoanCard } from "@/screens/people/loans"
+import {
+  CardButton,
+  CardFigure,
+  CardName,
+  PhoneCards,
+} from "@/components/ui/phone-cards"
 
 /// Claims & loans › Loans — every loan in the company, one row each, as
 /// Talenta's Loan lays them out: an amount lent, repaid by a fixed deduction
@@ -37,6 +45,7 @@ function loanPill(loan: LoanView) {
 
 export function Loans() {
   const canWrite = useCanWrite()
+  const phone = useLayout() === "phone"
   const [granting, setGranting] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
 
@@ -49,11 +58,13 @@ export function Loans() {
 
   return (
     <PageContent>
+      {canWrite && <Fab label="Grant loan" onClick={() => setGranting(true)} />}
       <PageHeader
         crumb="People"
         title="Loans"
         sub="Every loan: what was lent, what has come back from pay, and what is still owed."
         actions={
+          !phone &&
           canWrite && (
             <Button variant="primary" onClick={() => setGranting(true)}>
               Grant loan
@@ -62,7 +73,7 @@ export function Loans() {
         }
       />
 
-      <Card className="overflow-hidden px-4 py-2">
+      <Card className="overflow-hidden px-4 py-2 max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:p-0 max-md:shadow-none">
         {queryState(loans, {
           loading: "Reading the loans…",
           render: () =>
@@ -71,6 +82,45 @@ export function Loans() {
                 No loan has been granted. Use Grant loan to lend someone money
                 that is repaid from pay in fixed monthly instalments.
               </EmptyState>
+            ) : phone ? (
+              <PhoneCards
+                rows={rows}
+                onOpen={(loan) => setOpenId(loan.advance_id)}
+                rowId={(loan) => loan.advance_id}
+                spec={{
+                  title: (loan) => (
+                    <CardName
+                      name={loan.full_name ?? loan.employee_code}
+                      line={
+                        <>
+                          <span className="block">
+                            {loan.advance_number} · {loan.purpose}
+                          </span>
+                          <span className="block">
+                            Lent {money(loan.amount_minor)} ·{" "}
+                            {money(loan.instalment_minor)} a month
+                          </span>
+                        </>
+                      }
+                    />
+                  ),
+                  lead: (loan) => (
+                    <CardFigure
+                      value={money(loan.outstanding_minor)}
+                      caption="still owed"
+                      tone={loan.outstanding_minor === 0 ? "quiet" : undefined}
+                    />
+                  ),
+                  foot: (loan) => loanPill(loan),
+                  action: (loan) => (
+                    <CardButton
+                      label="Open"
+                      ariaLabel={`Open loan ${loan.advance_number}`}
+                      onClick={() => setOpenId(loan.advance_id)}
+                    />
+                  ),
+                }}
+              />
             ) : (
               <MiniTable
                 head={[

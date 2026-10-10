@@ -8,7 +8,7 @@ import type { AllotmentList, AllotmentRow } from "@/lib/queries/inventory"
 ///
 /// Gathered from what the Allotments page already reads — no read of its own:
 ///
-/// - **Unfilled** — a store's share the Gudang cannot fill after the count
+/// - **Unfilled** — a store's share the warehouse cannot fill after the count
 ///   (`/allotments/unfilled`, open lines), still waiting for a Close short;
 /// - **Closed short** — the same, once closed (its closed lines);
 /// - **Short at store** — an allotment whose store received fewer than were

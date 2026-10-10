@@ -64,7 +64,11 @@ async fn announce(
     .fetch_optional(&mut **tx)
     .await?
     .flatten();
-    let place = if site_id.is_empty() { origin_id } else { site_id };
+    let place = if site_id.is_empty() {
+        origin_id
+    } else {
+        site_id
+    };
     if worth_an_alert(assessment) {
         if alerted.as_deref() == Some(assessment.code.as_str()) {
             return Ok(());
@@ -92,12 +96,14 @@ async fn announce(
             &recipients,
         )
         .await?;
-        sqlx::query("UPDATE node_heartbeat SET alerted_code = $2, alerted_at = $3 WHERE origin_id = $1")
-            .bind(origin_id)
-            .bind(&assessment.code)
-            .bind(now)
-            .execute(&mut **tx)
-            .await?;
+        sqlx::query(
+            "UPDATE node_heartbeat SET alerted_code = $2, alerted_at = $3 WHERE origin_id = $1",
+        )
+        .bind(origin_id)
+        .bind(&assessment.code)
+        .bind(now)
+        .execute(&mut **tx)
+        .await?;
     } else if let Some(previous) = alerted {
         if assessment.tone >= Tone::Warn {
             // Still not well, but nothing a person can do now — keep quiet
@@ -119,10 +125,12 @@ async fn announce(
             &recipients,
         )
         .await?;
-        sqlx::query("UPDATE node_heartbeat SET alerted_code = NULL, alerted_at = NULL WHERE origin_id = $1")
-            .bind(origin_id)
-            .execute(&mut **tx)
-            .await?;
+        sqlx::query(
+            "UPDATE node_heartbeat SET alerted_code = NULL, alerted_at = NULL WHERE origin_id = $1",
+        )
+        .bind(origin_id)
+        .execute(&mut **tx)
+        .await?;
     }
     Ok(())
 }
@@ -261,7 +269,10 @@ pub async fn sweep_silent_nodes(pool: &PgPool) -> Result<u64, AppError> {
     for (origin_id, received_at, status) in quiet {
         let status: Option<NodeStatus> = serde_json::from_value(status).ok();
         let assessment = assess_from_afar(status.as_ref(), Some(received_at), now);
-        let site = status.as_ref().map(|s| s.site_id.clone()).unwrap_or_default();
+        let site = status
+            .as_ref()
+            .map(|s| s.site_id.clone())
+            .unwrap_or_default();
         let mut tx = pool.begin().await?;
         announce(&mut tx, &origin_id, &site, &assessment, now).await?;
         tx.commit().await?;
@@ -307,12 +318,11 @@ pub async fn fleet(pool: &PgPool) -> Result<Vec<FleetNode>, AppError> {
     .fetch_all(pool)
     .await?;
     let since = now - Duration::minutes(STRIP_SLOTS * STRIP_SLOT_MINUTES);
-    let samples: Vec<(String, DateTime<Utc>, String)> = sqlx::query_as(
-        "SELECT origin_id, at, tone FROM node_health_sample WHERE at >= $1",
-    )
-    .bind(since)
-    .fetch_all(pool)
-    .await?;
+    let samples: Vec<(String, DateTime<Utc>, String)> =
+        sqlx::query_as("SELECT origin_id, at, tone FROM node_health_sample WHERE at >= $1")
+            .bind(since)
+            .fetch_all(pool)
+            .await?;
     let rank = |tone: &str| match tone {
         "BAD" => 3,
         "WARN" => 2,
@@ -328,8 +338,11 @@ pub async fn fleet(pool: &PgPool) -> Result<Vec<FleetNode>, AppError> {
         let last_heard_at: Option<DateTime<Utc>> = row.get("received_at");
         let mut strip: Vec<Option<String>> = vec![None; STRIP_SLOTS as usize];
         for (_, at, tone) in samples.iter().filter(|(origin, ..)| *origin == origin_id) {
-            let slot = ((*at - since).num_minutes() / STRIP_SLOT_MINUTES).clamp(0, STRIP_SLOTS - 1) as usize;
-            let worse = strip[slot].as_deref().is_none_or(|held| rank(tone) > rank(held));
+            let slot = ((*at - since).num_minutes() / STRIP_SLOT_MINUTES).clamp(0, STRIP_SLOTS - 1)
+                as usize;
+            let worse = strip[slot]
+                .as_deref()
+                .is_none_or(|held| rank(tone) > rank(held));
             if worse {
                 strip[slot] = Some(tone.clone());
             }
@@ -503,12 +516,13 @@ fn outages_from(
                         OutageKind::Maintenance,
                         "Stopped on purpose (restart, update, or shut down)".to_owned(),
                     ),
-                    PreviousExit::Hung { at: hung } => (
-                        *hung,
-                        OutageKind::Down,
-                        "Hung, restarted itself".to_owned(),
-                    ),
-                    PreviousExit::Unclean { last_seen, machine_restarted: Some(true) } => (
+                    PreviousExit::Hung { at: hung } => {
+                        (*hung, OutageKind::Down, "Hung, restarted itself".to_owned())
+                    }
+                    PreviousExit::Unclean {
+                        last_seen,
+                        machine_restarted: Some(true),
+                    } => (
                         *last_seen,
                         OutageKind::Down,
                         "Power cut or the machine went off suddenly".to_owned(),
@@ -534,7 +548,9 @@ fn outages_from(
                 }
                 stopped_at = None;
             }
-            Incident::CrashLoop { at, hold_seconds, .. } => found.push(Outage {
+            Incident::CrashLoop {
+                at, hold_seconds, ..
+            } => found.push(Outage {
                 start: *at,
                 end: Some(*at + Duration::seconds(*hold_seconds)),
                 seconds: *hold_seconds,
@@ -581,7 +597,11 @@ fn outages_from(
                     start,
                     end,
                     seconds: interval(start, end, now),
-                    kind: if deliberate { OutageKind::Maintenance } else { OutageKind::Down },
+                    kind: if deliberate {
+                        OutageKind::Maintenance
+                    } else {
+                        OutageKind::Down
+                    },
                     cause: if deliberate {
                         "Stopped on purpose".to_owned()
                     } else {
@@ -596,7 +616,13 @@ fn outages_from(
 }
 
 /// Seconds of `outages` of `kind` inside `[from, to)`.
-fn overlap(outages: &[Outage], kind: OutageKind, from: DateTime<Utc>, to: DateTime<Utc>, now: DateTime<Utc>) -> i64 {
+fn overlap(
+    outages: &[Outage],
+    kind: OutageKind,
+    from: DateTime<Utc>,
+    to: DateTime<Utc>,
+    now: DateTime<Utc>,
+) -> i64 {
     outages
         .iter()
         .filter(|outage| outage.kind == kind)
@@ -609,7 +635,13 @@ fn overlap(outages: &[Outage], kind: OutageKind, from: DateTime<Utc>, to: DateTi
 }
 
 /// Uptime of `[from, to)`, excluding maintenance, from the first heartbeat on.
-fn percent(outages: &[Outage], first: DateTime<Utc>, from: DateTime<Utc>, to: DateTime<Utc>, now: DateTime<Utc>) -> Option<f64> {
+fn percent(
+    outages: &[Outage],
+    first: DateTime<Utc>,
+    from: DateTime<Utc>,
+    to: DateTime<Utc>,
+    now: DateTime<Utc>,
+) -> Option<f64> {
     let from = from.max(first);
     let to = to.min(now);
     if to <= from {
@@ -635,7 +667,11 @@ fn uptime_from(
     let (state, since) = match (first, ongoing) {
         (None, _) => ("UNKNOWN", None),
         (Some(_), Some(outage)) => (
-            if outage.kind == OutageKind::Maintenance { "MAINTENANCE" } else { "DOWN" },
+            if outage.kind == OutageKind::Maintenance {
+                "MAINTENANCE"
+            } else {
+                "DOWN"
+            },
             Some(outage.start),
         ),
         (Some(first), None) => (
@@ -658,7 +694,9 @@ fn uptime_from(
                 percent: first.and_then(|first| percent(&outages, first, from, now, now)),
                 outages: outages
                     .iter()
-                    .filter(|outage| outage.kind == OutageKind::Down && outage.end.unwrap_or(now) > from)
+                    .filter(|outage| {
+                        outage.kind == OutageKind::Down && outage.end.unwrap_or(now) > from
+                    })
                     .count(),
                 down_seconds: overlap(&outages, OutageKind::Down, from, now, now),
             }
@@ -739,7 +777,8 @@ mod uptime_tests {
     use crate::sync::node_status::{Incident, PreviousExit};
 
     fn at(minutes: i64) -> DateTime<Utc> {
-        DateTime::<Utc>::from_timestamp(1_800_000_000, 0).unwrap_or_default() + Duration::minutes(minutes)
+        DateTime::<Utc>::from_timestamp(1_800_000_000, 0).unwrap_or_default()
+            + Duration::minutes(minutes)
     }
 
     fn beats(from: i64, to: i64) -> Vec<DateTime<Utc>> {
@@ -772,14 +811,25 @@ mod uptime_tests {
         let mut samples = beats(0, 10);
         samples.extend(beats(20, 60));
         let incidents = vec![
-            Incident::Stopped { at: at(10), reason: "asked to stop".into() },
-            Incident::Started { at: at(20), version: "1".into(), previous: PreviousExit::Clean { at: at(10) } },
+            Incident::Stopped {
+                at: at(10),
+                reason: "asked to stop".into(),
+            },
+            Incident::Started {
+                at: at(20),
+                version: "1".into(),
+                previous: PreviousExit::Clean { at: at(10) },
+            },
         ];
         let uptime = uptime_from("s", &samples, &incidents, at(60));
         assert_eq!(uptime.state, "UP");
         assert_eq!(uptime.outages.len(), 1);
         assert_eq!(uptime.outages[0].kind, OutageKind::Maintenance);
-        assert_eq!(uptime.windows[0].percent, Some(100.0), "maintenance does not count against uptime");
+        assert_eq!(
+            uptime.windows[0].percent,
+            Some(100.0),
+            "maintenance does not count against uptime"
+        );
     }
 
     #[test]
@@ -787,7 +837,10 @@ mod uptime_tests {
         let incidents = vec![Incident::Started {
             at: at(30),
             version: "1".into(),
-            previous: PreviousExit::Unclean { last_seen: at(29), machine_restarted: Some(false) },
+            previous: PreviousExit::Unclean {
+                last_seen: at(29),
+                machine_restarted: Some(false),
+            },
         }];
         let uptime = uptime_from("s", &beats(0, 60), &incidents, at(60));
         assert_eq!(uptime.outages.len(), 1);
@@ -804,7 +857,10 @@ mod uptime_tests {
         let incidents = vec![Incident::Started {
             at: at(35),
             version: "1".into(),
-            previous: PreviousExit::Unclean { last_seen: at(10), machine_restarted: Some(true) },
+            previous: PreviousExit::Unclean {
+                last_seen: at(10),
+                machine_restarted: Some(true),
+            },
         }];
         let uptime = uptime_from("s", &samples, &incidents, at(60));
         assert_eq!(uptime.outages.len(), 1, "{:?}", uptime.outages);
@@ -833,7 +889,9 @@ pub async fn ask_node(
     issued_by: &str,
 ) -> Result<Value, AppError> {
     if !crate::sync::node_ops::is_node_op(kind) {
-        return Err(AppError::Validation(format!("unknown node operation {kind}")));
+        return Err(AppError::Validation(format!(
+            "unknown node operation {kind}"
+        )));
     }
     crate::sync::node_ops::validate(kind, &payload).map_err(AppError::Validation)?;
     let (command_id, _) = super::issue_command(
@@ -849,9 +907,17 @@ pub async fn ask_node(
 }
 
 /// File a diagnosis a node sent. Keeps the newest ten per node.
-pub async fn record_diagnostic(pool: &PgPool, origin_id: &str, report: &Value) -> Result<(), AppError> {
+pub async fn record_diagnostic(
+    pool: &PgPool,
+    origin_id: &str,
+    report: &Value,
+) -> Result<(), AppError> {
     let verdict = report["verdict"].as_str().unwrap_or("WARN");
-    let verdict = if matches!(verdict, "OK" | "WARN" | "FAIL") { verdict } else { "WARN" };
+    let verdict = if matches!(verdict, "OK" | "WARN" | "FAIL") {
+        verdict
+    } else {
+        "WARN"
+    };
     let mut tx = pool.begin().await?;
     sqlx::query("INSERT INTO node_diagnostic (diagnostic_id, origin_id, verdict, report) VALUES ($1, $2, $3, $4)")
         .bind(uuid::Uuid::new_v4())

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Day } from "@/components/ui/day"
@@ -20,7 +21,7 @@ import {
 } from "@/lib/queries/hr-benefit"
 import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
-import { ListCard, SheetFooter } from "@/screens/people/settings-kit"
+import { ListCard, PageFoot, SheetFooter } from "@/screens/people/settings-kit"
 import { digits, useOpener } from "@/screens/people/settings-lib"
 import type { BenefitSettingView } from "@itulah/contract"
 
@@ -33,6 +34,7 @@ const STATES = [
 /// code from the employee's app stays good.
 export function BenefitSettings() {
   const canWrite = useCanWrite()
+  const phone = useLayout() === "phone"
   const settings = useQuery({
     queryKey: benefitKeys.settings(),
     queryFn: ({ signal }) => benefitSettings(signal),
@@ -46,6 +48,7 @@ export function BenefitSettings() {
         title="Benefit"
         sub="Turn the employee benefit on or off, and set how long a code stays good."
         actions={
+          !phone &&
           canWrite && (
             <Button variant="primary" onClick={() => sheet.show()}>
               Edit
@@ -118,6 +121,7 @@ export function BenefitSettings() {
           </>
         ),
       })}
+      {canWrite && <PageFoot label="Edit" onClick={() => sheet.show()} />}
     </PageContent>
   )
 }

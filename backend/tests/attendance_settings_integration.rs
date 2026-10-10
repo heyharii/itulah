@@ -172,7 +172,9 @@ struct Hub {
 
 impl Hub {
     async fn open(pool: &PgPool) -> Self {
-        let _ = tracing_subscriber::fmt().with_env_filter("error").try_init();
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter("error")
+            .try_init();
         cloud::bootstrap_admin(pool, Some(ADMIN_PASSWORD), true)
             .await
             .unwrap_or_else(|error| panic!("bootstrap: {error}"));
@@ -193,18 +195,32 @@ impl Hub {
     }
 
     async fn get(&self, path: &str) -> Response {
-        send(self.app.clone(), "GET", path, read_headers(&self.cookies), None).await
+        send(
+            self.app.clone(),
+            "GET",
+            path,
+            read_headers(&self.cookies),
+            None,
+        )
+        .await
     }
 
     async fn ok(&self, path: &str, body: Value) -> Value {
         let response = self.post(path, body).await;
-        assert_eq!(response.status, StatusCode::OK, "POST {path}: {:?}", response.body);
+        assert_eq!(
+            response.status,
+            StatusCode::OK,
+            "POST {path}: {:?}",
+            response.body
+        );
         response.body
     }
 
     /// Register somebody, hire them and post them to `unit` from `from`.
     async fn staff(&self, code: &str, unit: &str, from: &str) -> String {
-        let registered = self.ok("/api/v1/employees", json!({ "employee_code": code })).await;
+        let registered = self
+            .ok("/api/v1/employees", json!({ "employee_code": code }))
+            .await;
         let id = registered["employee_id"]
             .as_str()
             .unwrap_or_else(|| panic!("employee_id: {registered:?}"))
@@ -262,7 +278,9 @@ impl Hub {
             )
             .await;
         let run_id = opened["id"].as_str().unwrap_or_default().to_owned();
-        let slips = self.get(&format!("/api/v1/payroll/runs/{run_id}/slips")).await;
+        let slips = self
+            .get(&format!("/api/v1/payroll/runs/{run_id}/slips"))
+            .await;
         assert_eq!(slips.status, StatusCode::OK, "{:?}", slips.body);
         let list = slips.body.as_array().cloned().unwrap_or_default();
         (run_id, list)
@@ -318,7 +336,13 @@ async fn a_phone_punch_keeps_to_the_fence(pool: PgPool) {
     shift_and_days(&hub, &siti, &[today]).await;
     let (cookies, csrf) = cashier(&hub, &siti, "siti.fence").await;
     let punch = |body: Value| {
-        send(hub.app.clone(), "POST", "/api/v1/employees/me/punches", write_headers(&cookies, &csrf), Some(body))
+        send(
+            hub.app.clone(),
+            "POST",
+            "/api/v1/employees/me/punches",
+            write_headers(&cookies, &csrf),
+            Some(body),
+        )
     };
 
     let unfenceable = hub
@@ -327,7 +351,12 @@ async fn a_phone_punch_keeps_to_the_fence(pool: PgPool) {
             json!({ "mobile_enabled": true, "require_location": false, "require_geofence": true, "reason": "salah" }),
         )
         .await;
-    assert_eq!(unfenceable.status, StatusCode::BAD_REQUEST, "{:?}", unfenceable.body);
+    assert_eq!(
+        unfenceable.status,
+        StatusCode::BAD_REQUEST,
+        "{:?}",
+        unfenceable.body
+    );
 
     hub.ok(
         "/api/v1/attendance/mobile-setting",
@@ -340,7 +369,14 @@ async fn a_phone_punch_keeps_to_the_fence(pool: PgPool) {
     )
     .await;
 
-    let own = send(hub.app.clone(), "GET", "/api/v1/employees/me/attendance-setting", read_headers(&cookies), None).await;
+    let own = send(
+        hub.app.clone(),
+        "GET",
+        "/api/v1/employees/me/attendance-setting",
+        read_headers(&cookies),
+        None,
+    )
+    .await;
     assert_eq!(own.status, StatusCode::OK, "{:?}", own.body);
     assert_eq!(own.body["fence"]["radius_m"], 100);
     assert_eq!(own.body["setting"]["require_location"], true);
@@ -349,17 +385,19 @@ async fn a_phone_punch_keeps_to_the_fence(pool: PgPool) {
     assert_eq!(blind.status, StatusCode::BAD_REQUEST, "{:?}", blind.body);
     let away = punch(json!({ "direction": "IN", "latitude": -6.3, "longitude": 106.8 })).await;
     assert_eq!(away.status, StatusCode::FORBIDDEN, "{:?}", away.body);
-    assert!(away.body["error"].as_str().unwrap_or_default().contains("outside"));
+    assert!(away.body["error"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("outside"));
 
     let inside = punch(json!({ "direction": "IN", "latitude": -6.2003, "longitude": 106.8 })).await;
     assert_eq!(inside.status, StatusCode::OK, "{:?}", inside.body);
-    let kept: (f64, i32) = sqlx::query_as(
-        "SELECT latitude, distance_m FROM attendance_punch WHERE id = $1",
-    )
-    .bind(inside.body["punch_id"].as_str().unwrap_or_default())
-    .fetch_one(&pool)
-    .await
-    .unwrap_or_else(|error| panic!("punch row: {error}"));
+    let kept: (f64, i32) =
+        sqlx::query_as("SELECT latitude, distance_m FROM attendance_punch WHERE id = $1")
+            .bind(inside.body["punch_id"].as_str().unwrap_or_default())
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("punch row: {error}"));
     assert!((kept.0 - -6.2003).abs() < 1e-9);
     assert!((30..=36).contains(&kept.1), "about 33 m: {}", kept.1);
 
@@ -391,7 +429,9 @@ async fn an_absence_costs_a_day_once_the_rule_is_stated(pool: PgPool) {
     let slip = slip_of(&slips, &siti);
     assert_eq!(slip["absent_days"], 3);
     assert!(
-        !slip["deductions"].as_array().is_some_and(|lines| lines.iter().any(|l| l["component_code"] == "POTONGAN_ABSEN")),
+        !slip["deductions"].as_array().is_some_and(|lines| lines
+            .iter()
+            .any(|l| l["component_code"] == "POTONGAN_ABSEN")),
         "no rule, no deduction: {slip:?}"
     );
 
@@ -403,13 +443,20 @@ async fn an_absence_costs_a_day_once_the_rule_is_stated(pool: PgPool) {
         )
         .await;
     assert_eq!(stated[0]["divisor_days"], 25);
-    hub.ok(&format!("/api/v1/payroll/runs/{april}/rebuild"), json!({})).await;
-    let slips = hub.get(&format!("/api/v1/payroll/runs/{april}/slips")).await;
+    hub.ok(&format!("/api/v1/payroll/runs/{april}/rebuild"), json!({}))
+        .await;
+    let slips = hub
+        .get(&format!("/api/v1/payroll/runs/{april}/slips"))
+        .await;
     let slips = slips.body.as_array().cloned().unwrap_or_default();
     let slip = slip_of(&slips, &siti);
     let line = slip["deductions"]
         .as_array()
-        .and_then(|lines| lines.iter().find(|l| l["component_code"] == "POTONGAN_ABSEN"))
+        .and_then(|lines| {
+            lines
+                .iter()
+                .find(|l| l["component_code"] == "POTONGAN_ABSEN")
+        })
         .cloned()
         .unwrap_or_else(|| panic!("no absence line: {slip:?}"));
     assert_eq!(line["amount_minor"], 600_000);
@@ -449,7 +496,10 @@ async fn a_break_starts_inside_its_shift(pool: PgPool) {
         .as_array()
         .and_then(|rows| rows.iter().find(|s| s["id"] == "MALAM"))
         .cloned();
-    assert_eq!(malam.map(|s| s["break_starts_at"].clone()), Some(json!("02:00")));
+    assert_eq!(
+        malam.map(|s| s["break_starts_at"].clone()),
+        Some(json!("02:00"))
+    );
 
     let outside = hub
         .post(
@@ -458,7 +508,12 @@ async fn a_break_starts_inside_its_shift(pool: PgPool) {
                     "unpaid_break_minutes": 60, "break_starts_at": "16:30" }),
         )
         .await;
-    assert_eq!(outside.status, StatusCode::BAD_REQUEST, "{:?}", outside.body);
+    assert_eq!(
+        outside.status,
+        StatusCode::BAD_REQUEST,
+        "{:?}",
+        outside.body
+    );
 }
 
 /// A long rest day is paid by the hour it falls in (Kepmenaker 102/2004):
@@ -476,9 +531,17 @@ async fn a_long_rest_day_is_paid_by_the_hour_it_falls_in(pool: PgPool) {
     let tier = hub.get("/api/v1/payroll/overtime-tier").await;
     assert_eq!(tier.body["rest_day_first_tier_minutes"], 420);
     let refused = hub
-        .post("/api/v1/payroll/overtime-tier", json!({ "rest_day_first_tier_minutes": 400, "reason": "salah" }))
+        .post(
+            "/api/v1/payroll/overtime-tier",
+            json!({ "rest_day_first_tier_minutes": 400, "reason": "salah" }),
+        )
         .await;
-    assert_eq!(refused.status, StatusCode::BAD_REQUEST, "{:?}", refused.body);
+    assert_eq!(
+        refused.status,
+        StatusCode::BAD_REQUEST,
+        "{:?}",
+        refused.body
+    );
 
     hub.ok(
         "/api/v1/overtime-policy",
@@ -530,7 +593,15 @@ async fn a_long_rest_day_is_paid_by_the_hour_it_falls_in(pool: PgPool) {
             .and_then(|l| l["amount_minor"].as_i64())
     };
     assert_eq!(earned("LEMBUR_LIBUR"), Some(540_000), "9 h × 2: {slip:?}");
-    assert_eq!(earned("LEMBUR_LIBUR_JAM_8"), Some(30_000), "the 8th hour, +1×");
-    assert_eq!(earned("LEMBUR_LIBUR_JAM_9"), Some(60_000), "the 9th hour, +2×");
+    assert_eq!(
+        earned("LEMBUR_LIBUR_JAM_8"),
+        Some(30_000),
+        "the 8th hour, +1×"
+    );
+    assert_eq!(
+        earned("LEMBUR_LIBUR_JAM_9"),
+        Some(60_000),
+        "the 9th hour, +2×"
+    );
     assert_eq!(slip["overtime_minutes"], 540);
 }

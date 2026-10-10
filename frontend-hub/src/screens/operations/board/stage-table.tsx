@@ -1,11 +1,19 @@
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { ChevronDown, Columns3, Rows3 } from "lucide-react"
-import { useMemo, useState } from "react"
+import { Fragment, useMemo, useState } from "react"
 
+import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Checkbox } from "@/components/ui/field"
+import {
+  CardButton,
+  CardFigure,
+  CardName,
+  PhoneCard,
+  STICKY_HEADING,
+} from "@/components/ui/phone-cards"
 import { EmptyState } from "@/components/ui/states"
 import { Segmented } from "@/components/ui/segmented"
 import { count as figure } from "@/lib/format"
@@ -87,12 +95,54 @@ export interface StageRow {
   /// The verb the card's button says.
   readonly act?: string
   /// A leading tick, on the rows that can be picked (Packed cartons).
+  /// `disabled` is a row that cannot be picked, and `title` says why.
   readonly pick?: {
     readonly checked: boolean
     readonly onChange: (checked: boolean) => void
     readonly label: string
+    readonly disabled?: boolean
+    readonly title?: string
+  }
+  /// What the card's strip says, in words. `text` is the whole sentence the
+  /// table reads ("Edited −50 · 50 pcs to move back"); on a phone's card the
+  /// `strip` is the band across its top and `detail` the line under it, so the
+  /// band's words are not said twice. Amber for `warn`, red for `bad`.
+  readonly mark?: {
+    readonly tone: "warn" | "bad"
+    readonly text: string
+    readonly strip?: string
+    readonly detail: string
+  }
+  /// The stamp across a switched-off card ("CANCELLED").
+  readonly stamp?: string
+  /// What the row held and what is still wanted of it: pieces read "300 → 250".
+  readonly change?: { readonly from: number; readonly to: number }
+  /// Switched off (MD cancelled it): nothing opens from the row, and its one
+  /// live thing is `moveBack`.
+  readonly off?: boolean
+  /// The Move back button, as `act` says it. Opens the dialog; never writes.
+  readonly moveBack?: () => void
+  /// What MD changed that the warehouse has not acknowledged ("Added +20",
+  /// "300 → 330", "Cancelled"), and the button that acknowledges it.
+  readonly tags?: readonly { readonly tone: "warn" | "bad"; readonly label: string }[]
+  readonly ack?: {
+    readonly label: string
+    readonly onClick: () => void
+    readonly pending?: boolean
   }
 }
+
+const markTone = (mark: NonNullable<StageRow["mark"]>) =>
+  mark.tone === "bad" ? "text-bad-fg" : "text-warn-fg"
+
+const tagTone = (tag: { readonly tone: "warn" | "bad" }) =>
+  tag.tone === "bad" ? "text-bad-fg" : "text-warn-fg"
+
+/// The hatched layer of a card that is switched off: it reads as something
+/// that no longer works, whatever is written on it. It never takes a press, so
+/// a button above it (z-2) stays the card's one live thing.
+export const SWITCHED_OFF =
+  "pointer-events-none absolute inset-0 z-[1] bg-[repeating-linear-gradient(135deg,color-mix(in_oklab,var(--ink)_5%,transparent)_0_7px,transparent_7px_14px)]"
 
 function columnsFor(
   first: string,
@@ -115,12 +165,14 @@ function columnsFor(
         return (
           <span
             className="-my-3 inline-flex"
+            title={pick.title}
             onClick={(event) => event.stopPropagation()}
           >
             <Checkbox
               label={<span className="sr-only">{pick.label}</span>}
               checked={pick.checked}
               onChange={pick.onChange}
+              disabled={pick.disabled}
               className="[&>label]:size-11 [&>label]:justify-center"
             />
           </span>
@@ -179,12 +231,21 @@ function columnsFor(
   out.push(
     {
       id: "pieces",
-      header: "Pieces",
+      header: "Pcs",
       size: 130,
       meta: { align: "right", card: "hide" },
       accessorFn: (row) => row.pieces,
       cell: ({ row }) => {
         const one = row.original
+        if (one.change !== undefined)
+          return (
+            <span className="tabular-nums">
+              <span className="text-mute">{figure(one.change.from)}</span> →{" "}
+              <span className="font-semibold text-ink">
+                {figure(one.change.to)}
+              </span>
+            </span>
+          )
         return (
           <span className="tabular-nums">
             <span className={cn(one.flag !== undefined && "text-bad-fg")}>
@@ -204,6 +265,16 @@ function columnsFor(
       cell: ({ row }) => (
         <span className="flex flex-col">
           {row.original.detail}
+          {row.original.mark !== undefined && (
+            <span className={markTone(row.original.mark)}>
+              {row.original.mark.text}
+            </span>
+          )}
+          {row.original.tags?.map((tag) => (
+            <span key={tag.label} className={tagTone(tag)}>
+              {tag.label}
+            </span>
+          ))}
           {row.original.flag !== undefined && (
             <span className="text-bad-fg">{row.original.flag}</span>
           )}
@@ -237,18 +308,23 @@ function columnsFor(
       meta: { card: "lead" },
       cell: ({ row }) => {
         const one = row.original
+        // An edited card leads with what is still wanted, and says what it was.
+        const shown = one.change === undefined ? one.pieces : one.change.to
         return (
           <span className="flex flex-col items-end tabular-nums">
             <span
               className={cn(
                 "text-[1.5rem] leading-tight font-semibold tracking-tight text-ink",
-                one.flag !== undefined && "text-bad-fg"
+                one.flag !== undefined && "text-bad-fg",
+                one.off === true && "text-mute"
               )}
             >
-              {figure(one.pieces)}
+              {figure(shown)}
             </span>
             <span className="text-[0.875rem] text-mute">
-              {one.of !== undefined ? `of ${figure(one.of)} pcs` : "pcs"}
+              {one.of !== undefined && one.change === undefined
+                ? `of ${figure(one.of)} pcs`
+                : "pcs"}
             </span>
           </span>
         )
@@ -265,12 +341,8 @@ function columnsFor(
         const one = row.original
         return (
           <span className="flex flex-col leading-6">
-            {stages && (
-              <span className="inline-flex items-center gap-2 text-ink">
-                <span className={cn("size-2 rounded-full", one.stage.tone)} />
-                {one.stage.label}
-              </span>
-            )}
+            {/* The lane is the heading the card stands under; said again in
+            every foot it was the same word thirty times. */}
             {(one.detail !== undefined || one.at) && (
               <span className="flex flex-wrap gap-x-1.5">
                 {one.detail}
@@ -296,8 +368,13 @@ function columnsFor(
       accessorFn: (row) => row.act ?? "",
       meta: { card: "status" },
       cell: ({ row }) =>
-        row.original.act === undefined ? null : (
-          <span className={cn(button({ variant: "primary", size: "sm" }))}>
+        row.original.moveBack !== undefined ? (
+          <CardButton
+            label={row.original.act ?? "Move back"}
+            onClick={row.original.moveBack}
+          />
+        ) : row.original.act === undefined ? null : (
+          <span className={cn(button({ variant: "tint", size: "card" }))}>
             {row.original.act}
           </span>
         ),
@@ -341,7 +418,9 @@ function LaneHeading({
     >
       <span className={cn("size-2 shrink-0 rounded-full", stage.tone)} />
       <span className="text-[1rem] font-semibold text-ink">{stage.label}</span>
-      <span className="text-[0.9375rem] text-mute tabular-nums">{figure(count)}</span>
+      <span className="text-[0.9375rem] text-mute tabular-nums">
+        {figure(count)}
+      </span>
       <span className="flex-1" />
       <span className="text-[0.875rem] text-mute tabular-nums">
         {`${figure(pieces)} pcs`}
@@ -353,6 +432,163 @@ function LaneHeading({
         )}
       />
     </button>
+  )
+}
+
+/// One row as a phone's card: the hub's `PhoneCard` — name over its code and
+/// the figure at the right, a hairline, the foot — with what MD or the picker
+/// said about it. A band across the top edge (inside the rounded corners), a
+/// "was → now" row under the head, and for a cancelled card a stamp that sits
+/// in a row of its own (so it can never cover the name or the button) under a
+/// hatched layer that never takes a press. The one live thing on a card with a
+/// Move back is its 44px button.
+function StageCard({
+  row,
+  onPress,
+}: {
+  row: StageRow
+  onPress: (row: StageRow) => void
+}) {
+  const off = row.off === true
+  const shown = row.change === undefined ? row.pieces : row.change.to
+  // A carton MD took out has no tick: its reason is the line under it.
+  const tick = row.pick !== undefined && row.pick.disabled !== true
+  const caption =
+    row.of !== undefined && row.change === undefined
+      ? `of ${figure(row.of)} pcs`
+      : "pcs"
+  return (
+    <PhoneCard
+      head={<CardName name={row.title} code={row.doc} muted={off} />}
+      lead={
+        <span className={cn(off && "opacity-50")}>
+          <CardFigure
+            value={figure(shown)}
+            caption={caption}
+            tone={row.flag !== undefined ? "bad" : off ? "quiet" : undefined}
+          />
+        </span>
+      }
+      body={
+        row.change !== undefined ? (
+          <span className="text-[0.9375rem] text-body tabular-nums">
+            {figure(row.change.from)} →{" "}
+            <span className="font-semibold text-ink">
+              {figure(row.change.to)}
+            </span>{" "}
+            pcs{" "}
+            <span className="font-medium text-bad-fg">
+              {figure(row.change.to - row.change.from)}
+            </span>
+          </span>
+        ) : off ? (
+          <span className="flex h-16 items-center justify-center">
+            <span className="rotate-[-7deg] rounded-[0.625rem] border-[3px] border-bad-fg px-3.5 text-[1.375rem] leading-8 font-bold tracking-[0.06em] whitespace-nowrap text-bad-fg">
+              {row.stamp ?? "CANCELLED"}
+            </span>
+          </span>
+        ) : row.tags !== undefined && row.tags.length > 0 ? (
+          <span className="flex flex-col gap-3">
+            <span className="flex flex-wrap gap-x-3 text-[0.9375rem] font-semibold tabular-nums">
+              {row.tags.map((tag) => (
+                <span key={tag.label} className={tagTone(tag)}>
+                  {tag.label}
+                </span>
+              ))}
+            </span>
+            {/* The foot holds one button: Move back keeps it, so Got it
+            sits here instead. */}
+            {row.ack !== undefined && row.moveBack !== undefined && (
+              <Button
+                variant="tint"
+                size="lg"
+                pending={row.ack.pending}
+                onClick={() => row.ack?.onClick()}
+              >
+                {row.ack.label}
+              </Button>
+            )}
+          </span>
+        ) : undefined
+      }
+      foot={
+        <span className="flex flex-col leading-6">
+          {(row.detail !== undefined || row.at) && (
+            <span className="flex flex-wrap gap-x-1.5">
+              {row.detail}
+              {row.at && (
+                <span className={cn(row.late && "text-warn-fg")}>
+                  {ago(row.at)}
+                </span>
+              )}
+            </span>
+          )}
+          {row.flag !== undefined && (
+            <span className="text-bad-fg">{row.flag}</span>
+          )}
+        </span>
+      }
+      action={
+        row.moveBack === undefined && row.ack !== undefined ? (
+          <Button
+            variant="tint"
+            size="lg"
+            className="relative z-[2]"
+            pending={row.ack.pending}
+            onClick={(event) => {
+              event.stopPropagation()
+              row.ack?.onClick()
+            }}
+          >
+            {row.ack.label}
+          </Button>
+        ) : row.moveBack !== undefined ? (
+          <Button
+            variant="tint"
+            size="lg"
+            className="relative z-[2]"
+            onClick={(event) => {
+              event.stopPropagation()
+              row.moveBack?.()
+            }}
+          >
+            {row.act ?? "Move back"}
+          </Button>
+        ) : tick && row.pick !== undefined ? (
+          <span title={row.pick.title}>
+            <Checkbox
+              label={<span className="sr-only">{row.pick.label}</span>}
+              checked={row.pick.checked}
+              onChange={row.pick.onChange}
+              className="[&>label]:size-11 [&>label]:justify-center"
+            />
+          </span>
+        ) : row.act === undefined ? undefined : (
+          <span className={cn(button({ variant: "tint", size: "card" }))}>
+            {row.act}
+          </span>
+        )
+      }
+      alert={
+        row.flag !== undefined ||
+        row.mark?.tone === "bad" ||
+        row.tags?.some((tag) => tag.tone === "bad") === true
+      }
+      onOpen={off ? undefined : () => onPress(row)}
+      className={cn("overflow-hidden", off && "bg-soft")}
+    >
+      {row.mark?.strip !== undefined && (
+        <span
+          className={cn(
+            "order-first flex h-7 shrink-0 items-center px-4 text-[0.875rem] font-semibold text-white",
+            row.mark.tone === "bad" ? "bg-bad-fg" : "bg-warn-fg"
+          )}
+        >
+          {row.mark.strip}
+        </span>
+      )}
+      {off && <span aria-hidden className={SWITCHED_OFF} />}
+    </PhoneCard>
   )
 }
 
@@ -448,6 +684,51 @@ export function StageTable({
 
   if (ordered.length === 0) return <EmptyState>{empty}</EmptyState>
 
+  /// What pressing a row does. A switched-off row (MD cancelled it) does
+  /// nothing: only its Move back works.
+  const press = (row: StageRow) => {
+    if (row.off === true) return
+    const here = openHere(row.open?.sheet)
+    if (row.onOpen) row.onOpen()
+    else if (here) here()
+    else if (row.open) void go(row.open.to, row.open.sheet)
+  }
+
+  // A phone reads the lanes as sections of cards, each lane a heading that
+  // folds. The cards are drawn here, not by the table, because a card can
+  // carry a band across its top edge and a stamp.
+  if (grouped) {
+    return (
+      <ul className="flex flex-col gap-2.5">
+        {ordered.map((row, index) => (
+          <Fragment key={row.key}>
+            {(index === 0 || ordered[index - 1].stage.id !== row.stage.id) && (
+              <li data-sub className={STICKY_HEADING}>
+                <LaneHeading
+                  stage={row.stage}
+                  count={lanes.get(row.stage.id)?.count ?? 0}
+                  pieces={lanes.get(row.stage.id)?.pieces ?? 0}
+                  open={!folded.has(row.stage.id)}
+                  onToggle={() =>
+                    setFolded((was) => {
+                      const next = new Set(was)
+                      if (next.has(row.stage.id)) next.delete(row.stage.id)
+                      else next.add(row.stage.id)
+                      return next
+                    })
+                  }
+                />
+              </li>
+            )}
+            {!folded.has(row.stage.id) && (
+              <StageCard row={row} onPress={press} />
+            )}
+          </Fragment>
+        ))}
+      </ul>
+    )
+  }
+
   return (
     <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
       <DataTable<StageRow>
@@ -456,47 +737,51 @@ export function StageTable({
         pageScroll
         cardsApart
         cardLead
-        cardSort={!grouped}
-        stickyBefore
-        isHidden={
-          grouped ? (row) => folded.has(row.stage.id) : undefined
-        }
-        renderBefore={
-          grouped
-            ? (row, index, all) =>
-                index === 0 || all[index - 1].stage.id !== row.stage.id ? (
-                  <LaneHeading
-                    stage={row.stage}
-                    count={lanes.get(row.stage.id)?.count ?? 0}
-                    pieces={lanes.get(row.stage.id)?.pieces ?? 0}
-                    open={!folded.has(row.stage.id)}
-                    onToggle={() =>
-                      setFolded((was) => {
-                        const next = new Set(was)
-                        if (next.has(row.stage.id)) next.delete(row.stage.id)
-                        else next.add(row.stage.id)
-                        return next
-                      })
-                    }
-                  />
-                ) : null
+        cardSort
+        cardTone={(row) =>
+          row.flag !== undefined || row.mark?.tone === "bad"
+            ? "alert"
             : undefined
         }
-        cardTone={(row) => (row.flag !== undefined ? "alert" : undefined)}
         className={ROOMY}
-        onRowClick={(row) => {
-          const here = openHere(row.open?.sheet)
-          if (row.onOpen) row.onOpen()
-          else if (here) here()
-          else if (row.open) void go(row.open.to, row.open.sheet)
-        }}
-        rowAction={(row) =>
-          row.act === undefined ? null : (
-            <span className={cn(button({ variant: "ghost", size: "sm" }))}>
-              {row.act}
+        onRowClick={press}
+        rowAction={(row) => {
+          const ack = row.ack
+          const own =
+            row.moveBack !== undefined ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  row.moveBack?.()
+                }}
+              >
+                {row.act ?? "Move back"}
+              </Button>
+            ) : row.act === undefined ? null : (
+              <span className={cn(button({ variant: "ghost", size: "sm" }))}>
+                {row.act}
+              </span>
+            )
+          if (ack === undefined) return own
+          return (
+            <span className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                pending={ack.pending}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  ack.onClick()
+                }}
+              >
+                {ack.label}
+              </Button>
+              {own}
             </span>
           )
-        }
+        }}
       />
     </Card>
   )

@@ -12,6 +12,13 @@
 //! Gudang's pick, pack and cancellation all already subtract — a whole-
 //! allotment cancellation after a close short then agrees with the node about
 //! what is left.
+//!
+//! A line is also MD's to answer when the cloud-run Gudang's picker reported
+//! it short and the report is still flagged (`cloud::dc::short_pick`, owner,
+//! 9 Oct 2026): the racks may look full, but the picker could not get the
+//! rest. MD sees Target · Sent · To pick and may close what is not yet
+//! picked. Pieces already picked for the store go on to it and are never
+//! closed short, on either kind of Gudang.
 
 use super::allotments::{
     edge_normal_balance_tx, eligible_supply_pools_tx, insert_allotment_event,
@@ -20,6 +27,7 @@ use super::allotments::{
 use super::sync::{issue_command_tx, origin_site_id_tx, pool_id_for_site};
 use super::{begin_idempotent, complete_idempotent, payload_digest};
 use crate::cloud::application::AppError;
+use crate::cloud::dc::short_pick::{self, ShortReason};
 use crate::sync::workflow::{
     AllotmentCancellationLine, AllotmentCloseShortPayload, CLOSE_SHORT_CAPABILITY,
     INVENTORY_ALLOTMENT_CLOSE_SHORT_V1, INVENTORY_WORKFLOW_SCHEMA_VERSION,
@@ -27,11 +35,12 @@ use crate::sync::workflow::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sqlx::{PgPool, Row};
+use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
-/// One store's share of one SKU that the Gudang cannot fill.
+/// One store's share of one SKU that the Gudang cannot fill, or that its
+/// picker reported short.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct UnfilledLine {
@@ -45,12 +54,25 @@ pub struct UnfilledLine {
     pub destination_name: Option<String>,
     /// What MD allotted to the store.
     pub allotted: i64,
+    /// What MD wants the store to have now: what she allotted, less what her
+    /// reductions and cancels took (`allotment_amendment`). An addition is
+    /// already in `allotted`.
+    pub target: i64,
+    /// On a delivery note or beyond, and not booked lost on the way or at the
+    /// store (a loss puts its demand back in To Pack): the least the store
+    /// will get.
+    pub sent: i64,
     /// Already in cartons for it.
     pub packed: i64,
     /// Still to pack.
     pub to_pack: i64,
-    /// What the Gudang cannot cover: the most a Close short here takes.
+    /// The most a Close short here takes: what the Gudang cannot cover, or,
+    /// on a line its picker reported short, everything not yet picked.
+    /// Never a piece already picked for the store.
     pub unfilled: i64,
+    /// Why the Gudang's picker could not finish this line, while the Short
+    /// pick flag is up (OPEN or LOST); the newest report's.
+    pub short_reason: Option<ShortReason>,
     pub allotted_at: DateTime<Utc>,
 }
 
@@ -101,12 +123,20 @@ const OPEN_LINES: &str = "
 SELECT c.allotment_line_id, c.allotment_id, a.allotment_number, a.activation_target_origin_id,
        a.created_at, c.source_pool_id, c.destination_id, site.name AS destination_name,
        c.sku_id, sk.sku_code, ar.article_code, ar.name AS article_name,
-       c.original_alloted, c.packed_total, c.to_pack_qty
+       c.original_alloted, c.packed_total, c.to_pack_qty,
+       GREATEST(0, c.original_alloted - COALESCE(amended.taken, 0))::bigint AS target,
+       (c.at_shipment + c.at_loaded + c.at_in_transit + c.receiving_gap_qty + c.received)::bigint
+           AS sent
   FROM allotment_line_commitment c
   JOIN allotment a ON a.id = c.allotment_id
   JOIN sku sk ON sk.id = c.sku_id
   JOIN article ar ON ar.id = sk.article_id
   LEFT JOIN site ON site.id = c.destination_id
+  LEFT JOIN (SELECT allotment_line_id, SUM(released + owed)::bigint AS taken
+               FROM allotment_amendment
+              WHERE kind IN ('REDUCE', 'CANCEL')
+              GROUP BY allotment_line_id) amended
+    ON amended.allotment_line_id = c.allotment_line_id
  WHERE c.to_pack_qty > 0
    AND c.destination_type = 'STORE'
    AND a.status <> 'CANCELLED'
@@ -114,14 +144,31 @@ SELECT c.allotment_line_id, c.allotment_id, a.allotment_number, a.activation_tar
    AND (a.activation_target_origin_id IS NULL OR a.edge_application_status = 'ACCEPTED')
  ORDER BY a.created_at, c.allotment_line_id";
 
-/// Every line the Gudang cannot fill, and the Close shorts already made.
+/// Every line the Gudang cannot fill or its picker reported short, and the
+/// Close shorts already made.
 ///
 /// Supply is measured the way an allotment is checked when it is raised —
 /// the source pool and its pick areas, from the node's own facts when a node
-/// owns the stock — against everything still to pack of that SKU there.
+/// owns the stock — against everything still to pack of that SKU there. A
+/// line the cloud-run Gudang's picker reported short, and whose report is
+/// still flagged, is listed whatever the supply says: MD may close what is
+/// not yet picked of it.
 pub async fn list_unfilled(pool: &PgPool) -> Result<UnfilledList, AppError> {
     let mut tx = pool.begin().await?;
     let rows = sqlx::query(OPEN_LINES).fetch_all(&mut *tx).await?;
+    let flags = short_pick::flagged(&mut *tx).await?;
+    // What already waits in the pick area for a cloud-executed line. A node's
+    // lines are answered by the node's own figures when MD closes them.
+    let mut cloud_lines = Vec::new();
+    for row in &rows {
+        if row
+            .try_get::<Option<String>, _>("activation_target_origin_id")?
+            .is_none()
+        {
+            cloud_lines.push(row.try_get::<Uuid, _>("allotment_line_id")?);
+        }
+    }
+    let waiting = waiting_tx(&mut tx, &cloud_lines).await?;
 
     // (owner, source pool, SKU) → the lines waiting on it.
     let mut groups: BTreeMap<(Option<String>, String, String), Vec<usize>> = BTreeMap::new();
@@ -158,25 +205,46 @@ pub async fn list_unfilled(pool: &PgPool) -> Result<UnfilledList, AppError> {
             }
         };
         let shortage = demand - supply.max(0);
-        if shortage <= 0 {
-            continue;
-        }
         for &i in &indexes {
             let row = &rows[i];
+            let allotment_id: Uuid = row.try_get("allotment_id")?;
+            let allotment_line_id: Uuid = row.try_get("allotment_line_id")?;
+            let destination_id: String = row.try_get("destination_id")?;
             let to_pack: i64 = row.try_get("to_pack_qty")?;
+            // Picked for the store and waiting for a carton: it goes on to
+            // the store, so a Close short never takes it.
+            let picked = waiting
+                .get(&allotment_line_id)
+                .copied()
+                .unwrap_or(0)
+                .max(0);
+            let free = (to_pack - picked).max(0);
+            let short_reason = flags
+                .get(&(allotment_id, destination_id.clone(), sku_code.clone()))
+                .copied();
+            let unfilled = match short_reason {
+                Some(_) => free,
+                None => free.min(shortage),
+            };
+            if unfilled <= 0 {
+                continue;
+            }
             open.push(UnfilledLine {
-                allotment_id: row.try_get("allotment_id")?,
+                allotment_id,
                 allotment_number: row.try_get("allotment_number")?,
-                allotment_line_id: row.try_get("allotment_line_id")?,
+                allotment_line_id,
                 sku_code: sku_code.clone(),
                 article_code: row.try_get("article_code")?,
                 article_name: row.try_get("article_name")?,
-                destination_id: row.try_get("destination_id")?,
+                destination_id,
                 destination_name: row.try_get("destination_name")?,
                 allotted: row.try_get("original_alloted")?,
+                target: row.try_get("target")?,
+                sent: row.try_get("sent")?,
                 packed: row.try_get("packed_total")?,
                 to_pack,
-                unfilled: to_pack.min(shortage),
+                unfilled,
+                short_reason,
                 allotted_at: row.try_get("created_at")?,
             });
         }
@@ -230,6 +298,32 @@ pub async fn list_unfilled(pool: &PgPool) -> Result<UnfilledList, AppError> {
     .collect::<Result<Vec<_>, AppError>>()?;
     tx.commit().await?;
     Ok(UnfilledList { open, closed })
+}
+
+/// What the cloud-run Gudang's pick area holds for each of these allotment
+/// lines (`dc_pick_waiting`, 0907): picked for the store, in no carton yet.
+/// A line nothing waits for has no entry.
+async fn waiting_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    line_ids: &[Uuid],
+) -> Result<BTreeMap<Uuid, i64>, AppError> {
+    if line_ids.is_empty() {
+        return Ok(BTreeMap::new());
+    }
+    sqlx::query(
+        "SELECT allotment_line_id, SUM(quantity)::bigint AS quantity
+           FROM dc_pick_waiting
+          WHERE allotment_line_id = ANY($1)
+          GROUP BY allotment_line_id",
+    )
+    .bind(line_ids)
+    .fetch_all(&mut **tx)
+    .await?
+    .iter()
+    .map(|row| -> Result<(Uuid, i64), AppError> {
+        Ok((row.try_get("allotment_line_id")?, row.try_get("quantity")?))
+    })
+    .collect()
 }
 
 /// MD gives up on part of what an allotment still has to pack, line by line.
@@ -293,6 +387,32 @@ pub async fn close_allotment_short(
         ));
     }
 
+    // The cloud-run Gudang knows whose each picked piece is (`dc_pick_waiting`).
+    // Its lines are locked first, in one order, so no pick lands on them
+    // between reading what waits and closing; a pick locks its line too.
+    let waiting = if origin.is_none() {
+        let mut line_ids: Vec<Uuid> = request
+            .lines
+            .iter()
+            .map(|line| line.allotment_line_id)
+            .collect();
+        line_ids.sort_unstable();
+        line_ids.dedup();
+        sqlx::query(
+            "SELECT id FROM allotment_line
+              WHERE allotment_id = $1 AND id = ANY($2)
+              ORDER BY id
+              FOR UPDATE",
+        )
+        .bind(allotment_id)
+        .bind(&line_ids)
+        .fetch_all(&mut *tx)
+        .await?;
+        waiting_tx(&mut tx, &line_ids).await?
+    } else {
+        BTreeMap::new()
+    };
+
     let now = Utc::now();
     let close_short_id = Uuid::new_v4();
     let reference = close_short_id.to_string();
@@ -301,9 +421,10 @@ pub async fn close_allotment_short(
     for asked in &request.lines {
         let line = sqlx::query(
             "SELECT line.id, line.source_site_id, line.source_pool_id, line.destination_type,
-                    line.destination_id, line.sku_id, c.to_pack_qty
+                    line.destination_id, line.sku_id, sk.sku_code, c.to_pack_qty
                FROM allotment_line line
                JOIN allotment_line_commitment c ON c.allotment_line_id = line.id
+               JOIN sku sk ON sk.id = line.sku_id
               WHERE line.id = $1 AND line.allotment_id = $2
               FOR UPDATE OF line",
         )
@@ -322,30 +443,34 @@ pub async fn close_allotment_short(
         // E2E 2026-10-02). Picked pieces stand in the Gudang's pick area for
         // the shop and go on to it; giving them up left a piece the centre
         // offered again and the packer could not seal. The centre cannot see
-        // which shop a pick was for, so every piece of this SKU in the pick
-        // area is counted against this line, up to what it still has to pack.
-        if let Some(origin_id) = origin.as_deref() {
-            let site = origin_site_id_tx(&mut tx, origin_id).await?;
-            let sku_code: String = sqlx::query_scalar("SELECT sku_code FROM sku WHERE id = $1")
-                .bind(line.get::<Uuid, _>("sku_id"))
-                .fetch_one(&mut *tx)
-                .await?;
-            let picked = edge_normal_balance_tx(
-                &mut tx,
-                origin_id,
-                &[format!("{site}.outbound.picking")],
-                &sku_code,
-            )
-            .await?
-            .clamp(0, to_pack);
-            let free = to_pack - picked;
-            if asked.quantity > free {
-                return Err(AppError::Conflict(format!(
-                    "{picked} of {sku_code} {} already picked and will be packed for the store; \
-                     only {free} not yet picked can be closed short.",
-                    if picked == 1 { "is" } else { "are" }
-                )));
+        // which shop a node's pick was for, so every piece of this SKU in its
+        // pick area is counted against this line, up to what it still has to
+        // pack; the cloud-run Gudang's picks name their line.
+        let sku_code: String = line.get("sku_code");
+        let picked = match origin.as_deref() {
+            Some(origin_id) => {
+                let site = origin_site_id_tx(&mut tx, origin_id).await?;
+                edge_normal_balance_tx(
+                    &mut tx,
+                    origin_id,
+                    &[format!("{site}.outbound.picking")],
+                    &sku_code,
+                )
+                .await?
             }
+            None => waiting
+                .get(&asked.allotment_line_id)
+                .copied()
+                .unwrap_or(0),
+        }
+        .clamp(0, to_pack);
+        let free = to_pack - picked;
+        if asked.quantity > free {
+            return Err(AppError::Conflict(format!(
+                "{picked} of {sku_code} {} already picked and will be packed for the store; \
+                 only {free} not yet picked can be closed short.",
+                if picked == 1 { "is" } else { "are" }
+            )));
         }
         let written = match origin.as_deref() {
             Some(origin_id) => sqlx::query(

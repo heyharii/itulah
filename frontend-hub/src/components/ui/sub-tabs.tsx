@@ -1,8 +1,9 @@
 import { Tabs } from "@base-ui/react/tabs"
 import type { LucideIcon } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 
 import { DockPortal, useDock } from "@/components/shell/dock"
+import { DockChoice } from "@/components/shell/dock-tools"
 import { cn } from "@/lib/utils"
 
 /// In-page sub-navigation: switch datasets *within* a screen.
@@ -36,7 +37,7 @@ export function SubTabs({
   value,
   onChange,
   className,
-  dock = false,
+  dock,
 }: {
   tabs: readonly SubTab[]
   value: string
@@ -45,17 +46,73 @@ export function SubTabs({
   /// On a phone, draw the tabs in the context row over the bottom bar
   /// (`components/shell/dock.tsx`) instead of at the top of the page, where a
   /// thumb has to leave its place to reach them. Everywhere else they stay
-  /// where they were.
+  /// where they were. Left out, a phone gets them as the dock's status button
+  /// and sheet; `false` keeps them at the top there too.
   dock?: boolean
 }) {
   const shell = useDock()
-  if (dock && shell?.phone) {
+  /// Whether these tabs stand inside a sheet or a dialog, found once they are in
+  /// the document: a sheet's tabs are its own and never belong in the dock.
+  const probe = useRef<HTMLSpanElement>(null)
+  const [inside, setInside] = useState<boolean | null>(null)
+  useLayoutEffect(() => {
+    setInside(probe.current?.closest('[role="dialog"]') != null)
+  }, [])
+  if (dock === true && shell?.phone) {
     return (
       <DockPortal slot="tabs">
         <DockTabs tabs={tabs} value={value} onChange={onChange} />
       </DockPortal>
     )
   }
+  // On a phone every other row of tabs is the dock's status button and its
+  // sheet, not a strip that scrolls sideways (owner, 2026-10-06). A screen that
+  // hides its tabs on a phone (`max-md:hidden`) because it draws the status in
+  // its own `DockTools` is left alone, or the dock would carry two.
+  if (
+    dock === undefined &&
+    shell?.available === true &&
+    inside === false &&
+    !(className ?? "").includes("max-md:hidden")
+  ) {
+    return (
+      <DockChoice
+        value={value}
+        onChange={onChange}
+        options={tabs.map((tab) => ({
+          value: tab.value,
+          label: tab.label,
+          short:
+            tab.short ??
+            (typeof tab.label === "string" ? tab.label : undefined),
+        }))}
+      />
+    )
+  }
+  return (
+    <>
+      <span ref={probe} hidden aria-hidden />
+      <TopTabs
+        tabs={tabs}
+        value={value}
+        onChange={onChange}
+        className={className}
+      />
+    </>
+  )
+}
+
+function TopTabs({
+  tabs,
+  value,
+  onChange,
+  className,
+}: {
+  tabs: readonly SubTab[]
+  value: string
+  onChange: (value: string) => void
+  className?: string
+}) {
   return (
     <Tabs.Root
       value={value}
@@ -82,7 +139,7 @@ export function SubTabs({
             key={tab.value}
             value={tab.value}
             className={cn(
-              "border-b-2 px-3 pt-2 pb-2.5 text-[0.875rem] font-medium whitespace-nowrap transition-colors",
+              "border-b-2 px-3 pt-2 pb-2.5 text-[0.875rem] font-medium whitespace-nowrap transition-colors pointer-coarse:min-h-11",
               tab.value === value
                 ? "border-ink text-ink"
                 : "border-transparent text-body hover:text-ink"
@@ -147,7 +204,8 @@ function DockTabs({
       <Tabs.List
         ref={list}
         className={cn(
-          "flex h-9 min-w-0 [scrollbar-width:none] items-center gap-0.5 overflow-x-auto rounded-full bg-soft-2 p-0.5 [&::-webkit-scrollbar]:hidden",
+          // 44: a 40px tab in the track's 2px rim (D1).
+          "flex h-11 min-w-0 [scrollbar-width:none] items-center gap-0.5 overflow-x-auto rounded-full bg-soft-2 p-0.5 [&::-webkit-scrollbar]:hidden",
           more &&
             "[mask-image:linear-gradient(to_right,black_calc(100%-1.75rem),transparent)]"
         )}
@@ -162,8 +220,10 @@ function DockTabs({
               aria-label={Icon ? tab.short : undefined}
               title={Icon ? tab.short : undefined}
               className={cn(
-                "flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full text-[0.875rem] font-medium whitespace-nowrap transition-colors duration-150",
-                Icon ? "w-10" : "flex-1 px-2.5",
+                // `after` makes the track's rim part of the target: the whole
+                // 44px is the tab.
+                "relative flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-full text-[0.875rem] font-medium whitespace-nowrap transition-colors duration-150 after:absolute after:inset-x-0 after:-inset-y-0.5 after:content-['']",
+                Icon ? "w-11" : "flex-1 px-3",
                 on
                   ? "bg-canvas text-ink shadow-soft"
                   : "text-body active:bg-canvas/60"

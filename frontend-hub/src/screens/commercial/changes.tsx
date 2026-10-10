@@ -4,13 +4,15 @@ import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Card } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Checkbox, Input } from "@/components/ui/field"
-import { DockedFilters } from "@/components/ui/list-chrome"
+import { DeskFilterButton, DeskFilterChips } from "@/components/ui/desk-filter"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { Meter } from "@/components/ui/meter"
 import { PageHeader } from "@/components/ui/page-header"
-import { Status } from "@/components/ui/pill"
+import { Pill, Status } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable, SubHead } from "@/components/ui/rows"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
@@ -22,6 +24,7 @@ import {
   type FilterKind,
 } from "@/lib/filters"
 import { count, day, money, moment } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   changeKeys,
   describeChangeKind,
@@ -42,6 +45,13 @@ import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { Named, Quiet } from "@/screens/commercial/parts"
+import {
+  CardFigure,
+  CardFoot,
+  CardName,
+  Fig,
+  Sentence,
+} from "@/components/ui/phone-cards"
 import { ROOMY } from "@/screens/operations/roomy"
 
 /// Changes — the pricing work that is not finished.
@@ -183,7 +193,7 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
     accessorFn: (row) => `${row.name} v${row.version}`,
     header: "Change",
     size: 240,
-    meta: { grow: 240 },
+    meta: { grow: 240, card: "hide" },
     // A ceiling in the cell, not a `size` on the column. `DataTable` only
     // applies `size` when it virtualises (past 150 rows); under that the table
     // is `table-auto` and a long book name — "Harga awal · 2-p basic cotton
@@ -201,6 +211,7 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
     accessorFn: (row) => describeChangeKind(row.kind),
     header: "Kind",
     size: 150,
+    meta: { card: "hide" },
     cell: ({ row }) => (
       <span
         className={
@@ -218,6 +229,7 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
     accessorFn: (row) => describeChangeStatus(row.status),
     header: "Status",
     size: 130,
+    meta: { card: "hide" },
     cell: ({ row }) => {
       const { status } = row.original
       return (
@@ -241,6 +253,7 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
     accessorFn: (row) => row.effective_from,
     header: "Period",
     size: 210,
+    meta: { card: "hide" },
     // "· open-ended" is gone. An absent end date was being announced in words
     // on every row, and the absence of a second date already says it — a
     // period written as one date has not ended, which is what open-ended
@@ -260,7 +273,7 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
     accessorFn: (row) => row.article_count,
     header: "Articles",
     size: 110,
-    meta: { align: "right" },
+    meta: { align: "right", card: "hide" },
     cell: ({ row }) => (
       <span className="text-ink tabular-nums">
         {count(row.original.article_count)}
@@ -273,7 +286,7 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
       row.reaches_every_shop ? Number.MAX_SAFE_INTEGER : row.store_count,
     header: "Stores",
     size: 130,
-    meta: { align: "right" },
+    meta: { align: "right", card: "hide" },
     // A company-wide book names no shop and reaches all of them, so the two
     // cases cannot share a number — "0" would be the honest count and the
     // wrong answer. Sorted as if it were the largest, because it is.
@@ -292,7 +305,7 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
       row.rollout.target === 0 ? 0 : row.rollout.activated / row.rollout.target,
     header: "Rollout",
     size: 190,
-    meta: { align: "right" },
+    meta: { align: "right", card: "hide" },
     // Activated over target, on one line. A failure is not folded into it —
     // a till that tried and could not is a different thing from one that has
     // not got round to it, and it is the one worth interrupting the line for.
@@ -323,6 +336,7 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
     accessorFn: (row) => row.published_at ?? "",
     header: "Published",
     size: 140,
+    meta: { card: "hide" },
     // The publisher's name is gone. It was the loudest thing in the column and
     // answered a question nobody asks of a list — "who cut this" belongs to the
     // one book somebody has opened, not to six rows being scanned for what is
@@ -335,9 +349,95 @@ const columns: ColumnDef<TableSetup, PriceChange>[] = [
       </span>
     ),
   },
+  // Four columns that exist only on a card (`cardLead`; a phone): the change
+  // over its kind, how far it has reached as the figure (activated over target,
+  // in numbers, with any failures under it), where it stands with its period,
+  // and a pill when somebody is needed (owner, 2026-10-06).
+  {
+    id: "head",
+    accessorFn: (row) => row.name,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <CardName
+        name={row.original.name}
+        line={describeChangeKind(row.original.kind)}
+        muted={row.original.status === "ENDED"}
+      />
+    ),
+  },
+  {
+    id: "lead",
+    accessorFn: (row) => row.rollout.activated,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "lead" },
+    cell: ({ row }) => {
+      const { activated, target, failed } = row.original.rollout
+      return (
+        <CardFigure
+          value={`${count(activated)}/${count(target)}`}
+          caption={failed > 0 ? `stores · ${count(failed)} failed` : "stores"}
+          tone={failed > 0 ? "bad" : undefined}
+        />
+      )
+    },
+  },
+  {
+    id: "foot",
+    accessorFn: (row) => row.effective_from,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => {
+      const { status, effective_from, effective_to, article_count } =
+        row.original
+      return (
+        <CardFoot
+          status={
+            <Status
+              tone={
+                status === "ACTIVE"
+                  ? "ok"
+                  : status === "SCHEDULED"
+                    ? "info"
+                    : undefined
+              }
+            >
+              {describeChangeStatus(status)}
+            </Status>
+          }
+        >
+          {day(effective_from)}
+          {effective_to === null ? "" : ` – ${day(effective_to)}`} ·{" "}
+          {count(article_count)} {article_count === 1 ? "article" : "articles"}
+        </CardFoot>
+      )
+    },
+  },
+  {
+    id: "tag",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { align: "right", card: "status" },
+    cell: ({ row }) =>
+      row.original.rollout.failed > 0 ? (
+        <Pill tone="bad">Failed</Pill>
+      ) : needsAttention(row.original) ? (
+        <Pill tone="warn">Waiting</Pill>
+      ) : null,
+  },
 ]
 
 export function Changes() {
+  // A phone draws the rows as cards and keeps the status, the search and the
+  // filter in the drawer over the bottom bar (`DockTools`).
+  const phone = useLayout() === "phone"
   const search = useSheet("q")
   /// One change, opened — its rollout shop by shop, and what it changes.
   const book = useSheet("book")
@@ -384,10 +484,17 @@ export function Changes() {
         state: {
           globalFilter: search.value ?? "",
           sorting,
+          // The card's own columns are drawn on a phone and never on a desk.
+          columnVisibility: {
+            head: phone,
+            lead: phone,
+            foot: phone,
+            tag: phone,
+          },
         },
         onSortingChange: setSorting,
       }),
-      [rows, search.value, sorting]
+      [rows, search.value, sorting, phone]
     )
   )
 
@@ -403,84 +510,24 @@ export function Changes() {
     <PageContent>
       <PageHeader crumb="Marketing" title="Changes" />
 
-      {/* The order book's shape: the list at the left, the filters docked in
-          a column at the right, and the figures at the top of that column so
-          the number and the control that changed it are read in one glance.
-          Under 1440px the rail falls below the list rather than squeezing it —
-          a 16rem panel beside a thirteen-column table is a table nobody can
-          read. */}
-      <div className="grid min-w-0 items-start gap-5 dock:grid-cols-[minmax(0,1fr)_16rem]">
-        <div className="flex min-w-0 flex-col">
-          <Toolbar className="mb-5">
-            <Segmented
-              options={[
-                { value: "ALL", label: "All" },
-                { value: "SCHEDULED", label: "Scheduled" },
-                { value: "ACTIVE", label: "Active" },
-                { value: "ATTENTION", label: "Attention" },
-              ]}
-              value={lens}
-              onChange={setLens}
-            />
-            <Toolbar.Spacer />
-            {/* In the URL like every search box here, so a filtered list can
-                be sent. The version is in the row's accessor, so "v23"
-                finds it without being printed. */}
-            <Input
-              value={search.value ?? ""}
-              onChange={(event) =>
-                event.target.value === ""
-                  ? search.close()
-                  : search.open(event.target.value)
-              }
-              aria-label="Search changes"
-              className="h-9 w-56"
-            />
-            {/* A second question for the SERVER, not a fifth tab and not a
-                clause. The four tabs narrow the work; this asks for the changes
-                that are no longer work at all, which the default list is
-                entitled to leave out entirely. */}
-            <Checkbox
-              checked={settled}
-              onChange={setSettled}
-              label="Include settled"
-            />
-          </Toolbar>
+      {/* The rail's three figures are a sentence on a phone, where the rail is
+          not drawn. */}
+      {phone && (
+        <Sentence>
+          <Fig>{count(all.length)}</Fig> {settled ? "changes" : "outstanding"},{" "}
+          <Fig>{count(outstanding)}</Fig> with stores waiting,{" "}
+          <Fig tone={attention > 0 ? "bad" : undefined}>{count(attention)}</Fig>{" "}
+          needing attention.
+        </Sentence>
+      )}
 
-          <Card className="overflow-hidden">
-            {queryState(list, {
-              loading: "Loading…",
-              render: () =>
-                rows.length === 0 ? (
-                  <EmptyState>
-                    {lens === "ALL" && filters.filters.length === 0
-                      ? "Nothing outstanding."
-                      : lens === "ATTENTION"
-                        ? "Nothing needs attention."
-                        : "No change matches that."}
-                  </EmptyState>
-                ) : (
-                  <DataTable<PriceChange>
-                    table={table}
-                    onRowClick={(row) => book.open(row.publication_id)}
-                    isSelected={(row) => row.publication_id === book.value}
-                    empty="No change matches that search."
-                    className={`${ROOMY} max-h-[calc(100dvh-20rem)]`}
-                  />
-                ),
-            })}
-          </Card>
-        </div>
-
-        {/* Counted over the WHOLE answer, never over the lens or the clauses. A
-            figure that moved with the filter would say "0 need attention" the
-            moment somebody clicked Scheduled, which is the one reading these
-            must never give — so each says what it is counting. */}
-        <DockedFilters
-          model={filters}
-          id="price-changes"
-          subject="Pricing change"
-          kpis={[
+      {/* Counted over the WHOLE answer, never over the lens or the clauses. A
+          figure that moved with the filter would say "0 need attention" the
+          moment somebody clicked Scheduled, which is the one reading these
+          must never give — so each says what it is counting. */}
+      {!phone && (
+        <KpiStrip className="grid-cols-3 xl:grid-cols-3">
+          {[
             {
               label: "On the list",
               value: count(all.length),
@@ -496,9 +543,121 @@ export function Changes() {
               value: count(attention),
               note: "failed or stuck",
             },
-          ]}
-        />
+          ].map((kpi) => (
+            <div key={kpi.label} title={kpi.note}>
+              <Kpi label={kpi.label} value={kpi.value} />
+            </div>
+          ))}
+        </KpiStrip>
+      )}
+
+      {/* Purchase Orders' shape: the lens, the search and one filter button
+          over the table, the clauses in force under them. */}
+      <div className="min-w-0">
+        <div className="flex min-w-0 flex-col">
+          {!phone && (
+            <Toolbar className="mb-5">
+              <Segmented
+                options={[
+                  { value: "ALL", label: "All" },
+                  { value: "SCHEDULED", label: "Scheduled" },
+                  { value: "ACTIVE", label: "Active" },
+                  { value: "ATTENTION", label: "Attention" },
+                ]}
+                value={lens}
+                onChange={setLens}
+              />
+              <Toolbar.Spacer />
+              {/* In the URL like every search box here, so a filtered list can
+                be sent. The version is in the row's accessor, so "v23"
+                finds it without being printed. */}
+              <Input
+                value={search.value ?? ""}
+                onChange={(event) =>
+                  event.target.value === ""
+                    ? search.close()
+                    : search.open(event.target.value)
+                }
+                aria-label="Search changes"
+                className="h-9 w-56"
+              />
+              <DeskFilterButton model={filters} table={table} />
+              {/* A second question for the SERVER, not a fifth tab and not a
+                clause. The four tabs narrow the work; this asks for the changes
+                that are no longer work at all, which the default list is
+                entitled to leave out entirely. */}
+              <Checkbox
+                checked={settled}
+                onChange={setSettled}
+                label="Include settled"
+              />
+            </Toolbar>
+          )}
+          {!phone && (
+            <DeskFilterChips model={filters} table={table} className="-mt-2" />
+          )}
+
+          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+            {queryState(list, {
+              loading: "Loading…",
+              render: () =>
+                rows.length === 0 ? (
+                  <EmptyState>
+                    {lens === "ALL" && filters.filters.length === 0
+                      ? "Nothing outstanding."
+                      : lens === "ATTENTION"
+                        ? "Nothing needs attention."
+                        : "No change matches that."}
+                  </EmptyState>
+                ) : (
+                  <DataTable<PriceChange>
+                    refresh={[list]}
+                    table={table}
+                    onRowClick={(row) => book.open(row.publication_id)}
+                    isSelected={(row) => row.publication_id === book.value}
+                    empty="No change matches that search."
+                    cardSort={false}
+                    cardsApart
+                    cardLead
+                    className={`${ROOMY} max-h-[calc(100dvh-20rem)]`}
+                  />
+                ),
+            })}
+          </Card>
+        </div>
       </div>
+
+      {/* On a phone the status, the search, the filter and the sort live in the
+          drawer over the bottom bar. "Include settled" is a fifth status: it
+          only ever widens the All list, since a settled change is neither
+          scheduled, active nor in need of anybody. */}
+      <DockTools
+        search={{
+          value: search.value ?? "",
+          onChange: (next) =>
+            next === "" ? search.close() : search.replace(next),
+          label: "Search Changes",
+        }}
+        filter={{
+          count: filters.filters.length,
+          panel: { model: filters, table },
+        }}
+        sort={dockSortOf(table)}
+        status={{
+          value: settled ? "SETTLED" : lens,
+          options: [
+            { value: "ALL", label: "All" },
+            { value: "SCHEDULED", label: "Scheduled" },
+            { value: "ACTIVE", label: "Active" },
+            { value: "ATTENTION", label: "Attention" },
+            { value: "SETTLED", label: "All, with settled" },
+          ],
+          onChange: (next) => {
+            setSettled(next === "SETTLED")
+            setLens(next === "SETTLED" ? "ALL" : (next as ChangeLens))
+          },
+        }}
+      />
 
       <ChangeSheet
         id={book.value ?? null}

@@ -196,7 +196,9 @@ fn clock_minutes(text: &str) -> Option<u32> {
 
 fn valid_role_code(code: &str) -> bool {
     let mut characters = code.chars();
-    characters.next().is_some_and(|first| first.is_ascii_uppercase())
+    characters
+        .next()
+        .is_some_and(|first| first.is_ascii_uppercase())
         && code.len() >= 2
         && code.len() <= 32
         && characters.all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
@@ -214,13 +216,28 @@ impl FleetSettings {
                 Ok(())
             }
         };
-        range("synced_within_seconds", self.synced_within_seconds, 10, 3600)?;
+        range(
+            "synced_within_seconds",
+            self.synced_within_seconds,
+            10,
+            3600,
+        )?;
         range("behind_alert_minutes", self.behind_alert_minutes, 1, 1440)?;
-        range("offline_after_seconds", self.offline_after_seconds, 60, 3600)?;
+        range(
+            "offline_after_seconds",
+            self.offline_after_seconds,
+            60,
+            3600,
+        )?;
         range("red_after_minutes", self.red_after_minutes, 0, 1440)?;
         range("backup_max_age_hours", self.backup_max_age_hours, 1, 720)?;
         range("reader_silent_minutes", self.reader_silent_minutes, 5, 1440)?;
-        range("escalate_after_minutes", self.escalate_after_minutes, 1, 1440)?;
+        range(
+            "escalate_after_minutes",
+            self.escalate_after_minutes,
+            1,
+            1440,
+        )?;
         range("history_days", self.history_days, 91, 400)?;
         if let Some(minutes) = self.action_expiry_minutes {
             range("action_expiry_minutes", minutes, 5, 1440)?;
@@ -488,9 +505,8 @@ fn in_maintenance(parts: &mut [FleetPart], server_component: &str, requested_by:
         if ours && part.state == PART_BAD {
             part.state = PART_UNKNOWN;
             part.code = "MAINTENANCE".to_owned();
-            part.sentence = format!(
-                "Restarting at head office's request ({requested_by}); back in a moment."
-            );
+            part.sentence =
+                format!("Restarting at head office's request ({requested_by}); back in a moment.");
         }
     }
 }
@@ -692,9 +708,7 @@ pub fn command_label(command_type: &str, hint: Option<&str>) -> String {
             if let Some(action) = other.strip_prefix("node.") {
                 format!("Server: {}", action.replace('_', " "))
             } else if let Some(rest) = other.strip_prefix("inventory.") {
-                let words = rest
-                    .trim_end_matches(".v1")
-                    .replace(['.', '_'], " ");
+                let words = rest.trim_end_matches(".v1").replace(['.', '_'], " ");
                 format!("Stock: {words}")
             } else {
                 other.to_owned()
@@ -866,9 +880,9 @@ fn node_freshness(
 
     let synced_within = i64::from(settings.synced_within_seconds);
     let alert_after = i64::from(settings.behind_alert_minutes) * 60;
-    let offline = node
-        .received_at
-        .is_none_or(|heard| (now - heard).num_seconds() > i64::from(settings.offline_after_seconds));
+    let offline = node.received_at.is_none_or(|heard| {
+        (now - heard).num_seconds() > i64::from(settings.offline_after_seconds)
+    });
     let waiting_words = |waiting: Option<i64>| match (waiting, &queue) {
         (Some(0), _) | (None, _) => "nothing waiting".to_owned(),
         (Some(count), Some(queue)) => {
@@ -886,12 +900,22 @@ fn node_freshness(
             .commands
             .iter()
             .take(3)
-            .map(|group| format!("{}, sent {} ago", group.label, span(Duration::seconds(group.age_seconds))))
+            .map(|group| {
+                format!(
+                    "{}, sent {} ago",
+                    group.label,
+                    span(Duration::seconds(group.age_seconds))
+                )
+            })
             .collect();
         format!(
             "{} {} not yet taken ({})",
             down.pending,
-            if down.pending == 1 { "command" } else { "commands" },
+            if down.pending == 1 {
+                "command"
+            } else {
+                "commands"
+            },
             names.join("; ")
         )
     };
@@ -976,8 +1000,15 @@ fn server_part(
         "hostname": node.status.as_ref().map(|status| status.hostname.clone()),
     });
     let Some(heard) = node.received_at else {
-        return part(component, "SERVER", label, PART_UNKNOWN, "NEVER_SEEN",
-            "This server has never reported in. Make sure it is on and online.", detail);
+        return part(
+            component,
+            "SERVER",
+            label,
+            PART_UNKNOWN,
+            "NEVER_SEEN",
+            "This server has never reported in. Make sure it is on and online.",
+            detail,
+        );
     };
     if offline {
         return part(
@@ -995,8 +1026,15 @@ fn server_part(
         );
     }
     let Some(status) = node.status.as_ref() else {
-        return part(component, "SERVER", label, PART_UNKNOWN, "UNKNOWN",
-            "This server reports in without a status: its version is too old.", detail);
+        return part(
+            component,
+            "SERVER",
+            label,
+            PART_UNKNOWN,
+            "UNKNOWN",
+            "This server reports in without a status: its version is too old.",
+            detail,
+        );
     };
     if status.sync.dead_lettered > 0 {
         return part(component, "SERVER", label, PART_BAD, "REJECTED_FACTS",
@@ -1013,7 +1051,11 @@ fn server_part(
             "Head office refuses this machine's key: it was replaced or revoked. Enrol it again if that is a mistake.",
             detail);
     }
-    if let Some(skew) = status.machine.clock_skew_seconds.filter(|skew| skew.abs() > 30) {
+    if let Some(skew) = status
+        .machine
+        .clock_skew_seconds
+        .filter(|skew| skew.abs() > 30)
+    {
         return part(component, "SERVER", label, PART_BAD, "CLOCK_SKEW",
             format!("The clock is {} off from head office; tills may be refused. Turn on automatic time.", span(Duration::seconds(skew.abs()))),
             detail);
@@ -1037,7 +1079,11 @@ fn server_part(
         "SERVER",
         label,
         PART_OK,
-        if disturbances > 0 { "RECOVERED" } else { "RUNNING" },
+        if disturbances > 0 {
+            "RECOVERED"
+        } else {
+            "RUNNING"
+        },
         format!(
             "Running since {} ({}).{recovered}",
             local_when(status.started_at, offset_minutes, now),
@@ -1047,7 +1093,12 @@ fn server_part(
     )
 }
 
-fn silent_part(component: String, kind: &'static str, label: String, device_kind: Option<String>) -> FleetPart {
+fn silent_part(
+    component: String,
+    kind: &'static str,
+    label: String,
+    device_kind: Option<String>,
+) -> FleetPart {
     FleetPart {
         component,
         kind,
@@ -1060,7 +1111,12 @@ fn silent_part(component: String, kind: &'static str, label: String, device_kind
     }
 }
 
-fn backup_part(status: &NodeStatus, settings: &FleetSettings, offset_minutes: i32, now: DateTime<Utc>) -> FleetPart {
+fn backup_part(
+    status: &NodeStatus,
+    settings: &FleetSettings,
+    offset_minutes: i32,
+    now: DateTime<Utc>,
+) -> FleetPart {
     let facts = status.machine.backup.clone().unwrap_or_default();
     let last_ok = match (facts.last_ok_at, status.machine.last_backup_at) {
         (Some(a), Some(b)) => Some(a.max(b)),
@@ -1076,45 +1132,114 @@ fn backup_part(status: &NodeStatus, settings: &FleetSettings, offset_minutes: i3
     let max_age = Duration::hours(i64::from(settings.backup_max_age_hours));
     if let (Some(error), Some(attempt)) = (facts.last_error.as_deref(), facts.last_attempt_at) {
         if last_ok.is_none_or(|ok| attempt > ok) {
-            return part("backup", "BACKUP", "Daily backup", PART_BAD, "FAILED",
-                format!("The last backup failed at {}: {error}", local_when(attempt, offset_minutes, now)),
-                detail);
+            return part(
+                "backup",
+                "BACKUP",
+                "Daily backup",
+                PART_BAD,
+                "FAILED",
+                format!(
+                    "The last backup failed at {}: {error}",
+                    local_when(attempt, offset_minutes, now)
+                ),
+                detail,
+            );
         }
     }
     match last_ok {
-        Some(at) if now - at > max_age => part("backup", "BACKUP", "Daily backup", PART_BAD, "STALE",
-            format!("The newest backup is {} old (taken {}).", span(now - at), local_when(at, offset_minutes, now)),
-            detail),
-        Some(at) => part("backup", "BACKUP", "Daily backup", PART_OK, "OK",
-            format!("Last backup {} ({} ago).", local_when(at, offset_minutes, now), span(now - at)),
-            detail),
-        None if now - status.started_at > max_age => part("backup", "BACKUP", "Daily backup", PART_BAD, "STALE",
+        Some(at) if now - at > max_age => part(
+            "backup",
+            "BACKUP",
+            "Daily backup",
+            PART_BAD,
+            "STALE",
+            format!(
+                "The newest backup is {} old (taken {}).",
+                span(now - at),
+                local_when(at, offset_minutes, now)
+            ),
+            detail,
+        ),
+        Some(at) => part(
+            "backup",
+            "BACKUP",
+            "Daily backup",
+            PART_OK,
+            "OK",
+            format!(
+                "Last backup {} ({} ago).",
+                local_when(at, offset_minutes, now),
+                span(now - at)
+            ),
+            detail,
+        ),
+        None if now - status.started_at > max_age => part(
+            "backup",
+            "BACKUP",
+            "Daily backup",
+            PART_BAD,
+            "STALE",
             format!("No backup in {} of running.", span(now - status.started_at)),
-            detail),
-        None => part("backup", "BACKUP", "Daily backup", PART_WARN, "NONE",
-            "No backup yet; the first is taken within a day of starting.", detail),
+            detail,
+        ),
+        None => part(
+            "backup",
+            "BACKUP",
+            "Daily backup",
+            PART_WARN,
+            "NONE",
+            "No backup yet; the first is taken within a day of starting.",
+            detail,
+        ),
     }
 }
 
 fn version_part(node: &NodeRow, newest: Option<&str>) -> FleetPart {
     let Some(version) = node.version.as_deref() else {
-        return part("version", "VERSION", "Server version", PART_UNKNOWN, "UNKNOWN",
-            "Not reported yet.", json!({}));
+        return part(
+            "version",
+            "VERSION",
+            "Server version",
+            PART_UNKNOWN,
+            "UNKNOWN",
+            "Not reported yet.",
+            json!({}),
+        );
     };
     let detail = json!({ "version": version, "newest_in_fleet": newest });
     match newest {
         Some(newest) if version_key(version) < version_key(newest) => part(
-            "version", "VERSION", "Server version", PART_WARN, "OUTDATED",
-            format!("Runs {version}; the newest in the fleet is {newest}."), detail),
-        _ => part("version", "VERSION", "Server version", PART_OK, "CURRENT",
-            format!("Runs {version}, the newest in the fleet."), detail),
+            "version",
+            "VERSION",
+            "Server version",
+            PART_WARN,
+            "OUTDATED",
+            format!("Runs {version}; the newest in the fleet is {newest}."),
+            detail,
+        ),
+        _ => part(
+            "version",
+            "VERSION",
+            "Server version",
+            PART_OK,
+            "CURRENT",
+            format!("Runs {version}, the newest in the fleet."),
+            detail,
+        ),
     }
 }
 
 fn power_part(status: &NodeStatus) -> FleetPart {
     let Some(power) = status.machine.power.as_ref() else {
-        return part("power", "POWER", "Power / UPS", PART_UNKNOWN, "NO_UPS",
-            "No UPS reported on this server.", json!({}));
+        return part(
+            "power",
+            "POWER",
+            "Power / UPS",
+            PART_UNKNOWN,
+            "NO_UPS",
+            "No UPS reported on this server.",
+            json!({}),
+        );
     };
     let detail = json!({
         "source": power.source,
@@ -1122,7 +1247,10 @@ fn power_part(status: &NodeStatus) -> FleetPart {
         "runtime_seconds": power.runtime_seconds,
         "low": power.low,
     });
-    let charge = power.charge_percent.map(|c| format!(" (battery {c} %)")).unwrap_or_default();
+    let charge = power
+        .charge_percent
+        .map(|c| format!(" (battery {c} %)"))
+        .unwrap_or_default();
     match power.source {
         PowerSource::Battery if power.low => part("power", "POWER", "Power / UPS", PART_BAD, "UPS_LOW",
             format!("Power cut and the UPS battery is almost empty{charge}. The server will shut down cleanly."), detail),
@@ -1142,8 +1270,19 @@ fn power_part(status: &NodeStatus) -> FleetPart {
 }
 
 fn disk_part(status: &NodeStatus) -> FleetPart {
-    let (Some(free), Some(total)) = (status.machine.disk_free_bytes, status.machine.disk_total_bytes) else {
-        return part("disk", "DISK", "Disk", PART_UNKNOWN, "UNKNOWN", "Not reported.", json!({}));
+    let (Some(free), Some(total)) = (
+        status.machine.disk_free_bytes,
+        status.machine.disk_total_bytes,
+    ) else {
+        return part(
+            "disk",
+            "DISK",
+            "Disk",
+            PART_UNKNOWN,
+            "UNKNOWN",
+            "Not reported.",
+            json!({}),
+        );
     };
     let percent = if total > 0 { free * 100 / total } else { 100 };
     let gigabytes = free as f64 / 1_073_741_824.0;
@@ -1157,10 +1296,27 @@ fn disk_part(status: &NodeStatus) -> FleetPart {
         part("disk", "DISK", "Disk", PART_BAD, "DISK_CRITICAL",
             format!("Only {gigabytes:.1} GB free ({percent} %). A full disk stops the server saving sales."), detail)
     } else if percent < 10 {
-        part("disk", "DISK", "Disk", PART_WARN, "DISK_LOW",
-            format!("Only {gigabytes:.1} GB free ({percent} %). Plan to free up or replace the disk."), detail)
+        part(
+            "disk",
+            "DISK",
+            "Disk",
+            PART_WARN,
+            "DISK_LOW",
+            format!(
+                "Only {gigabytes:.1} GB free ({percent} %). Plan to free up or replace the disk."
+            ),
+            detail,
+        )
     } else {
-        part("disk", "DISK", "Disk", PART_OK, "OK", format!("{gigabytes:.1} GB free ({percent} %)."), detail)
+        part(
+            "disk",
+            "DISK",
+            "Disk",
+            PART_OK,
+            "OK",
+            format!("{gigabytes:.1} GB free ({percent} %)."),
+            detail,
+        )
     }
 }
 
@@ -1180,19 +1336,26 @@ fn device_part(
         map.insert("status".into(), json!(device.status));
         map.insert("last_seen_at".into(), json!(device.last_seen_at));
     }
-    let make = |state: &'static str, code: &str, label: String, sentence: String, detail: Value| FleetPart {
-        component: component.clone(),
-        kind: "DEVICE",
-        device_kind: Some(device.kind.clone()),
-        label,
-        state,
-        code: code.to_owned(),
-        sentence,
-        detail,
+    let make = |state: &'static str, code: &str, label: String, sentence: String, detail: Value| {
+        FleetPart {
+            component: component.clone(),
+            kind: "DEVICE",
+            device_kind: Some(device.kind.clone()),
+            label,
+            state,
+            code: code.to_owned(),
+            sentence,
+            detail,
+        }
     };
     if device.status == wire::STATUS_SUSPENDED {
-        return vec![make(PART_UNKNOWN, "SUSPENDED", device.label.clone(),
-            "Switched off; it cannot be used until it is switched on again.".into(), detail)];
+        return vec![make(
+            PART_UNKNOWN,
+            "SUSPENDED",
+            device.label.clone(),
+            "Switched off; it cannot be used until it is switched on again.".into(),
+            detail,
+        )];
     }
     let online_within = Duration::minutes(DEVICE_ONLINE_MINUTES);
     let mut parts = Vec::new();
@@ -1205,20 +1368,44 @@ fn device_part(
                 .any(|name| *name == device.label || *name == device.device_id);
             let till = match device.last_seen_at {
                 Some(at) if now - at <= Duration::minutes(TILL_QUIET_MINUTES) => make(
-                    PART_OK, "ONLINE", device.label.clone(),
-                    format!("Active; last request {}.", when(at)), detail.clone()),
+                    PART_OK,
+                    "ONLINE",
+                    device.label.clone(),
+                    format!("Active; last request {}.", when(at)),
+                    detail.clone(),
+                ),
                 Some(at) if drawer_open => make(
-                    PART_WARN, "QUIET", device.label.clone(),
-                    format!("Its drawer is open but it has sent nothing since {} ({}).", when(at), span(now - at)),
-                    detail.clone()),
-                Some(at) => make(PART_UNKNOWN, "IDLE", device.label.clone(),
-                    format!("Idle since {}.", when(at)), detail.clone()),
-                None => make(PART_UNKNOWN, "NEVER", device.label.clone(),
-                    "Not used yet.".into(), detail.clone()),
+                    PART_WARN,
+                    "QUIET",
+                    device.label.clone(),
+                    format!(
+                        "Its drawer is open but it has sent nothing since {} ({}).",
+                        when(at),
+                        span(now - at)
+                    ),
+                    detail.clone(),
+                ),
+                Some(at) => make(
+                    PART_UNKNOWN,
+                    "IDLE",
+                    device.label.clone(),
+                    format!("Idle since {}.", when(at)),
+                    detail.clone(),
+                ),
+                None => make(
+                    PART_UNKNOWN,
+                    "NEVER",
+                    device.label.clone(),
+                    "Not used yet.".into(),
+                    detail.clone(),
+                ),
             };
             parts.push(till);
             if let Some(reader) = health.desk_reader.as_ref() {
-                let model = reader.model.clone().unwrap_or_else(|| "desk reader".to_owned());
+                let model = reader
+                    .model
+                    .clone()
+                    .unwrap_or_else(|| "desk reader".to_owned());
                 let label = format!("{} desk reader ({model})", device.label);
                 let reader_detail = json!({
                     "till_id": device.device_id,
@@ -1233,13 +1420,18 @@ fn device_part(
                         "DETACHED",
                         format!(
                             "{model} is not plugged in{}.",
-                            reader.reported_at.map(|at| format!(" (reported {})", when(at))).unwrap_or_default()
+                            reader
+                                .reported_at
+                                .map(|at| format!(" (reported {})", when(at)))
+                                .unwrap_or_default()
                         ),
                     ),
                     None => (
                         PART_UNKNOWN,
                         "NOT_REPORTED",
-                        format!("{model} configured; this till does not say whether it is plugged in."),
+                        format!(
+                            "{model} configured; this till does not say whether it is plugged in."
+                        ),
                     ),
                 };
                 parts.push(FleetPart {
@@ -1255,13 +1447,26 @@ fn device_part(
             }
         }
         wire::KIND_PRINTER => {
-            let purpose = device.config.get("purpose").and_then(Value::as_str).unwrap_or("LABEL");
+            let purpose = device
+                .config
+                .get("purpose")
+                .and_then(Value::as_str)
+                .unwrap_or("LABEL");
             let label = device.label.clone();
             if let Some(fault) = health.fault.as_deref() {
-                parts.push(make(PART_BAD, "FAULT", label,
-                    format!("The last label failed{}: {fault}",
-                        health.fault_at.map(|at| format!(" at {}", when(at))).unwrap_or_default()),
-                    detail));
+                parts.push(make(
+                    PART_BAD,
+                    "FAULT",
+                    label,
+                    format!(
+                        "The last label failed{}: {fault}",
+                        health
+                            .fault_at
+                            .map(|at| format!(" at {}", when(at)))
+                            .unwrap_or_default()
+                    ),
+                    detail,
+                ));
             } else if purpose == "LABEL" {
                 let failures = health.encode_failures_24h.unwrap_or(0);
                 let voided = health.void_tags_24h.unwrap_or(0);
@@ -1275,12 +1480,23 @@ fn device_part(
                         format!("{failures} labels could not be encoded in 24 h ({voided} tags voided); {last}."),
                         detail));
                 } else {
-                    parts.push(make(PART_OK, "READY", label,
-                        format!("Ready; {last}; {printed} labels in 24 h, {voided} tags voided."), detail));
+                    parts.push(make(
+                        PART_OK,
+                        "READY",
+                        label,
+                        format!("Ready; {last}; {printed} labels in 24 h, {voided} tags voided."),
+                        detail,
+                    ));
                 }
             } else {
                 parts.push(match device.last_seen_at {
-                    Some(at) => make(PART_OK, "READY", label, format!("Last used {}.", when(at)), detail),
+                    Some(at) => make(
+                        PART_OK,
+                        "READY",
+                        label,
+                        format!("Last used {}.", when(at)),
+                        detail,
+                    ),
                     None => make(PART_UNKNOWN, "NEVER", label, "Not used yet.".into(), detail),
                 });
             }
@@ -1300,18 +1516,48 @@ fn device_part(
             if let Some(scan) = health.last_scan_at.or(health.last_tag_at) {
                 facts.push(format!("last scan {}", when(scan)));
             }
-            let facts = if facts.is_empty() { String::new() } else { format!(" · {}", facts.join(" · ")) };
+            let facts = if facts.is_empty() {
+                String::new()
+            } else {
+                format!(" · {}", facts.join(" · "))
+            };
             parts.push(match alive_at {
                 Some(at) if now - at <= online_within => {
-                    if health.battery_percent.is_some_and(|battery| battery <= HANDHELD_BATTERY_LOW) {
-                        make(PART_WARN, "BATTERY_LOW", device.label.clone(), format!("Online, battery low{facts}."), detail)
+                    if health
+                        .battery_percent
+                        .is_some_and(|battery| battery <= HANDHELD_BATTERY_LOW)
+                    {
+                        make(
+                            PART_WARN,
+                            "BATTERY_LOW",
+                            device.label.clone(),
+                            format!("Online, battery low{facts}."),
+                            detail,
+                        )
                     } else {
-                        make(PART_OK, "ONLINE", device.label.clone(), format!("Online{facts}."), detail)
+                        make(
+                            PART_OK,
+                            "ONLINE",
+                            device.label.clone(),
+                            format!("Online{facts}."),
+                            detail,
+                        )
                     }
                 }
-                Some(at) => make(PART_UNKNOWN, "IDLE", device.label.clone(),
-                    format!("Last seen {}{facts}.", when(at)), detail),
-                None => make(PART_UNKNOWN, "NEVER", device.label.clone(), "Not used yet.".into(), detail),
+                Some(at) => make(
+                    PART_UNKNOWN,
+                    "IDLE",
+                    device.label.clone(),
+                    format!("Last seen {}{facts}.", when(at)),
+                    detail,
+                ),
+                None => make(
+                    PART_UNKNOWN,
+                    "NEVER",
+                    device.label.clone(),
+                    "Not used yet.".into(),
+                    detail,
+                ),
             });
         }
         wire::KIND_RFID_READER => {
@@ -1326,28 +1572,78 @@ fn device_part(
                 .unwrap_or_else(|| "no read rate".to_owned());
             parts.push(match alive_at {
                 Some(at) if now - at <= online_within => match health.last_tag_at {
-                    Some(tag) if now - tag <= silent_after => make(PART_OK, "READING", device.label.clone(),
-                        format!("Reading: {rate}; last tag {}.", when(tag)), detail),
-                    Some(tag) => make(PART_WARN, "SILENT", device.label.clone(),
-                        format!("Alive but no tag read for {} (last {}).", span(now - tag), when(tag)), detail),
-                    None => make(PART_WARN, "SILENT", device.label.clone(),
-                        "Alive but has never read a tag.".into(), detail),
+                    Some(tag) if now - tag <= silent_after => make(
+                        PART_OK,
+                        "READING",
+                        device.label.clone(),
+                        format!("Reading: {rate}; last tag {}.", when(tag)),
+                        detail,
+                    ),
+                    Some(tag) => make(
+                        PART_WARN,
+                        "SILENT",
+                        device.label.clone(),
+                        format!(
+                            "Alive but no tag read for {} (last {}).",
+                            span(now - tag),
+                            when(tag)
+                        ),
+                        detail,
+                    ),
+                    None => make(
+                        PART_WARN,
+                        "SILENT",
+                        device.label.clone(),
+                        "Alive but has never read a tag.".into(),
+                        detail,
+                    ),
                 },
-                Some(at) if health.pinged_at.is_some() => make(PART_BAD, "OFFLINE", device.label.clone(),
-                    format!("No word from this reader since {} ({}).", when(at), span(now - at)), detail),
-                Some(at) => make(PART_UNKNOWN, "QUIET", device.label.clone(),
-                    format!("Last batch {}; this reader does not ping, so quiet and off look the same.", when(at)),
-                    detail),
-                None => make(PART_UNKNOWN, "NEVER", device.label.clone(), "Has not reported yet.".into(), detail),
+                Some(at) if health.pinged_at.is_some() => make(
+                    PART_BAD,
+                    "OFFLINE",
+                    device.label.clone(),
+                    format!(
+                        "No word from this reader since {} ({}).",
+                        when(at),
+                        span(now - at)
+                    ),
+                    detail,
+                ),
+                Some(at) => make(
+                    PART_UNKNOWN,
+                    "QUIET",
+                    device.label.clone(),
+                    format!(
+                        "Last batch {}; this reader does not ping, so quiet and off look the same.",
+                        when(at)
+                    ),
+                    detail,
+                ),
+                None => make(
+                    PART_UNKNOWN,
+                    "NEVER",
+                    device.label.clone(),
+                    "Has not reported yet.".into(),
+                    detail,
+                ),
             });
         }
-        _ => parts.push(make(PART_UNKNOWN, "UNKNOWN", device.label.clone(),
-            "Reported without anything to judge.".into(), detail)),
+        _ => parts.push(make(
+            PART_UNKNOWN,
+            "UNKNOWN",
+            device.label.clone(),
+            "Reported without anything to judge.".into(),
+            detail,
+        )),
     }
     parts
 }
 
-fn registered_device_part(device: &RegisteredDevice, offset_minutes: i32, now: DateTime<Utc>) -> FleetPart {
+fn registered_device_part(
+    device: &RegisteredDevice,
+    offset_minutes: i32,
+    now: DateTime<Utc>,
+) -> FleetPart {
     let detail = json!({ "device_id": device.device_id, "status": device.status, "last_seen_at": device.last_seen_at });
     let make = |state: &'static str, code: &str, sentence: String| FleetPart {
         component: format!("device:{}", device.device_id),
@@ -1360,15 +1656,31 @@ fn registered_device_part(device: &RegisteredDevice, offset_minutes: i32, now: D
         detail: detail.clone(),
     };
     if device.status != wire::STATUS_ACTIVE {
-        return make(PART_UNKNOWN, "SUSPENDED", "Switched off at head office.".into());
+        return make(
+            PART_UNKNOWN,
+            "SUSPENDED",
+            "Switched off at head office.".into(),
+        );
     }
     match (device.kind.as_str(), device.last_seen_at) {
         (wire::KIND_ATTENDANCE_TERMINAL, Some(at)) if now - at <= Duration::hours(26) => make(
-            PART_OK, "ONLINE", format!("Last heard {}.", local_when(at, offset_minutes, now))),
+            PART_OK,
+            "ONLINE",
+            format!("Last heard {}.", local_when(at, offset_minutes, now)),
+        ),
         (wire::KIND_ATTENDANCE_TERMINAL, Some(at)) => make(
-            PART_WARN, "QUIET", format!("Nothing from this terminal for {}.", span(now - at))),
-        (wire::KIND_ATTENDANCE_TERMINAL, None) => make(PART_UNKNOWN, "NEVER", "Has not reported yet.".into()),
-        _ => make(PART_UNKNOWN, "NOT_MONITORED", "Registered; nothing reports its condition yet.".into()),
+            PART_WARN,
+            "QUIET",
+            format!("Nothing from this terminal for {}.", span(now - at)),
+        ),
+        (wire::KIND_ATTENDANCE_TERMINAL, None) => {
+            make(PART_UNKNOWN, "NEVER", "Has not reported yet.".into())
+        }
+        _ => make(
+            PART_UNKNOWN,
+            "NOT_MONITORED",
+            "Registered; nothing reports its condition yet.".into(),
+        ),
     }
 }
 
@@ -1382,7 +1694,14 @@ fn node_parts(
     now: DateTime<Utc>,
 ) -> Vec<FleetPart> {
     let offline = freshness.state == "OFFLINE" || freshness.state == "NEVER_SEEN";
-    let mut parts = vec![server_part("server", "Store server", node, offline, offset_minutes, now)];
+    let mut parts = vec![server_part(
+        "server",
+        "Store server",
+        node,
+        offline,
+        offset_minutes,
+        now,
+    )];
     parts.push(part(
         "sync",
         "SYNC",
@@ -1411,10 +1730,23 @@ fn node_parts(
             }
         }
         None => {
-            parts.push(silent_part("backup".into(), "BACKUP", "Daily backup".into(), None));
-            parts.push(silent_part("power".into(), "POWER", "Power / UPS".into(), None));
+            parts.push(silent_part(
+                "backup".into(),
+                "BACKUP",
+                "Daily backup".into(),
+                None,
+            ));
+            parts.push(silent_part(
+                "power".into(),
+                "POWER",
+                "Power / UPS".into(),
+                None,
+            ));
             parts.push(silent_part("disk".into(), "DISK", "Disk".into(), None));
-            let last_known = node.status.as_ref().and_then(|status| status.device_list.clone());
+            let last_known = node
+                .status
+                .as_ref()
+                .and_then(|status| status.device_list.clone());
             for device in last_known.iter().flatten() {
                 if device.status == wire::STATUS_REVOKED {
                     continue;
@@ -1483,21 +1815,44 @@ fn beat_problem(
         "last_error_at": beat.last_error_at,
     });
     if now - beat.last_run_at > stale {
-        return Some(part(component, "HO_JOB", label, PART_BAD, "STOPPED",
-            format!("Has not run since {} ({}).", local_when(beat.last_run_at, offset_minutes, now), span(now - beat.last_run_at)),
-            detail));
+        return Some(part(
+            component,
+            "HO_JOB",
+            label,
+            PART_BAD,
+            "STOPPED",
+            format!(
+                "Has not run since {} ({}).",
+                local_when(beat.last_run_at, offset_minutes, now),
+                span(now - beat.last_run_at)
+            ),
+            detail,
+        ));
     }
     if let (Some(error), Some(at)) = (beat.last_error.as_deref(), beat.last_error_at) {
         if beat.last_ok_at.is_none_or(|ok| at > ok) {
-            return Some(part(component, "HO_JOB", label, PART_WARN, "FAILING",
-                format!("The last pass failed at {}: {error}", local_when(at, offset_minutes, now)),
-                detail));
+            return Some(part(
+                component,
+                "HO_JOB",
+                label,
+                PART_WARN,
+                "FAILING",
+                format!(
+                    "The last pass failed at {}: {error}",
+                    local_when(at, offset_minutes, now)
+                ),
+                detail,
+            ));
         }
     }
     None
 }
 
-async fn head_office_parts(pool: &PgPool, offset_minutes: i32, now: DateTime<Utc>) -> Result<Vec<FleetPart>, AppError> {
+async fn head_office_parts(
+    pool: &PgPool,
+    offset_minutes: i32,
+    now: DateTime<Utc>,
+) -> Result<Vec<FleetPart>, AppError> {
     let beats = job_beats(pool).await?;
     let mut parts = Vec::new();
 
@@ -1505,15 +1860,30 @@ async fn head_office_parts(pool: &PgPool, offset_minutes: i32, now: DateTime<Utc
     // question. When they do not, nothing is written, and the gap in the
     // history is the outage (0638).
     let started = std::time::Instant::now();
-    sqlx::query_scalar::<_, i32>("SELECT 1").fetch_one(pool).await?;
+    sqlx::query_scalar::<_, i32>("SELECT 1")
+        .fetch_one(pool)
+        .await?;
     let milliseconds = i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX);
     parts.push(if milliseconds > 1000 {
-        part("ho.api", "HO_API", "Cloud API & database", PART_WARN, "SLOW",
+        part(
+            "ho.api",
+            "HO_API",
+            "Cloud API & database",
+            PART_WARN,
+            "SLOW",
             format!("Answering, but the database took {milliseconds} ms for a trivial query."),
-            json!({ "database_ms": milliseconds }))
+            json!({ "database_ms": milliseconds }),
+        )
     } else {
-        part("ho.api", "HO_API", "Cloud API & database", PART_OK, "OK",
-            format!("Answering; the database in {milliseconds} ms."), json!({ "database_ms": milliseconds }))
+        part(
+            "ho.api",
+            "HO_API",
+            "Cloud API & database",
+            PART_OK,
+            "OK",
+            format!("Answering; the database in {milliseconds} ms."),
+            json!({ "database_ms": milliseconds }),
+        )
     });
 
     // Applying what the stores sent.
@@ -1536,20 +1906,57 @@ async fn head_office_parts(pool: &PgPool, offset_minutes: i32, now: DateTime<Utc
     let apply_label = "Sync apply";
     parts.push(if blocked > 0 {
         let long = blocked_since.is_some_and(|since| now - since > Duration::minutes(30));
-        part("ho.sync_apply", "HO_JOB", apply_label, if long { PART_BAD } else { PART_WARN }, "BLOCKED",
-            format!("{blocked} store {} stuck{}: {}", if blocked == 1 { "stream" } else { "streams" },
-                blocked_since.map(|at| format!(" since {}", local_when(at, offset_minutes, now))).unwrap_or_default(),
-                reason.as_deref().unwrap_or("no reason given")),
-            apply_detail)
-    } else if let Some(problem) = beat_problem("ho.sync_apply", apply_label, beats.get(JOB_SYNC_APPLY), Duration::minutes(10), offset_minutes, now) {
+        part(
+            "ho.sync_apply",
+            "HO_JOB",
+            apply_label,
+            if long { PART_BAD } else { PART_WARN },
+            "BLOCKED",
+            format!(
+                "{blocked} store {} stuck{}: {}",
+                if blocked == 1 { "stream" } else { "streams" },
+                blocked_since
+                    .map(|at| format!(" since {}", local_when(at, offset_minutes, now)))
+                    .unwrap_or_default(),
+                reason.as_deref().unwrap_or("no reason given")
+            ),
+            apply_detail,
+        )
+    } else if let Some(problem) = beat_problem(
+        "ho.sync_apply",
+        apply_label,
+        beats.get(JOB_SYNC_APPLY),
+        Duration::minutes(10),
+        offset_minutes,
+        now,
+    ) {
         problem
     } else if !beats.contains_key(JOB_SYNC_APPLY) && lag > 0 {
-        part("ho.sync_apply", "HO_JOB", apply_label, PART_WARN, "NOT_RUNNING",
-            format!("{lag} facts received and not applied, and no applier has reported on this server."), apply_detail)
+        part(
+            "ho.sync_apply",
+            "HO_JOB",
+            apply_label,
+            PART_WARN,
+            "NOT_RUNNING",
+            format!(
+                "{lag} facts received and not applied, and no applier has reported on this server."
+            ),
+            apply_detail,
+        )
     } else {
-        part("ho.sync_apply", "HO_JOB", apply_label, PART_OK, "OK",
-            if lag > 0 { format!("Applying; {lag} facts in hand.") } else { "Everything received is applied.".to_owned() },
-            apply_detail)
+        part(
+            "ho.sync_apply",
+            "HO_JOB",
+            apply_label,
+            PART_OK,
+            "OK",
+            if lag > 0 {
+                format!("Applying; {lag} facts in hand.")
+            } else {
+                "Everything received is applied.".to_owned()
+            },
+            apply_detail,
+        )
     });
 
     // Automatic postings: a sales day, a goods receipt, a flow's meanings.
@@ -1565,16 +1972,43 @@ async fn head_office_parts(pool: &PgPool, offset_minutes: i32, now: DateTime<Utc
     let held_reason: Option<String> = held.try_get("reason")?;
     let postings_detail = json!({ "held_flow_postings": held_count, "held_since": held_since, "first_reason": held_reason });
     parts.push(
-        if let Some(problem) = beat_problem("ho.postings", "Automatic postings", beats.get(JOB_POSTINGS), Duration::hours(2), offset_minutes, now) {
+        if let Some(problem) = beat_problem(
+            "ho.postings",
+            "Automatic postings",
+            beats.get(JOB_POSTINGS),
+            Duration::hours(2),
+            offset_minutes,
+            now,
+        ) {
             problem
         } else if held_count > 0 {
-            part("ho.postings", "HO_JOB", "Automatic postings", PART_WARN, "HELD",
-                format!("{held_count} flow {} held for Finance: {}", if held_count == 1 { "posting" } else { "postings" },
-                    held_reason.as_deref().unwrap_or("no reason given")),
-                postings_detail)
+            part(
+                "ho.postings",
+                "HO_JOB",
+                "Automatic postings",
+                PART_WARN,
+                "HELD",
+                format!(
+                    "{held_count} flow {} held for Finance: {}",
+                    if held_count == 1 {
+                        "posting"
+                    } else {
+                        "postings"
+                    },
+                    held_reason.as_deref().unwrap_or("no reason given")
+                ),
+                postings_detail,
+            )
         } else {
-            part("ho.postings", "HO_JOB", "Automatic postings", PART_OK, "OK",
-                "Nothing held.", postings_detail)
+            part(
+                "ho.postings",
+                "HO_JOB",
+                "Automatic postings",
+                PART_OK,
+                "OK",
+                "Nothing held.",
+                postings_detail,
+            )
         },
     );
 
@@ -1590,14 +2024,35 @@ async fn head_office_parts(pool: &PgPool, offset_minutes: i32, now: DateTime<Utc
     let overdue_since: Option<DateTime<Utc>> = push.try_get("since")?;
     let push_detail = json!({ "overdue_deliveries": overdue, "overdue_since": overdue_since });
     parts.push(
-        if let Some(problem) = beat_problem("ho.notifications", "Notifications & push", beats.get(JOB_PUSH), Duration::minutes(5), offset_minutes, now) {
+        if let Some(problem) = beat_problem(
+            "ho.notifications",
+            "Notifications & push",
+            beats.get(JOB_PUSH),
+            Duration::minutes(5),
+            offset_minutes,
+            now,
+        ) {
             problem
         } else if overdue > 0 {
-            part("ho.notifications", "HO_JOB", "Notifications & push", PART_WARN, "BACKLOG",
-                format!("{overdue} push deliveries overdue by more than ten minutes."), push_detail)
+            part(
+                "ho.notifications",
+                "HO_JOB",
+                "Notifications & push",
+                PART_WARN,
+                "BACKLOG",
+                format!("{overdue} push deliveries overdue by more than ten minutes."),
+                push_detail,
+            )
         } else {
-            part("ho.notifications", "HO_JOB", "Notifications & push", PART_OK, "OK",
-                "Delivering.", push_detail)
+            part(
+                "ho.notifications",
+                "HO_JOB",
+                "Notifications & push",
+                PART_OK,
+                "OK",
+                "Delivering.",
+                push_detail,
+            )
         },
     );
 
@@ -1610,30 +2065,71 @@ async fn head_office_parts(pool: &PgPool, offset_minutes: i32, now: DateTime<Utc
     .filter(|hour: &i32| (0..=23).contains(hour));
     let local = now + Duration::minutes(i64::from(offset_minutes));
     let yesterday = local.date_naive() - Duration::days(1);
-    let sent: Option<DateTime<Utc>> = sqlx::query_scalar(
-        "SELECT sent_at FROM assistant_brief WHERE business_date = $1",
-    )
-    .bind(yesterday)
-    .fetch_optional(pool)
-    .await?;
+    let sent: Option<DateTime<Utc>> =
+        sqlx::query_scalar("SELECT sent_at FROM assistant_brief WHERE business_date = $1")
+            .bind(yesterday)
+            .fetch_optional(pool)
+            .await?;
     let brief_detail = json!({ "hour": hour, "business_date": yesterday, "sent_at": sent });
     let local_hour = i32::try_from(local.hour()).unwrap_or_default();
     parts.push(match hour {
-        None => part("ho.brief", "HO_JOB", "Morning brief", PART_UNKNOWN, "OFF",
-            "Switched off (assistant_brief_hour).", brief_detail),
+        None => part(
+            "ho.brief",
+            "HO_JOB",
+            "Morning brief",
+            PART_UNKNOWN,
+            "OFF",
+            "Switched off (assistant_brief_hour).",
+            brief_detail,
+        ),
         Some(hour) => {
-            if let Some(problem) = beat_problem("ho.brief", "Morning brief", beats.get(JOB_BRIEF), Duration::minutes(30), offset_minutes, now) {
+            if let Some(problem) = beat_problem(
+                "ho.brief",
+                "Morning brief",
+                beats.get(JOB_BRIEF),
+                Duration::minutes(30),
+                offset_minutes,
+                now,
+            ) {
                 problem
             } else {
                 match sent {
-                    Some(at) => part("ho.brief", "HO_JOB", "Morning brief", PART_OK, "SENT",
-                        format!("Sent at {}.", local_hm(at, offset_minutes)), brief_detail),
-                    None if local_hour >= hour + 4 => part("ho.brief", "HO_JOB", "Morning brief", PART_BAD, "NOT_SENT",
-                        format!("Due at {hour:02}:00 and not sent today."), brief_detail),
-                    None if local_hour > hour => part("ho.brief", "HO_JOB", "Morning brief", PART_WARN, "LATE",
-                        format!("Due at {hour:02}:00 and not sent yet."), brief_detail),
-                    None => part("ho.brief", "HO_JOB", "Morning brief", PART_OK, "DUE",
-                        format!("Due at {hour:02}:00."), brief_detail),
+                    Some(at) => part(
+                        "ho.brief",
+                        "HO_JOB",
+                        "Morning brief",
+                        PART_OK,
+                        "SENT",
+                        format!("Sent at {}.", local_hm(at, offset_minutes)),
+                        brief_detail,
+                    ),
+                    None if local_hour >= hour + 4 => part(
+                        "ho.brief",
+                        "HO_JOB",
+                        "Morning brief",
+                        PART_BAD,
+                        "NOT_SENT",
+                        format!("Due at {hour:02}:00 and not sent today."),
+                        brief_detail,
+                    ),
+                    None if local_hour > hour => part(
+                        "ho.brief",
+                        "HO_JOB",
+                        "Morning brief",
+                        PART_WARN,
+                        "LATE",
+                        format!("Due at {hour:02}:00 and not sent yet."),
+                        brief_detail,
+                    ),
+                    None => part(
+                        "ho.brief",
+                        "HO_JOB",
+                        "Morning brief",
+                        PART_OK,
+                        "DUE",
+                        format!("Due at {hour:02}:00."),
+                        brief_detail,
+                    ),
                 }
             }
         }
@@ -1717,7 +2213,10 @@ async fn load_nodes(pool: &PgPool) -> Result<Vec<(NodeRow, bool)>, AppError> {
     Ok(nodes)
 }
 
-async fn load_pending_commands(pool: &PgPool, now: DateTime<Utc>) -> Result<HashMap<String, Vec<PendingCommand>>, AppError> {
+async fn load_pending_commands(
+    pool: &PgPool,
+    now: DateTime<Utc>,
+) -> Result<HashMap<String, Vec<PendingCommand>>, AppError> {
     let rows = sqlx::query(
         "SELECT d.origin_id, c.command_type,
                 COALESCE(c.payload->>'version', c.payload->>'generation', c.payload->>'po_number') AS hint,
@@ -1817,7 +2316,10 @@ async fn load_registered_devices(pool: &PgPool) -> Result<Vec<RegisteredDevice>,
     Ok(devices)
 }
 
-async fn load_last_outages(pool: &PgPool, now: DateTime<Utc>) -> Result<HashMap<String, Value>, AppError> {
+async fn load_last_outages(
+    pool: &PgPool,
+    now: DateTime<Utc>,
+) -> Result<HashMap<String, Value>, AppError> {
     let rows = sqlx::query(
         "SELECT DISTINCT ON (origin_id) origin_id, kind, payload
            FROM node_incident
@@ -1838,7 +2340,10 @@ async fn load_last_outages(pool: &PgPool, now: DateTime<Utc>) -> Result<HashMap<
     Ok(outages)
 }
 
-async fn load_site_offsets(pool: &PgPool, now: DateTime<Utc>) -> Result<HashMap<String, i32>, AppError> {
+async fn load_site_offsets(
+    pool: &PgPool,
+    now: DateTime<Utc>,
+) -> Result<HashMap<String, i32>, AppError> {
     let rows: Vec<(String, i32)> = sqlx::query_as(
         "SELECT s.id, (EXTRACT(EPOCH FROM ($1::timestamptz AT TIME ZONE site_business_timezone(s.id))
                                        - ($1::timestamptz AT TIME ZONE 'UTC')) / 60)::int
@@ -1876,7 +2381,10 @@ pub async fn evaluate_fleet(
     let mut rows: Vec<FleetRow> = Vec::new();
     let mut seen_sites: HashSet<String> = HashSet::new();
     for (node, primary) in &nodes {
-        let offset = offsets.get(&node.site_id).copied().unwrap_or(head_office_offset);
+        let offset = offsets
+            .get(&node.site_id)
+            .copied()
+            .unwrap_or(head_office_offset);
         let commands: Vec<&PendingCommand> = pending
             .get(&node.origin_id)
             .map(|list| list.iter().collect())
@@ -1898,7 +2406,9 @@ pub async fn evaluate_fleet(
                 let offline = freshness.state == "OFFLINE" || freshness.state == "NEVER_SEEN";
                 let label = format!(
                     "Server {}",
-                    node.node_label.clone().unwrap_or_else(|| node.origin_id.clone())
+                    node.node_label
+                        .clone()
+                        .unwrap_or_else(|| node.origin_id.clone())
                 );
                 let component = format!("server:{}", node.origin_id);
                 let mut part = vec![server_part(&component, &label, node, offline, offset, now)];
@@ -1910,11 +2420,21 @@ pub async fn evaluate_fleet(
             }
         }
         seen_sites.insert(node.site_id.clone());
-        let mut parts = node_parts(node, &freshness, settings, newest_version.as_deref(), offset, now);
+        let mut parts = node_parts(
+            node,
+            &freshness,
+            settings,
+            newest_version.as_deref(),
+            offset,
+            now,
+        );
         if let Some(by) = restarting.get(&node.origin_id) {
             in_maintenance(&mut parts, "server", by);
         }
-        for device in registered.iter().filter(|device| device.site_id == node.site_id) {
+        for device in registered
+            .iter()
+            .filter(|device| device.site_id == node.site_id)
+        {
             parts.push(registered_device_part(device, offset, now));
         }
         let gudang = node.site_kind == "HO";
@@ -1927,7 +2447,9 @@ pub async fn evaluate_fleet(
             name: if gudang {
                 node.site_name.clone()
             } else {
-                node.unit_name.clone().unwrap_or_else(|| node.site_name.clone())
+                node.unit_name
+                    .clone()
+                    .unwrap_or_else(|| node.site_name.clone())
             },
             kind: if gudang { "GUDANG" } else { "STORE" },
             origin_id: Some(node.origin_id.clone()),
@@ -1939,8 +2461,11 @@ pub async fn evaluate_fleet(
     }
     // The gudang first, then the stores by code.
     rows.sort_by(|a, b| {
-        (a.kind != "GUDANG", a.unit_code.clone(), a.site_id.clone())
-            .cmp(&(b.kind != "GUDANG", b.unit_code.clone(), b.site_id.clone()))
+        (a.kind != "GUDANG", a.unit_code.clone(), a.site_id.clone()).cmp(&(
+            b.kind != "GUDANG",
+            b.unit_code.clone(),
+            b.site_id.clone(),
+        ))
     });
     let head_office = head_office_parts(pool, head_office_offset, now).await?;
     Ok(FleetEvaluation {
@@ -2112,9 +2637,10 @@ async fn fleet_recipients(
         Vec::new()
     };
     if people.is_empty() {
-        people = sqlx::query_scalar("SELECT username FROM app_user WHERE active AND role = 'ADMIN'")
-            .fetch_all(&mut **tx)
-            .await?;
+        people =
+            sqlx::query_scalar("SELECT username FROM app_user WHERE active AND role = 'ADMIN'")
+                .fetch_all(&mut **tx)
+                .await?;
     }
     if let (true, Some(unit_id)) = (with_pic, unit_id) {
         let has_pic: bool = sqlx::query_scalar("SELECT to_regclass('unit_pic') IS NOT NULL")
@@ -2261,7 +2787,14 @@ async fn run_alerts(
     for row in &evaluation.rows {
         let title = row_title(row);
         for part in &row.parts {
-            consider(&row.site_id, &title, part, row.unit_id.as_ref(), Some(&row.site_id), row.origin_id.as_ref());
+            consider(
+                &row.site_id,
+                &title,
+                part,
+                row.unit_id.as_ref(),
+                Some(&row.site_id),
+                row.origin_id.as_ref(),
+            );
         }
     }
     for part in &evaluation.head_office {
@@ -2297,7 +2830,13 @@ async fn run_alerts(
 
     let wanted_keys: HashSet<(String, String, String)> = wanted
         .iter()
-        .map(|want| (want.subject.clone(), want.component.clone(), want.rule.to_owned()))
+        .map(|want| {
+            (
+                want.subject.clone(),
+                want.component.clone(),
+                want.rule.to_owned(),
+            )
+        })
         .collect();
     let open = sqlx::query(
         "SELECT incident_id, subject, component, rule, unit_id, origin_id, title, body,
@@ -2328,7 +2867,8 @@ async fn run_alerts(
         let acknowledged_at: Option<DateTime<Utc>> = row.try_get("acknowledged_at")?;
         let escalated_at: Option<DateTime<Utc>> = row.try_get("escalated_at")?;
         let key = (subject.clone(), component.clone());
-        let still_wanted = wanted_keys.contains(&(subject.clone(), component.clone(), rule.clone()));
+        let still_wanted =
+            wanted_keys.contains(&(subject.clone(), component.clone(), rule.clone()));
 
         if !still_wanted {
             // A part gone grey has not recovered — nobody can see it — so
@@ -2354,10 +2894,7 @@ async fn run_alerts(
             let told_to: Vec<String> = closed.try_get("notified_to")?;
             if told.is_some() && !told_to.is_empty() {
                 let recovered = match present.get(&key) {
-                    Some(_) => format!(
-                        "Recovered after {}.",
-                        span(now - opened_at)
-                    ),
+                    Some(_) => format!("Recovered after {}.", span(now - opened_at)),
                     None => "No longer reported; closed.".to_owned(),
                 };
                 let notification = raise_notification(
@@ -2446,7 +2983,8 @@ async fn run_alerts(
         let due = notified_at.is_some_and(|told| now - told >= escalate_after);
         if acknowledged_at.is_none() && escalated_at.is_none() && due {
             let mut tx = pool.begin().await?;
-            let owners = fleet_recipients(&mut tx, &settings.escalate_to_roles, None, false).await?;
+            let owners =
+                fleet_recipients(&mut tx, &settings.escalate_to_roles, None, false).await?;
             if owners.is_empty() {
                 continue;
             }
@@ -2454,10 +2992,7 @@ async fn run_alerts(
                 &mut tx,
                 NewNotification {
                     kind: "node.attention",
-                    title: format!(
-                        "Unanswered for {}: {title}",
-                        span(escalate_after)
-                    ),
+                    title: format!("Unanswered for {}: {title}", span(escalate_after)),
                     body: body.clone(),
                     subject: None,
                     origin_id: origin_id.as_deref(),
@@ -2543,7 +3078,13 @@ impl Tally {
 
 /// Spans sorted by start. Each covers from its start to one tick past its
 /// last confirmation, cut at the next span's start and at `now`.
-fn tally(spans: &[SpanRow], from: DateTime<Utc>, to: DateTime<Utc>, now: DateTime<Utc>, gaps_are_down: bool) -> Tally {
+fn tally(
+    spans: &[SpanRow],
+    from: DateTime<Utc>,
+    to: DateTime<Utc>,
+    now: DateTime<Utc>,
+    gaps_are_down: bool,
+) -> Tally {
     let to = to.min(now);
     let mut tally = Tally::default();
     if to <= from {
@@ -2606,7 +3147,12 @@ pub struct FleetDayBar {
     pub known_seconds: i64,
 }
 
-fn day_bars(spans: &[SpanRow], offset_minutes: i32, now: DateTime<Utc>, gaps_are_down: bool) -> Vec<FleetDayBar> {
+fn day_bars(
+    spans: &[SpanRow],
+    offset_minutes: i32,
+    now: DateTime<Utc>,
+    gaps_are_down: bool,
+) -> Vec<FleetDayBar> {
     let shift = Duration::minutes(i64::from(offset_minutes));
     let today = (now + shift).date_naive();
     (0..HISTORY_BARS)
@@ -2622,7 +3168,11 @@ fn day_bars(spans: &[SpanRow], offset_minutes: i32, now: DateTime<Utc>, gaps_are
             FleetDayBar {
                 day,
                 state,
-                colour: if state == "NONE" { "none" } else { part_colour(state) },
+                colour: if state == "NONE" {
+                    "none"
+                } else {
+                    part_colour(state)
+                },
                 uptime_percent: t.percent(),
                 bad_seconds: t.bad,
                 warn_seconds: t.warn,
@@ -2722,11 +3272,10 @@ struct Stored {
 }
 
 async fn stored_state(pool: &PgPool) -> Result<Stored, AppError> {
-    let rows: Vec<(String, String, String, DateTime<Utc>, DateTime<Utc>)> = sqlx::query_as(
-        "SELECT subject, component, state, since, checked_at FROM fleet_component",
-    )
-    .fetch_all(pool)
-    .await?;
+    let rows: Vec<(String, String, String, DateTime<Utc>, DateTime<Utc>)> =
+        sqlx::query_as("SELECT subject, component, state, since, checked_at FROM fleet_component")
+            .fetch_all(pool)
+            .await?;
     let open: Vec<(String, i64)> = sqlx::query_as(
         "SELECT subject, count(*) FROM fleet_incident WHERE resolved_at IS NULL GROUP BY subject",
     )
@@ -2735,7 +3284,9 @@ async fn stored_state(pool: &PgPool) -> Result<Stored, AppError> {
     Ok(Stored {
         since: rows
             .into_iter()
-            .map(|(subject, component, state, since, checked)| ((subject, component), (state, since, checked)))
+            .map(|(subject, component, state, since, checked)| {
+                ((subject, component), (state, since, checked))
+            })
             .collect(),
         open: open.into_iter().collect(),
     })
@@ -2762,7 +3313,14 @@ fn component_views(
             };
             let gaps_are_down = part.kind == "HO_API";
             let history = spans.get(&key).map(Vec::as_slice).unwrap_or(&[]);
-            let uptime_90d = tally(history, now - Duration::days(HISTORY_BARS), now, now, gaps_are_down).percent();
+            let uptime_90d = tally(
+                history,
+                now - Duration::days(HISTORY_BARS),
+                now,
+                now,
+                gaps_are_down,
+            )
+            .percent();
             FleetComponentView {
                 part: part.clone(),
                 colour: part_colour(part.state),
@@ -2798,7 +3356,15 @@ fn row_view(
     now: DateTime<Utc>,
     with_days: bool,
 ) -> FleetRowView {
-    let components = component_views(&row.site_id, &row.parts, stored, spans, row.offset_minutes, now, with_days);
+    let components = component_views(
+        &row.site_id,
+        &row.parts,
+        stored,
+        spans,
+        row.offset_minutes,
+        now,
+        with_days,
+    );
     let (state, headline) = headline(&components);
     let uptime_90d = components
         .iter()
@@ -2921,7 +3487,11 @@ pub async fn fleet_resolve_subject(pool: &PgPool, key: &str) -> Result<String, A
     .bind(key)
     .fetch_optional(pool)
     .await?
-    .ok_or_else(|| AppError::NotFound(format!("no store, gudang or unit with a server is called {key}")))
+    .ok_or_else(|| {
+        AppError::NotFound(format!(
+            "no store, gudang or unit with a server is called {key}"
+        ))
+    })
 }
 
 /// `GET /api/v1/fleet/status/{unit}`: one row with ninety daily bars per
@@ -2935,7 +3505,11 @@ pub async fn fleet_status_of(pool: &PgPool, key: &str) -> Result<Value, AppError
     let stored = stored_state(pool).await?;
     let spans = load_spans(pool, Some(&subject), now).await?;
     let (row, sync, outages) = if subject == HEAD_OFFICE_SUBJECT {
-        (head_office_view(&evaluation, &stored, &spans, true), Value::Null, Value::Null)
+        (
+            head_office_view(&evaluation, &stored, &spans, true),
+            Value::Null,
+            Value::Null,
+        )
     } else {
         let row = evaluation
             .rows
@@ -2995,7 +3569,13 @@ pub async fn fleet_sync(pool: &PgPool) -> Result<Value, AppError> {
             value
         })
         .collect();
-    let count = |state: &str| evaluation.rows.iter().filter(|row| row.freshness.state == state).count();
+    let count = |state: &str| {
+        evaluation
+            .rows
+            .iter()
+            .filter(|row| row.freshness.state == state)
+            .count()
+    };
     Ok(json!({
         "generated_at": now,
         "thresholds": {
@@ -3087,7 +3667,12 @@ pub async fn fleet_incidents(
     query: &FleetIncidentQuery,
 ) -> Result<(Vec<Value>, i64), AppError> {
     let now = Utc::now();
-    let subject = match query.unit.as_deref().map(str::trim).filter(|unit| !unit.is_empty()) {
+    let subject = match query
+        .unit
+        .as_deref()
+        .map(str::trim)
+        .filter(|unit| !unit.is_empty())
+    {
         Some(unit) => Some(fleet_resolve_subject(pool, unit).await?),
         None => None,
     };
@@ -3122,15 +3707,13 @@ pub async fn fleet_incidents(
     .bind(limit)
     .fetch_all(pool)
     .await?;
-    let total: i64 = sqlx::query_scalar(&format!(
-        "SELECT count(*) FROM fleet_incident i {filter}"
-    ))
-    .bind(&subject)
-    .bind(component)
-    .bind(from)
-    .bind(open_only)
-    .fetch_one(pool)
-    .await?;
+    let total: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM fleet_incident i {filter}"))
+        .bind(&subject)
+        .bind(component)
+        .bind(from)
+        .bind(open_only)
+        .fetch_one(pool)
+        .await?;
     let items = rows
         .iter()
         .map(|row| incident_json(row, now))
@@ -3149,7 +3732,9 @@ pub async fn fleet_acknowledge_incident(
 ) -> Result<Value, AppError> {
     let note = note.map(str::trim).filter(|note| !note.is_empty());
     if note.is_some_and(|note| note.chars().count() > 500) {
-        return Err(AppError::Validation("a note is at most 500 characters".into()));
+        return Err(AppError::Validation(
+            "a note is at most 500 characters".into(),
+        ));
     }
     let found = sqlx::query(
         "UPDATE fleet_incident
@@ -3183,11 +3768,16 @@ mod tests {
     use super::*;
 
     fn at(minutes: i64) -> DateTime<Utc> {
-        DateTime::<Utc>::from_timestamp(1_800_000_000, 0).unwrap_or_default() + Duration::minutes(minutes)
+        DateTime::<Utc>::from_timestamp(1_800_000_000, 0).unwrap_or_default()
+            + Duration::minutes(minutes)
     }
 
     fn span_row(state: &str, from: i64, seen: i64) -> SpanRow {
-        SpanRow { state: state.into(), started_at: at(from), seen_at: at(seen) }
+        SpanRow {
+            state: state.into(),
+            started_at: at(from),
+            seen_at: at(seen),
+        }
     }
 
     #[test]
@@ -3228,10 +3818,19 @@ mod tests {
 
     #[test]
     fn commands_are_named_as_head_office_says_them() {
-        assert_eq!(command_label("commercial.publication.activate", Some("42")), "Price list v42");
-        assert_eq!(command_label("catalog.snapshot.chunk", Some("17")), "Catalogue g17");
+        assert_eq!(
+            command_label("commercial.publication.activate", Some("42")),
+            "Price list v42"
+        );
+        assert_eq!(
+            command_label("catalog.snapshot.chunk", Some("17")),
+            "Catalogue g17"
+        );
         assert_eq!(command_label("node.restart", None), "Server: restart");
-        assert_eq!(command_label("inventory.flow.events.v1", None), "Stock: flow events");
+        assert_eq!(
+            command_label("inventory.flow.events.v1", None),
+            "Stock: flow events"
+        );
     }
 
     #[test]
@@ -3245,7 +3844,10 @@ mod tests {
         let t = tally(&spans, at(0), at(90), at(90), false);
         assert_eq!((t.ok, t.bad, t.unknown), (3600, 600, 1200));
         let percent = t.percent().unwrap_or_default();
-        assert!((percent - 3600.0 / 4200.0 * 100.0).abs() < 0.01, "{percent}");
+        assert!(
+            (percent - 3600.0 / 4200.0 * 100.0).abs() < 0.01,
+            "{percent}"
+        );
     }
 
     #[test]
@@ -3253,7 +3855,10 @@ mod tests {
         // Up for ten minutes, then nothing for twenty, then up again.
         let spans = vec![span_row(PART_OK, 0, 9), span_row(PART_OK, 30, 59)];
         let store = tally(&spans, at(0), at(60), at(60), false);
-        assert_eq!(store.bad, 0, "a store's part is not down while head office was");
+        assert_eq!(
+            store.bad, 0,
+            "a store's part is not down while head office was"
+        );
         let head_office = tally(&spans, at(0), at(60), at(60), true);
         assert_eq!(head_office.bad, 20 * 60);
     }
@@ -3271,12 +3876,43 @@ mod tests {
     #[test]
     fn a_red_part_alerts_only_after_the_grace() {
         let settings = FleetSettings::default();
-        let red = part("server", "SERVER", "Store server", PART_BAD, "OFFLINE", "x", json!({}));
+        let red = part(
+            "server",
+            "SERVER",
+            "Store server",
+            PART_BAD,
+            "OFFLINE",
+            "x",
+            json!({}),
+        );
         assert_eq!(rule_for(&red, at(0), &settings, at(2)), None);
-        assert_eq!(rule_for(&red, at(0), &settings, at(5)), Some("COMPONENT_RED"));
-        let offline_sync = part("sync", "SYNC", "Connection & sync", PART_BAD, "OFFLINE", "x", json!({}));
-        assert_eq!(rule_for(&offline_sync, at(0), &settings, at(60)), None, "the server part says it");
-        let backup = part("backup", "BACKUP", "Daily backup", PART_BAD, "FAILED", "x", json!({}));
+        assert_eq!(
+            rule_for(&red, at(0), &settings, at(5)),
+            Some("COMPONENT_RED")
+        );
+        let offline_sync = part(
+            "sync",
+            "SYNC",
+            "Connection & sync",
+            PART_BAD,
+            "OFFLINE",
+            "x",
+            json!({}),
+        );
+        assert_eq!(
+            rule_for(&offline_sync, at(0), &settings, at(60)),
+            None,
+            "the server part says it"
+        );
+        let backup = part(
+            "backup",
+            "BACKUP",
+            "Daily backup",
+            PART_BAD,
+            "FAILED",
+            "x",
+            json!({}),
+        );
         assert_eq!(rule_for(&backup, at(0), &settings, at(0)), Some("BACKUP"));
     }
 
@@ -3286,12 +3922,21 @@ mod tests {
             "CONNECTION_LOST",
             &json!({"from": "a", "to": "b", "facts_written": 40, "sales_written": 12}),
         );
-        assert_eq!(internet.as_ref().and_then(|o| o["cause"].as_str()), Some("INTERNET"));
-        assert_eq!(internet.as_ref().and_then(|o| o["kept_selling"].as_bool()), Some(true));
+        assert_eq!(
+            internet.as_ref().and_then(|o| o["cause"].as_str()),
+            Some("INTERNET")
+        );
+        assert_eq!(
+            internet.as_ref().and_then(|o| o["kept_selling"].as_bool()),
+            Some(true)
+        );
         let off = outage_from(
             "STARTED",
             &json!({"at": "b", "previous": {"how": "UNCLEAN", "last_seen": "a", "machine_restarted": true}}),
         );
-        assert_eq!(off.as_ref().and_then(|o| o["cause"].as_str()), Some("SWITCHED_OFF"));
+        assert_eq!(
+            off.as_ref().and_then(|o| o["cause"].as_str()),
+            Some("SWITCHED_OFF")
+        );
     }
 }

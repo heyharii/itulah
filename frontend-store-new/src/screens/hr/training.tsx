@@ -1,13 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Lock } from "lucide-react"
+import { ChevronRight, Lock } from "lucide-react"
 import { useState } from "react"
 
-import { Field, Input } from "@/components/ui/field"
-import { PeopleSheet, SheetSection } from "@/components/ui/people-sheet"
+import { Button } from "@/components/ui/button"
+import { Field, Input, Select } from "@/components/ui/field"
+import {
+  PeopleSheet,
+  SheetFoot,
+  SheetSection,
+} from "@/components/ui/people-sheet"
 import { PeopleTable } from "@/components/ui/people-table"
-import { Pill } from "@/components/ui/pill"
+import { Pill, Status } from "@/components/ui/pill"
 import { Stat, StatStrip } from "@/components/ui/stat-strip"
 import { Banner } from "@/components/ui/states"
+import { moment } from "@/lib/format"
 import {
   hrKeys,
   nominate,
@@ -18,8 +24,8 @@ import {
   type StoreScope,
 } from "@/lib/queries/hr"
 import { centreState } from "@/screens/hr/centre"
-import { Facts, PersonPicker, Submit } from "@/screens/hr/parts"
-import { personName, useTeam } from "@/screens/hr/words"
+import { dateLead, Facts, PersonPicker, Submit } from "@/screens/hr/parts"
+import { personByLogin, useTeam, type Tone } from "@/screens/hr/words"
 import { HrWorkspace } from "@/screens/hr/workspace"
 import type {
   EmployeeList,
@@ -34,12 +40,35 @@ import type {
 /// puts its people forward. The cost per head is locked here (🔒) as the
 /// prototype locks it — it is booked to manpower development at head office.
 ///
+/// The list is head office's programmes. A programme opens into a sheet of this
+/// shop's nominees; "New nomination" and each person's attendance are their own
+/// small sheets, which stand in for the programme's while they are open.
 export function HrTraining() {
-  return (
-    <HrWorkspace>
-      {(scope) => <Training scope={scope} />}
-    </HrWorkspace>
-  )
+  return <HrWorkspace>{(scope) => <Training scope={scope} />}</HrWorkspace>
+}
+
+/// A programme's state in a word: head office marks it done once it has run.
+function programState(program: TrainingProgramView): {
+  label: string
+  tone: Tone
+} {
+  return program.state === "DONE"
+    ? { label: "Done", tone: "ok" }
+    : { label: "Scheduled", tone: "info" }
+}
+
+/// One nominee's attendance in a word. Before the attendance window opens an
+/// empty record is only not-yet; once it is open it is something to do.
+function attendanceState(
+  attended: boolean | null,
+  windowOpen: boolean,
+): { label: string; tone: Tone } {
+  if (attended === null) {
+    return { label: "Not recorded", tone: windowOpen ? "warn" : "neutral" }
+  }
+  return attended
+    ? { label: "Attended", tone: "ok" }
+    : { label: "Absent", tone: "bad" }
 }
 
 function Training({ scope }: { scope: StoreScope }) {
@@ -50,118 +79,134 @@ function Training({ scope }: { scope: StoreScope }) {
   })
   const [open, setOpen] = useState<TrainingProgramView | null>(null)
 
-  return centreState(programs, {
-    loading: "Loading…",
-    what: "the training programmes",
-    render: (rows) => {
-      const upcoming = rows.filter((program) => program.state !== "DONE")
-      const sorted = [...rows].sort((left, right) =>
-        left.state === right.state
-          ? left.on_date.localeCompare(right.on_date)
-          : left.state === "DONE"
-            ? 1
-            : -1,
-      )
-      return (
-        <>
-          <StatStrip>
-            <Stat label="Scheduled" value={upcoming.length} />
-            <Stat
-              label="Next"
-              value={
-                upcoming.find((program) => !program.attendance_open)
-                  ?.on_date === undefined
-                  ? "—"
-                  : readDate(
-                      upcoming.find((program) => !program.attendance_open)
-                        ?.on_date ?? "",
-                    )
-              }
-            />
-            <Stat label="Done" value={rows.length - upcoming.length} />
-          </StatStrip>
-          <PeopleTable
-            rows={sorted}
-            rowKey={(program) => program.id}
-            onRowClick={setOpen}
-            empty="No programmes scheduled."
-            columns={[
-              {
-                key: "title",
-                header: "Programme",
-                cell: (program) => (
-                  <span className="flex flex-col">
-                    <span className="font-medium text-ink">
-                      {program.title}
-                    </span>
-                    <span className="font-mono text-meta text-mute">
-                      {program.id}
-                    </span>
-                  </span>
-                ),
-              },
-              {
-                key: "date",
-                header: "Date",
-                card: "meta",
-                cell: (program) => readDate(program.on_date, true),
-              },
-              {
-                key: "where",
-                header: "Where",
-                card: "meta",
-                cell: (program) => program.place,
-              },
-              {
-                key: "people",
-                header: "Participants",
-                align: "right",
-                cell: (program) => program.participants,
-              },
-              {
-                key: "cost",
-                header: "Cost",
-                align: "right",
-                card: "hide",
-                cell: () => (
-                  <span
-                    className="inline-flex items-center gap-1 text-mute"
-                    title="Head office's"
-                  >
-                    <Lock className="size-3.5" />
-                    HO
-                  </span>
-                ),
-              },
-              {
-                key: "state",
-                header: "Status",
-                card: "status",
-                cell: (program) =>
-                  program.state === "DONE" ? (
-                    <Pill tone="ok">Done</Pill>
-                  ) : (
-                    <Pill tone="accent">Scheduled</Pill>
-                  ),
-              },
-            ]}
-          />
-          {open !== null && (
-            <ProgramSheet
-              key={open.id}
-              program={open}
-              team={team.data}
-              onClose={() => setOpen(null)}
-            />
-          )}
-        </>
-      )
-    },
-  })
+  return (
+    <>
+      {centreState(programs, {
+        loading: "Reading the training programmes…",
+        what: "the training programmes",
+        render: (rows) => {
+          const upcoming = rows.filter((program) => program.state !== "DONE")
+          const sorted = [...rows].sort((left, right) =>
+            left.state === right.state
+              ? left.on_date.localeCompare(right.on_date)
+              : left.state === "DONE"
+                ? 1
+                : -1,
+          )
+          const next = sorted.find(
+            (program) => program.state !== "DONE" && !program.attendance_open,
+          )
+          return (
+            <>
+              <StatStrip>
+                <Stat label="Scheduled" value={upcoming.length} />
+                <Stat
+                  label="Next"
+                  value={next === undefined ? "—" : readDate(next.on_date)}
+                />
+                <Stat label="Done" value={rows.length - upcoming.length} />
+              </StatStrip>
+              <PeopleTable
+                rows={sorted}
+                rowKey={(program) => program.id}
+                onRowClick={setOpen}
+                empty="No programmes scheduled."
+                card={(program) => {
+                  const state = programState(program)
+                  return {
+                    title: program.title,
+                    code: program.id,
+                    lines: [program.place, `${program.participants} nominated`],
+                    lead: dateLead(program.on_date),
+                    foot: {
+                      info: <Status tone={state.tone}>{state.label}</Status>,
+                      action: {
+                        label: "Open",
+                        onClick: () => setOpen(program),
+                      },
+                    },
+                  }
+                }}
+                columns={[
+                  {
+                    key: "title",
+                    header: "Programme",
+                    cell: (program) => (
+                      <span className="flex flex-col">
+                        <span className="font-medium text-ink">
+                          {program.title}
+                        </span>
+                        <span className="font-mono text-meta text-mute">
+                          {program.id}
+                        </span>
+                      </span>
+                    ),
+                  },
+                  {
+                    key: "date",
+                    header: "Date",
+                    cell: (program) => readDate(program.on_date, true),
+                  },
+                  {
+                    key: "where",
+                    header: "Where",
+                    cell: (program) => program.place,
+                  },
+                  {
+                    key: "people",
+                    header: "Participants",
+                    align: "right",
+                    cell: (program) => program.participants,
+                  },
+                  {
+                    key: "cost",
+                    header: "Cost",
+                    align: "right",
+                    cell: () => (
+                      <span
+                        className="inline-flex items-center gap-1 text-mute"
+                        title="Set at head office"
+                      >
+                        <Lock className="size-3.5" />
+                        HO
+                      </span>
+                    ),
+                  },
+                  {
+                    key: "state",
+                    header: "Status",
+                    cell: (program) => {
+                      const state = programState(program)
+                      return <Status tone={state.tone}>{state.label}</Status>
+                    },
+                  },
+                ]}
+              />
+              {open !== null && (
+                <ProgramFlow
+                  key={open.id}
+                  program={open}
+                  team={team.data}
+                  onClose={() => setOpen(null)}
+                />
+              )}
+            </>
+          )
+        },
+      })}
+    </>
+  )
 }
 
+/// Where a programme's sheet has gone: nowhere (its own), the form that puts
+/// somebody forward, or one nominee's attendance. The form stands in for the
+/// programme's sheet while it is open; closing it returns to the programme.
+type Step =
+  | { readonly kind: "nominate" }
+  | { readonly kind: "attend"; readonly participant: TrainingParticipantView }
+
 /// One programme, this shop's nominees, and their attendance record.
-function ProgramSheet({
+function ProgramFlow({
   program,
   team,
   onClose,
@@ -170,80 +215,79 @@ function ProgramSheet({
   team: EmployeeList | undefined
   onClose: () => void
 }) {
-  const client = useQueryClient()
-  const [employeeId, setEmployeeId] = useState("")
-  const [reason, setReason] = useState("")
-  const [done, setDone] = useState<string | null>(null)
+  const [step, setStep] = useState<Step | null>(null)
   const roster = useQuery({
     queryKey: hrKeys.trainingParticipants(program.id),
     queryFn: ({ signal }) => trainingParticipants(program.id, signal),
   })
-  const put = useMutation({
-    mutationFn: () => nominate({ programId: program.id, employeeId, reason }),
-    onSuccess: () => {
-      client.invalidateQueries({ queryKey: hrKeys.training() })
-      client.invalidateQueries({
-        queryKey: hrKeys.trainingParticipants(program.id),
-      })
-      setDone(personName(team, employeeId))
-      setEmployeeId("")
-      setReason("")
-    },
-  })
-  const nominationsOpen = program.state !== "DONE"
-  const attendanceOpen = program.attendance_open
 
+  if (step?.kind === "nominate") {
+    return (
+      <NominateSheet
+        program={program}
+        team={team}
+        taken={roster.data?.map((participant) => participant.employee_id)}
+        onClose={() => setStep(null)}
+      />
+    )
+  }
+  if (step?.kind === "attend") {
+    return (
+      <AttendanceSheet
+        key={step.participant.employee_id}
+        program={program}
+        participant={step.participant}
+        team={team}
+        onClose={() => setStep(null)}
+      />
+    )
+  }
+
+  const state = programState(program)
+  const nominationsOpen = program.state !== "DONE"
   return (
     <PeopleSheet
       open
       onOpenChange={(next) => {
         if (!next) onClose()
       }}
-      crumb={
-        <>
-          Training · <span className="font-mono">{program.id}</span>
-        </>
-      }
+      id={program.id}
+      crumb="Training"
       title={program.title}
-      sub={`${readDate(program.on_date, true)} · ${program.place}`}
-      status={
-        nominationsOpen ? (
-          <Pill tone="accent">Scheduled</Pill>
-        ) : (
-          <Pill tone="ok">Done</Pill>
-        )
-      }
+      sub={readDate(program.on_date, true)}
+      status={<Pill tone={state.tone}>{state.label}</Pill>}
       foot={
         nominationsOpen ? (
-          <Submit
-            label="Nominate"
-            pending={put.isPending}
-            disabled={employeeId === "" || reason.trim() === ""}
-            error={put.error}
-            onSubmit={() => put.mutate()}
-          />
+          <SheetFoot>
+            <Button
+              variant="primary"
+              onClick={() => setStep({ kind: "nominate" })}
+            >
+              New nomination
+            </Button>
+          </SheetFoot>
         ) : undefined
       }
     >
-      <SheetSection title="Programme">
-        <Facts
-          rows={[
-            ["Date", readDate(program.on_date, true)],
-            ["Where", program.place],
-            [
-              "Participants",
-              `${roster.data?.length ?? program.participants} in this shop`,
-            ],
-            [
-              "Cost per head",
-              "head office's rule · booked to manpower development",
-            ],
-          ]}
-        />
-      </SheetSection>
-      <SheetSection title="Participants from this shop">
+      <Facts
+        rows={[
+          ["Where", program.place],
+          ["Cost per head", "Set at head office"],
+          [
+            "Attendance",
+            program.attendance_open
+              ? "Open"
+              : `Opens on ${readDate(program.on_date, true)}`,
+          ],
+        ]}
+      />
+      <SheetSection
+        title="Participants"
+        aside={roster.data?.length}
+        className="mt-6"
+      >
         {roster.isPending ? (
-          <p className="text-meta text-body">Loading…</p>
+          <p className="text-meta text-body">Reading the participants…</p>
         ) : roster.isError ? (
           <Banner tone="bad">
             {roster.error instanceof Error
@@ -251,78 +295,152 @@ function ProgramSheet({
               : "The participant list could not be read."}
           </Banner>
         ) : roster.data.length === 0 ? (
-          <p className="text-meta text-body">Nobody is nominated yet.</p>
+          <p className="text-meta text-body">
+            {nominationsOpen
+              ? "Nobody is nominated yet."
+              : "Nobody was nominated."}
+          </p>
         ) : (
-          <div className="flex flex-col divide-y divide-hairline">
+          <ul className="flex flex-col divide-y divide-hairline">
             {roster.data.map((participant) => (
-              <div
-                key={participant.employee_id}
-                className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-sm font-medium text-ink">
-                    {participant.full_name ?? participant.employee_code}
-                    <span className="ml-2 font-mono text-meta text-mute">
-                      {participant.employee_code}
-                    </span>
-                  </span>
-                  <AttendancePill attended={participant.attended} />
-                </div>
-                {attendanceOpen ? (
-                  <ParticipantAttendance
-                    programId={program.id}
-                    participant={participant}
-                  />
-                ) : (
-                  <p className="text-meta text-body">
-                    Attendance opens on {readDate(program.on_date, true)}.
-                  </p>
-                )}
-              </div>
+              <li key={participant.employee_id}>
+                <ParticipantLine
+                  participant={participant}
+                  windowOpen={program.attendance_open}
+                  onOpen={() => setStep({ kind: "attend", participant })}
+                />
+              </li>
             ))}
-          </div>
+          </ul>
         )}
       </SheetSection>
-      {nominationsOpen ? (
-        <SheetSection title="Nominate">
-          <div className="flex flex-col gap-3">
-            {done !== null && <Banner tone="ok">{done} is nominated.</Banner>}
-            <PersonPicker
-              team={team}
-              exclude={roster.data?.map((participant) => participant.employee_id)}
-              value={employeeId}
-              onChange={setEmployeeId}
-              label="From this shop"
-            />
-            <Field label="Why them">
-              <Input
-                value={reason}
-                placeholder="Newly promoted to shift lead"
-                onChange={(event) => setReason(event.target.value)}
-              />
-            </Field>
-          </div>
-        </SheetSection>
-      ) : (
-        <p className="text-meta text-body">
-          Nominations closed.
-        </p>
-      )}
     </PeopleSheet>
   )
 }
 
-function AttendancePill({ attended }: { attended: boolean | null }) {
-  if (attended === null) return <Pill tone="warn">Not recorded</Pill>
-  return attended ? <Pill tone="ok">Attended</Pill> : <Pill tone="bad">Absent</Pill>
+/// One nominee in the programme's list. While attendance is open the row opens
+/// the form that records it; before that it is only read.
+function ParticipantLine({
+  participant,
+  windowOpen,
+  onOpen,
+}: {
+  participant: TrainingParticipantView
+  windowOpen: boolean
+  onOpen: () => void
+}) {
+  const state = attendanceState(participant.attended, windowOpen)
+  const inner = (
+    <>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-cell font-medium text-ink">
+          {participant.full_name ?? participant.employee_code}
+        </span>
+        {participant.full_name !== null && (
+          <span className="block font-mono text-meta text-mute">
+            {participant.employee_code}
+          </span>
+        )}
+      </span>
+      <Status tone={state.tone}>{state.label}</Status>
+      {windowOpen && <ChevronRight className="size-4 shrink-0 text-line-ico" />}
+    </>
+  )
+  return windowOpen ? (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex min-h-11 w-full items-center gap-3 py-2.5 text-left transition-colors active:bg-soft"
+    >
+      {inner}
+    </button>
+  ) : (
+    <div className="flex min-h-11 items-center gap-3 py-2.5">{inner}</div>
+  )
 }
 
-function ParticipantAttendance({
-  programId,
-  participant,
+/// Putting one of this shop's people on the programme. The centre refuses
+/// somebody who is not posted here, and the picker already leaves out whoever
+/// is on it.
+function NominateSheet({
+  program,
+  team,
+  taken,
+  onClose,
 }: {
-  programId: string
+  program: TrainingProgramView
+  team: EmployeeList | undefined
+  taken: readonly string[] | undefined
+  onClose: () => void
+}) {
+  const client = useQueryClient()
+  const [employeeId, setEmployeeId] = useState("")
+  const [reason, setReason] = useState("")
+  const put = useMutation({
+    mutationFn: () => nominate({ programId: program.id, employeeId, reason }),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: hrKeys.training() })
+      client.invalidateQueries({
+        queryKey: hrKeys.trainingParticipants(program.id),
+      })
+      onClose()
+    },
+  })
+
+  return (
+    <PeopleSheet
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose()
+      }}
+      crumb="Training"
+      title="New nomination"
+      sub={program.title}
+      foot={
+        <Submit
+          label="Create nomination"
+          pendingLabel="Creating…"
+          pending={put.isPending}
+          disabled={employeeId === "" || reason.trim() === ""}
+          error={put.error}
+          onSubmit={() => put.mutate()}
+          onCancel={onClose}
+        />
+      }
+    >
+      <div className="flex flex-col gap-3">
+        <PersonPicker
+          team={team}
+          exclude={taken}
+          value={employeeId}
+          onChange={setEmployeeId}
+          label="Employee"
+          required
+        />
+        <Field label="Reason" required>
+          <Input
+            value={reason}
+            placeholder="Newly promoted to shift lead"
+            onChange={(event) => setReason(event.target.value)}
+          />
+        </Field>
+      </div>
+    </PeopleSheet>
+  )
+}
+
+/// One nominee's attendance, recorded or corrected. Every reason is kept in the
+/// person's history at the centre, so the last one is shown above the form.
+function AttendanceSheet({
+  program,
+  participant,
+  team,
+  onClose,
+}: {
+  program: TrainingProgramView
   participant: TrainingParticipantView
+  team: EmployeeList | undefined
+  onClose: () => void
 }) {
   const client = useQueryClient()
   const [attended, setAttended] = useState(participant.attended ?? true)
@@ -330,57 +448,80 @@ function ParticipantAttendance({
   const record = useMutation({
     mutationFn: () =>
       recordTrainingAttendance({
-        programId,
+        programId: program.id,
         employeeId: participant.employee_id,
         attended,
         reason,
       }),
     onSuccess: (saved) => {
       client.setQueryData<TrainingParticipantView[]>(
-        hrKeys.trainingParticipants(programId),
-        (rows) => rows?.map((row) =>
-          row.employee_id === saved.employee_id ? saved : row,
-        ),
+        hrKeys.trainingParticipants(program.id),
+        (rows) =>
+          rows?.map((row) =>
+            row.employee_id === saved.employee_id ? saved : row,
+          ),
       )
       client.invalidateQueries({ queryKey: hrKeys.training() })
-      setReason("")
+      onClose()
     },
   })
   const latest = participant.attendance_history.at(-1)
+  const first = participant.attended === null
+  const state = attendanceState(participant.attended, true)
 
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-hairline p-3">
-      {latest && (
-        <p className="text-meta text-body">
-          Last recorded by {latest.actor}: {latest.reason}
-        </p>
-      )}
-      <div className="flex flex-wrap items-end gap-2">
-        <Field label="Attendance">
-          <select
-            className="h-10 rounded-lg border border-hairline bg-surface px-3 text-sm text-ink"
-            value={attended ? "attended" : "absent"}
-            onChange={(event) => setAttended(event.target.value === "attended")}
-          >
-            <option value="attended">Attended</option>
-            <option value="absent">Absent</option>
-          </select>
-        </Field>
-        <Field label="Reason" className="min-w-56 flex-1">
-          <Input
-            value={reason}
-            placeholder="Checked against the signed register"
-            onChange={(event) => setReason(event.target.value)}
-          />
-        </Field>
+    <PeopleSheet
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose()
+      }}
+      crumb={`Attendance · ${program.title}`}
+      title={participant.full_name ?? participant.employee_code}
+      sub={readDate(program.on_date, true)}
+      status={<Pill tone={state.tone}>{state.label}</Pill>}
+      foot={
         <Submit
-          label={participant.attended === null ? "Record" : "Save correction"}
+          label={first ? "Create attendance record" : "Save changes"}
+          pendingLabel={first ? "Creating…" : "Saving…"}
           pending={record.isPending}
           disabled={reason.trim() === ""}
           error={record.error}
           onSubmit={() => record.mutate()}
+          onCancel={onClose}
         />
-      </div>
-    </div>
+      }
+    >
+      {latest !== undefined && (
+        <SheetSection title="Last recorded">
+          <Facts
+            rows={[
+              ["By", personByLogin(team, latest.actor)],
+              ["On", moment(latest.recorded_at)],
+              ["Because", latest.reason, true],
+            ]}
+          />
+        </SheetSection>
+      )}
+      <SheetSection title={first ? "Record attendance" : "Correct attendance"}>
+        <div className="flex flex-col gap-3">
+          <Field label="Attendance" required>
+            <Select
+              value={attended ? "attended" : "absent"}
+              onChange={(value) => setAttended(value === "attended")}
+            >
+              <option value="attended">Attended</option>
+              <option value="absent">Absent</option>
+            </Select>
+          </Field>
+          <Field label="Reason" required>
+            <Input
+              value={reason}
+              placeholder="Checked against the signed register"
+              onChange={(event) => setReason(event.target.value)}
+            />
+          </Field>
+        </div>
+      </SheetSection>
+    </PeopleSheet>
   )
 }

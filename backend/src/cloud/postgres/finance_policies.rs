@@ -105,9 +105,15 @@ pub async fn set_account_source_rule(
 ) -> Result<Vec<AccountSourceRule>, AppError> {
     let effect = rule.effect.trim().to_ascii_uppercase();
     if !matches!(effect.as_str(), "ALLOW" | "DENY") {
-        return Err(AppError::Validation("a rule ALLOWs or DENYs a document kind".into()));
+        return Err(AppError::Validation(
+            "a rule ALLOWs or DENYs a document kind".into(),
+        ));
     }
-    let category = rule.category_code.as_deref().map(str::trim).filter(|c| !c.is_empty());
+    let category = rule
+        .category_code
+        .as_deref()
+        .map(str::trim)
+        .filter(|c| !c.is_empty());
     sqlx::query(
         "INSERT INTO account_source_rule (account_code, source_kind, effect, category_code, set_by, note)
          VALUES ($1, $2, $3, $4, $5, $6)

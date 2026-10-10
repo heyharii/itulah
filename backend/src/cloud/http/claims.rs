@@ -647,8 +647,13 @@ pub async fn state_benefit(
     Json(body): Json<StateBenefitBody>,
 ) -> Result<Json<Vec<infrastructure::ClaimBenefitView>>, AppError> {
     require(&principal, actions::CLAIM_TYPE_SET)?;
-    let by = Authorization::try_new(&principal.username, actions::CLAIM_TYPE_SET, Utc::now(), &body.reason)
-        .map_err(invalid)?;
+    let by = Authorization::try_new(
+        &principal.username,
+        actions::CLAIM_TYPE_SET,
+        Utc::now(),
+        &body.reason,
+    )
+    .map_err(invalid)?;
     infrastructure::state_claim_benefit(
         &state.db,
         body.type_code.trim(),
@@ -679,7 +684,9 @@ pub async fn balances(
     let year = query
         .year
         .unwrap_or_else(|| chrono::Datelike::year(&crate::reporting::local_today()));
-    Ok(Json(infrastructure::claim_balances(&state.db, &access.employee_id, year).await?))
+    Ok(Json(
+        infrastructure::claim_balances(&state.db, &access.employee_id, year).await?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -700,11 +707,18 @@ pub async fn override_benefit(
 ) -> Result<Json<Vec<infrastructure::ClaimBalanceRow>>, AppError> {
     require(&principal, actions::CLAIM_TYPE_SET)?;
     if raw == "me" {
-        return Err(AppError::Forbidden("an allowance is set by head office".into()));
+        return Err(AppError::Forbidden(
+            "an allowance is set by head office".into(),
+        ));
     }
     let access = resolve(&state, &principal, &raw).await?;
-    let by = Authorization::try_new(&principal.username, actions::CLAIM_TYPE_SET, Utc::now(), &body.reason)
-        .map_err(invalid)?;
+    let by = Authorization::try_new(
+        &principal.username,
+        actions::CLAIM_TYPE_SET,
+        Utc::now(),
+        &body.reason,
+    )
+    .map_err(invalid)?;
     infrastructure::override_claim_benefit(
         &state.db,
         &access.employee_id,
@@ -714,5 +728,7 @@ pub async fn override_benefit(
         &by,
     )
     .await?;
-    Ok(Json(infrastructure::claim_balances(&state.db, &access.employee_id, body.year).await?))
+    Ok(Json(
+        infrastructure::claim_balances(&state.db, &access.employee_id, body.year).await?,
+    ))
 }

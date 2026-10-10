@@ -9,10 +9,7 @@
 //! — and that the register stops offering a return that already has one.
 
 use inventory_backend::cloud::{
-    domain::{
-        auth::Role,
-        flow::Actor,
-    },
+    domain::{auth::Role, flow::Actor},
     postgres::{letters, supplier_returns},
 };
 use sqlx::{PgPool, Row};
@@ -80,9 +77,10 @@ async fn confirming_a_return_issues_its_surat_in_the_same_breath(pool: PgPool) {
     let letter_id = raised
         .letter_id
         .unwrap_or_else(|| panic!("a confirmed return carries its surat"));
-    let number = raised.letter_number.as_deref().unwrap_or_else(|| {
-        panic!("an issued surat has its number")
-    });
+    let number = raised
+        .letter_number
+        .as_deref()
+        .unwrap_or_else(|| panic!("an issued surat has its number"));
     assert!(
         number.starts_with("SJR/"),
         "the surat is numbered in the SJR series, got {number}"
@@ -146,12 +144,9 @@ async fn confirming_a_return_issues_its_surat_in_the_same_breath(pool: PgPool) {
 async fn a_return_is_raised_for_one_of_the_two_reasons_only(pool: PgPool) {
     let supplier = seed(&pool).await;
 
-    let refused = supplier_returns::raise_supplier_return(
-        &pool,
-        a_return(&supplier, "DEFECT"),
-        &actor(),
-    )
-    .await;
+    let refused =
+        supplier_returns::raise_supplier_return(&pool, a_return(&supplier, "DEFECT"), &actor())
+            .await;
 
     let error = format!("{}", refused.unwrap_err());
     assert!(
@@ -167,13 +162,12 @@ async fn a_return_is_raised_for_one_of_the_two_reasons_only(pool: PgPool) {
     )
     .await
     .unwrap_or_else(|e| panic!("raise ITEM_MISMATCH: {e}"));
-    let facts: serde_json::Value = sqlx::query_scalar(
-        "SELECT facts FROM letter WHERE letter_id = $1",
-    )
-    .bind(raised.letter_id.unwrap())
-    .fetch_one(&pool)
-    .await
-    .unwrap_or_else(|e| panic!("letter: {e}"));
+    let facts: serde_json::Value =
+        sqlx::query_scalar("SELECT facts FROM letter WHERE letter_id = $1")
+            .bind(raised.letter_id.unwrap())
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|e| panic!("letter: {e}"));
     assert_eq!(facts["reason"], "ITEM_MISMATCH");
 }
 
@@ -205,17 +199,19 @@ async fn settling_the_return_leaves_its_surat_alone(pool: PgPool) {
     .await
     .unwrap_or_else(|e| panic!("settle: {e}"));
 
-    let row = sqlx::query(
-        "SELECT status, issued_at, facts FROM letter WHERE letter_id = $1",
-    )
-    .bind(letter_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap_or_else(|e| panic!("letter: {e}"));
+    let row = sqlx::query("SELECT status, issued_at, facts FROM letter WHERE letter_id = $1")
+        .bind(letter_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("letter: {e}"));
     assert_eq!(row.get::<String, _>("status"), "ISSUED");
     assert!(
-        row.get::<Option<chrono::DateTime<chrono::Utc>>, _>("issued_at").is_some(),
+        row.get::<Option<chrono::DateTime<chrono::Utc>>, _>("issued_at")
+            .is_some(),
         "the surat keeps the moment it was issued"
     );
-    assert_eq!(row.get::<serde_json::Value, _>("facts")["reason"], "ITEM_MISMATCH");
+    assert_eq!(
+        row.get::<serde_json::Value, _>("facts")["reason"],
+        "ITEM_MISMATCH"
+    );
 }

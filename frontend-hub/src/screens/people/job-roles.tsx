@@ -4,6 +4,7 @@ import { useState } from "react"
 import type { Role } from "@itulah/contract"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Checkbox, Field, Input, Select } from "@/components/ui/field"
@@ -26,6 +27,12 @@ import {
 import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
 import { useSheet } from "@/lib/sheets"
+import {
+  CardButton,
+  CardFigure,
+  CardName,
+  PhoneCards,
+} from "@/components/ui/phone-cards"
 import { saying } from "@/screens/system/units"
 
 /// HR › Job roles — every job role a person can be invited as, and the
@@ -49,6 +56,7 @@ export function JobRoles() {
 function RolesTab() {
   const roleList = useRoles()
   const canWrite = useCanWrite()
+  const phone = useLayout() === "phone"
   const role = useSheet("role")
 
   return (
@@ -58,12 +66,52 @@ function RolesTab() {
         each one may see. OWNER and ADMIN see every section regardless of what
         is ticked here — that bypass is not editable.
       </p>
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(roleList, {
           loading: "Loading job roles…",
           render: () =>
             (roleList.data ?? []).length === 0 ? (
               <EmptyState>No job role is seeded on this node yet.</EmptyState>
+            ) : phone ? (
+              <PhoneCards
+                rows={roleList.data ?? []}
+                onOpen={canWrite ? (item) => role.open(item.code) : undefined}
+                rowId={(item) => item.code}
+                spec={{
+                  title: (item) => (
+                    <CardName
+                      name={item.name}
+                      line={[item.code, item.builtin ? "Built in" : null]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    />
+                  ),
+                  lead: (item) => (
+                    <CardFigure
+                      value={item.holders}
+                      caption={item.holders === 1 ? "holder" : "holders"}
+                      tone={item.holders === 0 ? "quiet" : undefined}
+                    />
+                  ),
+                  foot: (item) => (
+                    <>
+                      {item.rung} · {sectionsOf(item.sections).length}{" "}
+                      {sectionsOf(item.sections).length === 1
+                        ? "section"
+                        : "sections"}
+                    </>
+                  ),
+                  action: canWrite
+                    ? (item) => (
+                        <CardButton
+                          label="Edit"
+                          ariaLabel={`Edit ${item.name}`}
+                          onClick={() => role.open(item.code)}
+                        />
+                      )
+                    : undefined,
+                }}
+              />
             ) : (
               <div className="divide-y divide-hairline">
                 {(roleList.data ?? []).map((item) => (
@@ -127,7 +175,7 @@ const NODE_REACH: readonly { value: string; label: string; hint: string }[] = [
   {
     value: "UNIT",
     label: "This unit's server",
-    hint: "The store or gudang server the person is posted to.",
+    hint: "The store or warehouse server the person is posted to.",
   },
   { value: "EVERY", label: "Every server", hint: "Head office roles only." },
 ]

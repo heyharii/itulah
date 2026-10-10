@@ -167,6 +167,12 @@ pub struct SaleTender {
 /// for this. A comment does not screen anything; this does, at the boundary
 /// every sale crosses.
 pub fn screen_reference(reference: &str) -> Result<(), SalesError> {
+    // A whole UUID is an identifier the system minted (the employee-balance
+    // spend carries the sale's own ref), never a card: its digits are many,
+    // but it is not a number anybody typed off a card.
+    if uuid::Uuid::try_parse(reference.trim()).is_ok() {
+        return Ok(());
+    }
     let digits = reference.chars().filter(char::is_ascii_digit).count();
     if digits >= 12 {
         return Err(SalesError::ReferenceLooksLikeAnInstrument);
@@ -216,7 +222,10 @@ pub fn validate_tenders(
             if tender.method != PaymentMethod::Card {
                 return Err(SalesError::CardKindOnWrongTender);
             }
-            if !matches!(kind.trim().to_ascii_uppercase().as_str(), "DEBIT" | "CREDIT") {
+            if !matches!(
+                kind.trim().to_ascii_uppercase().as_str(),
+                "DEBIT" | "CREDIT"
+            ) {
                 return Err(SalesError::InvalidCardKind(kind.into()));
             }
         }
@@ -411,22 +420,43 @@ mod tests {
 
     #[test]
     fn an_acquirer_and_a_card_kind_ride_only_where_they_mean_something() {
-        assert!(validate_tenders(100_000, &[tender(PaymentMethod::Card, Some("BCA"), Some("DEBIT"))]).is_ok());
-        assert!(validate_tenders(100_000, &[tender(PaymentMethod::Qris, Some("MANDIRI"), None)]).is_ok());
+        assert!(validate_tenders(
+            100_000,
+            &[tender(PaymentMethod::Card, Some("BCA"), Some("DEBIT"))]
+        )
+        .is_ok());
+        assert!(validate_tenders(
+            100_000,
+            &[tender(PaymentMethod::Qris, Some("MANDIRI"), None)]
+        )
+        .is_ok());
         assert_eq!(
             validate_tenders(100_000, &[tender(PaymentMethod::Cash, Some("BCA"), None)]),
             Err(SalesError::AcquirerOnWrongTender)
         );
         assert_eq!(
-            validate_tenders(100_000, &[tender(PaymentMethod::Qris, Some("BCA"), Some("DEBIT"))]),
+            validate_tenders(
+                100_000,
+                &[tender(PaymentMethod::Qris, Some("BCA"), Some("DEBIT"))]
+            ),
             Err(SalesError::CardKindOnWrongTender)
         );
         assert_eq!(
-            validate_tenders(100_000, &[tender(PaymentMethod::Card, Some("BCA"), Some("PREPAID"))]),
+            validate_tenders(
+                100_000,
+                &[tender(PaymentMethod::Card, Some("BCA"), Some("PREPAID"))]
+            ),
             Err(SalesError::InvalidCardKind("PREPAID".into()))
         );
         assert_eq!(
-            validate_tenders(100_000, &[tender(PaymentMethod::Card, Some("4111 1111 1111 1111"), None)]),
+            validate_tenders(
+                100_000,
+                &[tender(
+                    PaymentMethod::Card,
+                    Some("4111 1111 1111 1111"),
+                    None
+                )]
+            ),
             Err(SalesError::ReferenceLooksLikeAnInstrument),
             "an acquirer is screened like a reference"
         );

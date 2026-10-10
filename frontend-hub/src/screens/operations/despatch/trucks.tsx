@@ -5,6 +5,7 @@ import { Printer, Truck } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import {
   SuratJalanPrint,
   TripSuratJalanPrint,
@@ -13,7 +14,7 @@ import {
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { ConfirmButton, SavedDialog } from "@/components/ui/dialog"
 import { Checkbox, Field, Textarea } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
@@ -23,7 +24,7 @@ import { MiniCell, MiniRow, MiniTable, Section } from "@/components/ui/rows"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState, Problem } from "@/components/ui/states"
 import { dc } from "@/lib/api"
-import { clock, count } from "@/lib/format"
+import { clock, count, quantity } from "@/lib/format"
 import { keys } from "@/lib/operations/keys"
 import { tripDocumentNumber } from "@/lib/operations/trip-number"
 import { queryState } from "@/lib/query-state"
@@ -38,22 +39,22 @@ import { cn } from "@/lib/utils"
 import { idempotencyKey } from "@itulah/contract/client"
 import type { Dispatch, Koli, Shipment } from "@itulah/contract"
 
-/// Dispatch: tick sealed cartons onto one trip, and the surat jalan is made
+/// Dispatch: tick sealed cartons onto one trip, and the delivery note is made
 /// and sent in the same act.
 ///
 /// **The owner's ruling of 29 Sep 2026 removes the Shipments station.** A
-/// surat jalan used to be written ahead of a trip, as its own document,
+/// delivery note used to be written ahead of a trip, as its own document,
 /// waiting on a dock for somebody to load a truck under it. Now there is
 /// nothing to write ahead of time: this screen ticks the sealed cartons going
 /// on a trip, shop by shop, takes one free-text note of whatever the bay
 /// knows about the trip, and `POST /dc/dispatch-trips` makes one shipment per
 /// shop, puts every ticked carton on it and departs the trip — generating the
-/// surat jalan IS sending it. The trip prints ONE surat jalan covering every
+/// delivery note IS sending it. The trip prints ONE delivery note covering every
 /// shop (owner, 2 Oct 2026), numbered by the trip's `dispatch_number`. There is no "Ready to dispatch" status left to
 /// draw anywhere: a sealed carton is either still here or it is in transit.
 ///
 /// **Received is not this DC's to know.** Its containment model ends the
-/// moment a dispatch departs; nothing scans a surat jalan back in here. So a
+/// moment a dispatch departs; nothing scans a delivery note back in here. So a
 /// dispatched shipment reads "In transit" and stays that way — never
 /// "Received", which would be a state this node cannot actually observe.
 ///
@@ -71,6 +72,7 @@ export function Trucks() {
   const composing = useSheet("new-dispatch")
   const shipmentSheet = useSheet("shipment")
   const [sorting, setSorting] = useState<SortingState>([])
+  const [typed, setTyped] = useState("")
   /// Cartons left OFF the trip, kept as what was unticked rather than what was
   /// ticked — every carton starts ticked, which is the ordinary case, and this
   /// is what makes that true without an effect that re-ticks them every time a
@@ -78,7 +80,7 @@ export function Trucks() {
   const [progress, setProgress] = useState<Progress | null>(null)
   const [printing, setPrinting] = useState<Printing | null>(null)
 
-  // Sealed and either on no surat jalan yet, or on one still on the dock —
+  // Sealed and either on no delivery note yet, or on one still on the dock —
   // both are cartons this trip can still take.
   const cartons = useQuery({
     queryKey: keys.koli({ ready: true }),
@@ -126,7 +128,7 @@ export function Trucks() {
     )
   }, [shipments.data, dispatchById])
 
-  /// One surat jalan per trip: rows of the same trip count once.
+  /// One delivery note per trip: rows of the same trip count once.
   const tripsInTransit = new Set(
     inTransitRows.map((row) => row.dispatch_id ?? row.shipment_id)
   ).size
@@ -150,7 +152,13 @@ export function Trucks() {
   }, [dispatches.data])
 
   const refresh = () => {
-    void client.invalidateQueries({ queryKey: keys.dc.all })
+    // The cartons have left the dock — their list, ready row and manifests —
+    // the shipments they ride are in transit, the trip has departed, and the
+    // stock went with them.
+    void client.invalidateQueries({ queryKey: ["dc", "koli"] })
+    void client.invalidateQueries({ queryKey: keys.shipments() })
+    void client.invalidateQueries({ queryKey: ["dc", "shipment"] })
+    void client.invalidateQueries({ queryKey: keys.dispatches() })
     void client.invalidateQueries({ queryKey: keys.pools() })
   }
 
@@ -186,17 +194,33 @@ export function Trucks() {
 
   const columns = useMemo(() => inTransitColumns(), [])
 
+  // A phone's search, over the delivery note: the dock that carries their sort.
+  const needle = typed.trim().toLowerCase()
+  const searched = useMemo(
+    () =>
+      needle === ""
+        ? inTransitRows
+        : inTransitRows.filter(
+            (row) =>
+              shopName(row.destination_store_id)
+                .toLowerCase()
+                .includes(needle) ||
+              tripDocumentNumber(row.run, [row]).toLowerCase().includes(needle)
+          ),
+    [inTransitRows, needle, shopName]
+  )
+
   const table = useTable(
     useMemo(
       () => ({
         features: tableSetup,
-        data: inTransitRows,
+        data: searched,
         columns,
         getRowId: (row: InTransitRow) => row.shipment_id,
         state: { sorting },
         onSortingChange: setSorting,
       }),
-      [inTransitRows, columns, sorting]
+      [searched, columns, sorting]
     )
   )
 
@@ -208,7 +232,7 @@ export function Trucks() {
       <PageHeader
         crumb="Operations"
         title="Dispatch"
-        sub="Tick the sealed cartons going on a trip. One surat jalan per trip, made the instant it departs."
+        sub="Tick the sealed cartons going on a trip. One delivery note per trip, made the instant it departs."
         actions={
           <Button
             variant="primary"
@@ -223,7 +247,7 @@ export function Trucks() {
 
       <KpiStrip className="grid-cols-2 md:grid-cols-4 xl:grid-cols-4">
         <Kpi label="Cartons ready to dispatch" value={count(ready.length)} />
-        <Kpi label="Surat jalan in transit" value={count(tripsInTransit)} />
+        <Kpi label="Delivery note in transit" value={count(tripsInTransit)} />
         <Kpi
           label="Cartons on the road"
           value={count(
@@ -232,6 +256,16 @@ export function Trucks() {
         />
         <Kpi label="Trips today" value={count(tripsToday.length)} />
       </KpiStrip>
+
+      {/* On a phone the sort is the dock's, not a bar over the list. */}
+      <DockTools
+        search={{
+          value: typed,
+          onChange: setTyped,
+          label: "Search delivery note",
+        }}
+        sort={dockSortOf(table)}
+      />
 
       {progress !== null && progress.failed.length > 0 && (
         <Banner tone="bad" className="mb-5" onDismiss={() => setProgress(null)}>
@@ -274,7 +308,7 @@ export function Trucks() {
                   title={`Send ${run.dispatch_number} out?`}
                   description={
                     <>
-                      Stock leaves this Gudang and goes on the road to{" "}
+                      Stock leaves this warehouse and goes on the road to{" "}
                       {run.shipment_count === 1
                         ? "one shop"
                         : `${run.shipment_count} shops`}
@@ -305,7 +339,7 @@ export function Trucks() {
           <CardTitle>In transit</CardTitle>
         </CardHeader>
         {queryState(shipments, {
-          loading: "Reading the surat jalan…",
+          loading: "Reading the delivery note…",
           render: () =>
             inTransitRows.length === 0 ? (
               <EmptyState
@@ -323,6 +357,7 @@ export function Trucks() {
               </EmptyState>
             ) : (
               <DataTable<InTransitRow>
+                refresh={[cartons, shipments, dispatches]}
                 table={table}
                 onRowClick={(row) => shipmentSheet.open(row.shipment_id)}
                 isSelected={(row) => row.shipment_id === shipmentSheet.value}
@@ -330,7 +365,9 @@ export function Trucks() {
                   number: (
                     <span>
                       {count(tripsInTransit)}{" "}
-                      <span className="font-normal text-body">surat jalan</span>
+                      <span className="font-normal text-body">
+                        delivery note
+                      </span>
                     </span>
                   ),
                   koli_count: count(
@@ -341,6 +378,7 @@ export function Trucks() {
                   ),
                 }}
                 pageScroll
+                cardSort={false}
               />
             ),
         })}
@@ -368,7 +406,7 @@ export function Trucks() {
 }
 
 /// The dispatch composer: which sealed cartons go on one trip, shop by shop,
-/// one free note, one press — and the surat jalan print that follows. Owns its
+/// one free note, one press — and the delivery note print that follows. Owns its
 /// own queries, state and sheet (`?new-dispatch=true`), so the Dispatch screen
 /// and the Outbound board both open it in place.
 ///
@@ -452,7 +490,13 @@ export function DispatchSheet({
   )
 
   const refresh = () => {
-    void client.invalidateQueries({ queryKey: keys.dc.all })
+    // The cartons have left the dock — their list, ready row and manifests —
+    // the shipments they ride are in transit, the trip has departed, and the
+    // stock went with them.
+    void client.invalidateQueries({ queryKey: ["dc", "koli"] })
+    void client.invalidateQueries({ queryKey: keys.shipments() })
+    void client.invalidateQueries({ queryKey: ["dc", "shipment"] })
+    void client.invalidateQueries({ queryKey: keys.dispatches() })
     void client.invalidateQueries({ queryKey: keys.pools() })
   }
 
@@ -494,12 +538,12 @@ export function DispatchSheet({
       setTripNote("")
       refresh()
       onDispatched?.()
-      setDispatched("1 surat jalan · in transit")
+      setDispatched("1 delivery note · in transit")
     },
   })
 
   /// The trip the sheet dispatched, held in the receipt dialog until it is
-  /// read — over the surat jalan the press already opened for printing.
+  /// read — over the delivery note the press already opened for printing.
   const [dispatched, setDispatched] = useState<string | null>(null)
 
   const submit = () => {
@@ -526,13 +570,13 @@ export function DispatchSheet({
         }}
         width="wide"
         title="Dispatch"
-        caption="Tick the cartons going on this trip. One surat jalan for the trip, made the instant it departs."
+        caption="Tick the cartons going on this trip. One delivery note for the trip, made the instant it departs."
         footer={
           <div className="flex flex-wrap items-center gap-2.5">
             <span className="text-[0.875rem] text-mute">
               {goingKoliIds.length === 0
                 ? "Tick the cartons going on it"
-                : `1 trip · 1 surat jalan · ${count(going.length)} ${going.length === 1 ? "store" : "stores"} · ${count(goingKoliIds.length)} ${goingKoliIds.length === 1 ? "carton" : "cartons"} · ${count(goingPieces)} pieces`}
+                : `1 trip · 1 delivery note · ${count(going.length)} ${going.length === 1 ? "store" : "stores"} · ${quantity(goingKoliIds.length, "cartons")} · ${quantity(goingPieces)}`}
             </span>
             <div className="flex-1" />
             <Button
@@ -544,7 +588,7 @@ export function DispatchSheet({
               <Printer />
               {dispatchTrip.isPending
                 ? "Dispatching…"
-                : "Dispatch and print surat jalan"}
+                : "Dispatch and print delivery note"}
             </Button>
           </div>
         }
@@ -651,7 +695,7 @@ export function DispatchSheet({
   )
 }
 
-/// The surat jalan sheet and its print, for a screen that is not Dispatch —
+/// The delivery note sheet and its print, for a screen that is not Dispatch —
 /// the Outbound board opens a shipment in place.
 export function ShipmentSheets() {
   const identity = useEdgeIdentity()
@@ -688,7 +732,7 @@ export function ShipmentSheets() {
   )
 }
 
-/// What a "Print surat jalan" press prints: the shipment's trip, as one
+/// What a "Print delivery note" press prints: the shipment's trip, as one
 /// document — or, for a shipment on no trip yet (a legacy run), its own page.
 type Printing =
   { readonly dispatchId: string } | { readonly shipmentIds: readonly string[] }
@@ -725,7 +769,7 @@ function PrintSuratJalan({
   )
 }
 
-/// A surat jalan once it is on a trip — the join this screen reads over and
+/// A delivery note once it is on a trip — the join this screen reads over and
 /// over, kept as one shape rather than recomputed per column. `run` is `null`
 /// for a shipment whose dispatch this node has not (yet) heard back about.
 interface InTransitRow extends Shipment {
@@ -853,7 +897,7 @@ function CartonChoice({
               Carton
             </th>
             <th className="pb-1.5 pl-3 text-right font-mono text-eyebrow tracking-[0.04em] text-body uppercase">
-              Pieces
+              Pcs
             </th>
             <th className="pb-1.5 pl-3 text-right font-mono text-eyebrow tracking-[0.04em] text-body uppercase">
               Sealed
@@ -898,9 +942,9 @@ function inTransitColumns(): ColumnDef<TableSetup, InTransitRow>[] {
   return [
     {
       id: "number",
-      // The trip's number: rows of one trip share one surat jalan.
+      // The trip's number: rows of one trip share one delivery note.
       accessorFn: (row: InTransitRow) => tripDocumentNumber(row.run, [row]),
-      header: "Surat Jalan",
+      header: "Delivery Note",
       size: 180,
       meta: { card: "id", mono: true },
       cell: ({ row }) => (
@@ -927,7 +971,7 @@ function inTransitColumns(): ColumnDef<TableSetup, InTransitRow>[] {
     },
     {
       accessorKey: "unit_count",
-      header: "Pieces",
+      header: "Pcs",
       size: 90,
       meta: { align: "right", card: "metric", priority: 2 },
       cell: ({ row }) => count(row.original.unit_count),
@@ -1010,18 +1054,18 @@ function ShipmentSheet({
       open={id !== null}
       onOpenChange={(open) => !open && onClose()}
       id={record ? tripDocumentNumber(run, [record]) : undefined}
-      title={record ? shopName(record.destination_store_id) : "Surat jalan"}
+      title={record ? shopName(record.destination_store_id) : "Delivery note"}
       actions={
         record !== undefined && (
           <Button variant="soft" onClick={() => onPrint(record)}>
             <Printer />
-            Print surat jalan
+            Print delivery note
           </Button>
         )
       }
     >
       {queryState(detail, {
-        loading: "Reading the surat jalan…",
+        loading: "Reading the delivery note…",
         render: (found) => (
           <div className="flex flex-col gap-4">
             <Facts>
@@ -1032,9 +1076,9 @@ function ShipmentSheet({
                 {run ? clock(run.departed_at) : "—"}
               </Fact>
               <Fact term="Cartons">{count(found.shipment.koli_count)}</Fact>
-              <Fact term="Pieces">{count(found.shipment.unit_count)}</Fact>
+              <Fact term="Pcs">{count(found.shipment.unit_count)}</Fact>
               {/* Received is the shop's half of this document, and this DC
-                  has no way to hear it — nothing here scans a surat jalan
+                  has no way to hear it — nothing here scans a delivery note
                   back in. So the status stops at "In transit" rather than
                   inventing a state nobody has reported. */}
               <Fact term="Status">
@@ -1050,7 +1094,7 @@ function ShipmentSheet({
             </Facts>
 
             <Section title="Cartons on it" flush>
-              <MiniTable head={["Carton", "Pieces"]}>
+              <MiniTable head={["Carton", "Pcs"]}>
                 {found.koli.map((manifest) => (
                   <MiniRow key={manifest.koli.koli_id}>
                     <MiniCell>

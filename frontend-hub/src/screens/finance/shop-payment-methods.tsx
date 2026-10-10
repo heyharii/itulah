@@ -10,7 +10,9 @@ import { Pill } from "@/components/ui/pill"
 import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState, Problem } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
+import { DockTools } from "@/components/shell/dock-tools"
 import { count, label } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   financeKeys,
   setSitePaymentMethods,
@@ -19,6 +21,7 @@ import {
 import { siteLabel, useUnits } from "@/lib/queries/organisation"
 import { queryState } from "@/lib/query-state"
 import { usePaymentMethods } from "@/screens/finance/master-data"
+import { FilterSheet } from "@/components/ui/filter-sheet"
 import type { SitePaymentMethod } from "@itulah/contract"
 
 /// The kinds of site that sell: `STORE` today, `SHOP` in the premises
@@ -38,10 +41,16 @@ const SELLING_SITE_KINDS = new Set(["STORE", "SHOP"])
 /// The list is the shops — the selling sites of the units register — and not
 /// the units the books are kept for: a till stands at a site.
 export function ShopPaymentMethods() {
+  const phone = useLayout() === "phone"
   const units = useUnits()
   const methods = usePaymentMethods()
   const [site, setSite] = useState<string | null>(null)
   const [needle, setNeedle] = useState("")
+  // A phone has one shop at a time, picked in the dock, and its search looks
+  // through that shop's methods.
+  const [methodNeedle, setMethodNeedle] = useState("")
+  const [inactive, setInactive] = useState(false)
+  const [filtering, setFiltering] = useState(false)
 
   const allShops = useMemo(
     () =>
@@ -84,17 +93,52 @@ export function ShopPaymentMethods() {
         crumb="Finance · Setup"
         title="Shop Payment Methods"
         sub="Which of the company's payment methods each shop takes. The shop's tills show only these, and refuse a sale paid any other way."
+        // Search and the shop are in the dock on a phone.
         actions={
-          <Input
-            value={needle}
-            onChange={(event) => setNeedle(event.target.value)}
-            className="h-8 w-48"
-          />
+          phone ? undefined : (
+            <Input
+              value={needle}
+              onChange={(event) => setNeedle(event.target.value)}
+              className="h-8 w-48"
+            />
+          )
         }
       />
 
+      {phone && (
+        <>
+          <DockTools
+            search={{
+              value: methodNeedle,
+              onChange: setMethodNeedle,
+              label: "Search methods",
+            }}
+            filter={{
+              count: inactive ? 1 : 0,
+              onOpen: () => setFiltering(true),
+            }}
+            status={{
+              value: chosen ?? "",
+              options: allShops.map((one) => ({
+                value: one.site_id,
+                label: one.label,
+                count: taken.get(one.site_id) ?? 0,
+              })),
+              onChange: setSite,
+            }}
+          />
+          <FilterSheet open={filtering} onOpenChange={setFiltering}>
+            <Checkbox
+              label="Show inactive"
+              checked={inactive}
+              onChange={setInactive}
+            />
+          </FilterSheet>
+        </>
+      )}
+
       <div className="grid gap-4 lg:grid-cols-[18rem_1fr]">
-        <Card className="overflow-hidden">
+        <Card className="overflow-hidden max-md:hidden">
           {queryState(units, {
             loading: "Reading the shops…",
             render: () =>
@@ -114,7 +158,7 @@ export function ShopPaymentMethods() {
                         <span>
                           <span className="block text-ink">{one.label}</span>
                           {one.unit_status === "CLOSED" && (
-                            <span className="text-[0.75rem] text-faint">
+                            <span className="text-[0.875rem] text-faint">
                               Closed
                             </span>
                           )}
@@ -135,14 +179,35 @@ export function ShopPaymentMethods() {
             <EmptyState>Pick a shop.</EmptyState>
           </Card>
         ) : (
-          <ShopMethods key={chosen} site={chosen} name={chosenName} />
+          <ShopMethods
+            key={chosen}
+            site={chosen}
+            name={chosenName}
+            inactive={inactive}
+            onInactive={setInactive}
+            needle={phone ? methodNeedle : ""}
+          />
         )}
       </div>
     </PageContent>
   )
 }
 
-function ShopMethods({ site, name }: { site: string; name: string }) {
+function ShopMethods({
+  site,
+  name,
+  inactive,
+  onInactive,
+  needle,
+}: {
+  site: string
+  name: string
+  inactive: boolean
+  onInactive: (next: boolean) => void
+  /// What the phone's dock is searching the methods for.
+  needle: string
+}) {
+  const phone = useLayout() === "phone"
   const client = useQueryClient()
   const setup = useQuery({
     queryKey: financeKeys.sitePaymentMethods(site),
@@ -151,7 +216,6 @@ function ShopMethods({ site, name }: { site: string; name: string }) {
   // The shop's ticks as edited; `null` until someone changes one, so a fresh
   // read is what the screen shows.
   const [draft, setDraft] = useState<Set<string> | null>(null)
-  const [inactive, setInactive] = useState(false)
 
   const saved = useMemo(
     () =>
@@ -183,42 +247,63 @@ function ShopMethods({ site, name }: { site: string; name: string }) {
 
   const groups = useMemo(() => {
     const byTender = new Map<string, SitePaymentMethod[]>()
+    const text = needle.trim().toLowerCase()
     for (const row of setup.data ?? []) {
       if (!inactive && !row.is_active) continue
+      if (
+        text !== "" &&
+        !row.name.toLowerCase().includes(text) &&
+        !row.code.toLowerCase().includes(text)
+      )
+        continue
       const list = byTender.get(row.tender_type) ?? []
       list.push(row)
       byTender.set(row.tender_type, list)
     }
     return [...byTender.entries()]
-  }, [setup.data, inactive])
+  }, [setup.data, inactive, needle])
+
+  // The two buttons, once: in the toolbar on a desk, at the foot of the list on
+  // a phone, where the thumb is.
+  const buttons = (
+    <>
+      {dirty && (
+        <Button variant="ghost" onClick={() => setDraft(null)}>
+          Undo
+        </Button>
+      )}
+      <Button
+        variant="primary"
+        pending={save.isPending}
+        disabled={!dirty}
+        onClick={() => save.mutate()}
+      >
+        {save.isPending ? "Submitting…" : "Submit"}
+      </Button>
+    </>
+  )
 
   return (
     <Card className="overflow-hidden">
-      <Toolbar>
-        <span className="text-ink">{name}</span>
-        <Checkbox
-          label="Show inactive"
-          checked={inactive}
-          onChange={setInactive}
-        />
-        <Toolbar.Spacer />
-        <span className="text-[0.875rem] text-mute">
-          {count(ticked.size)} taken
-        </span>
-        {dirty && (
-          <Button variant="ghost" onClick={() => setDraft(null)}>
-            Undo
-          </Button>
-        )}
-        <Button
-          variant="primary"
-          pending={save.isPending}
-          disabled={!dirty}
-          onClick={() => save.mutate()}
-        >
-          {save.isPending ? "Submitting…" : "Submit"}
-        </Button>
-      </Toolbar>
+      {phone ? (
+        <p className="px-4 pt-3 text-[0.875rem] text-mute">
+          {count(ticked.size)} taken at {name}
+        </p>
+      ) : (
+        <Toolbar>
+          <span className="text-ink">{name}</span>
+          <Checkbox
+            label="Show inactive"
+            checked={inactive}
+            onChange={onInactive}
+          />
+          <Toolbar.Spacer />
+          <span className="text-[0.875rem] text-mute">
+            {count(ticked.size)} taken
+          </span>
+          {buttons}
+        </Toolbar>
+      )}
       <Problem error={save.error} />
       {queryState(setup, {
         loading: "Reading the shop's payment methods…",
@@ -232,7 +317,7 @@ function ShopMethods({ site, name }: { site: string; name: string }) {
             <div className="divide-line divide-y">
               {groups.map(([tender, rows]) => (
                 <section key={tender} className="px-4 py-3">
-                  <h3 className="mb-2 text-[0.8125rem] font-medium text-mute">
+                  <h3 className="mb-2 text-[0.875rem] font-medium text-mute">
                     {label(tender)}
                   </h3>
                   <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
@@ -248,7 +333,7 @@ function ShopMethods({ site, name }: { site: string; name: string }) {
                               <span className="block truncate text-ink">
                                 {row.name}
                               </span>
-                              <span className="font-mono text-[0.75rem] text-faint">
+                              <span className="font-mono text-[0.875rem] text-faint">
                                 {row.code}
                               </span>
                             </span>
@@ -266,6 +351,11 @@ function ShopMethods({ site, name }: { site: string; name: string }) {
             </div>
           ),
       })}
+      {phone && (
+        <div className="flex items-center justify-end gap-2 border-t border-hairline px-4 py-3">
+          {buttons}
+        </div>
+      )}
     </Card>
   )
 }

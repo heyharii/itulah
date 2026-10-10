@@ -41,11 +41,11 @@ use crate::sync::device::{
     self as wire, DeviceReport, DeviceStatusCommand, DeviceTestPrintCommand,
     COMMAND_DEVICE_STATUS_SET, COMMAND_DEVICE_TEST_PRINT, STATUS_ACTIVE, TEST_PRINT_CAPABILITY,
 };
-use uuid::Uuid;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Postgres, Row, Transaction};
+use uuid::Uuid;
 
 /// File what one node reported about its devices, inside the heartbeat's own
 /// transaction. Returns how many rows were filed.

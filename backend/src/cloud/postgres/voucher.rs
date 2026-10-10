@@ -40,7 +40,7 @@ use sqlx::{PgPool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use super::cash::{resolve_side, side_line, CashSide};
-use super::poster::{post, PostingIntent, PostingLine, Posted};
+use super::poster::{post, Posted, PostingIntent, PostingLine};
 use crate::cloud::application::AppError;
 
 /// The money keys a supplier payment can leave from (`supplier_payment`'s own
@@ -380,8 +380,13 @@ pub async fn voucher_record(
         }
         // The outstanding-giro account is kept per bank; an unmapped bank is
         // refused while somebody is still looking at the form.
-        super::ledger::resolve_account_code(pool, "giro_outstanding", &money.unit_id, &money.qualifier)
-            .await?;
+        super::ledger::resolve_account_code(
+            pool,
+            "giro_outstanding",
+            &money.unit_id,
+            &money.qualifier,
+        )
+        .await?;
     } else if giro_number.is_some() || request.giro_due_date.is_some() {
         return Err(AppError::Validation(format!(
             "a {method} {slip} carries no giro number or due date; change the method to GIRO, \
@@ -483,8 +488,7 @@ pub async fn voucher_record(
                 }
                 let Some(supplier) = supplier_id.as_deref() else {
                     return Err(AppError::Validation(
-                        "an advance is netted off for a supplier; choose the supplier first"
-                            .into(),
+                        "an advance is netted off for a supplier; choose the supplier first".into(),
                     ));
                 };
                 if seen_advances.contains(&advance_id) {
@@ -745,13 +749,15 @@ pub(super) async fn voucher_post_in(
     let method: String = row.try_get("method")?;
     let (money_key, money_q, money_unit): (String, String, String) = if out {
         (
-            row.try_get::<Option<String>, _>("from_key")?.unwrap_or_default(),
+            row.try_get::<Option<String>, _>("from_key")?
+                .unwrap_or_default(),
             row.try_get("from_qualifier")?,
             row.try_get("from_unit")?,
         )
     } else {
         (
-            row.try_get::<Option<String>, _>("to_key")?.unwrap_or_default(),
+            row.try_get::<Option<String>, _>("to_key")?
+                .unwrap_or_default(),
             row.try_get("to_qualifier")?,
             row.try_get("to_unit")?,
         )
@@ -839,7 +845,11 @@ pub(super) async fn voucher_post_in(
     }
     // What left or arrived. A giro is not money yet: it sits on the
     // outstanding-giro account for its bank until the bank takes it.
-    let money_line_key = if giro { "giro_outstanding" } else { money_key.as_str() };
+    let money_line_key = if giro {
+        "giro_outstanding"
+    } else {
+        money_key.as_str()
+    };
     let money_line = if out {
         PostingLine::credit(money_line_key, &money_unit, total)
     } else {
@@ -1026,12 +1036,11 @@ pub(super) async fn voucher_undo_settlement(
     reason: &str,
     actor: &str,
 ) -> Result<(), AppError> {
-    let payment_id: Option<Uuid> = sqlx::query_scalar(
-        "SELECT supplier_payment_id FROM cash_document WHERE document_id = $1",
-    )
-    .bind(document_id)
-    .fetch_one(&mut **tx)
-    .await?;
+    let payment_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT supplier_payment_id FROM cash_document WHERE document_id = $1")
+            .bind(document_id)
+            .fetch_one(&mut **tx)
+            .await?;
     if let Some(payment_id) = payment_id {
         sqlx::query(
             "UPDATE supplier_payment

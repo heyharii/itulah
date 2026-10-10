@@ -161,13 +161,27 @@ async fn backup_now(
         return not_here();
     }
     let Some(dir) = console.data_dir.clone() else {
-        return (StatusCode::CONFLICT, Json(json!({ "error": "This server has no data folder." }))).into_response();
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({ "error": "This server has no data folder." })),
+        )
+            .into_response();
     };
     let connection = console.source.connection.clone();
     match tokio::task::spawn_blocking(move || crate::edge::backup::take(&connection, &dir)).await {
-        Ok(Ok(path)) => Json(json!({ "message": format!("Backup saved: {}", path.display()) })).into_response(),
-        Ok(Err(error)) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("Backup failed: {error}") }))).into_response(),
-        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": error.to_string() }))).into_response(),
+        Ok(Ok(path)) => {
+            Json(json!({ "message": format!("Backup saved: {}", path.display()) })).into_response()
+        }
+        Ok(Err(error)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Backup failed: {error}") })),
+        )
+            .into_response(),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": error.to_string() })),
+        )
+            .into_response(),
     }
 }
 

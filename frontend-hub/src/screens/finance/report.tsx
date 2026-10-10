@@ -12,8 +12,9 @@ import {
 
 import { Card } from "@/components/ui/card"
 import { Checkbox, Select } from "@/components/ui/field"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { Toolbar } from "@/components/ui/segmented"
-import { dateText, money } from "@/lib/format"
+import { dateText, money, compactFormat } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 /// ERPNext's query report, in this app's parts.
@@ -31,10 +32,15 @@ import { cn } from "@/lib/utils"
 export function ReportFilters({
   children,
   note,
+  exportAction,
 }: {
   children: React.ReactNode
   /// What the filters add up to, in words.
   note?: React.ReactNode
+  /// The report's Export button, for a phone: its header is the top bar, so
+  /// the button is a row at the foot of the Filters sheet instead of at the
+  /// top of the page. Pass the same `<ExportButton>` the header carries.
+  exportAction?: React.ReactNode
 }) {
   return (
     <Toolbar>
@@ -44,6 +50,9 @@ export function ReportFilters({
           <Toolbar.Spacer />
           <span className="text-[0.875rem] text-mute">{note}</span>
         </>
+      )}
+      {exportAction !== undefined && (
+        <div className="md:hidden [&>button]:w-full">{exportAction}</div>
       )}
     </Toolbar>
   )
@@ -210,32 +219,60 @@ export interface SummaryItem {
 /// ERPNext's report summary: the few figures the report is read for, above
 /// the chart. The server's own totals, never a sum of the rows below.
 export function ReportSummary({ items }: { items: readonly SummaryItem[] }) {
+  const text = (item: SummaryItem) =>
+    item.display !== undefined
+      ? item.display
+      : item.value === null || item.value === undefined
+        ? "—"
+        : money(item.value)
   return (
-    <Card className="mb-3">
-      <dl className="grid grid-cols-2 divide-hairline sm:flex sm:divide-x">
+    <>
+      {/* A phone: the figures are one card, two to a row, like every list's. */}
+      <KpiStrip className="md:hidden">
         {items.map((item) => (
-          <div key={item.label} className="min-w-0 flex-1 px-4 py-3.5">
-            <dt className="truncate text-[0.875rem] text-mute">{item.label}</dt>
-            <dd
-              className={cn(
-                "mt-1 text-[1.25rem] leading-tight font-semibold tracking-[-0.01em] tabular-nums",
-                item.indicator === "Green"
-                  ? "text-ok"
-                  : item.indicator === "Red"
-                    ? "text-bad-fg"
-                    : "text-ink"
-              )}
-            >
-              {item.display !== undefined
-                ? item.display
-                : item.value === null || item.value === undefined
-                  ? "—"
-                  : money(item.value)}
-            </dd>
-          </div>
+          <Kpi
+            key={item.label}
+            label={item.label}
+            value={
+              <span
+                className={
+                  item.indicator === "Green"
+                    ? "text-ok"
+                    : item.indicator === "Red"
+                      ? "text-bad-fg"
+                      : undefined
+                }
+              >
+                {text(item)}
+              </span>
+            }
+          />
         ))}
-      </dl>
-    </Card>
+      </KpiStrip>
+      <Card className="mb-3 max-md:hidden">
+        <dl className="grid grid-cols-2 divide-hairline sm:flex sm:divide-x">
+          {items.map((item) => (
+            <div key={item.label} className="min-w-0 flex-1 px-4 py-3.5">
+              <dt className="truncate text-[0.875rem] text-mute">
+                {item.label}
+              </dt>
+              <dd
+                className={cn(
+                  "mt-1 text-[1.25rem] leading-tight font-semibold tracking-[-0.01em] tabular-nums",
+                  item.indicator === "Green"
+                    ? "text-ok"
+                    : item.indicator === "Red"
+                      ? "text-bad-fg"
+                      : "text-ink"
+                )}
+              >
+                {text(item)}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </Card>
+    </>
   )
 }
 
@@ -260,10 +297,7 @@ export interface ReportChartRow {
   readonly [series: string]: string | number
 }
 
-const compact = new Intl.NumberFormat("id-ID", {
-  notation: "compact",
-  maximumFractionDigits: 1,
-})
+const compact = compactFormat()
 
 /// ERPNext's report chart: bars per period, or lines when the values are
 /// accumulated — a running figure is a level, and bars invite adding up.

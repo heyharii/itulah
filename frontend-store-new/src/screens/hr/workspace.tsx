@@ -1,12 +1,10 @@
-import { useRouterState } from "@tanstack/react-router"
-import { Building2 } from "lucide-react"
-import { useEffect, useRef } from "react"
+import { Plus, type LucideIcon } from "lucide-react"
 
 import { RelayRefusal } from "@/components/central-gate"
-import { AppLink } from "@/components/ui/app-link"
+import { Button } from "@/components/ui/button"
+import { Fab } from "@/components/ui/fab"
 import { Screen } from "@/components/ui/screen"
-import { Banner } from "@/components/ui/states"
-import { hrItems } from "@/lib/navigation"
+import { Banner, LoadingState } from "@/components/ui/states"
 import { useCloudIdentity, useReach, type StoreScope } from "@/lib/queries/hr"
 import { useNodeIdentity } from "@/lib/session"
 import { centreState } from "@/screens/hr/centre"
@@ -35,21 +33,32 @@ import { centreState } from "@/screens/hr/centre"
 /// authoritative unit. A manager posted elsewhere receives `NOWHERE` after
 /// the relay bounds reach to the till's unit.
 ///
-/// # The page header is the screen's, drawn here
+/// # The one primary act
 ///
-/// Each screen names what it is for (`sub`, the prototype's lead sentence) and
-/// its one primary act (`actions` — "Record a fix", "Order overtime"). They are
-/// passed in rather than drawn by the screen because the header belongs to
-/// `Screen`, which this gate owns — and the actions are only drawn once the
-/// gate is open: a "Record a claim" button in front of a sign-in box is a
-/// button that can only fail.
+/// A screen names the one thing it makes (`primary` — "New leave request",
+/// "New overtime order"): a filled button in the desk's page header and, on a
+/// phone, the round "+" in the dock over the bottom bar (`Fab`) — never a
+/// button at the top of the page. It is only drawn once the gate is open: a
+/// "New claim" button in front of a sign-in box is a button that can only
+/// fail.
+///
+/// # Moving between People's screens
+///
+/// There is no strip of fourteen chips any more (a phone does not scroll
+/// sideways). The module's screens are rows of the navigation drawer — More,
+/// with People opened beneath its row — and, on a desk, of the panel beside the
+/// page.
 export function HrWorkspace({
-  sub,
-  actions,
+  primary,
   children,
 }: {
-  sub?: React.ReactNode
-  actions?: React.ReactNode
+  /// The one thing this screen makes. `label` is the entry point's own words:
+  /// "New {thing}".
+  primary?: {
+    label: string
+    onClick: () => void
+    icon?: LucideIcon
+  }
   children: (scope: StoreScope) => React.ReactNode
 }) {
   const where = useNodeIdentity()
@@ -76,12 +85,13 @@ export function HrWorkspace({
 
   /// The gate, in the order the questions have to be asked. Written as one
   /// function rather than a chain of early returns in the component body
-  /// because the strip above is drawn in every one of these states: a person
-  /// who cannot read the rota can still move to Team, and a module whose
-  /// navigation disappears with its content is a module somebody leaves.
+  /// because the page's frame (its title, the dock's act) is drawn in every one
+  /// of these states: a person who cannot read the rota can still move to
+  /// Team, and a module whose navigation disappears with its content is a
+  /// module somebody leaves.
   function body(): React.ReactNode {
     if (where.isPending || session.isPending) {
-      return <Waiting>Checking who is signed in…</Waiting>
+      return <LoadingState>Checking who is signed in…</LoadingState>
     }
 
     // A till that cannot say where it is standing cannot be scoped to a shop,
@@ -90,18 +100,14 @@ export function HrWorkspace({
     if (site === null) {
       return (
         <Banner tone="bad">
-          This server has no shop set (<code className="font-mono">site_id</code>).
+          This server has no shop set (
+          <code className="font-mono">site_id</code>).
         </Banner>
       )
     }
 
     if (!signedIn) {
-      return (
-        <RelayRefusal
-          access={session.access}
-          what="People"
-        />
-      )
+      return <RelayRefusal access={session.access} what="People" />
     }
 
     return centreState(reach, {
@@ -113,9 +119,7 @@ export function HrWorkspace({
         // here instead of five times in five different words.
         if (view.scope === "NOWHERE") {
           return (
-            <Banner tone="bad">
-              This account is not posted to this shop.
-            </Banner>
+            <Banner tone="bad">This account is not posted to this shop.</Banner>
           )
         }
 
@@ -124,9 +128,7 @@ export function HrWorkspace({
         // or unbounded relay response is still refused.
         if (view.scope !== "ONE_UNIT" || view.unit_id === null) {
           return (
-            <Banner tone="bad">
-              This account is not limited to one shop.
-            </Banner>
+            <Banner tone="bad">This account is not limited to one shop.</Banner>
           )
         }
 
@@ -139,7 +141,7 @@ export function HrWorkspace({
 
         return (
           <>
-            <ScopeLine scope={here} who={session.data?.username ?? null} />
+            <ScopeLine scope={here} />
             {children(here)}
           </>
         )
@@ -147,96 +149,40 @@ export function HrWorkspace({
     })
   }
 
-  const ready = scope !== null && actions !== undefined
+  const ready = scope !== null && primary !== undefined
+  const Icon = primary?.icon ?? Plus
 
   return (
-    <Screen foot="none" sub={sub} actions={ready ? actions : undefined}>
-      <HrStrip />
-      {/* The header is desk-only, so on a phone the primary act would have
-          nowhere to stand. It stands here instead, under the strip. */}
+    <Screen
+      actions={
+        ready ? (
+          <Button variant="primary" onClick={primary.onClick}>
+            <Icon />
+            {primary.label}
+          </Button>
+        ) : undefined
+      }
+    >
+      {/* The phone's one act: the dock's round "+", where the thumb is. */}
       {ready && (
-        <div className="mb-4 flex flex-wrap gap-2 md:hidden [&>*]:flex-1">
-          {actions}
-        </div>
+        <Fab label={primary.label} icon={Icon} onClick={primary.onClick} />
       )}
       {body()}
     </Screen>
   )
 }
 
-/// The module's own navigation, below `md` only.
-///
-/// This app draws exactly one navigation at every width: the floating
-/// squircles on a phone, the column on a counter monitor. An HR screen is a
-/// *pushed* screen, and a pushed screen hides the squircles — so on a phone
-/// there is nothing, and this is it. Above `md` the sidebar is already showing
-/// these same fourteen rows, and a second copy of them would be the
-/// duplication that rule exists to prevent. It scrolls sideways, and the
-/// current screen is the tinted one.
-function HrStrip() {
-  const pathname = useRouterState({
-    select: (state) => state.location.pathname,
-  })
-  const strip = useRef<HTMLElement>(null)
-  // Fourteen chips do not fit a phone, so the current one is brought into
-  // view — otherwise opening Training lands on a strip that starts at
-  // Overview and shows nothing of where you are.
-  useEffect(() => {
-    const active = strip.current?.querySelector<HTMLElement>(
-      "[data-status=active]",
-    )
-    active?.scrollIntoView({ block: "nearest", inline: "center" })
-  }, [pathname])
-  return (
-    <nav
-      ref={strip}
-      aria-label="People"
-      className="-mx-4 mb-4 flex [scrollbar-width:none] gap-1.5 overflow-x-auto px-4 py-1 md:hidden [&::-webkit-scrollbar]:hidden"
-    >
-      {hrItems.map((item) => {
-        const Icon = item.icon
-        return (
-          <AppLink
-            key={item.path}
-            to={item.path}
-            className="flex h-11 shrink-0 items-center gap-2 rounded-inner border border-hairline bg-canvas px-3.5 text-nav font-medium text-body shadow-soft data-[status=active]:border-accent/30 data-[status=active]:bg-accent-bg data-[status=active]:font-semibold data-[status=active]:text-accent"
-          >
-            <Icon className="size-[1.0625rem] shrink-0 stroke-[1.55]" />
-            {item.label}
-          </AppLink>
-        )
-      })}
-    </nav>
-  )
-}
-
-/// Whose numbers these are, and where they came from.
+/// Whose numbers these are, and where they came from — one quiet line.
 ///
 /// Every other screen in this app is answered by the machine in the next room,
 /// so none of them has to say which machine. These do: a rota is not a fact
 /// about this shop's node, and somebody reading one is entitled to know they
 /// are looking at the centre — which is also why "head office is not
 /// reachable" has to be a sentence this module can say.
-function ScopeLine({ scope, who }: { scope: StoreScope; who: string | null }) {
+function ScopeLine({ scope }: { scope: StoreScope }) {
   return (
-    <div className="mb-4 flex items-center gap-2.5 rounded-card border border-hairline bg-soft px-3.5 py-2.5">
-      <Building2 className="size-[1.0625rem] shrink-0 stroke-[1.55] text-line-ico" />
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-cell font-medium text-ink">
-          {scope.label}
-        </div>
-        <div className="truncate text-meta text-mute">
-          Head office{who === null ? "" : ` · ${who}`}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function Waiting({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="mx-auto max-w-[28em] px-4 py-12 text-center">
-      <p className="text-meta text-body">{children}</p>
-    </div>
+    <p className="mb-3 truncate text-meta text-mute">
+      {scope.label} · from head office
+    </p>
   )
 }

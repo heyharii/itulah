@@ -1,13 +1,15 @@
 import { useQuery } from "@tanstack/react-query"
 
 import { PeopleTable } from "@/components/ui/people-table"
-import { Pill } from "@/components/ui/pill"
+import { Status } from "@/components/ui/pill"
 import { Stat, StatStrip } from "@/components/ui/stat-strip"
+import { LoadingState } from "@/components/ui/states"
 import { useGo } from "@/lib/go"
 import {
   applicantsAt,
   attendanceToday,
   claimsAt,
+  clockOf,
   correctionsAt,
   hrKeys,
   isoDay,
@@ -23,15 +25,15 @@ import {
   type StoreScope,
 } from "@/lib/queries/hr"
 import { centreState } from "@/screens/hr/centre"
-import { Heading, Person } from "@/screens/hr/parts"
+import { dateLead, Heading, Person, personCard } from "@/screens/hr/parts"
 import { dayStatus, useTeam, type Tone } from "@/screens/hr/words"
 import { HrWorkspace } from "@/screens/hr/workspace"
 
 /// Today, at this shop — the prototype's store Overview (`pageOverview`, role
-/// `s`): who is on, who is in, what is waiting on the store head, and what
+/// `s`): who is on, who is in, what is pending with the store head, and what
 /// needs somebody's attention.
 ///
-/// # What is waiting, and on whom
+/// # What is pending, and with whom
 ///
 /// The queue is the prototype's *Menunggu kepala toko*: the leave, the
 /// attendance fixes, the swaps and the claims a store head decides. Overtime
@@ -45,12 +47,15 @@ import { HrWorkspace } from "@/screens/hr/workspace"
 /// centre says whether any punch source has ever reported for this shop. When
 /// none has, the figures read "not assessed" rather than zero, because a zero
 /// would be a claim that somebody looked.
+///
+/// # The phone
+///
+/// A dashboard: the figures stay, and each of the three lists under them —
+/// Pending, Today, Needs attention — is a stack of lead cards (the person, the
+/// one date or time that matters, a status and a word to open it). A card is
+/// the way to the screen where the thing is dealt with.
 export function HrToday() {
-  return (
-    <HrWorkspace>
-      {(scope) => <Today scope={scope} />}
-    </HrWorkspace>
-  )
+  return <HrWorkspace>{(scope) => <Today scope={scope} />}</HrWorkspace>
 }
 
 /// One row of the store head's queue.
@@ -58,7 +63,10 @@ interface Waiting {
   readonly key: string
   readonly kind: string
   readonly employeeId: string
+  /// What it is, without the day: the card's line.
   readonly what: string
+  /// The day it is about: the card's one figure.
+  readonly date: string
   readonly to: string
 }
 
@@ -122,21 +130,24 @@ function Today({ scope }: { scope: StoreScope }) {
       key: `leave-${request.id}`,
       kind: "Leave",
       employeeId: request.employee_id,
-      what: `${request.leave_type_name} · ${readDate(request.from_date)}${request.to_date === request.from_date ? "" : ` – ${readDate(request.to_date)}`} · ${request.chargeable_days} day${request.chargeable_days === 1 ? "" : "s"}`,
+      what: `${request.leave_type_name} · ${request.chargeable_days} day${request.chargeable_days === 1 ? "" : "s"}${request.to_date === request.from_date ? "" : ` · until ${readDate(request.to_date)}`}`,
+      date: request.from_date,
       to: "/hr/leave",
     })),
     ...(corrections.data ?? []).map((fix) => ({
       key: `fix-${fix.id}`,
       kind: "Attendance fix",
       employeeId: fix.employee_id,
-      what: `${readDate(fix.business_date)} · ${fix.reason}`,
+      what: fix.reason,
+      date: fix.business_date,
       to: "/hr/attendance",
     })),
     ...(swaps.data?.rows ?? []).map((swap) => ({
       key: `swap-${swap.id}`,
       kind: "Shift swap",
       employeeId: swap.employee_id,
-      what: `${readDate(swap.on_date)} · ${swap.reason}`,
+      what: swap.reason,
+      date: swap.on_date,
       to: "/hr/roster",
     })),
     ...(claims.data ?? [])
@@ -146,9 +157,13 @@ function Today({ scope }: { scope: StoreScope }) {
         kind: "Claim",
         employeeId: claim.employee_id,
         what: `${claim.claim_number} · ${claim.lines.map((line) => line.description).join(", ")}`,
+        date: claim.posted_on,
         to: "/hr/expenses",
       })),
   ]
+  const reading = [leave, corrections, swaps, claims].some(
+    (query) => query.isPending,
+  )
 
   // ── who is in ─────────────────────────────────────────────────────────────
   const connected = attendance.data?.punch_source_connected ?? false
@@ -277,8 +292,8 @@ function Today({ scope }: { scope: StoreScope }) {
           tone={connected && missing > 0 ? "bad" : undefined}
         />
         <Stat
-          label="Waiting on the store head"
-          value={waiting.length}
+          label="Pending"
+          value={reading ? "—" : waiting.length}
           tone={waiting.length > 0 ? "warn" : undefined}
         />
         <Stat
@@ -301,51 +316,101 @@ function Today({ scope }: { scope: StoreScope }) {
         <Stat
           label="Interviews"
           value={applicants.data === undefined ? "—" : interviews}
-          sub="candidates at interview"
         />
       </StatStrip>
 
-      <Heading count={waiting.length}>Waiting on the store head</Heading>
-      <PeopleTable
-        rows={waiting}
-        rowKey={(row) => row.key}
-        onRowClick={(row) => go(row.to)}
-        empty="Nothing waiting."
-        columns={[
-          {
-            key: "kind",
-            header: "Kind",
-            card: "status",
-            cell: (row) => <Pill tone="neutral">{row.kind}</Pill>,
-          },
-          {
-            key: "who",
-            header: "Employee",
-            card: "title",
-            cell: (row) => <Person team={team.data} id={row.employeeId} />,
-          },
-          {
-            key: "what",
-            header: "Request",
-            card: "meta",
-            className: "whitespace-normal",
-            cell: (row) => row.what,
-          },
-        ]}
-      />
+      <Heading count={reading ? undefined : waiting.length}>Pending</Heading>
+      {reading ? (
+        <LoadingState>Reading what is pending…</LoadingState>
+      ) : (
+        <PeopleTable
+          rows={waiting}
+          rowKey={(row) => row.key}
+          onRowClick={(row) => go(row.to)}
+          empty="Nothing is pending."
+          card={(row) => ({
+            ...personCard(team.data, row.employeeId, [
+              `${row.kind} · ${row.what}`,
+            ]),
+            lead: dateLead(row.date),
+            foot: {
+              info: <Status tone="warn">Pending</Status>,
+              action: { label: "Review", onClick: () => go(row.to) },
+            },
+          })}
+          columns={[
+            {
+              key: "who",
+              header: "Employee",
+              cell: (row) => <Person team={team.data} id={row.employeeId} />,
+            },
+            {
+              key: "kind",
+              header: "Kind",
+              card: "meta",
+              cell: (row) => row.kind,
+            },
+            {
+              key: "what",
+              header: "Request",
+              card: "meta",
+              className: "whitespace-normal",
+              cell: (row) => row.what,
+            },
+            {
+              key: "date",
+              header: "Day",
+              card: "meta",
+              cell: (row) => readDate(row.date, true),
+            },
+          ]}
+        />
+      )}
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <div className="min-w-0">
-          <Heading>Attendance today</Heading>
+          <Heading>Today</Heading>
           {centreState(roster, {
-            loading: "Loading…",
+            loading: "Reading today's rota…",
             what: "today's rota",
             render: (days) => (
               <PeopleTable
                 rows={days}
                 rowKey={(day) => day.employee_id}
                 onRowClick={() => go("/hr/attendance")}
-                empty="No rota for today."
+                empty="Nobody is rostered today."
+                card={(day) => {
+                  const seen = byEmployee.get(day.employee_id)
+                  const status = dayStatus({
+                    plan: day.plan,
+                    outcomes: seen?.outcomes ?? [],
+                    arrival: seen?.arrival ?? null,
+                    connected,
+                  })
+                  const arrival = seen?.arrival ?? null
+                  return {
+                    ...personCard(team.data, day.employee_id, [shiftWord(day)]),
+                    // The time they checked in; before that, the time they are
+                    // due, quieter. A day off has no time to say.
+                    lead:
+                      arrival !== null
+                        ? { figure: clockOf(arrival), caption: "checked in" }
+                        : day.plan === "SCHEDULED" && day.starts_at !== null
+                          ? {
+                              figure: day.starts_at,
+                              caption: "due in",
+                              muted: true,
+                            }
+                          : undefined,
+                    foot: {
+                      info: <Status tone={status.tone}>{status.label}</Status>,
+                      action: {
+                        label: "Open",
+                        onClick: () => go("/hr/attendance"),
+                      },
+                    },
+                  }
+                }}
                 columns={[
                   {
                     key: "who",
@@ -358,10 +423,7 @@ function Today({ scope }: { scope: StoreScope }) {
                     key: "shift",
                     header: "Shift",
                     card: "meta",
-                    cell: (day) =>
-                      day.plan === "SCHEDULED" && day.starts_at !== null
-                        ? `${day.shift_name ?? "Shift"} ${day.starts_at}–${day.ends_at ?? ""}`
-                        : planWord(day.plan),
+                    cell: (day) => shiftWord(day),
                   },
                   {
                     key: "status",
@@ -375,7 +437,7 @@ function Today({ scope }: { scope: StoreScope }) {
                         arrival: seen?.arrival ?? null,
                         connected,
                       })
-                      return <Pill tone={status.tone}>{status.label}</Pill>
+                      return <Status tone={status.tone}>{status.label}</Status>
                     },
                   },
                 ]}
@@ -391,17 +453,20 @@ function Today({ scope }: { scope: StoreScope }) {
             rowKey={(row) => row.key}
             onRowClick={(row) => go(row.to)}
             empty="Nothing needs attention."
-            columns={[
-              {
-                key: "kind",
-                header: "Kind",
-                card: "status",
-                cell: (row) => <Pill tone={row.tone}>{row.kind}</Pill>,
+            card={(row) => ({
+              ...(row.employeeId === null
+                ? { title: scope.label, lines: [row.text] }
+                : personCard(team.data, row.employeeId, [row.text])),
+              foot: {
+                info: <Status tone={row.tone}>{row.kind}</Status>,
+                action: { label: "Open", onClick: () => go(row.to) },
               },
+              tone: row.tone === "bad" ? "alert" : undefined,
+            })}
+            columns={[
               {
                 key: "who",
                 header: "Employee",
-                card: "title",
                 cell: (row) =>
                   row.employeeId === null ? (
                     <span className="text-cell font-medium text-ink">
@@ -418,10 +483,28 @@ function Today({ scope }: { scope: StoreScope }) {
                 className: "whitespace-normal",
                 cell: (row) => row.text,
               },
+              {
+                key: "kind",
+                header: "Kind",
+                card: "status",
+                cell: (row) => <Status tone={row.tone}>{row.kind}</Status>,
+              },
             ]}
           />
         </div>
       </div>
     </>
   )
+}
+
+/// A rostered day in a line: `Morning 09:00–17:00`, or what the day is.
+function shiftWord(day: {
+  plan: string
+  shift_name: string | null
+  starts_at: string | null
+  ends_at: string | null
+}): string {
+  return day.plan === "SCHEDULED" && day.starts_at !== null
+    ? `${day.shift_name ?? "Shift"} ${day.starts_at}–${day.ends_at ?? ""}`
+    : planWord(day.plan)
 }

@@ -52,8 +52,12 @@ pub fn parse_nut(text: &str) -> Option<PowerFacts> {
     };
     Some(PowerFacts {
         source,
-        charge_percent: field("battery.charge").and_then(|value| value.parse::<f64>().ok()).map(|v| v.round() as u8),
-        runtime_seconds: field("battery.runtime").and_then(|value| value.parse::<f64>().ok()).map(|v| v as i64),
+        charge_percent: field("battery.charge")
+            .and_then(|value| value.parse::<f64>().ok())
+            .map(|v| v.round() as u8),
+        runtime_seconds: field("battery.runtime")
+            .and_then(|value| value.parse::<f64>().ok())
+            .map(|v| v as i64),
         low: flags.contains(&"LB"),
     })
 }
@@ -62,11 +66,19 @@ pub fn parse_nut(text: &str) -> Option<PowerFacts> {
 fn read() -> Option<PowerFacts> {
     use std::process::Command;
     let list = Command::new("upsc").arg("-l").output().ok()?;
-    let name = String::from_utf8(list.stdout).ok()?.lines().next()?.trim().to_owned();
+    let name = String::from_utf8(list.stdout)
+        .ok()?
+        .lines()
+        .next()?
+        .trim()
+        .to_owned();
     if name.is_empty() {
         return None;
     }
-    let output = Command::new("upsc").arg(format!("{name}@localhost")).output().ok()?;
+    let output = Command::new("upsc")
+        .arg(format!("{name}@localhost"))
+        .output()
+        .ok()?;
     parse_nut(&String::from_utf8(output.stdout).ok()?)
 }
 
@@ -88,14 +100,18 @@ fn read() -> Option<PowerFacts> {
             _ => PowerSource::Unknown,
         },
         charge_percent: (status.BatteryLifePercent <= 100).then_some(status.BatteryLifePercent),
-        runtime_seconds: (status.BatteryLifeTime != u32::MAX).then_some(status.BatteryLifeTime as i64),
+        runtime_seconds: (status.BatteryLifeTime != u32::MAX)
+            .then_some(status.BatteryLifeTime as i64),
         // 2: low, 4: critical.
         low: status.BatteryFlag & (2 | 4) != 0,
     })
 }
 
 /// Read the UPS every ten seconds from now on.
-pub fn spawn_monitor(sync: Option<Arc<crate::edge::sync::EdgeSyncHandle>>, journal: Option<Journal>) {
+pub fn spawn_monitor(
+    sync: Option<Arc<crate::edge::sync::EdgeSyncHandle>>,
+    journal: Option<Journal>,
+) {
     tokio::spawn(async move {
         let mut battery_since: Option<chrono::DateTime<Utc>> = None;
         loop {
@@ -104,8 +120,12 @@ pub fn spawn_monitor(sync: Option<Arc<crate::edge::sync::EdgeSyncHandle>>, journ
             if let Ok(mut slot) = slot().lock() {
                 *slot = reading.clone();
             }
-            let now_on_battery = reading.as_ref().is_some_and(|f| f.source == PowerSource::Battery);
-            let was_on_battery = was.as_ref().is_some_and(|f| f.source == PowerSource::Battery);
+            let now_on_battery = reading
+                .as_ref()
+                .is_some_and(|f| f.source == PowerSource::Battery);
+            let was_on_battery = was
+                .as_ref()
+                .is_some_and(|f| f.source == PowerSource::Battery);
             if now_on_battery && !was_on_battery {
                 let at = Utc::now();
                 battery_since = Some(at);
@@ -126,7 +146,10 @@ pub fn spawn_monitor(sync: Option<Arc<crate::edge::sync::EdgeSyncHandle>>, journ
                 battery_since = None;
                 tracing::info!(seconds, "mains power is back");
                 if let Some(journal) = &journal {
-                    journal.record(&Incident::PowerRestored { at, on_battery_seconds: seconds });
+                    journal.record(&Incident::PowerRestored {
+                        at,
+                        on_battery_seconds: seconds,
+                    });
                 }
             }
             tokio::time::sleep(Duration::from_secs(10)).await;

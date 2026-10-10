@@ -512,7 +512,9 @@ mod tests {
             "period": { "kind": "relative", "last": 7, "unit": "day" },
             "measures": ["gross"]
         }));
-        let resolved = spec.period.resolve(business_day(now(), LOCAL_OFFSET_MINUTES));
+        let resolved = spec
+            .period
+            .resolve(business_day(now(), LOCAL_OFFSET_MINUTES));
         assert_eq!(
             resolved,
             Some((

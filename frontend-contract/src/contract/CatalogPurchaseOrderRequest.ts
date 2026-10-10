@@ -38,6 +38,11 @@ discount_bps?: number | null,
  */
 payment_terms_code?: string | null, 
 /**
+ * How the order is paid: GIRO (the default), TRANSFER or CASH (0827).
+ * Absent raises it on giro.
+ */
+payment_method?: string | null, 
+/**
  * Free-text terms and conditions written on the order (0824). Optional;
  * absent or blank raises it with none.
  */

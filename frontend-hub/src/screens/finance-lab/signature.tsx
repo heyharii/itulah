@@ -2,6 +2,7 @@ import { ArrowRight } from "lucide-react"
 
 import { AppLink } from "@/components/ui/app-link"
 import { Pill } from "@/components/ui/pill"
+import { dateText, monthYear } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { Amount, rp } from "@/screens/finance-lab/parts"
 import type { Minor } from "@/screens/finance-lab/engine/types"
@@ -497,16 +498,13 @@ export function Strip({
         return (
           <span
             key={i}
-            title={d.toLocaleDateString("id-ID", {
-              month: "short",
-              year: "numeric",
-            })}
+            title={monthYear(d)}
             className={cn(
               "flex h-5 w-7 items-center justify-center rounded-[0.25rem] text-[0.875rem] font-semibold",
               i < done ? "bg-ok-bg text-ok-fg" : "bg-soft-2 text-faint"
             )}
           >
-            {d.toLocaleDateString("id-ID", { month: "short" }).slice(0, 3)}
+            {dateText(d, { month: "short" })}
           </span>
         )
       })}

@@ -18,7 +18,7 @@ import { Day } from "@/components/ui/day"
 import { Banner } from "@/components/ui/states"
 import { endOfDay, isoOf, startOfDay } from "@/lib/calendar"
 import { POPUP, POSITIONER } from "@/lib/filter-chrome"
-import { count, day, money } from "@/lib/format"
+import { count, day, money, percent } from "@/lib/format"
 import {
   type PromotionPerformance,
   campaignPerformance,
@@ -413,7 +413,7 @@ function Ratio({
         <Hint text="Discount as a share of the baskets touched. Reads low because the base is whole baskets." />
       </div>
       <div className="mt-1 text-[1.375rem] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums">
-        {share === null ? "—" : `${share.toFixed(1)}%`}
+        {percent(share, { digits: 1 })}
       </div>
       <p className="mt-1.5 text-meta text-mute">
         {money(spend)} of {money(sales)}

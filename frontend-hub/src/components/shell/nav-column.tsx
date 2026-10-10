@@ -6,7 +6,6 @@ import {
   LogOut,
   PanelLeft,
   Search,
-  Sparkles,
   X,
   type LucideIcon,
 } from "lucide-react"
@@ -19,14 +18,12 @@ import {
   type ReactNode,
 } from "react"
 
-import { useAssistant } from "@/components/assistant/state"
 import { BrandMark } from "@/components/brand-mark"
 import { NotificationBell } from "@/components/shell/notification-bell"
 import { RailTip } from "@/components/ui/rail-tip"
-import { officeFor, systemFor } from "@/lib/apps"
+import { officeFor } from "@/lib/apps"
 import { count } from "@/lib/format"
 import {
-  asides,
   domainForPath,
   domainHome,
   shownDomains,
@@ -47,7 +44,6 @@ import { useIdentity, useSections, useSignOut } from "@/lib/session"
 import { cn } from "@/lib/utils"
 import { homeNav } from "@/screens/home/nav"
 import { meNav } from "@/screens/me/nav"
-import { systemNav } from "@/screens/system/nav"
 
 /// The dark rail: every department as an icon, the one you are in lit.
 ///
@@ -104,16 +100,6 @@ export function NavColumn({
         )
       )
     : []
-  const extras = [
-    ...(office
-      ? asides
-          .filter((aside) => !topBarAsides.includes(aside))
-          .filter((aside) => moduleAllowed(aside, sections, bypass))
-      : []),
-    ...(systemFor(role) && moduleAllowed(systemNav, sections, bypass)
-      ? [systemNav]
-      : []),
-  ]
 
   // The open department's row, kept in view: arriving at a Finance screen
   // from ⌘K should not leave the column scrolled to Procurement.
@@ -275,16 +261,6 @@ export function NavColumn({
         )}
       >
         {onToggleNav && <RailTools folded={folded} activeId={active.id} />}
-        {extras.map((module) => (
-          <DepartmentLink
-            key={module.id}
-            icon={module.icon}
-            label={module.label}
-            to={module.home}
-            lit={active.id === module.id}
-            folded={folded}
-          />
-        ))}
         <Account folded={folded} lit={active.id === meNav.id} />
       </div>
     </nav>
@@ -856,7 +832,7 @@ function ScreenRow({
   )
 }
 
-/// A row that is one place: Home, a one-screen department, Reports, System.
+/// A row that is one place: Home, a one-screen department.
 /// Folded, it is the icon alone, with its name on hover and its count — when
 /// it carries one — as the dot at its corner.
 function DepartmentLink({
@@ -917,9 +893,9 @@ function DepartmentLink({
   return folded ? <RailTip label={label}>{link}</RailTip> : link
 }
 
-/// What the top bar used to carry on a desk: the message asides, the bell,
-/// the assistant and the clock — a row of icons over Reports and System, a
-/// stack of them when the column is folded.
+/// What the top bar used to carry on a desk: the message asides and the bell
+/// — a row of icons over the account, a stack of them when the column is
+/// folded.
 function RailTools({
   folded,
   activeId,
@@ -927,7 +903,6 @@ function RailTools({
   folded: boolean
   activeId: string
 }) {
-  const assistant = useAssistant()
   return (
     <div
       className={cn(
@@ -939,20 +914,6 @@ function RailTools({
         <RailAside key={aside.id} aside={aside} here={activeId === aside.id} />
       ))}
       <NotificationBell tone="rail" />
-      <button
-        type="button"
-        onClick={() => assistant.setOpen(!assistant.open)}
-        aria-pressed={assistant.open}
-        aria-label="Ask"
-        title="Ask  ⌘J"
-        className={cn(
-          "inline-flex h-8 items-center gap-1.5 rounded-inner text-[0.875rem] font-medium text-rail-text transition-colors hover:bg-rail-2 hover:text-rail-ink aria-pressed:bg-rail-3 aria-pressed:text-rail-ink",
-          folded ? "w-8 justify-center" : "px-2"
-        )}
-      >
-        <Sparkles className="size-4 stroke-[1.7] text-accent" />
-        {!folded && <span>Ask</span>}
-      </button>
     </div>
   )
 }
@@ -994,19 +955,30 @@ function noAsideCount(): null {
   return null
 }
 
-/// The person: their own records (`/me`), and the way out.
+/// The person: their own records (`/me`), and the way out — a row of its own,
+/// there in the folded rail too, so signing out is never a hunt.
 function Account({ folded, lit }: { folded: boolean; lit: boolean }) {
   const identity = useIdentity()
   const signOut = useSignOut()
   const name = identity.data?.display_name ?? identity.data?.username ?? "—"
   const initial = name.trim().charAt(0).toUpperCase() || "?"
-  return (
-    <div
+  const out = (
+    <button
+      type="button"
+      aria-label="Sign out"
+      onClick={() => signOut.mutate()}
+      disabled={signOut.isPending}
       className={cn(
-        "mt-1 flex items-center",
-        folded ? "flex-col gap-1" : "gap-1"
+        "group flex shrink-0 items-center rounded-inner text-[0.875rem] text-rail-text transition-colors hover:bg-rail-2 hover:text-rail-ink disabled:opacity-50",
+        folded ? "size-10 self-center justify-center" : "h-9 gap-3 px-2.5"
       )}
     >
+      <LogOut className="size-[1.125rem] shrink-0 stroke-[1.6] text-rail-mute transition-colors group-hover:text-rail-text" />
+      {!folded && <span>Sign out</span>}
+    </button>
+  )
+  return (
+    <div className="mt-1 flex flex-col gap-0.5">
       <Link
         to={"/me" as string}
         title={folded ? `${name} — profile` : "Profile"}
@@ -1014,7 +986,7 @@ function Account({ folded, lit }: { folded: boolean; lit: boolean }) {
         aria-current={lit ? "page" : undefined}
         className={cn(
           "flex min-w-0 items-center gap-2.5 rounded-inner transition-colors hover:bg-rail-2",
-          folded ? "size-10 justify-center" : "h-10 flex-1 px-1.5",
+          folded ? "size-10 self-center justify-center" : "h-10 px-1.5",
           lit && "bg-rail-3"
         )}
       >
@@ -1032,18 +1004,7 @@ function Account({ folded, lit }: { folded: boolean; lit: boolean }) {
           </span>
         )}
       </Link>
-      {!folded && (
-        <button
-          type="button"
-          aria-label="Sign out"
-          title="Sign out"
-          onClick={() => signOut.mutate()}
-          disabled={signOut.isPending}
-          className="grid size-9 shrink-0 place-items-center rounded-inner text-rail-mute transition-colors hover:bg-rail-2 hover:text-rail-ink disabled:opacity-50"
-        >
-          <LogOut className="size-4 stroke-[1.7]" />
-        </button>
-      )}
+      {folded ? <RailTip label="Sign out">{out}</RailTip> : out}
     </div>
   )
 }

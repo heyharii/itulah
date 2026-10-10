@@ -7,7 +7,8 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
-import { count, day, money } from "@/lib/format"
+import { count, day, money, quantity } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   financeKeys,
   inventoryValuation,
@@ -26,7 +27,13 @@ import {
   Th,
   TotalRow,
 } from "@/screens/finance-final/parts"
-import { SiteName, SupplierName } from "@/screens/finance/parts"
+import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
+import {
+  PhoneChoice,
+  PhoneFigures,
+  SiteName,
+  SupplierName,
+} from "@/screens/finance/parts"
 
 /// Finance › Inventory. One article is bought once, so what a piece is worth
 /// is the price on its PO / receipt; value = quantity × that cost.
@@ -58,37 +65,54 @@ export function UnitRail({
     ...list.map((unit) => ({ id: unit.id, name: unit.name, code: unit.code })),
   ]
   return (
-    <nav
-      aria-label="Units"
-      className="sticky top-4 w-56 shrink-0 overflow-hidden rounded-card border border-hairline-2 bg-canvas shadow-soft"
-    >
-      {choices.map((choice) => (
-        <button
-          key={choice.id ?? "all"}
-          type="button"
-          onClick={() => onChange(choice.id)}
-          aria-current={choice.id === value ? "page" : undefined}
-          className={cn(
-            "flex w-full flex-col items-start border-b border-hairline px-4 py-3 text-left transition-colors last:border-b-0",
-            choice.id === value ? "bg-accent-bg" : "hover:bg-soft"
-          )}
-        >
-          <span
+    <>
+      {/* A column of units beside the page leaves a phone 122px to read in:
+          there the unit is a chip in the dock. */}
+      <PhoneChoice
+        title="Unit"
+        value={value ?? ""}
+        onChange={(next) => onChange(next === "" ? null : next)}
+        options={choices.map((choice) => ({
+          value: choice.id ?? "",
+          label:
+            choice.code === null
+              ? choice.name
+              : `${choice.name} · ${choice.code}`,
+          short: choice.name,
+        }))}
+      />
+      <nav
+        aria-label="Units"
+        className="sticky top-4 w-56 shrink-0 overflow-hidden rounded-card border border-hairline-2 bg-canvas shadow-soft max-md:hidden"
+      >
+        {choices.map((choice) => (
+          <button
+            key={choice.id ?? "all"}
+            type="button"
+            onClick={() => onChange(choice.id)}
+            aria-current={choice.id === value ? "page" : undefined}
             className={cn(
-              "truncate",
-              choice.id === value ? "font-medium text-ink" : "text-text"
+              "flex w-full flex-col items-start border-b border-hairline px-4 py-3 text-left transition-colors last:border-b-0",
+              choice.id === value ? "bg-accent-bg" : "hover:bg-soft"
             )}
           >
-            {choice.name}
-          </span>
-          {choice.code !== null && (
-            <span className="font-mono text-[0.875rem] text-mute">
-              {choice.code}
+            <span
+              className={cn(
+                "truncate",
+                choice.id === value ? "font-medium text-ink" : "text-text"
+              )}
+            >
+              {choice.name}
             </span>
-          )}
-        </button>
-      ))}
-    </nav>
+            {choice.code !== null && (
+              <span className="font-mono text-[0.875rem] text-mute">
+                {choice.code}
+              </span>
+            )}
+          </button>
+        ))}
+      </nav>
+    </>
   )
 }
 
@@ -119,11 +143,12 @@ export function InventoryValuationScreen() {
   return (
     <PageContent>
       <PageHeader
+        className="max-md:hidden"
         crumb="Finance · Inventory"
         title="Inventory Valuation"
         sub="What the stock is worth: every piece on hand × the price it was bought at."
       />
-      <div className="flex items-start gap-6">
+      <div className="flex items-start gap-6 max-md:block">
         <UnitRail value={unit} onChange={setUnit} />
         <div className="min-w-0 flex-1">
           {valuation.isPending ? (
@@ -135,16 +160,29 @@ export function InventoryValuationScreen() {
             />
           ) : (
             <>
-              <CardRow columns={4}>
-                <NumberCard label="Stock on hand" value={onHandValue} />
-                <NumberCard label="In transit" value={transitValue} />
-                <NumberCard label="Awaiting setup" value={awaitingValue} />
-                <NumberCard
-                  label="Total"
-                  value={onHandValue + transitValue + awaitingValue}
-                />
-              </CardRow>
-              <div className="mt-5">
+              <PhoneFigures
+                items={[
+                  { label: "Stock on hand", value: onHandValue },
+                  { label: "In transit", value: transitValue },
+                  { label: "Awaiting setup", value: awaitingValue },
+                  {
+                    label: "Inventory value",
+                    value: onHandValue + transitValue + awaitingValue,
+                  },
+                ]}
+              />
+              <div className="max-md:hidden">
+                <CardRow columns={4}>
+                  <NumberCard label="Stock on hand" value={onHandValue} />
+                  <NumberCard label="In transit" value={transitValue} />
+                  <NumberCard label="Awaiting setup" value={awaitingValue} />
+                  <NumberCard
+                    label="Inventory value"
+                    value={onHandValue + transitValue + awaitingValue}
+                  />
+                </CardRow>
+              </div>
+              <div className="mt-5 max-md:mt-0">
                 <SubTabs
                   tabs={[
                     { value: "article", label: "By article" },
@@ -201,6 +239,7 @@ function ByArticle({
   const here = filter(onHand)
   const road = filter(transit)
   const all = [...here, ...road]
+  const phone = useLayout() === "phone"
 
   const line = (row: InventoryValuationRow, onTheRoad: boolean) => (
     <tr key={`${row.site_id}-${row.in_transit}-${row.article_code}`}>
@@ -224,7 +263,7 @@ function ByArticle({
           </span>
         )}
         {onTheRoad && (
-          <span className="ml-2 text-[0.875rem] text-mute">on the road</span>
+          <span className="ml-2 text-[0.875rem] text-mute">in transit</span>
         )}
       </Td>
     </tr>
@@ -237,6 +276,7 @@ function ByArticle({
           value={needle}
           onChange={(event) => setNeedle(event.target.value)}
           aria-label="Search articles"
+          placeholder="Search articles"
           className="h-control w-64"
         />
       </Toolbar>
@@ -244,6 +284,30 @@ function ByArticle({
         <EmptyState>
           {needle.trim() === "" ? "No stock to value." : "Nothing matches."}
         </EmptyState>
+      ) : phone ? (
+        <PhoneList
+          rows={all.map((row) => ({
+            key: `${row.site_id}-${row.in_transit}-${row.article_code}`,
+            title: row.article_name,
+            code: row.article_code,
+            lead: (
+              <CardFigure
+                value={money(row.value_minor)}
+                caption={`${count(row.quantity)} pcs`}
+              />
+            ),
+            foot: (
+              <span className="tabular-nums">
+                {row.cost_source === "NONE"
+                  ? "No cost"
+                  : `${money(row.unit_cost_minor)} each`}
+                {row.po_numbers ? ` · ${row.po_numbers}` : ""}
+                {row.po_count > 1 ? ` (avg of ${row.po_count} POs)` : ""}
+                {row.in_transit ? " · in transit" : ""}
+              </span>
+            ),
+          }))}
+        />
       ) : (
         <Grid>
           <thead>
@@ -261,13 +325,13 @@ function ByArticle({
             {road.length > 0 && (
               <tr data-total>
                 <Td colSpan={6} className="bg-soft text-mute">
-                  On the road
+                  In transit
                 </Td>
               </tr>
             )}
             {road.map((row) => line(row, true))}
             <TotalRow>
-              <Td>Total</Td>
+              <Td>Total set up</Td>
               <Td />
               <Td align="right">{count(sum(all, (row) => row.quantity))}</Td>
               <Td />
@@ -309,13 +373,34 @@ function BySite({ rows }: { rows: InventoryValuationRow[] }) {
     return [...map.values()].sort((a, b) => b.value - a.value)
   }, [rows])
 
+  const phone = useLayout() === "phone"
   if (sites.length === 0) return <EmptyState>No stock to value.</EmptyState>
+  if (phone)
+    return (
+      <PhoneList
+        rows={sites.map((site) => ({
+          key: `${site.id}:${site.transit}`,
+          title: site.transit ? (
+            <>
+              {site.name}
+              <span className="ml-2 text-[0.875rem] font-normal text-mute">
+                in transit
+              </span>
+            </>
+          ) : (
+            <SiteName id={site.id} />
+          ),
+          lead: money(site.value),
+          foot: `${quantity(site.pieces)}`,
+        }))}
+      />
+    )
   return (
     <Grid>
       <thead>
         <tr>
           <Th>Site</Th>
-          <Th align="right">Pieces</Th>
+          <Th align="right">Pcs</Th>
           <Th align="right">Value</Th>
         </tr>
       </thead>
@@ -327,7 +412,7 @@ function BySite({ rows }: { rows: InventoryValuationRow[] }) {
                 <>
                   {site.name}
                   <span className="ml-2 text-[0.875rem] text-mute">
-                    on the road
+                    in transit
                   </span>
                 </>
               ) : (
@@ -339,7 +424,7 @@ function BySite({ rows }: { rows: InventoryValuationRow[] }) {
           </tr>
         ))}
         <TotalRow>
-          <Td>Total</Td>
+          <Td>Total set up</Td>
           <Td align="right">{count(sum(sites, (site) => site.pieces))}</Td>
           <Td align="right">{money(sum(sites, (site) => site.value))}</Td>
         </TotalRow>
@@ -349,6 +434,7 @@ function BySite({ rows }: { rows: InventoryValuationRow[] }) {
 }
 
 function Awaiting({ rows }: { rows: AwaitingSetupRow[] }) {
+  const phone = useLayout() === "phone"
   return (
     <>
       <p className="mb-3 text-[0.875rem] text-mute">
@@ -356,6 +442,27 @@ function Awaiting({ rows }: { rows: AwaitingSetupRow[] }) {
       </p>
       {rows.length === 0 ? (
         <EmptyState>Every receipt has been set up.</EmptyState>
+      ) : phone ? (
+        <PhoneList
+          rows={rows.map((row) => ({
+            key: row.receipt_number,
+            title: <SupplierName id={row.supplier_id} />,
+            code: row.receipt_number,
+            lead: (
+              <CardFigure
+                value={money(row.value_minor)}
+                caption={`${count(row.quantity)} pcs`}
+              />
+            ),
+            foot: (
+              <span>
+                {row.po_number ?? "No PO"}
+                {row.received_on === null ? "" : ` · ${day(row.received_on)}`}
+                {` · ${count(row.lines)} ${row.lines === 1 ? "line" : "lines"}`}
+              </span>
+            ),
+          }))}
+        />
       ) : (
         <Grid>
           <thead>
@@ -417,6 +524,7 @@ export function StockVsLedger() {
     queryFn: ({ signal }) => stockVsLedger(signal),
   })
   const rows = result.data ?? []
+  const phone = useLayout() === "phone"
   const stock = sum(rows, (row) => row.stock_minor)
   const ledger = sum(rows, (row) => row.ledger_minor)
   const difference = sum(rows, (row) => row.difference_minor)
@@ -424,9 +532,10 @@ export function StockVsLedger() {
   return (
     <PageContent>
       <PageHeader
+        className="max-md:hidden"
         crumb="Finance · Inventory"
         title="Stock vs Ledger"
-        sub="Each unit's stock at cost against its inventory account (1029), and goods on the road against 1031."
+        sub="Each unit's stock at cost against its inventory ledger, and goods in transit against the in-transit ledger."
       />
       {result.isPending ? (
         <LoadingState>Reading stock and ledger…</LoadingState>
@@ -439,16 +548,66 @@ export function StockVsLedger() {
         <EmptyState>No unit holds stock yet.</EmptyState>
       ) : (
         <>
-          <CardRow>
-            <NumberCard label="Stock value" value={stock} />
-            <NumberCard label="Ledger 1029" value={ledger} />
-            <NumberCard
-              label="Difference"
-              value={difference}
-              tone={difference === 0 ? "ok" : "bad"}
+          <PhoneFigures
+            items={[
+              { label: "Stock", value: stock },
+              { label: "Ledger", value: ledger },
+              {
+                label: "Difference",
+                value: difference,
+                tone: difference === 0 ? "ok" : "bad",
+              },
+            ]}
+          />
+          <div className="max-md:hidden">
+            <CardRow>
+              <NumberCard label="Stock" value={stock} />
+              <NumberCard label="Ledger" value={ledger} />
+              <NumberCard
+                label="Difference"
+                value={difference}
+                tone={difference === 0 ? "ok" : "bad"}
+              />
+            </CardRow>
+          </div>
+          {phone && (
+            <PhoneList
+              rows={rows.map((row) => ({
+                key: row.unit_id,
+                title: row.unit_name,
+                lead: (
+                  <CardFigure
+                    value={
+                      row.difference_minor === 0
+                        ? "—"
+                        : money(row.difference_minor)
+                    }
+                    caption="difference"
+                    tone={row.difference_minor === 0 ? undefined : "bad"}
+                  />
+                ),
+                alert:
+                  row.difference_minor !== 0 ||
+                  row.in_transit_difference_minor !== 0,
+                foot: (
+                  <span className="block tabular-nums">
+                    <span className="block">
+                      Stock {money(row.stock_minor)} · Ledger{" "}
+                      {money(row.ledger_minor)}
+                    </span>
+                    <span className="block">
+                      In transit {money(row.in_transit_stock_minor)} · Ledger{" "}
+                      {money(row.in_transit_ledger_minor)}
+                      {row.in_transit_difference_minor === 0
+                        ? ""
+                        : ` · off ${money(row.in_transit_difference_minor)}`}
+                    </span>
+                  </span>
+                ),
+              }))}
             />
-          </CardRow>
-          <div className="mt-5">
+          )}
+          <div className="mt-5 max-md:hidden">
             <Grid>
               <thead>
                 <tr>
@@ -456,10 +615,10 @@ export function StockVsLedger() {
                   <Th align="right">On hand</Th>
                   <Th align="right">Awaiting setup</Th>
                   <Th align="right">Stock</Th>
-                  <Th align="right">Ledger (1029)</Th>
+                  <Th align="right">Ledger</Th>
                   <Th align="right">Difference</Th>
-                  <Th align="right">In transit (stock)</Th>
-                  <Th align="right">In transit (1031)</Th>
+                  <Th align="right">In transit</Th>
+                  <Th align="right">In transit ledger</Th>
                   <Th align="right">Difference</Th>
                 </tr>
               </thead>
@@ -494,11 +653,18 @@ export function StockVsLedger() {
                   <Td align="right">
                     <Diff minor={difference} />
                   </Td>
+                  {/* Not added up: the unit that sent a box and the unit it is
+                      bound for both carry it until it is counted in, so a
+                      total across units would count every box twice. */}
                   <Td align="right">
-                    {money(sum(rows, (r) => r.in_transit_stock_minor))}
+                    <span title="Sender and receiver both carry a box until it is counted in, so units are not added">
+                      —
+                    </span>
                   </Td>
                   <Td align="right">
-                    {money(sum(rows, (r) => r.in_transit_ledger_minor))}
+                    <span title="Sender and receiver both carry a box until it is counted in, so units are not added">
+                      —
+                    </span>
                   </Td>
                   <Td align="right">
                     <Diff

@@ -4,9 +4,10 @@ import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { AppLink } from "@/components/ui/app-link"
 import { Card } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import {
   BarSpacer,
   ColumnsMenu,
@@ -19,13 +20,13 @@ import { PageHeader } from "@/components/ui/page-header"
 import { EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilterState, type FilterField } from "@/lib/filters"
-import { usePanelDock } from "@/lib/layout"
+import { useLayout, usePanelDock } from "@/lib/layout"
 import { count, label as humanise, moment } from "@/lib/format"
 import {
   fleetPools,
   inventoryKeys,
   movementScopeFromFilters,
-  movementsPage,
+  movementsLedgerQuery,
   MOVEMENTS_LIMIT,
   type Movement,
   type MovementScope,
@@ -220,14 +221,14 @@ const movementColumns = (
     accessorKey: "occurred_at",
     header: "Date",
     size: 116,
-    meta: { card: "meta" },
+    meta: { card: "hide" },
     cell: ({ row }) => moment(row.original.occurred_at),
   },
   {
     accessorKey: "cause",
     header: "Action",
     size: 156,
-    meta: { card: "status" },
+    meta: { card: "hide" },
     cell: ({ row }) => <Tag>{humanise(row.original.cause)}</Tag>,
   },
   {
@@ -238,7 +239,7 @@ const movementColumns = (
     // The server has no order for a route, and neither has this: alphabetising
     // place ids groups the shelves whose names happen to share a prefix.
     enableSorting: false,
-    meta: { card: "title" },
+    meta: { card: "hide" },
     /// One line and one arrow, at the owner's word (2026-09-13). It was two
     /// stacked lines of raw place id with an arrow on the second, which cost
     /// every row twice the height to say what a single arrow says: out of
@@ -267,7 +268,7 @@ const movementColumns = (
     header: "SKU",
     size: 104,
     enableSorting: false,
-    meta: { mono: true, card: "id" },
+    meta: { mono: true, card: "hide" },
     cell: ({ row }) =>
       row.original.sku_code ?? <span className="text-mute">—</span>,
   },
@@ -283,7 +284,7 @@ const movementColumns = (
     accessorKey: "quantity",
     header: "Quantity",
     size: 66,
-    meta: { align: "right", card: "metric" },
+    meta: { align: "right", card: "hide" },
     cell: ({ row }) => count(row.original.quantity),
   },
   {
@@ -291,10 +292,81 @@ const movementColumns = (
     header: "Posted by",
     size: 130,
     enableSorting: false,
-    meta: { priority: 2, card: "meta" },
+    meta: { priority: 2, card: "hide" },
     cell: ({ row }) => row.original.actor_id,
   },
+  // Four columns that exist only on a card (a phone), the same card as every
+  // list (owner, 2026-10-06): the action over its route, the quantity it
+  // leads with, when and by whom in the foot, and the SKU at the foot's end.
+  {
+    id: "head",
+    accessorFn: (row) => row.cause,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="text-[1rem] font-semibold break-words text-ink">
+          {humanise(row.original.cause)}
+        </span>
+        <span className="text-[0.875rem] font-normal break-words text-mute">
+          {`${placeText(readPlace(row.original.from, pools))} → ${placeText(readPlace(row.original.to, pools))}`}
+        </span>
+      </span>
+    ),
+  },
+  {
+    id: "lead",
+    accessorFn: (row) => row.quantity,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "lead" },
+    cell: ({ row }) => (
+      <span className="flex flex-col items-end tabular-nums">
+        <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
+          {count(row.original.quantity)}
+        </span>
+        <span className="text-[0.875rem] text-mute">
+          {row.original.quantity === 1 ? "pc" : "pcs"}
+        </span>
+      </span>
+    ),
+  },
+  {
+    id: "foot",
+    accessorFn: (row) => row.occurred_at,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => (
+      <span className="flex flex-col leading-6">
+        <span className="tabular-nums">{moment(row.original.occurred_at)}</span>
+        <span>{row.original.actor_id}</span>
+      </span>
+    ),
+  },
+  {
+    id: "sku",
+    accessorFn: (row) => row.sku_code ?? "",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { align: "right", card: "status" },
+    cell: ({ row }) => (
+      <span className="font-mono text-[0.875rem] text-mute">
+        {row.original.sku_code ?? "—"}
+      </span>
+    ),
+  },
 ]
+
+/// A place as one line of words, for a card: "DC · Warehouse".
+function placeText(place: Place): string {
+  return `${place.site !== null ? `${place.site} · ` : ""}${place.shelf}${place.state !== null ? ` ${place.state}` : ""}`
+}
 
 export function Movements() {
   /// What was typed, in the URL like every other narrowing in the app: a
@@ -303,6 +375,7 @@ export function Movements() {
   /// Whether the filter panel has room to stand beside the list. Below it the
   /// same model is a sheet behind a Filter button, and the panel unmounts.
   const docked = usePanelDock()
+  const phone = useLayout() === "phone"
   // Newest first, which is the order the ledger is read in and the one the
   // server returns before anybody asks.
   const [sorting, setSorting] = useState<SortingState>([
@@ -424,16 +497,9 @@ export function Movements() {
   /// you asked" have different fixes.
   const narrowed = needle !== "" || filters.filters.length > 0
 
-  const ledger = useInfiniteQuery({
-    queryKey: inventoryKeys.movements(scope),
-    queryFn: ({ pageParam, signal }) =>
-      movementsPage({ ...scope, cursor: pageParam }, signal),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-    // The previous answer stays on screen while the next is fetched. Without
-    // it every keystroke empties the table to a loading line.
-    placeholderData: (previous) => previous,
-  })
+  // The opening scope is `MOVEMENTS_OPENING_SCOPE` (`lib/queries/inventory.ts`),
+  // which the prefetcher asks for: keep the default sort above in step.
+  const ledger = useInfiniteQuery(movementsLedgerQuery(scope))
 
   const rows = useMemo(
     () => ledger.data?.pages.flatMap((page) => page.rows) ?? [],
@@ -467,13 +533,17 @@ export function Movements() {
         data: rows,
         columns,
         getRowId: (row: Movement) => row.movement_id,
-        state: { sorting },
+        state: {
+          sorting,
+          // The card's own columns are drawn on a phone and never on a desk.
+          columnVisibility: { head: phone, lead: phone, foot: phone, sku: phone },
+        },
         // The rows arrive in the order the request asked for. Sorting them
         // again here would sort the pages in hand and call it the ledger.
         manualSorting: true,
         onSortingChange: setSorting,
       }),
-      [rows, columns, sorting]
+      [rows, columns, sorting, phone]
     )
   )
 
@@ -493,7 +563,7 @@ export function Movements() {
           {/* One line the width of the table, carrying everything that acts on
               it: what narrows it at the left, what orders and shapes it at the
               right. The page header above keeps the title and nothing else. */}
-          <div className="group/bar mb-3 flex flex-wrap items-center gap-1.5">
+          <div className="group/bar mb-3 flex flex-wrap items-center gap-1.5 max-md:hidden">
             <ExpandingSearch
               value={search.value ?? ""}
               onChange={(next) => (next ? search.open(next) : search.close())}
@@ -520,7 +590,22 @@ export function Movements() {
             <span aria-hidden className="mx-1 h-5 w-px bg-hairline" />
           </div>
 
-          <Card className="overflow-hidden">
+          {/* A phone's search, filter and order are the dock's, as on every
+              list (owner, 2026-10-06). */}
+          <DockTools
+            search={{
+              value: search.value ?? "",
+              onChange: (next) => (next ? search.open(next) : search.close()),
+              label: "Search Movements",
+            }}
+            filter={{
+              count: filters.filters.length,
+              panel: { model: { ...filters, fields: counted } },
+            }}
+            sort={dockSortOf(table)}
+          />
+
+          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
             {queryState(ledger, {
               loading: "Reading the ledger…",
               render: () =>
@@ -532,6 +617,7 @@ export function Movements() {
                   </EmptyState>
                 ) : (
                   <DataTable<Movement>
+                    refresh={[ledger]}
                     table={table}
                     /// Always, rather than above the usual 150 rows.
                     ///
@@ -547,7 +633,11 @@ export function Movements() {
                     /// rows, another.
                     virtualizeAbove={0}
                     more={ledger}
-                    className="max-h-[calc(100dvh-14rem)]"
+                    className="max-h-[calc(100dvh-14rem)] max-md:max-h-none"
+                    pageScroll={phone}
+                    cardsApart
+                    cardLead
+                    cardSort={false}
                   />
                 ),
             })}

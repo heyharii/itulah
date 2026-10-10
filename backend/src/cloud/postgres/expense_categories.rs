@@ -69,9 +69,11 @@ fn to_category(row: &sqlx::postgres::PgRow) -> Result<ExpenseCategory, AppError>
 }
 
 pub async fn expense_categories(pool: &PgPool) -> Result<Vec<ExpenseCategory>, AppError> {
-    let rows = sqlx::query(&format!("{CATEGORY_ROWS} ORDER BY c.is_active DESC, c.name"))
-        .fetch_all(pool)
-        .await?;
+    let rows = sqlx::query(&format!(
+        "{CATEGORY_ROWS} ORDER BY c.is_active DESC, c.name"
+    ))
+    .fetch_all(pool)
+    .await?;
     rows.iter().map(to_category).collect()
 }
 
@@ -86,7 +88,9 @@ pub async fn save_expense_category(
     let code = request.code.trim();
     let name = request.name.trim();
     if code.is_empty() || name.is_empty() {
-        return Err(AppError::Validation("an expense category has a code and a name".into()));
+        return Err(AppError::Validation(
+            "an expense category has a code and a name".into(),
+        ));
     }
     sqlx::query(
         "INSERT INTO expense_category (code, name, for_stores, for_claims, is_active, note, created_by)

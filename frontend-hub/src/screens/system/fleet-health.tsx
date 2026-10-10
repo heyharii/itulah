@@ -24,7 +24,7 @@ import {
 } from "@/screens/system/fleet-shared"
 
 /// System › Store servers › Health — the owner's UptimeRobot-style status
-/// page: one banner, one row per store (plus the gudang and head office),
+/// page: one banner, one row per store (plus the warehouse and head office),
 /// each expanding into its own parts.
 ///
 /// The banner and every row's colour are the server's `state`/`colour`

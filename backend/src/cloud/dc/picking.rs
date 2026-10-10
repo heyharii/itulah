@@ -43,7 +43,7 @@
 use crate::cloud::dc::common;
 use crate::cloud::http::auth::Principal;
 use crate::cloud::{application::ExecuteAllotmentRequest, AppError, AppState};
-use crate::edge::contracts::{CreatePicklistRequest, PickLine, PicklistRefusal, PicklistResult};
+use crate::edge::contracts::{CreatePicklistRequest, PicklistRefusal, PicklistResult};
 use crate::edge::outbound::{
     AllotmentPick, ListFilter, PickSessionSummary, PickedLine, PicklistLine, PicklistSummary,
     Session,
@@ -57,7 +57,7 @@ use axum::{
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde_json::{json, Value};
 use sqlx::{postgres::PgRow, PgPool, Row};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use uuid::Uuid;
 
 pub fn routes(router: Router<AppState>) -> Router<AppState> {
@@ -196,9 +196,7 @@ fn session_from(row: &PgRow) -> Session {
         session_id: row.get::<Uuid, _>("session_id").to_string(),
         actor_id: row.get("picker_id"),
         started_at: stamp(row.get("started_at")),
-        closed_at: row
-            .get::<Option<DateTime<Utc>>, _>("closed_at")
-            .map(stamp),
+        closed_at: row.get::<Option<DateTime<Utc>>, _>("closed_at").map(stamp),
         status: row.get("status"),
     }
 }
@@ -361,15 +359,15 @@ async fn refusals(db: &PgPool, session_id: Uuid) -> Result<Vec<PicklistRefusal>,
 /// Raise a picklist: a round opened, walked and closed in one act, as the DC
 /// server does it (`create_picklist`).
 ///
-/// In three steps, each its own transaction, so a delivery that dies part-way
-/// is finished by its retry rather than walked twice:
+/// In three steps, so a delivery that dies part-way is finished by its retry
+/// rather than walked twice:
 ///
 /// 1. The round is claimed under the request's idempotency key.
-/// 2. Each SKU is planned once: which allotment lines it is picked for and
-///    how much each, held to what each line still owes and to what the rack
-///    holds. A SKU nothing can be picked for is written down as refused — a
-///    fact about the racks, not a failed request: the other lines are still
-///    worth fetching.
+/// 2. Every SKU of the round is planned in one pass, in one transaction of
+///    its own: what each is owed, what the racks hold and the lines' shares
+///    are read and written once, not once per SKU. A SKU nothing can be
+///    picked for is written down as refused — a fact about the racks, not
+///    a failed request: the other lines are still worth fetching.
 /// 3. Each planned line is executed under its own stored key and quantity,
 ///    so a retry replays the execution instead of making a second one.
 ///
@@ -400,9 +398,7 @@ async fn create_picklist(
     .fetch_one(&mut *hold)
     .await?;
     if status == "OPEN" {
-        for line in &request.lines {
-            plan(&state, &site, session_id, &request, allotment_id, line).await?;
-        }
+        plan_round(&state, &site, session_id, &request, allotment_id).await?;
         execute_planned(&state, &site, session_id, &request.actor_id).await?;
         sqlx::query(
             "UPDATE dc_pick_session SET status = 'CLOSED', closed_at = $2
@@ -417,7 +413,10 @@ async fn create_picklist(
 
     let summary = session_summary(&state.db, session_id).await?;
     let refused = refusals(&state.db, session_id).await?;
-    Ok((StatusCode::CREATED, Json(PicklistResult { summary, refused })))
+    Ok((
+        StatusCode::CREATED,
+        Json(PicklistResult { summary, refused }),
+    ))
 }
 
 /// The DC server's checks on a picklist, in its words. Returns the allotment
@@ -544,131 +543,211 @@ async fn claim_round(
     Ok(row.get("session_id"))
 }
 
-/// Plan one SKU of the round, once: split it over the allotment lines it is
-/// owed on, oldest allotment first, and hold each share to what the line
-/// still owes and to what is on its rack. More than is owed is a short pick
-/// of what is owed, never a trolley of goods going nowhere.
-async fn plan(
+/// Plan every SKU of the round in one pass, in one transaction of the
+/// round's own: split each over the allotment lines it is owed on, oldest
+/// allotment first, and hold each share to what the line still owes and to
+/// what is on its rack. More than is owed is a short pick of what is owed,
+/// never a trolley of goods going nowhere.
+///
+/// Where `plan` used to run once per SKU — each run its own transaction, its
+/// own read of what is owed, its own rack sums and its own line inserts —
+/// this reads what the whole round is owed once, the racks once in one
+/// grouped read, and writes every line (planned share or refusal) in one
+/// statement, all of it committed before the execution reads it. A SKU an
+/// earlier delivery of this round already planned is skipped, so the retry
+/// carries on from here.
+async fn plan_round(
     state: &AppState,
     site: &str,
     session_id: Uuid,
     request: &CreatePicklistRequest,
     allotment_id: Option<Uuid>,
-    line: &PickLine,
 ) -> Result<(), AppError> {
     let mut tx = state.db.begin().await?;
-    let planned: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM dc_pick_line WHERE pick_session_id = $1 AND sku_code = $2)",
-    )
-    .bind(session_id)
-    .bind(&line.sku_code)
-    .fetch_one(&mut *tx)
-    .await?;
-    if planned {
-        // An earlier delivery of this round got this far.
-        tx.commit().await?;
+    // The SKUs an earlier delivery of this round already got this far on.
+    let planned: BTreeSet<String> =
+        sqlx::query("SELECT DISTINCT sku_code FROM dc_pick_line WHERE pick_session_id = $1")
+            .bind(session_id)
+            .fetch_all(&mut *tx)
+            .await?
+            .iter()
+            .map(|row| row.get("sku_code"))
+            .collect();
+    let skus: Vec<String> = request
+        .lines
+        .iter()
+        .filter(|line| !planned.contains(&line.sku_code))
+        .map(|line| line.sku_code.clone())
+        .collect();
+    if skus.is_empty() {
         return Ok(());
     }
     let now = state.clock.now();
+    // What every SKU of the round is owed, in one read in plan order.
     let owed = sqlx::query(&format!(
-        "SELECT owed.allotment_line_id, owed.allotment_id, owed.source_pool_id, owed.sku_id,
-                owed.to_pick
+        "SELECT owed.sku_code, owed.allotment_line_id, owed.allotment_id,
+                owed.source_pool_id, owed.sku_id, owed.to_pick
            FROM ({OPEN_PICK_LINES}) owed
-          WHERE owed.sku_code = $2 AND owed.to_pick > 0
+          WHERE owed.to_pick > 0
+            AND owed.sku_code = ANY($2)
             AND ($3::text IS NULL OR owed.destination_id = $3)
             AND ($4::uuid IS NULL OR owed.allotment_id = $4)
-          ORDER BY owed.created_at, owed.allotment_id, owed.allotment_line_id"
+          ORDER BY owed.sku_code, owed.created_at, owed.allotment_id,
+                   owed.allotment_line_id"
     ))
     .bind(site)
-    .bind(&line.sku_code)
+    .bind(&skus)
     .bind(&request.destination_id)
     .bind(allotment_id)
     .fetch_all(&mut *tx)
     .await?;
-
-    let mut left = line.quantity;
-    let mut on_rack: BTreeMap<String, i64> = BTreeMap::new();
-    let mut first_rack: Option<String> = None;
-    for row in &owed {
-        if left == 0 {
-            break;
-        }
+    let mut owed_by_sku: BTreeMap<String, Vec<PgRow>> = BTreeMap::new();
+    let mut racks_needed: BTreeSet<(String, Uuid)> = BTreeSet::new();
+    for row in owed {
         let source_pool: String = row.get("source_pool_id");
-        first_rack.get_or_insert_with(|| source_pool.clone());
         let sku_id: Uuid = row.get("sku_id");
-        let available = match on_rack.get(&source_pool) {
-            Some(available) => *available,
-            None => {
-                let available: i64 = sqlx::query_scalar(
-                    "SELECT COALESCE(SUM(projection.quantity), 0)::bigint
-                       FROM inventory_projection projection
-                       JOIN inventory_subject subject ON subject.id = projection.subject_id
-                      WHERE projection.place_id = $1 AND subject.sku_id = $2",
-                )
-                .bind(format!("{source_pool}:on_hand"))
-                .bind(sku_id)
-                .fetch_one(&mut *tx)
-                .await?;
-                available
-            }
-        };
-        let to_pick: i64 = row.get("to_pick");
-        let take = left.min(to_pick).min(available).max(0);
-        on_rack.insert(source_pool, available - take);
-        if take == 0 {
+        racks_needed.insert((format!("{source_pool}:on_hand"), sku_id));
+        owed_by_sku
+            .entry(row.get::<String, _>("sku_code"))
+            .or_default()
+            .push(row);
+    }
+
+    // What is on those racks, one grouped read for the round instead of one
+    // sum per owed line. A rack nothing stands on has no row here; it holds
+    // nothing.
+    let (places, rack_skus): (Vec<String>, Vec<Uuid>) = racks_needed.into_iter().unzip();
+    let mut on_rack: BTreeMap<(String, Uuid), i64> = if places.is_empty() {
+        BTreeMap::new()
+    } else {
+        sqlx::query(
+            "SELECT pool.place_id, pool.sku_id,
+                    COALESCE(SUM(projection.quantity), 0)::bigint AS quantity
+               FROM unnest($1::text[], $2::uuid[]) WITH ORDINALITY
+                    AS pool(place_id, sku_id, ord)
+               JOIN inventory_projection projection ON projection.place_id = pool.place_id
+               JOIN inventory_subject subject
+                 ON subject.id = projection.subject_id AND subject.sku_id = pool.sku_id
+              GROUP BY pool.place_id, pool.sku_id",
+        )
+        .bind(&places)
+        .bind(&rack_skus)
+        .fetch_all(&mut *tx)
+        .await?
+        .iter()
+        .map(|row| {
+            (
+                (
+                    row.get::<String, _>("place_id"),
+                    row.get::<Uuid, _>("sku_id"),
+                ),
+                row.get::<i64, _>("quantity"),
+            )
+        })
+        .collect()
+    };
+
+    // The walk itself, in Rust where plan's was: each SKU over its owed
+    // lines, taking the smaller of what is left to fetch, what the line is
+    // still owed and what its rack holds.
+    let mut ids: Vec<Uuid> = Vec::new();
+    let mut sku_codes: Vec<String> = Vec::new();
+    let mut allotment_ids: Vec<Option<Uuid>> = Vec::new();
+    let mut line_ids: Vec<Option<Uuid>> = Vec::new();
+    let mut quantities: Vec<i64> = Vec::new();
+    let mut statuses: Vec<String> = Vec::new();
+    let mut execute_keys: Vec<Option<String>> = Vec::new();
+    let mut reasons: Vec<Option<String>> = Vec::new();
+    for line in &request.lines {
+        if planned.contains(&line.sku_code) {
             continue;
         }
-        let line_id: Uuid = row.get("allotment_line_id");
-        sqlx::query(
-            "INSERT INTO dc_pick_line
-                 (id, pick_session_id, sku_code, allotment_id, allotment_line_id, quantity,
-                  status, execute_key, planned_at)
-             VALUES ($1, $2, $3, $4, $5, $6, 'PLANNED', $7, $8)",
-        )
-        .bind(Uuid::new_v4())
-        .bind(session_id)
-        .bind(&line.sku_code)
-        .bind(row.get::<Uuid, _>("allotment_id"))
-        .bind(line_id)
-        .bind(take)
-        .bind(format!("dc-pick:{session_id}:{line_id}"))
-        .bind(now)
-        .execute(&mut *tx)
-        .await?;
-        left -= take;
-    }
+        let owed = owed_by_sku.get(&line.sku_code);
+        let mut left = line.quantity;
+        let mut first_rack: Option<String> = None;
+        for row in owed.into_iter().flatten() {
+            if left == 0 {
+                break;
+            }
+            let source_pool: String = row.get("source_pool_id");
+            first_rack.get_or_insert_with(|| source_pool.clone());
+            let sku_id: Uuid = row.get("sku_id");
+            let rack = (format!("{source_pool}:on_hand"), sku_id);
+            let available = on_rack.get(&rack).copied().unwrap_or(0);
+            let to_pick: i64 = row.get("to_pick");
+            let take = left.min(to_pick).min(available).max(0);
+            *on_rack.entry(rack).or_insert(0) -= take;
+            if take == 0 {
+                continue;
+            }
+            let line_id: Uuid = row.get("allotment_line_id");
+            ids.push(Uuid::new_v4());
+            sku_codes.push(line.sku_code.clone());
+            allotment_ids.push(Some(row.get::<Uuid, _>("allotment_id")));
+            line_ids.push(Some(line_id));
+            quantities.push(take);
+            statuses.push("PLANNED".to_owned());
+            execute_keys.push(Some(format!("dc-pick:{session_id}:{line_id}")));
+            reasons.push(None);
+            left -= take;
+        }
 
-    if left == line.quantity {
-        let reason = match (owed.is_empty(), request.destination_id.as_deref()) {
-            (false, _) => format!(
-                "no {} is on the racks at {}",
-                line.sku_code,
-                first_rack.as_deref().unwrap_or(site)
-            ),
-            (true, Some(shop)) if allotment_id.is_some() => format!(
-                "this allotment owes {shop} no more {} to pick",
-                line.sku_code
-            ),
-            (true, Some(shop)) => format!("{shop} is not owed any {}", line.sku_code),
-            (true, None) => format!(
-                "no open allotment needs {}: pick only what head office allotted",
-                line.sku_code
-            ),
-        };
-        sqlx::query(
-            "INSERT INTO dc_pick_line
-                 (id, pick_session_id, sku_code, quantity, status, reason, planned_at)
-             VALUES ($1, $2, $3, $4, 'REFUSED', $5, $6)",
-        )
-        .bind(Uuid::new_v4())
-        .bind(session_id)
-        .bind(&line.sku_code)
-        .bind(line.quantity)
-        .bind(reason)
-        .bind(now)
-        .execute(&mut *tx)
-        .await?;
+        if left == line.quantity {
+            let reason = match (owed.is_none(), request.destination_id.as_deref()) {
+                (false, _) => format!(
+                    "no {} is on the racks at {}",
+                    line.sku_code,
+                    first_rack.as_deref().unwrap_or(site)
+                ),
+                (true, Some(shop)) if allotment_id.is_some() => format!(
+                    "this allotment owes {shop} no more {} to pick",
+                    line.sku_code
+                ),
+                (true, Some(shop)) => format!("{shop} is not owed any {}", line.sku_code),
+                (true, None) => format!(
+                    "no open allotment needs {}: pick only what head office allotted",
+                    line.sku_code
+                ),
+            };
+            ids.push(Uuid::new_v4());
+            sku_codes.push(line.sku_code.clone());
+            allotment_ids.push(None);
+            line_ids.push(None);
+            quantities.push(line.quantity);
+            statuses.push("REFUSED".to_owned());
+            execute_keys.push(None);
+            reasons.push(Some(reason));
+        }
     }
+    if ids.is_empty() {
+        return Ok(());
+    }
+    // Every line of the round — planned share or refusal — in one statement,
+    // the ids minted here so the write needs no round trip per line.
+    sqlx::query(
+        "INSERT INTO dc_pick_line
+             (id, pick_session_id, sku_code, allotment_id, allotment_line_id, quantity,
+              status, execute_key, reason, planned_at)
+         SELECT line.id, $1, line.sku_code, line.allotment_id, line.allotment_line_id,
+                line.quantity, line.status, line.execute_key, line.reason, $2
+           FROM unnest($3::uuid[], $4::text[], $5::uuid[], $6::uuid[], $7::bigint[],
+                       $8::text[], $9::text[], $10::text[])
+                WITH ORDINALITY AS line(id, sku_code, allotment_id, allotment_line_id,
+                                        quantity, status, execute_key, reason, ord)
+          ORDER BY line.ord",
+    )
+    .bind(session_id)
+    .bind(now)
+    .bind(&ids)
+    .bind(&sku_codes)
+    .bind(&allotment_ids)
+    .bind(&line_ids)
+    .bind(&quantities)
+    .bind(&statuses)
+    .bind(&execute_keys)
+    .bind(&reasons)
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     Ok(())
 }

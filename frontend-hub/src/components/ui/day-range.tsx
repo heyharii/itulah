@@ -5,6 +5,7 @@ import { useRef, useState } from "react"
 import { dateOf, monthGrid, today, WEEKDAYS } from "@/lib/calendar"
 import { readRange, untilText } from "@/lib/day-parse"
 import { POPUP } from "@/lib/filter-chrome"
+import { day, dayMonth, monthYear, weekday } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 /// A window of days in one box: "01 Oct – 15 Oct".
@@ -45,11 +46,7 @@ function lengthOf(window: DayWindow): number {
 }
 
 function short(iso: string, withYear: boolean): string {
-  return dateOf(iso).toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    ...(withYear ? { year: "numeric" } : {}),
-  })
+  return withYear ? day(iso) : dayMonth(iso)
 }
 
 /// The box's words: both ends, one end, or nothing. The year is left off while
@@ -70,12 +67,7 @@ function said(value: DayWindow): string {
 }
 
 function longDay(iso: string): string {
-  return dateOf(iso).toLocaleDateString("en-GB", {
-    weekday: "short",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  })
+  return weekday(iso, true)
 }
 
 export function DayRange({
@@ -268,10 +260,7 @@ export function DayRange({
                 <ChevronLeft className="size-4" />
               </button>
               <span className="text-[0.875rem] font-medium text-ink">
-                {month.toLocaleDateString("en-GB", {
-                  month: "long",
-                  year: "numeric",
-                })}
+                {monthYear(month, true)}
               </span>
               <button
                 type="button"

@@ -117,6 +117,12 @@ export interface LineSeed {
   readonly tags: readonly string[]
   readonly colours: readonly string[]
   readonly sizes: readonly string[]
+  /// What a catalogue item is offered in — the pool its colours and sizes are
+  /// picked from on the order. Absent for a new item, which may use any.
+  readonly offered?: {
+    readonly colours: readonly string[]
+    readonly sizes: readonly string[]
+  }
   readonly quantity: string
   readonly unit: string
   /// Per `unit`, as agreed; per piece when `unit` is the stock unit.
@@ -346,6 +352,32 @@ export function ItemFormSheet({
   )
   const hexOf = (code: string) =>
     colourTerms.find((one) => one.code === code)?.hex_code ?? null
+  /// A catalogue item on an order is split by what it is offered in, never by
+  /// anything else; a new item by the whole master.
+  const offeredColours = line?.offered?.colours ?? []
+  const offeredSizes = line?.offered?.sizes ?? []
+  const fixedPool = line !== undefined && !line.draftItem
+  const pickableColours = useMemo<Choice[]>(
+    () =>
+      fixedPool
+        ? offeredColours.map((code) => ({
+            value: code,
+            label:
+              colourMaster.data?.colours.find((one) => one.code === code)
+                ?.label ?? code,
+          }))
+        : colourChoices,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [fixedPool, line?.offered, colourMaster.data, colourChoices]
+  )
+  const pickableSizes = useMemo<Choice[]>(
+    () =>
+      fixedPool
+        ? sizeChoices.filter((one) => offeredSizes.includes(one.value))
+        : sizeChoices,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [fixedPool, line?.offered, sizeChoices]
+  )
   // The placeholder wears the first colour picked, and repaints as it changes.
   const fill = useColourwayFill()
 
@@ -605,6 +637,12 @@ export function ItemFormSheet({
   const price = Number.parseInt(draft.price, 10)
   /// Opened from an order: the item goes straight onto it, with a quantity.
   const ordering = (onDraft !== undefined || line !== undefined) && !editing
+  /// Whether this item can be split by colour and size at all.
+  const canSplit =
+    !identityFixed ||
+    !ordering ||
+    offeredColours.length > 0 ||
+    offeredSizes.length > 0
   const unitBook = useUnits()
   /// Units this item can be ordered in: the base and every active global
   /// conversion — the per-item pack size is gone (owner, 2026-09-28), so
@@ -644,9 +682,7 @@ export function ItemFormSheet({
   /// as a whole unless it already was by SKU: its colours are the supplier's
   /// and only shown here.
   const skuRows = variantRows(draft.colours, draft.sizes, draft.variants)
-  const byVariant =
-    skuRows.length > 0 &&
-    (line === undefined || line.draftItem || line.variants.length > 0)
+  const byVariant = skuRows.length > 0
   const factor = factorOf(draft.orderUnit)
   /// A new unit keeps a line's price per piece, unless it was typed here.
   const changeUnit = (orderUnit: string) => {
@@ -1185,47 +1221,53 @@ export function ItemFormSheet({
 
           {/* What it COMES IN. Both optional and both may stay empty: an item
               nobody has broken down into variants is most of a scraped feed, and
-              it is better shown as nothing than guessed at. Not asked on an order. */}
-          {!ordering && (
+              it is better shown as nothing than guessed at. On an order they
+              are what the quantity is split by; a catalogue item offers only
+              its own. */}
+          {canSplit && (
             <div className="grid gap-4 md:grid-cols-2">
-              <Field label="Colors">
-                <PickMany
-                  label="Colors"
-                  choices={colourChoices}
-                  loading={
-                    colourMaster.isPending ? "Loading colours…" : undefined
-                  }
-                  values={draft.colours}
-                  disabled={identityFixed}
-                  onChange={(colours) => set({ colours })}
-                  leading={(code) => <ColourSwatch hex={hexOf(code)} />}
-                />
-              </Field>
-              <Field label="Sizes">
-                <PickMany
-                  label="Sizes"
-                  choices={sizeChoices}
-                  loading={vocabulary.isPending ? "Loading sizes…" : undefined}
-                  values={draft.sizes}
-                  disabled={identityFixed}
-                  onChange={(sizes) => set({ sizes })}
-                />
-              </Field>
+              {(!identityFixed || !ordering || offeredColours.length > 0) && (
+                <Field label="Colors">
+                  <PickMany
+                    label="Colors"
+                    choices={pickableColours}
+                    loading={
+                      colourMaster.isPending ? "Loading colours…" : undefined
+                    }
+                    values={draft.colours}
+                    disabled={identityFixed && !ordering}
+                    onChange={(colours) => set({ colours })}
+                    leading={(code) => <ColourSwatch hex={hexOf(code)} />}
+                  />
+                </Field>
+              )}
+              {(!identityFixed || !ordering || offeredSizes.length > 0) && (
+                <Field label="Sizes">
+                  <PickMany
+                    label="Sizes"
+                    choices={pickableSizes}
+                    loading={vocabulary.isPending ? "Loading sizes…" : undefined}
+                    values={draft.sizes}
+                    disabled={identityFixed && !ordering}
+                    onChange={(sizes) => set({ sizes })}
+                  />
+                </Field>
+              )}
             </div>
           )}
 
-          {/* What it costs and what it will sell for — the markup and the base
-            price move together, so they cannot disagree. */}
+          {/* What it costs — and, in the catalogue, what it will sell for: the
+            markup and the base price move together, so they cannot disagree. */}
           {!(ordering && !byVariant) && (
             <Section title="Price" rule={false}>
               {ordering ? (
                 // On an order the item is bought, not priced for sale: one price,
                 // what the supplier charges (the owner, 2026-10-01). Markup and the
-                // selling price are the catalogue's to set.
-                <div className="grid gap-4 md:grid-cols-[12rem_1fr]">
-                  <Field label="Price" required aside="per pc">
+                // selling price are New Articles'.
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Field label="Purchase Price" required aside="per pc">
                     <Money
-                      label="Price"
+                      label="Purchase Price"
                       prefix="Rp"
                       value={draft.price}
                       onChange={(price) => {
@@ -1254,6 +1296,7 @@ export function ItemFormSheet({
                   sellingProblem={gaps.selling}
                 />
               )}
+
               {say(gaps.price) !== null && (
                 <span data-problem className="text-[0.875rem] text-bad">
                   {gaps.price}
@@ -1267,24 +1310,26 @@ export function ItemFormSheet({
             a quantity and a price per SKU. */}
           {ordering && (
             <div className="flex flex-col gap-3.5 pt-3">
-              {byVariant && (
-                <h4 className="text-card-title font-semibold text-ink">
-                  Order
-                </h4>
-              )}
               {byVariant ? (
-                <VariantGrid
-                  variants={skuRows}
-                  onChange={(variants) => set({ variants })}
-                  colourLabel={(code) =>
-                    colourTerms.find((one) => one.code === code)?.label ?? code
-                  }
-                  basePrice={draft.basePrice}
-                  fallbackPrice={draft.price}
-                  sizeLabel={(code) =>
-                    sizeChoices.find((one) => one.value === code)?.label ?? code
-                  }
-                />
+                <>
+                  <VariantGrid
+                    variants={skuRows}
+                    onChange={(variants) => set({ variants })}
+                    colourLabel={(code) =>
+                      colourTerms.find((one) => one.code === code)?.label ??
+                      code
+                    }
+                    priced={false}
+                    photos
+                    articleName={draft.name}
+                    basePrice={draft.basePrice}
+                    fallbackPrice={draft.price}
+                    sizeLabel={(code) =>
+                      sizeChoices.find((one) => one.value === code)?.label ??
+                      code
+                    }
+                  />
+                </>
               ) : (
                 <div className="flex flex-col gap-2.5">
                   <div className="grid gap-4 md:grid-cols-2">

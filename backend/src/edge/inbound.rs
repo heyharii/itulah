@@ -165,7 +165,10 @@ pub struct StoreInboundCountLine {
 
 /// `?status=IN_TRANSIT|RECEIVED|ALL` → the status to filter on, `None` = all.
 pub fn parse_status_filter(value: Option<&str>) -> Result<Option<&'static str>, EdgeError> {
-    match value.map(|value| value.trim().to_ascii_uppercase()).as_deref() {
+    match value
+        .map(|value| value.trim().to_ascii_uppercase())
+        .as_deref()
+    {
         None | Some("") | Some("ALL") => Ok(None),
         Some(STATUS_IN_TRANSIT) => Ok(Some(STATUS_IN_TRANSIT)),
         Some(STATUS_RECEIVED) => Ok(Some(STATUS_RECEIVED)),
@@ -183,7 +186,10 @@ pub fn delivery_id_for(
     shipment_reference: Option<&str>,
     koli_id: Uuid,
 ) -> String {
-    let key = match shipment_reference.map(str::trim).filter(|value| !value.is_empty()) {
+    let key = match shipment_reference
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         Some(reference) => format!("{}\nSJ\n{reference}", source_site_id.trim()),
         None => format!("{}\nKOLI\n{koli_id}", source_site_id.trim()),
     };
@@ -508,7 +514,8 @@ pub fn list(connection: &Connection, status: Option<&str>) -> Result<StoreInboun
 /// One delivery. Lines only once RECEIVED; while IN_TRANSIT the answer is the
 /// header alone, with `lines` empty.
 pub fn detail(connection: &Connection, delivery_id: &str) -> Result<StoreInboundDetail, EdgeError> {
-    let sql = format!("SELECT {DELIVERY_COLUMNS} FROM store_inbound_delivery d WHERE d.delivery_id=?1");
+    let sql =
+        format!("SELECT {DELIVERY_COLUMNS} FROM store_inbound_delivery d WHERE d.delivery_id=?1");
     let row = connection
         .query_row(&sql, [delivery_id], delivery_row)
         .optional()

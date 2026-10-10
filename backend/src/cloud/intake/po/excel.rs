@@ -20,10 +20,10 @@ use std::io::Cursor;
 use calamine::Reader;
 
 use super::draft::{new_draft_id, new_line_id, PoImportDraft, PoImportDraftLine};
-use crate::cloud::domain::uom::split_quantity;
 use super::loose::{
     normalise_name, parse_amount_loose, parse_date_loose, parse_quantity_loose, string_or_null,
 };
+use crate::cloud::domain::uom::split_quantity;
 
 const ALIASES: &[(&str, &[&str])] = &[
     (
@@ -278,8 +278,10 @@ fn grid_to_draft(grid: &[Vec<Option<String>>], sheet_name: &str) -> Option<PoImp
                     .or_else(|| split.and_then(|(_, word)| word));
                 PoImportDraftLine {
                     line_id: new_line_id(),
-                    article_code: cell_at(&map, row, "article_code").and_then(|c| string_or_null(c)),
-                    article_name: cell_at(&map, row, "article_name").and_then(|c| string_or_null(c)),
+                    article_code: cell_at(&map, row, "article_code")
+                        .and_then(|c| string_or_null(c)),
+                    article_name: cell_at(&map, row, "article_name")
+                        .and_then(|c| string_or_null(c)),
                     quantity,
                     unit,
                     unit_code: None,

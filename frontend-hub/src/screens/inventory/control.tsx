@@ -6,10 +6,11 @@ import { FlaskConical } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Field, Input } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
@@ -20,6 +21,7 @@ import { Banner, EmptyState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { useFilters } from "@/lib/filters"
 import { count, moment } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   controlStatus,
   corruptProjection,
@@ -36,6 +38,7 @@ import { queryState } from "@/lib/query-state"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { Choice } from "@/screens/inventory/parts"
 import { useActor } from "@/screens/inventory/shared"
+import { CardFigure, CardName } from "@/components/ui/phone-cards"
 import {
   DisplayUnitPicker,
   useDisplayUnit,
@@ -81,7 +84,7 @@ function rowDifferences(
       /// :missing" and "starts with store-07" are the two questions somebody
       /// debugging a divergence actually asks, and a facet of every place in
       /// a broken fleet is a list as long as the table.
-      meta: { filter: { kind: "text" } },
+      meta: { card: "hide", filter: { kind: "text" } },
       cell: ({ row }) => (
         <AppLink
           to="/inventory/pools"
@@ -101,6 +104,7 @@ function rowDifferences(
       size: 300,
       // A subject is a uuid carried here from somewhere else. Nobody narrows
       // a list by one; they paste it into the time machine.
+      meta: { card: "hide" },
       cell: ({ row }) => (
         <span className="font-mono text-id text-mute">
           {row.original.subject_id}
@@ -111,14 +115,14 @@ function rowDifferences(
       accessorKey: "ledger_quantity",
       header: "Ledger",
       size: 110,
-      meta: { align: "right" },
+      meta: { align: "right", card: "hide" },
       cell: ({ row }) => display.format(row.original.ledger_quantity),
     },
     {
       accessorKey: "projection_quantity",
       header: "Projection",
       size: 120,
-      meta: { align: "right" },
+      meta: { align: "right", card: "hide" },
       cell: ({ row }) => display.format(row.original.projection_quantity),
     },
     {
@@ -131,11 +135,135 @@ function rowDifferences(
       /// day — filtering stays in pieces regardless of what the column prints.
       meta: {
         align: "right",
+        card: "hide",
         filter: { kind: "number", unit: "pcs" },
       },
       cell: ({ row }) => (
         <span className="font-medium text-bad-fg">
           {signedInUnit(row.original.difference, display)}
+        </span>
+      ),
+    },
+  ]
+}
+
+/// The card a phone draws for a row that disagrees, as columns of their own
+/// that exist there only (`cardLead`): the place over its subject, how far the
+/// projection has drifted, and what each side holds.
+function rowCards(
+  display: DisplayUnit
+): ColumnDef<TableSetup, ProjectionDifference>[] {
+  return [
+    {
+      id: "head",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "title" },
+      accessorFn: (row) => row.place_id,
+      cell: ({ row }) => (
+        <CardName
+          name={
+            <AppLink
+              to="/inventory/pools"
+              sheet={{
+                key: "pool",
+                value: row.original.place_id.replace(/:.*$/, ""),
+              }}
+              className="font-mono text-[0.9375rem] break-all hover:underline"
+            >
+              {row.original.place_id}
+            </AppLink>
+          }
+          line={
+            <span className="font-mono break-all">
+              {row.original.subject_id}
+            </span>
+          }
+        />
+      ),
+    },
+    {
+      id: "lead",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "lead" },
+      accessorFn: (row) => row.difference,
+      cell: ({ row }) => (
+        <CardFigure
+          value={signedInUnit(row.original.difference, display)}
+          caption="difference"
+          tone="bad"
+        />
+      ),
+    },
+    {
+      id: "foot",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "foot" },
+      accessorFn: (row) => row.ledger_quantity,
+      cell: ({ row }) => (
+        <span className="tabular-nums">
+          Ledger {display.format(row.original.ledger_quantity)} · Projection{" "}
+          {display.format(row.original.projection_quantity)}
+        </span>
+      ),
+    },
+  ]
+}
+
+/// The same card for a stage rollup that disagrees with the leaves under it.
+function stageCards(
+  display: DisplayUnit
+): ColumnDef<TableSetup, RollupDifference>[] {
+  return [
+    {
+      id: "head",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "title" },
+      accessorFn: (row) => row.parent_pool_id,
+      cell: ({ row }) => (
+        <CardName
+          name={
+            <span className="font-mono text-[0.9375rem] break-all">
+              {row.original.parent_pool_id}
+            </span>
+          }
+          line={row.original.state}
+        />
+      ),
+    },
+    {
+      id: "lead",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "lead" },
+      accessorFn: (row) => row.difference,
+      cell: ({ row }) => (
+        <CardFigure
+          value={signedInUnit(row.original.difference, display)}
+          caption="difference"
+          tone="bad"
+        />
+      ),
+    },
+    {
+      id: "foot",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "foot" },
+      accessorFn: (row) => row.ledger_quantity,
+      cell: ({ row }) => (
+        <span className="tabular-nums">
+          Ledger {display.format(row.original.ledger_quantity)} · Projection{" "}
+          {display.format(row.original.projection_quantity)}
         </span>
       ),
     },
@@ -150,7 +278,7 @@ function stageDifferences(
       accessorKey: "parent_pool_id",
       header: "Stage",
       size: 260,
-      meta: { filter: { kind: "text" } },
+      meta: { card: "hide", filter: { kind: "text" } },
       cell: ({ row }) => (
         <span className="font-mono text-id text-body">
           {row.original.parent_pool_id}
@@ -161,20 +289,20 @@ function stageDifferences(
       accessorKey: "state",
       header: "State",
       size: 120,
-      meta: { filter: { kind: "option" } },
+      meta: { card: "hide", filter: { kind: "option" } },
     },
     {
       accessorKey: "ledger_quantity",
       header: "Ledger",
       size: 110,
-      meta: { align: "right" },
+      meta: { align: "right", card: "hide" },
       cell: ({ row }) => display.format(row.original.ledger_quantity),
     },
     {
       accessorKey: "projection_quantity",
       header: "Projection",
       size: 120,
-      meta: { align: "right" },
+      meta: { align: "right", card: "hide" },
       cell: ({ row }) => display.format(row.original.projection_quantity),
     },
     {
@@ -183,6 +311,7 @@ function stageDifferences(
       size: 120,
       meta: {
         align: "right",
+        card: "hide",
         filter: { kind: "number", unit: "pcs" },
       },
       cell: ({ row }) => (
@@ -198,6 +327,9 @@ export function Control() {
   const client = useQueryClient()
   const actor = useActor()
   const display = useDisplayUnit()
+  const phone = useLayout() === "phone"
+  const [rowText, setRowText] = useState("")
+  const [stageText, setStageText] = useState("")
   const [tab, setTab] = useState("rows")
   const [site, setSite] = useState("")
   const [pool, setPool] = useState("")
@@ -255,8 +387,14 @@ export function Control() {
     [status.data]
   )
 
-  const rowColumns = useMemo(() => rowDifferences(display), [display])
-  const stageColumns = useMemo(() => stageDifferences(display), [display])
+  const rowColumns = useMemo(
+    () => [...rowDifferences(display), ...(phone ? rowCards(display) : [])],
+    [display, phone]
+  )
+  const stageColumns = useMemo(
+    () => [...stageDifferences(display), ...(phone ? stageCards(display) : [])],
+    [display, phone]
+  )
 
   /// A parameter each, because both tables have a `difference` and a
   /// `state`-shaped question: one key would carry a clause from the tab being
@@ -272,10 +410,15 @@ export function Control() {
         columns: rowFilters.columns,
         getRowId: (row: ProjectionDifference) =>
           `${row.subject_id}/${row.place_id}`,
-        state: { columnFilters: rowFilters.columnFilters, sorting },
+        state: {
+          columnFilters: rowFilters.columnFilters,
+          globalFilter: rowText,
+          sorting,
+        },
         onSortingChange: setSorting,
+        onGlobalFilterChange: setRowText,
       }),
-      [rows, rowFilters.columns, rowFilters.columnFilters, sorting]
+      [rows, rowFilters.columns, rowFilters.columnFilters, rowText, sorting]
     )
   )
 
@@ -289,11 +432,19 @@ export function Control() {
           `${row.parent_pool_id}/${row.state}`,
         state: {
           columnFilters: stageFilters.columnFilters,
+          globalFilter: stageText,
           sorting: stageSorting,
         },
         onSortingChange: setStageSorting,
+        onGlobalFilterChange: setStageText,
       }),
-      [stages, stageFilters.columns, stageFilters.columnFilters, stageSorting]
+      [
+        stages,
+        stageFilters.columns,
+        stageFilters.columnFilters,
+        stageText,
+        stageSorting,
+      ]
     )
   )
 
@@ -399,6 +550,7 @@ export function Control() {
                 <Button
                   variant="quiet"
                   size="sm"
+                  className="max-md:hidden"
                   onClick={() => setTesting(true)}
                 >
                   <FlaskConical />
@@ -406,7 +558,10 @@ export function Control() {
                 </Button>
               </CardHeader>
               <div className="border-t border-hairline px-4 py-3.5">
-                <Toolbar className="mb-3">
+                {/* A plain row, not a `Toolbar`: on a phone a toolbar goes into
+                    the dock's Filters sheet, and these are the run itself. They
+                    stack, the one that writes above the one that reads. */}
+                <div className="mb-3 flex flex-wrap items-center gap-[0.4375rem] max-md:flex-col max-md:items-stretch [&>*]:max-md:w-full [&>*]:max-md:max-w-none">
                   <Choice
                     value={site}
                     onChange={(value) => {
@@ -421,7 +576,7 @@ export function Control() {
                     options={pools}
                     className="max-w-72"
                   />
-                  <Toolbar.Spacer />
+                  <div className="flex-1 max-md:hidden" />
                   <Button
                     variant="ghost"
                     pending={repost.isPending}
@@ -438,12 +593,24 @@ export function Control() {
                   >
                     {replay.isPending ? "Replaying…" : "Replay and compare"}
                   </Button>
-                </Toolbar>
+                </div>
                 <p className="text-[0.875rem] text-mute">
                   Replay reads; repost writes. Repost aborts rather than commit
                   if the ledger moves while it is working, and refuses to commit
                   a rebuild that does not reproduce the comparison exactly.
                 </p>
+                {/* What the figures below are read in, and the test sheet: a
+                    phone has neither a toolbar nor a card header to hold them. */}
+                <div className="mt-3 flex flex-col items-start gap-3 md:hidden">
+                  <DisplayUnitPicker display={display} />
+                  <Button
+                    variant="tint"
+                    size="card"
+                    onClick={() => setTesting(true)}
+                  >
+                    Test controls
+                  </Button>
+                </div>
               </div>
             </Card>
 
@@ -462,7 +629,36 @@ export function Control() {
             {/* The tab's own panel, and only its own: the two tables ask
                 different questions of different rows, and the one on screen is
                 the one being narrowed. */}
-            <Toolbar>
+            {/* On a phone the search, the filter and the order of the tab on
+                screen are the dock's. */}
+            {tab === "rows" ? (
+              <DockTools
+                search={{
+                  value: rowText,
+                  onChange: setRowText,
+                  label: "Search differences",
+                }}
+                filter={{
+                  count: rowFilters.filters.length,
+                  panel: { model: rowFilters, table: rowTable },
+                }}
+                sort={dockSortOf(rowTable)}
+              />
+            ) : (
+              <DockTools
+                search={{
+                  value: stageText,
+                  onChange: setStageText,
+                  label: "Search stage rollups",
+                }}
+                filter={{
+                  count: stageFilters.filters.length,
+                  panel: { model: stageFilters, table: stageTable },
+                }}
+                sort={dockSortOf(stageTable)}
+              />
+            )}
+            <Toolbar className="max-md:hidden">
               {tab === "rows" ? (
                 <FilterPanel model={rowFilters} table={rowTable} />
               ) : (
@@ -472,7 +668,7 @@ export function Control() {
               <DisplayUnitPicker display={display} />
             </Toolbar>
 
-            <Card className="overflow-hidden">
+            <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
               {tab === "rows" ? (
                 rows.length === 0 ? (
                   <EmptyState>
@@ -484,6 +680,9 @@ export function Control() {
                     table={rowTable}
                     empty="No disagreement matches the filters in force."
                     className="max-h-[calc(100dvh-32rem)]"
+                    cardSort={false}
+                    cardsApart
+                    cardLead
                   />
                 )
               ) : stages.length === 0 ? (
@@ -496,6 +695,9 @@ export function Control() {
                   table={stageTable}
                   empty="No stage rollup matches the filters in force."
                   className="max-h-[calc(100dvh-32rem)]"
+                  cardSort={false}
+                  cardsApart
+                  cardLead
                 />
               )}
             </Card>

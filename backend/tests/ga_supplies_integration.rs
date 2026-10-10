@@ -108,7 +108,11 @@ async fn the_migration_installs_the_detail_and_the_seven_categories(pool: PgPool
     .await
     .unwrap_or_else(|error| panic!("pk: {error}"));
     pk.sort();
-    assert_eq!(pk, vec!["site_id".to_string()], "the detail is keyed by the site");
+    assert_eq!(
+        pk,
+        vec!["site_id".to_string()],
+        "the detail is keyed by the site"
+    );
 
     let categories: i64 = sqlx::query_scalar("SELECT count(*) FROM ga_supply_category")
         .fetch_one(&pool)
@@ -138,7 +142,10 @@ async fn the_migration_installs_the_detail_and_the_seven_categories(pool: PgPool
         .fetch_one(&pool)
         .await
         .unwrap_or_else(|error| panic!("ho: {error}"));
-    assert_eq!(head_offices, 1, "two head offices is a bug, not a configuration");
+    assert_eq!(
+        head_offices, 1,
+        "two head offices is a bug, not a configuration"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -236,7 +243,10 @@ async fn a_place_keeps_its_detail_without_becoming_a_second_site(pool: PgPool) {
     assert_eq!(hub.location.asset_count, 1, "one thing is here");
     assert_eq!(hub.location.contract_count, 1, "one deal names this place");
     assert_eq!(hub.location.open_repair_count, 1, "one repair is open");
-    assert_eq!(hub.location.supply_request_count, 1, "one ask came from here");
+    assert_eq!(
+        hub.location.supply_request_count, 1,
+        "one ask came from here"
+    );
     assert_eq!(hub.assets.len(), 1);
     assert_eq!(hub.contracts.len(), 1);
     assert_eq!(hub.repairs.len(), 1);
@@ -320,7 +330,14 @@ async fn a_shop_files_a_supply_request_only_for_itself(pool: PgPool) {
 /// ends hold still. Tested directly because the database could only repeat it.
 #[test]
 fn the_supply_ladder_is_one_way_and_its_ends_are_ends() {
-    let states = ["REQUESTED", "APPROVED", "ORDERED", "RECEIVED", "BILLED", "REJECTED"];
+    let states = [
+        "REQUESTED",
+        "APPROVED",
+        "ORDERED",
+        "RECEIVED",
+        "BILLED",
+        "REJECTED",
+    ];
     let legal = [
         ("REQUESTED", "APPROVED"),
         ("REQUESTED", "REJECTED"),
@@ -339,7 +356,10 @@ fn the_supply_ladder_is_one_way_and_its_ends_are_ends() {
     }
     for to in states {
         assert!(!domain::supply_may_move("BILLED", to), "BILLED is an end");
-        assert!(!domain::supply_may_move("REJECTED", to), "REJECTED is an end");
+        assert!(
+            !domain::supply_may_move("REJECTED", to),
+            "REJECTED is an end"
+        );
     }
     assert_eq!(
         domain::SUPPLY_STATUS_FLOW,
@@ -438,7 +458,10 @@ async fn a_request_uses_a_known_category_and_is_corrected_before_it_is_decided(p
     )
     .await
     .expect_err("6004 is not a GA category");
-    assert!(refused.to_string().contains("ATK"), "the refusal lists the seven: {refused}");
+    assert!(
+        refused.to_string().contains("ATK"),
+        "the refusal lists the seven: {refused}"
+    );
 
     let request = a_request(&pool, "store-01").await;
     let corrected = cloud::ga_supply_update(
@@ -509,10 +532,15 @@ async fn the_seven_categories_are_the_briefs_and_exclude_customer_supplies(pool:
             .iter()
             .find(|category| category.category_code == *code)
             .unwrap_or_else(|| panic!("no {code}"));
-        assert_eq!(category.account_code, *account, "{code} is the brief's account");
+        assert_eq!(
+            category.account_code, *account,
+            "{code} is the brief's account"
+        );
     }
     assert!(
-        categories.iter().all(|category| category.account_code != "6004"),
+        categories
+            .iter()
+            .all(|category| category.account_code != "6004"),
         "Customer Supplies is Commercial's"
     );
 }

@@ -7,12 +7,17 @@ import { Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState } from "@/components/ui/states"
+import { money } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { dimensionResults, financeKeys } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
 import { Code, Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
 import { useWindow } from "@/screens/finance/hooks"
 import { useDimensions } from "@/screens/finance/master-data"
+import { PhoneCard, PhoneList } from "@/components/ui/phone-cards"
 import { Amount, UnitSelect, WindowControl } from "@/screens/finance/parts"
+import { FactsSheet } from "@/screens/finance/phone-parts"
+import type { DimensionResult } from "@itulah/contract"
 
 /// The profit and loss cut by one accounting dimension — per division, per
 /// cost center, per project — over a window, closing vouchers left out.
@@ -21,6 +26,8 @@ import { Amount, UnitSelect, WindowControl } from "@/screens/finance/parts"
 /// the whole P&L; it is also what a person reads before making the dimension
 /// required, because every line in it is a line that would then be refused.
 export function DimensionResults() {
+  const phone = useLayout() === "phone"
+  const [shown, setShown] = useState<DimensionRow | "total" | null>(null)
   const range = useWindow()
   const dimensions = useDimensions()
   const [picked, setPicked] = useState("")
@@ -96,6 +103,64 @@ export function DimensionResults() {
                 <EmptyState>
                   Nothing posted to the profit and loss in this window.
                 </EmptyState>
+              ) : phone ? (
+                <>
+                  <PhoneList>
+                    {rows.map((row) => (
+                      <PhoneCard
+                        key={row.value_code ?? "\u0000none"}
+                        title={
+                          row.value_code === null
+                            ? "No value"
+                            : (names.get(row.value_code) ?? row.value_code)
+                        }
+                        line={row.value_code ?? undefined}
+                        muted={row.value_code === null}
+                        lead={money(row.net_profit_minor)}
+                        caption="net profit"
+                        tone={row.net_profit_minor < 0 ? "bad" : undefined}
+                        foot={`Revenue ${money(row.revenue_minor)}`}
+                        onOpen={() => setShown(row)}
+                      />
+                    ))}
+                    <PhoneCard
+                      title="Total"
+                      lead={money(total("net_profit_minor"))}
+                      caption="net profit"
+                      tone={total("net_profit_minor") < 0 ? "bad" : undefined}
+                      foot={`Revenue ${money(total("revenue_minor"))}`}
+                      onOpen={() => setShown("total")}
+                    />
+                  </PhoneList>
+                  <FactsSheet
+                    open={shown !== null}
+                    onClose={() => setShown(null)}
+                    title={
+                      shown === null || shown === "total"
+                        ? "Total"
+                        : shown.value_code === null
+                          ? "No value"
+                          : (names.get(shown.value_code) ?? shown.value_code)
+                    }
+                    id={
+                      shown === null || shown === "total"
+                        ? undefined
+                        : (shown.value_code ?? undefined)
+                    }
+                    facts={factsOf(
+                      shown === "total"
+                        ? {
+                            revenue_minor: total("revenue_minor"),
+                            gross_profit_minor: total("gross_profit_minor"),
+                            net_operating_profit_minor: total(
+                              "net_operating_profit_minor"
+                            ),
+                            net_profit_minor: total("net_profit_minor"),
+                          }
+                        : shown
+                    )}
+                  />
+                </>
               ) : (
                 <Grid>
                   <thead>
@@ -180,4 +245,28 @@ export function DimensionResults() {
       </Card>
     </PageContent>
   )
+}
+
+type DimensionRow = DimensionResult
+
+/// The four figures of a row, as the sheet a card opens lists them.
+function factsOf(
+  row: Pick<
+    DimensionRow,
+    | "revenue_minor"
+    | "gross_profit_minor"
+    | "net_operating_profit_minor"
+    | "net_profit_minor"
+  > | null
+) {
+  if (row === null) return []
+  return [
+    { label: "Revenue", value: money(row.revenue_minor) },
+    { label: "Gross profit", value: money(row.gross_profit_minor) },
+    {
+      label: "Net operating profit",
+      value: money(row.net_operating_profit_minor),
+    },
+    { label: "Net profit", value: money(row.net_profit_minor) },
+  ]
 }

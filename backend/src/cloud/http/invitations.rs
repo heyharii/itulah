@@ -56,7 +56,9 @@ pub fn link_origin(headers: &HeaderMap, secure: bool) -> Result<String, AppError
         .and_then(|value| value.to_str().ok())
         .filter(|slug| {
             !slug.is_empty()
-                && slug.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+                && slug
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
         });
     Ok(match business {
         Some(slug) => format!("{origin}?business={slug}"),
@@ -92,7 +94,10 @@ fn public_origin(headers: &HeaderMap, secure: bool) -> Result<String, AppError> 
             .filter(|value| !value.is_empty())
             .map(str::to_owned)
     };
-    if let Some(origin) = header_value(header::ORIGIN.as_str()).as_deref().and_then(origin_shaped) {
+    if let Some(origin) = header_value(header::ORIGIN.as_str())
+        .as_deref()
+        .and_then(origin_shaped)
+    {
         return Ok(origin);
     }
     let host = header_value("x-forwarded-host").or_else(|| header_value(header::HOST.as_str()));
@@ -149,7 +154,9 @@ pub async fn list(
     Query(scope): Query<InvitationScope>,
 ) -> Result<Json<infrastructure::InvitationList>, AppError> {
     require_admin(&principal)?;
-    Ok(Json(infrastructure::list_invitations(&state.db, scope).await?))
+    Ok(Json(
+        infrastructure::list_invitations(&state.db, scope).await?,
+    ))
 }
 
 /// `POST /api/v1/invitations/{id}/revoke`.
@@ -251,7 +258,11 @@ fn no_store(response: &mut Response) {
 
 /// Before answering for a token: refuse a client that has been guessing, and
 /// count an unknown token against the client that sent it.
-async fn screened(state: &AppState, headers: &HeaderMap, token: &str) -> Result<Option<Response>, AppError> {
+async fn screened(
+    state: &AppState,
+    headers: &HeaderMap,
+    token: &str,
+) -> Result<Option<Response>, AppError> {
     let client = client_of(headers);
     if held_back(&client) {
         return Ok(Some(wait_a_while()));

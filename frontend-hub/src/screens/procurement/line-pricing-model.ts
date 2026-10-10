@@ -17,6 +17,8 @@ export interface VariantDraft {
   readonly size: string | null
   readonly quantity: string
   readonly price: string
+  /// What this SKU looks like, already uploaded — optional (0961).
+  readonly photos?: readonly string[]
 }
 
 export function digits(text: string): number | null {
@@ -144,6 +146,7 @@ export function variantsForWire(variants: readonly VariantDraft[]) {
       size_code: one.size,
       quantity: digits(one.quantity) ?? 0,
       base_price_minor: digits(one.price),
+      image_urls: [...(one.photos ?? [])],
     }))
 }
 

@@ -19,9 +19,11 @@ import type { RuleStatus } from "@itulah/contract"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
+import { Fab } from "@/components/ui/fab"
 import { ConfirmButton, Dialog, SavedDialog } from "@/components/ui/dialog"
 import { RecordPanel } from "@/components/ui/record-panel"
 import { Input } from "@/components/ui/field"
@@ -29,11 +31,12 @@ import { Meter } from "@/components/ui/meter"
 import { PageHeader } from "@/components/ui/page-header"
 import { Status } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
-import { DockedFilters } from "@/components/ui/list-chrome"
+import { DeskFilterButton, DeskFilterChips } from "@/components/ui/desk-filter"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState, ErrorState } from "@/components/ui/states"
 import { useFilters, type Filter, type Operator } from "@/lib/filters"
+import { useLayout } from "@/lib/layout"
 import { useDebounced } from "@/lib/use-debounced"
 import { count, moment, money } from "@/lib/format"
 import { listTerms, vocabularyKeys } from "@/lib/queries/vocabulary"
@@ -52,7 +55,7 @@ import {
   listPriceBooks,
   nextBookVersion,
   promotionById,
-  promotionPage,
+  promotionPagesQuery,
   publishUsageToFleet,
   setRuleStatus,
   type Band,
@@ -72,6 +75,7 @@ import { PerformanceHeader } from "@/screens/commercial/performance-header"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { Switch } from "@/components/ui/form"
 import { HardCap } from "@/screens/commercial/allocation"
+import { CardFigure, CardFoot, CardName } from "@/components/ui/phone-cards"
 import { RuleForm, type RuleSeed } from "@/screens/commercial/rule-form"
 import {
   authorable,
@@ -279,7 +283,7 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
     // No text clause: the search box above the table asks the server for the
     // name, the id and the coupon code, and a clause here could only narrow
     // the pages already loaded.
-    meta: { card: "title", priority: 1, grow: 280 },
+    meta: { card: "hide", priority: 1, grow: 280 },
     cell: ({ row }) => (
       <span className="font-medium text-ink">{row.original.row.name}</span>
     ),
@@ -296,7 +300,7 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
     // An ended or scheduled offer is moved by its dates, not by a switch.
     //
     // No clause: the tabs above the table ask this question already.
-    meta: { card: "status", priority: 1 },
+    meta: { card: "hide", priority: 1 },
     cell: ({ row, table }) => {
       const meta = actionsOf<PromotionLine>(table)
       const phase = phaseOf(row.original, meta?.at ?? 0)
@@ -349,7 +353,7 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
     header: "Benefit",
     size: 180,
     enableSorting: false,
-    meta: { card: "meta", priority: 1 },
+    meta: { card: "hide", priority: 1 },
     cell: ({ row }) => (
       <span className="text-text">
         {describeEffect(row.original.row.definition.effect)}
@@ -415,7 +419,7 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
         operators: BAND_OPERATORS,
         single: true,
       },
-      card: "metric",
+      card: "hide",
       priority: 2,
     },
     cell: ({ row }) => <Usage usage={row.original.usage} />,
@@ -441,7 +445,7 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
     // which is the question somebody asks after they have picked a row — and
     // the panel behind the row answers it. On a phone card it is the meta
     // line under the benefit.
-    meta: { priority: 2, card: "meta" },
+    meta: { priority: 2, card: "hide" },
     cell: ({ row }) => {
       const period = describePeriod(row.original.row.definition)
       return period === null ? (
@@ -450,6 +454,113 @@ const promotionColumns: ColumnDef<TableSetup, PromotionLine>[] = [
         <span className="text-text">{period}</span>
       )
     },
+  },
+  // Four columns that exist only on a card (`cardLead`; a phone): the promotion
+  // over what it offers, what it gave away as the figure, a foot that says
+  // where it stands — the switch that pauses it, the phase, the period and how
+  // many stores carry it — and Edit, which opens the sheet the card's own tap
+  // opens (owner, 2026-10-06).
+  {
+    id: "head",
+    accessorFn: (row) => row.row.name,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row, table }) => {
+      const meta = actionsOf<PromotionLine>(table)
+      const ended = phaseOf(row.original, meta?.at ?? 0) === "ENDED"
+      return (
+        <CardName
+          name={row.original.row.name}
+          line={describeEffect(row.original.row.definition.effect)}
+          muted={ended}
+        />
+      )
+    },
+  },
+  {
+    id: "lead",
+    accessorFn: (row) => row.usage?.spent_minor ?? 0,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "lead" },
+    cell: ({ row }) => {
+      const usage = row.original.usage
+      const never = usage === null || usage.uses === 0
+      return (
+        <CardFigure
+          value={never ? "—" : money(usage.spent_minor)}
+          caption={
+            never
+              ? "Never used"
+              : `${count(usage.uses)} use${usage.uses === 1 ? "" : "s"}`
+          }
+          tone={never ? "quiet" : undefined}
+        />
+      )
+    },
+  },
+  {
+    id: "foot",
+    accessorFn: (row) => row.row.status,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row, table }) => {
+      const meta = actionsOf<PromotionLine>(table)
+      const phase = phaseOf(row.original, meta?.at ?? 0)
+      const period = describePeriod(row.original.row.definition)
+      const of = meta?.shops ?? null
+      const { reached, failed } = row.original
+      return (
+        <CardFoot
+          status={
+            <span className="inline-flex items-center gap-2.5">
+              {(phase === "ACTIVE" || phase === "PAUSED") && (
+                <Switch
+                  on={phase === "ACTIVE"}
+                  busy={meta?.busy === row.original.row.rule_id}
+                  label={`${phase === "ACTIVE" ? "Pause" : "Resume"} ${row.original.row.name}`}
+                  onToggle={() => meta?.onToggle?.(row.original)}
+                />
+              )}
+              <Status tone={PHASE_TONE[phase]}>{PHASE_WORD[phase]}</Status>
+            </span>
+          }
+        >
+          {period ?? "Always on"} ·{" "}
+          <span className={reached === 0 ? "text-warn-fg" : undefined}>
+            {of === null
+              ? `${count(reached)} ${reached === 1 ? "store" : "stores"}`
+              : `${count(reached)} / ${count(of)} stores`}
+          </span>
+          {failed > 0 && (
+            <span className="text-bad-fg"> · {count(failed)} failed</span>
+          )}
+        </CardFoot>
+      )
+    },
+  },
+  {
+    id: "edit",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { align: "right", card: "status" },
+    // No handler of its own: the click reaches the card, whose tap opens the
+    // sheet — the button only says so.
+    cell: ({ row }) => (
+      <Button
+        variant="tint"
+        size="card"
+        aria-label={`Edit ${row.original.row.name}`}
+      >
+        Edit
+      </Button>
+    ),
   },
 ]
 
@@ -517,9 +628,6 @@ function instant(iso: string | null): number | null {
   return Number.isNaN(at) ? null : at
 }
 
-/// How many promotions one page carries.
-const PAGE = 100
-
 /// Which column means which order the endpoint names. A column not in here
 /// cannot be sorted — `enableSorting: false` says so on the column — because
 /// the table would otherwise sort the pages it holds, not the list.
@@ -557,6 +665,9 @@ const SHOW_PERFORMANCE = false
 export function Promotions() {
   const client = useQueryClient()
   const actor = useActor()
+  // A phone draws the rows as cards and keeps the search, the status, the
+  // filter and New in the drawer over the bottom bar (`DockTools`, `Fab`).
+  const phone = useLayout() === "phone"
   const sheet = useSheet("rule")
   /// The search, in the URL like Vouchers', so a narrowed list is a link.
   const search = useSheet("q")
@@ -619,21 +730,7 @@ export function Promotions() {
 
   /// The promotions, a page at a time, the next one fetched as the last rows
   /// come into view.
-  const list = useInfiniteQuery({
-    queryKey: commercialKeys.rules(scope),
-    queryFn: ({ signal, pageParam }) =>
-      promotionPage(
-        {
-          ...scope,
-          limit: PAGE,
-          ...(pageParam === undefined ? {} : { cursor: pageParam }),
-        },
-        signal
-      ),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-    placeholderData: (previous) => previous,
-  })
+  const list = useInfiniteQuery(promotionPagesQuery(scope))
   const first = list.data?.pages[0]
 
   /// Every campaign, for the form's picker and for restating a rule's campaign
@@ -955,6 +1052,13 @@ export function Promotions() {
         state: {
           columnFilters: tableFilters,
           sorting,
+          // The card's own columns are drawn on a phone and never on a desk.
+          columnVisibility: {
+            head: phone,
+            lead: phone,
+            foot: phone,
+            edit: phone,
+          },
         },
         manualSorting: true,
         onSortingChange: setSorting,
@@ -985,6 +1089,7 @@ export function Promotions() {
         at,
         named,
         flip,
+        phone,
       ]
     )
   )
@@ -1007,20 +1112,25 @@ export function Promotions() {
         // act on the list, and the list is no longer the first thing under this
         // header. What stays is the one action that is about all shops rather
         // than about the rows — sending the counts the shops enforce from.
+        // On a phone it is the last thing under the list instead — nothing
+        // sits at the top but the title and what narrows the list is in the
+        // drawer.
         actions={
-          <div className="flex flex-col items-end gap-2">
-            <Button
-              variant="soft"
-              pending={send.isPending}
-              disabled={actor === ""}
-              onClick={() => send.mutate()}
-            >
-              {send.isPending ? "Syncing…" : "Sync usage to stores"}
-            </Button>
-            <span className="text-[0.875rem] text-mute">
-              Sent automatically every 5 minutes
-            </span>
-          </div>
+          phone ? undefined : (
+            <div className="flex flex-col items-end gap-2">
+              <Button
+                variant="soft"
+                pending={send.isPending}
+                disabled={actor === ""}
+                onClick={() => send.mutate()}
+              >
+                {send.isPending ? "Syncing…" : "Sync usage to stores"}
+              </Button>
+              <span className="text-[0.875rem] text-mute">
+                Sent automatically every 5 minutes
+              </span>
+            </div>
+          )
         }
       />
 
@@ -1054,44 +1164,72 @@ export function Promotions() {
         </Banner>
       )}
 
-      {/* Rows at the left, filters docked at the right — the same shape as
-          every other list in the module. The phase tabs and the search stay
-          over the table: they are what somebody reaches for first, and the
-          rail is where the fields live. */}
-      <div className="grid min-w-0 items-start gap-5 dock:grid-cols-[minmax(0,1fr)_16rem]">
+      {/* The phase tabs, the search and one filter button over the table, the
+          clauses in force under them — Purchase Orders' shape, with no column
+          beside the rows. */}
+      <div className="min-w-0">
         <div className="flex min-w-0 flex-col">
-          <Toolbar className="mb-5">
-            <Segmented options={tabs} value={phase} onChange={setPhase} />
-            {/* The campaign the Campaign screen narrowed this to, said and
+          {!phone && (
+            <Toolbar className="mb-5">
+              <Segmented options={tabs} value={phase} onChange={setPhase} />
+              {/* The campaign the Campaign screen narrowed this to, said and
                 removable — a filter nobody can see is a list that lies. */}
-            {campaignName !== null && (
-              <span className="inline-flex items-center gap-2 text-[0.875rem] text-body">
-                <span className="max-w-[14rem] truncate">
-                  Campaign: <span className="text-ink">{campaignName}</span>
+              {campaignName !== null && (
+                <span className="inline-flex items-center gap-2 text-[0.875rem] text-body">
+                  <span className="max-w-[14rem] truncate">
+                    Campaign: <span className="text-ink">{campaignName}</span>
+                  </span>
+                  <button
+                    type="button"
+                    aria-label="Show every campaign"
+                    onClick={campaignFilter.close}
+                    className="grid size-6 place-items-center rounded-inner text-mute hover:bg-soft-2 hover:text-ink"
+                  >
+                    <X className="size-3.5" />
+                  </button>
                 </span>
-                <button
-                  type="button"
-                  aria-label="Show every campaign"
-                  onClick={campaignFilter.close}
-                  className="grid size-6 place-items-center rounded-inner text-mute hover:bg-soft-2 hover:text-ink"
-                >
-                  <X className="size-3.5" />
-                </button>
-              </span>
-            )}
-            <div className="ml-auto flex items-center gap-3">
-              <Input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                className="h-9 w-64"
-              />
-              <Button variant="primary" onClick={() => newRule.open(true)}>
-                New promotion
-              </Button>
-            </div>
-          </Toolbar>
+              )}
+              <div className="ml-auto flex items-center gap-3">
+                <Input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  className="h-9 w-64"
+                />
+                <DeskFilterButton model={filters} table={promotionTable} />
+                <Button variant="primary" onClick={() => newRule.open(true)}>
+                  New promotion
+                </Button>
+              </div>
+            </Toolbar>
+          )}
+          {!phone && (
+            <DeskFilterChips
+              model={filters}
+              table={promotionTable}
+              className="-mt-2"
+            />
+          )}
 
-          <Card className="overflow-hidden">
+          {/* A phone's one line of what the list is narrowed to when it came
+              from a campaign — the status, the search and New are in the
+              drawer, but this has no home there. */}
+          {phone && campaignName !== null && (
+            <p className="mb-3 flex items-center gap-1 text-[0.875rem] text-body">
+              <span className="min-w-0 truncate">
+                Campaign: <span className="text-ink">{campaignName}</span>
+              </span>
+              <button
+                type="button"
+                aria-label="Show every campaign"
+                onClick={campaignFilter.close}
+                className="relative grid size-6 shrink-0 place-items-center rounded-inner text-mute after:absolute after:-inset-2.5 after:content-['']"
+              >
+                <X className="size-4" />
+              </button>
+            </p>
+          )}
+
+          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
             {queryState(list, {
               loading: "Loading promotions…",
               render: () =>
@@ -1128,6 +1266,7 @@ export function Promotions() {
                   </EmptyState>
                 ) : (
                   <DataTable<PromotionLine>
+                    refresh={[list]}
                     table={promotionTable}
                     onRowClick={(row) => sheet.open(row.row.rule_id)}
                     isSelected={(row) => row.row.rule_id === sheet.value}
@@ -1135,6 +1274,9 @@ export function Promotions() {
                     empty={
                       filters.filters.length > 0 ? "No matches." : "No matches."
                     }
+                    cardSort={false}
+                    cardsApart
+                    cardLead
                     className={`${ROOMY} max-h-[calc(100dvh-19rem)]`}
                   />
                 ),
@@ -1142,8 +1284,42 @@ export function Promotions() {
           </Card>
         </div>
 
-        <DockedFilters model={filters} id="promotions" subject="Promotion" />
       </div>
+
+      <Fab label="New promotion" onClick={() => newRule.open(true)} />
+      {/* On a phone the status, the search, the filter and the sort live in the
+          drawer over the bottom bar, not at the top of the list. */}
+      <DockTools
+        search={{
+          value: query,
+          onChange: setQuery,
+          label: "Search Promotions",
+        }}
+        filter={{
+          count: filters.filters.length,
+          panel: { model: filters, table: promotionTable },
+        }}
+        sort={dockSortOf(promotionTable)}
+        // The one act about all the stores rather than about a row, which a desk
+        // keeps in the header: the last row of the ⚙ sheet on a phone.
+        actions={[
+          {
+            label: send.isPending ? "Syncing…" : "Sync usage to stores",
+            onClick: () => {
+              if (actor !== "" && !send.isPending) send.mutate()
+            },
+          },
+        ]}
+        status={{
+          value: phase,
+          options: PHASES.map((one) => ({
+            value: one.value,
+            label: one.label,
+            count: phaseCounts?.get(one.value),
+          })),
+          onChange: (next) => setPhase(next as typeof phase),
+        }}
+      />
 
       <PromotionSheet
         line={sheetLine}
@@ -1237,7 +1413,7 @@ function storesWord(n: number): string {
 /// Restating a campaign republishes it to the whole fleet, and any field left
 /// out of the restatement is not "unchanged" — it is written as absent. This
 /// returned seven fields and dropped the poster, so pausing one promotion under
-/// the Lebaran sale republished that sale to thirteen shops with its banner,
+/// the Eid sale republished that sale to thirteen shops with its banner,
 /// its headline and its small print blanked. The same fault is documented on
 /// the server reader that feeds this (`cloud/postgres/commercial.rs`), which
 /// was fixed there and stayed broken here.

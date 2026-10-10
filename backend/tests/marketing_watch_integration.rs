@@ -15,9 +15,7 @@
 use chrono::{Duration, NaiveTime, Utc};
 use inventory_backend::cloud::{
     application::{CommandRequest, CommercialCampaignInput, CreateCommercialPublicationRequest},
-    domain::{
-        IngestBatch, SyncFact, COMMAND_COMMERCIAL_USAGE, FACT_PUBLICATION_ACTIVATION_FAILED,
-    },
+    domain::{IngestBatch, SyncFact, COMMAND_COMMERCIAL_USAGE, FACT_PUBLICATION_ACTIVATION_FAILED},
     postgres as cloud,
 };
 use serde_json::{json, Value};
@@ -135,11 +133,13 @@ async fn notices(pool: &PgPool, kind: &str) -> Vec<(String, String)> {
 }
 
 async fn usage_messages(pool: &PgPool) -> Vec<Value> {
-    sqlx::query_scalar("SELECT payload FROM sync_command WHERE command_type = $1 ORDER BY issued_at")
-        .bind(COMMAND_COMMERCIAL_USAGE)
-        .fetch_all(pool)
-        .await
-        .unwrap_or_else(|error| panic!("messages: {error}"))
+    sqlx::query_scalar(
+        "SELECT payload FROM sync_command WHERE command_type = $1 ORDER BY issued_at",
+    )
+    .bind(COMMAND_COMMERCIAL_USAGE)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_else(|error| panic!("messages: {error}"))
 }
 
 async fn set_positions(pool: &PgPool, generation: i64, durable: i64, applied: i64) {
@@ -254,7 +254,10 @@ async fn a_spent_budget_is_announced_once_and_counted_out_at_once(pool: PgPool) 
     assert!(crossed.sent.is_some(), "a crossing is sent at once");
     let used_up = notices(&pool, "commercial.cap.reached").await;
     assert_eq!(used_up.len(), 1, "{used_up:?}");
-    assert_eq!(used_up[0].0, "Campaign \u{201c}Lebaran\u{201d} has used its whole budget");
+    assert_eq!(
+        used_up[0].0,
+        "Campaign \u{201c}Lebaran\u{201d} has used its whole budget"
+    );
     assert!(
         notices(&pool, "commercial.cap.near").await.is_empty(),
         "a count that jumped past both lines says the higher one"
@@ -273,7 +276,10 @@ async fn a_spent_budget_is_announced_once_and_counted_out_at_once(pool: PgPool) 
         .await
         .unwrap_or_else(|error| panic!("tick: {error}"));
     assert_eq!(again.announced, 0);
-    assert!(again.sent.is_none(), "changed, but the last count is seconds old");
+    assert!(
+        again.sent.is_none(),
+        "changed, but the last count is seconds old"
+    );
     assert_eq!(notices(&pool, "commercial.cap.reached").await.len(), 1);
 }
 
@@ -347,12 +353,18 @@ async fn a_shop_that_could_not_apply_a_book_is_reported_once(pool: PgPool) {
 
     let today = inventory_backend::reporting::local_today();
     let first = cloud::run_marketing_watch(&pool, Utc::now(), today, false).await;
-    assert_eq!(job(&first, "marketing.rollout_failed").detail["raised"], 1, "{first:?}");
+    assert_eq!(
+        job(&first, "marketing.rollout_failed").detail["raised"],
+        1,
+        "{first:?}"
+    );
     let failed = notices(&pool, "commercial.rollout.failed").await;
     assert_eq!(failed.len(), 1);
     assert_eq!(failed[0].0, "Toko Tujuh could not apply a price book");
     assert!(
-        failed[0].1.ends_with("The shop said: unknown tax category PPN11"),
+        failed[0]
+            .1
+            .ends_with("The shop said: unknown tax category PPN11"),
         "{}",
         failed[0].1
     );
@@ -374,7 +386,11 @@ async fn a_silent_shop_is_reported_after_half_an_hour_and_not_before(pool: PgPoo
 
     let later = Utc::now() + Duration::minutes(31);
     let late = cloud::run_marketing_watch(&pool, later, today, false).await;
-    assert_eq!(job(&late, "marketing.rollout_stalled").detail["raised"], 1, "{late:?}");
+    assert_eq!(
+        job(&late, "marketing.rollout_stalled").detail["raised"],
+        1,
+        "{late:?}"
+    );
     assert_eq!(
         job(&late, "marketing.usage_stale").detail["raised"],
         1,
@@ -397,12 +413,18 @@ async fn tomorrows_start_is_said_once_the_day_before(pool: PgPool) {
     let tomorrow = today + Duration::days(1);
     // Ten in the morning tomorrow, in the estate's own offset.
     let starts = (tomorrow.and_time(NaiveTime::from_hms_opt(10, 0, 0).unwrap_or_default())
-        - Duration::minutes(i64::from(inventory_backend::reporting::DEFAULT_UTC_OFFSET_MINUTES)))
+        - Duration::minutes(i64::from(
+            inventory_backend::reporting::DEFAULT_UTC_OFFSET_MINUTES,
+        )))
     .and_utc();
     publish_campaign(&pool, 930, None, Some(starts)).await;
 
     let first = cloud::run_marketing_watch(&pool, Utc::now(), today, false).await;
-    assert_eq!(job(&first, "marketing.calendar").detail["raised"], 1, "{first:?}");
+    assert_eq!(
+        job(&first, "marketing.calendar").detail["raised"],
+        1,
+        "{first:?}"
+    );
     assert_eq!(
         notices(&pool, "commercial.promotion.starting").await[0].0,
         "Campaign \u{201c}Lebaran\u{201d} starts tomorrow"
@@ -508,7 +530,11 @@ async fn a_split_limit_is_granted_half_evenly_and_sent_with_the_count(pool: PgPo
     assert!(view.enabled);
     assert_eq!(granted(&view, "store-07"), Some(250_000));
     assert_eq!(granted(&view, "store-08"), Some(250_000));
-    assert_eq!(view.budget_pool, Some(500_000), "half kept for whoever turns out busy");
+    assert_eq!(
+        view.budget_pool,
+        Some(500_000),
+        "half kept for whoever turns out busy"
+    );
 
     let payload = usage_messages(&pool).await.pop().unwrap_or_default();
     let allowances = payload["allowances"]
@@ -537,8 +563,16 @@ async fn a_busy_shop_is_topped_up_and_no_grant_is_ever_taken_back(pool: PgPool) 
     let view = cloud::cap_allocation(&pool, "CAMPAIGN", "LEBARAN")
         .await
         .unwrap_or_else(|error| panic!("view: {error}"));
-    assert_eq!(granted(&view, "store-07"), Some(500_000), "one more first share");
-    assert_eq!(granted(&view, "store-08"), Some(250_000), "nobody has sold there");
+    assert_eq!(
+        granted(&view, "store-07"),
+        Some(500_000),
+        "one more first share"
+    );
+    assert_eq!(
+        granted(&view, "store-08"),
+        Some(250_000),
+        "nobody has sold there"
+    );
     let seven = view
         .shops
         .iter()
@@ -572,7 +606,10 @@ async fn a_limit_too_small_to_split_is_refused(pool: PgPool) {
         "kantor",
     )
     .await;
-    assert!(refused.is_err(), "each shop would start with nothing and never sell");
+    assert!(
+        refused.is_err(),
+        "each shop would start with nothing and never sell"
+    );
 }
 
 #[sqlx::test(migrations = "./migrations/postgres")]
@@ -589,5 +626,9 @@ async fn a_split_switched_off_stops_sending_allowances_and_keeps_the_grants(pool
         "kept, so switching back on does not grant the limit twice"
     );
     let payload = usage_messages(&pool).await.pop().unwrap_or_default();
-    assert_eq!(payload["allowances"], json!([]), "the shops go back to the fleet's count");
+    assert_eq!(
+        payload["allowances"],
+        json!([]),
+        "the shops go back to the fleet's count"
+    );
 }

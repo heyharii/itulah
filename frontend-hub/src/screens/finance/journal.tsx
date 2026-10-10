@@ -89,7 +89,7 @@ import type { JournalEntryRow } from "@itulah/contract"
 /// warehouse and none of them has ever appeared in these books. An option
 /// that always answers "nothing" is a filter that reads as broken.
 const SOURCE_KINDS: readonly { value: string; label: string }[] = [
-  { value: "", label: "Every source" },
+  { value: "", label: "All sources" },
   { value: "MANUAL", label: "Manual" },
   { value: "SUPPLIER_INVOICE", label: "Supplier invoice" },
   { value: "PAYMENT", label: "Payment" },

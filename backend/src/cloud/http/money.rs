@@ -22,9 +22,9 @@ use crate::cloud::{
     application::{AppError, AppState},
     postgres::{
         self as infrastructure, BankRuleProposalRow, BankRuleRow, BankRuleRunOutcome,
-        CashDocumentRepeat, CashDocumentRepeatSweep, CashDocumentRow,
-        SaveCashDocumentRepeatRequest, CashDocumentSlip, GiroBoard, GiroRow, RecordBankRuleRequest,
-        RecordCashDocumentRequest, RecordVoucherRequest, ReplaceGiroRequest, SettleGiroRequest, UnclearGiroRequest,
+        CashDocumentRepeat, CashDocumentRepeatSweep, CashDocumentRow, CashDocumentSlip, GiroBoard,
+        GiroRow, RecordBankRuleRequest, RecordCashDocumentRequest, RecordVoucherRequest,
+        ReplaceGiroRequest, SaveCashDocumentRepeatRequest, SettleGiroRequest, UnclearGiroRequest,
     },
 };
 use axum::{
@@ -83,9 +83,7 @@ pub async fn cash_document(
     if scope.require_unit(&document.from_unit).is_err() {
         scope.require_unit(&document.to_unit)?;
     }
-    Ok(Json(
-        document,
-    ))
+    Ok(Json(document))
 }
 
 /// Key one. It is not numbered and it is not in the books.
@@ -135,8 +133,7 @@ pub async fn save_cash_document_repeat(
     Json(request): Json<SaveCashDocumentRepeatRequest>,
 ) -> Result<Json<CashDocumentRepeat>, AppError> {
     Ok(Json(
-        infrastructure::save_cash_document_repeat(&state.db, &request, &principal.username)
-            .await?,
+        infrastructure::save_cash_document_repeat(&state.db, &request, &principal.username).await?,
     ))
 }
 

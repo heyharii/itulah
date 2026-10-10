@@ -10,13 +10,16 @@ import { EmptyState } from "@/components/ui/states"
 import { node } from "@/lib/api"
 import { fileSafe, type ExportSheet } from "@/lib/export-xlsx"
 import { count, day, money } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { queryState } from "@/lib/query-state"
 import { listTerms, vocabularyKeys } from "@/lib/queries/vocabulary"
 import { Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
 import { percent, share } from "@/screens/finance-final/reports/two-year"
 import { todayIso } from "@/screens/finance/chart"
 import { useUnitName, type DateWindow } from "@/screens/finance/hooks"
+import { PhoneCard, PhoneList } from "@/components/ui/phone-cards"
 import { UnitSelect, WindowControl } from "@/screens/finance/parts"
+import { FactsSheet } from "@/screens/finance/phone-parts"
 import { ReportFilters, ReportSummary } from "@/screens/finance/report"
 import type {
   DivisionSalesRow,
@@ -37,6 +40,7 @@ import type {
 /// an article carries), so the one filter under the division is the tag,
 /// called Category here.
 export function SalesByDivision() {
+  const phone = useLayout() === "phone"
   const range = useYearToDate()
   const [unit, setUnit] = useState("")
   const [category, setCategory] = useState("")
@@ -110,13 +114,17 @@ export function SalesByDivision() {
       <PageHeader
         crumb="Finance · Financial Reports"
         title="Sales by Division"
+        // On a phone Export is a row of the Filters sheet, not a button at the
+        // top of the page.
         actions={
-          <ExportButton
-            build={build}
-            disabled={
-              report.data === undefined || report.data.rows.length === 0
-            }
-          />
+          phone ? undefined : (
+            <ExportButton
+              build={build}
+              disabled={
+                report.data === undefined || report.data.rows.length === 0
+              }
+            />
+          )
         }
       />
 
@@ -142,6 +150,14 @@ export function SalesByDivision() {
             </option>
           ))}
         </Select>
+        {phone && (
+          <ExportButton
+            build={build}
+            disabled={
+              report.data === undefined || report.data.rows.length === 0
+            }
+          />
+        )}
       </ReportFilters>
 
       {queryState(report, {
@@ -153,6 +169,10 @@ export function SalesByDivision() {
 }
 
 function Body({ report }: { report: Report }) {
+  const phone = useLayout() === "phone"
+  const [shown, setShown] = useState<
+    DivisionSalesRow | DivisionSalesTotal | null
+  >(null)
   const { total, voided } = report
   const grossProfit = total.net_minor - total.cost_minor
   const margin = share(grossProfit, total.net_minor)
@@ -176,6 +196,42 @@ function Body({ report }: { report: Report }) {
         <Card>
           <EmptyState>No sales in this window.</EmptyState>
         </Card>
+      ) : phone ? (
+        <>
+          <PhoneList>
+            {report.rows.map((row) => (
+              <DivisionCard
+                key={row.division_code || "\u0000none"}
+                name={nameOf(row)}
+                code={row.division_code}
+                figures={row}
+                onOpen={() => setShown(row)}
+              />
+            ))}
+            <DivisionCard
+              name="Total"
+              figures={total}
+              onOpen={() => setShown(total)}
+            />
+          </PhoneList>
+          <FactsSheet
+            open={shown !== null}
+            onClose={() => setShown(null)}
+            title={
+              shown === null
+                ? ""
+                : shown === total
+                  ? "Total"
+                  : nameOf(shown as DivisionSalesRow)
+            }
+            id={
+              shown === null || shown === total
+                ? undefined
+                : (shown as DivisionSalesRow).division_code || undefined
+            }
+            facts={shown === null ? [] : factsOf(shown, total.net_minor)}
+          />
+        </>
       ) : (
         <Grid>
           <thead>
@@ -222,6 +278,54 @@ function Body({ report }: { report: Report }) {
       </p>
     </>
   )
+}
+
+/// A division as a phone card: its net sales, and under them the gross profit
+/// and the margin it made. The other eight figures are the sheet a tap opens.
+function DivisionCard({
+  name,
+  code,
+  figures,
+  onOpen,
+}: {
+  name: string
+  code?: string
+  figures: DivisionSalesRow | DivisionSalesTotal
+  onOpen: () => void
+}) {
+  const gp = figures.net_minor - figures.cost_minor
+  return (
+    <PhoneCard
+      title={name}
+      line={code === undefined || code === "" ? undefined : code}
+      muted={code === ""}
+      lead={figure(figures.net_minor)}
+      caption="net sales"
+      foot={
+        <span className="tabular-nums">
+          Gross profit {figure(gp)} · {percent(share(gp, figures.net_minor))}
+        </span>
+      }
+      onOpen={onOpen}
+    />
+  )
+}
+
+/// The ten figures a division card's sheet lists.
+function factsOf(figures: DivisionSalesRow | DivisionSalesTotal, base: number) {
+  const gp = figures.net_minor - figures.cost_minor
+  return [
+    { label: "Quantity", value: count(figures.quantity) },
+    { label: "Gross sales", value: figure(figures.gross_minor) },
+    { label: "Discount", value: figure(figures.discount_minor) },
+    { label: "Returns", value: figure(figures.returns_minor) },
+    { label: "Net sales", value: figure(figures.net_minor) },
+    { label: "% of net", value: percent(share(figures.net_minor, base)) },
+    { label: "HPP", value: figure(figures.cost_minor) },
+    { label: "Gross profit", value: figure(gp) },
+    { label: "Margin %", value: percent(share(gp, figures.net_minor)) },
+    { label: "Mark-up %", value: percent(share(gp, figures.cost_minor)) },
+  ]
 }
 
 function FigureRow({ row, base }: { row: DivisionSalesRow; base: number }) {

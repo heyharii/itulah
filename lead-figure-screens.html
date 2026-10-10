@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lead Figure Screens</title>
+<style>
+:root{
+  --ink:#20242c;--text:#394150;--body:#565f6d;--mute:#666f7d;--faint:#b9c0c9;--line-ico:#89919d;
+  --canvas:#fff;--soft:#f8f8f9;--soft-2:#f0f0f2;--page:#f6f6f7;--hairline:#e6e6e9;--hairline-2:#dadade;
+  --accent:#2563eb;--accent-bg:#eff5ff;--ok-fg:#137a37;--ok-line:#b9dcbf;--bad:#b42318;--bad-bg:#fdf4f4;--warn:#9a5b00;
+  --shadow-soft:0 1px 2px rgb(24 39 60 / 6%),0 1px 1px rgb(24 39 60 / 4%);
+  --shadow-float:0 12px 32px rgb(15 23 42 / 16%),0 2px 6px rgb(15 23 42 / 8%);
+  --ease-out:cubic-bezier(.23,1,.32,1);--ease-drawer:cubic-bezier(.32,.72,0,1);--w:414px;
+}
+*{box-sizing:border-box;margin:0}
+body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;background:#e4e4e8;color:var(--ink);-webkit-font-smoothing:antialiased;font-size:15px}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;text-align:inherit;padding:0}
+svg{display:block;flex:none}
+.ico{width:1em;height:1em;stroke:currentColor;fill:none;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.9}
+.bar{position:sticky;top:0;left:0;z-index:100;display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center;padding:12px 20px;background:rgb(255 255 255 / .92);backdrop-filter:blur(10px);border-bottom:1px solid var(--hairline-2)}
+.bar h1{font-size:15px;font-weight:600;margin-right:6px}
+.seg{display:inline-flex;flex-wrap:wrap;gap:2px;padding:2px;border-radius:9px;background:#d9d9de}
+.seg button{padding:5px 11px;border-radius:7px;font-size:14px;font-weight:500;color:#444}
+.seg button[aria-pressed=true]{background:#fff;color:#111;box-shadow:0 1px 2px rgb(0 0 0 / .15)}
+.lab{font-size:14px;color:#555;margin-right:8px}
+.stage{display:flex;gap:28px;padding:24px 20px 60px;overflow-x:auto;align-items:flex-start}
+.opt{flex:none}
+.opt h2{font-size:15px;font-weight:600;margin:0 4px 2px}
+.opt p{font-size:14px;color:#555;margin:0 4px 10px;max-width:var(--w);min-height:88px}
+
+/* phone */
+.phone{position:relative;width:var(--w);height:896px;background:var(--page);border-radius:30px;border:1px solid #cfcfd6;box-shadow:0 18px 40px rgb(0 0 0 / .14);overflow:hidden;display:flex;flex-direction:column}
+.top{height:51px;flex:none;background:#fff;border-bottom:1px solid var(--hairline);display:flex;align-items:center;gap:10px;padding:0 12px 0 16px}
+.top b{font-weight:600;font-size:17px;letter-spacing:-.01em}.top .sp{flex:1}
+.av{width:32px;height:32px;border-radius:50%;background:var(--accent-bg);color:var(--accent);display:grid;place-items:center;font-weight:600;font-size:15px}
+.scroll{flex:1;overflow-y:auto;padding:16px 16px 24px;position:relative}
+.kstrip{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;margin-bottom:14px;border:1px solid var(--hairline);border-radius:10px;background:#fff;box-shadow:var(--shadow-soft)}
+.kstrip div{padding:12px 6px;text-align:center;min-width:0}.kstrip div+div{border-left:1px solid var(--hairline)}
+.kstrip b{display:block;font-size:17px;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
+.kstrip span{display:block;font-size:14px;color:var(--mute)}
+.sw{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:8px;background:#fff;box-shadow:var(--shadow-soft);color:var(--text);font-size:14px;margin-bottom:14px}
+.sw i{width:30px;height:18px;border-radius:9px;background:#d4d6db;position:relative}.sw i::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff}
+.dock{flex:none;padding:0 8px 8px}
+.dock .c2{display:flex;gap:6px;align-items:center;padding:8px;border-radius:1.75rem;border:1px solid rgb(0 0 0 / .06);background:rgb(255 255 255 / .95);box-shadow:var(--shadow-float)}
+.chip{display:inline-flex;align-items:center;gap:4px;height:36px;padding:0 10px 0 14px;border-radius:999px;background:var(--soft-2);font-size:14px;font-weight:500}
+.field{flex:1;min-width:0;display:flex;align-items:center;height:36px;border-radius:999px;background:var(--soft-2);padding:0 8px 0 12px;color:var(--mute);font-size:14px;gap:8px}
+.field .s{flex:1;display:flex;align-items:center;gap:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fab{width:36px;height:36px;border-radius:50%;background:var(--accent);color:#fff;display:grid;place-items:center;font-size:20px;flex:none}
+.tabs{height:80px;flex:none;background:#fff;border-top:1px solid var(--hairline);display:grid;grid-template-columns:repeat(5,1fr);padding-bottom:24px;position:relative}
+.tabs::after{content:"";position:absolute;bottom:8px;left:50%;width:134px;height:5px;margin-left:-67px;border-radius:3px;background:#1a1a1a}
+.tabs button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:14px;font-weight:500;color:var(--mute)}
+.tabs button .ico{font-size:22px;color:var(--line-ico)}
+.tabs button.on{color:var(--accent);background:linear-gradient(180deg,rgb(37 99 235 / .08),transparent)}.tabs button.on .ico{color:var(--accent)}
+.empty{padding:40px 16px;text-align:center;font-size:14px;color:var(--body)}
+
+/* cards */
+.cards{display:flex;flex-direction:column;gap:10px}
+.card{border:1px solid var(--hairline);border-radius:10px;background:var(--canvas);box-shadow:var(--shadow-soft);transition:scale 120ms var(--ease-out)}
+.card.press:active{scale:.985}
+.card .hd{display:flex;gap:12px;padding:16px;align-items:flex-start}
+.card.slim .hd{padding:14px 16px}
+.card .l{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.thumb{width:44px;height:44px;border-radius:8px;background:var(--soft-2);display:grid;place-items:center;flex:none;color:#9aa1ac}
+.thumb svg{width:26px;height:26px}
+.nm{font-size:16px;font-weight:600;letter-spacing:-.01em;line-height:1.3;overflow-wrap:anywhere}
+.nm.mute{color:var(--mute)}
+.q{font-size:14px;color:var(--mute);line-height:1.45;overflow-wrap:anywhere}.q b{font-weight:500;color:var(--ink)}
+.mono{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace;font-size:14px;color:var(--mute);overflow-wrap:anywhere}
+.tag{display:inline-block;max-width:100%;overflow-wrap:anywhere;font-family:"JetBrains Mono",ui-monospace,Menlo,monospace;font-size:14px;color:var(--text);background:var(--soft-2);border-radius:6px;padding:1px 8px}
+.lead{text-align:right;flex:none;max-width:48%}
+.lead b{display:block;font-size:24px;line-height:1.1;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.lead b.z{color:var(--mute)}.lead b small{font-size:14px;font-weight:400;color:var(--mute);letter-spacing:0}
+.lead span{display:block;margin-top:2px;font-size:14px;color:var(--mute);font-variant-numeric:tabular-nums}
+.foot{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border-top:1px solid var(--hairline);border-radius:0 0 9px 9px;font-size:14px;color:var(--mute);line-height:1.5}
+.foot.t{background:var(--bad-bg);border-top-color:#f9e9e9}
+.foot b{font-size:15px;font-weight:600;color:var(--ink)}.foot b.bad,.bad{color:var(--bad)}
+.dw{display:inline-flex;align-items:center;gap:6px;font-size:14px;font-weight:500;white-space:nowrap}.dw i{width:7px;height:7px;border-radius:50%;background:currentColor}
+.dw.ok{color:var(--ok-fg)}.dw.n{color:var(--mute)}.dw.info{color:var(--accent)}.dw.warn{color:var(--warn)}
+.pill{display:inline-flex;align-items:center;height:30px;padding:0 12px;border-radius:8px;border:1px solid var(--ok-line);color:var(--ok-fg);font-size:14px;font-weight:500;background:#fff;white-space:nowrap}
+.pill.n{border-color:var(--hairline-2);color:var(--body)}.pill.warn{border-color:#e9d3a6;color:var(--warn)}.pill.info{border-color:#c3d4f7;color:#1e40af}
+.btn{height:36px;padding:0 16px;border-radius:8px;background:var(--accent);color:#fff;font-size:15px;font-weight:500;display:inline-flex;align-items:center;transition:scale 120ms var(--ease-out)}
+.btn:active{scale:.97}
+.eye{display:inline-flex;margin-right:6px;color:var(--mute)}
+.edit{position:relative;display:inline-flex;align-items:center;justify-content:center;height:32px;padding:0 14px;border:0;border-radius:8px;background:var(--accent-bg);color:var(--accent);font-size:15px;font-weight:600;transition:scale 120ms var(--ease-out),background-color 100ms}
+.edit::after{content:"";position:absolute;inset:-6px}
+.edit:active{scale:.97;background:#dfeaff}
+.stage[data-btn=solid] .edit{background:var(--accent);color:#fff}.stage[data-btn=solid] .edit:active{background:#1d4fd0}
+.stage[data-btn=outlined] .edit{background:#fff;color:var(--ink);font-weight:500;box-shadow:inset 0 0 0 1px var(--hairline-2),var(--shadow-soft)}.stage[data-btn=outlined] .edit:active{background:var(--soft)}
+.sheet .acts .edit.dim{height:44px;background:#fff;color:var(--bad);box-shadow:inset 0 0 0 1px var(--hairline-2)}
+.sheet .acts .edit.dim::after{display:none}
+.ib{width:44px;height:44px;margin:-10px -10px -10px -4px;display:grid;place-items:center;border-radius:50%;color:var(--mute);flex:none;transition:scale 120ms var(--ease-out),background-color 100ms}
+.ib:active{background:var(--soft-2);scale:.94}.ib .ico{width:18px;height:18px}
+.veil{position:absolute;inset:0;background:rgb(15 23 42 / .32);opacity:0;transition:opacity 220ms var(--ease-out);z-index:20}
+.veil.in{opacity:1}
+.sheet{position:absolute;left:0;right:0;bottom:0;z-index:21;background:#fff;border-radius:20px 20px 0 0;box-shadow:var(--shadow-float);padding:8px 16px 28px;translate:0 100%;transition:translate 320ms var(--ease-drawer)}
+.sheet.in{translate:0 0}
+.sheet .grab{width:36px;height:4px;border-radius:2px;background:var(--hairline-2);margin:0 auto 12px}
+.sheet h3{font-size:17px;font-weight:600;margin-bottom:2px}.sheet .sub{font-size:14px;color:var(--mute);margin-bottom:14px}
+.sheet label{display:block;font-size:14px;color:var(--mute);margin:10px 0 4px}
+.sheet .in{height:44px;border:1px solid var(--hairline-2);border-radius:8px;display:flex;align-items:center;padding:0 12px;font-size:15px}
+.sheet .acts{display:flex;gap:10px;margin-top:18px}.sheet .acts .btn{flex:1;justify-content:center;height:44px}
+.hint{position:absolute;left:12px;right:12px;top:60px;z-index:19;padding:8px 12px;border-radius:8px;background:#20242c;color:#fff;font-size:14px;opacity:0;translate:0 -6px;transition:opacity 160ms var(--ease-out),translate 160ms var(--ease-out);pointer-events:none}
+.hint.in{opacity:1;translate:0 0}
+
+.dots{display:inline-flex;gap:3px;vertical-align:middle}.dots i{width:12px;height:12px;border-radius:50%;border:1px solid rgb(0 0 0 / .18)}
+.sw2{width:22px;height:22px;border-radius:50%;border:1px solid rgb(0 0 0 / .15);flex:none;margin-top:2px}
+.stamp{display:inline-block;rotate:-12deg;border:3px double currentColor;border-radius:6px;padding:2px 10px;text-align:center;font-size:14px;font-weight:700;line-height:20px;letter-spacing:.06em;text-transform:uppercase;mix-blend-mode:multiply;opacity:.85;white-space:nowrap}
+.stamp.ok{color:var(--ok-fg)}
+
+/* today (what the app draws now) */
+.today dl{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;margin-top:8px}
+.today dt{font-size:14px;color:var(--mute)}.today dd{margin-top:2px;font-size:15px;color:var(--ink)}
+.today{padding:16px}
+.sortbar{display:flex;align-items:center;gap:10px;padding:10px 14px;margin:-4px 0 12px;border:1px solid var(--hairline);border-radius:10px;background:#fff;font-size:14px;color:var(--mute)}
+.sortbar span{flex:1;height:34px;border:1px solid var(--hairline-2);border-radius:8px;display:flex;align-items:center;padding:0 10px;color:var(--ink)}
+
+/* sections */
+.sec{position:sticky;top:-16px;z-index:5;margin:0 -16px;padding:0 16px;background:var(--page)}
+.sec button{display:flex;align-items:center;gap:8px;width:100%;padding:12px 0 8px;text-align:left}
+.sec .dot{width:8px;height:8px;border-radius:50%;flex:none}
+.sec b{font-size:16px;font-weight:600}.sec .n{font-size:15px;color:var(--mute);font-variant-numeric:tabular-nums}
+.sec .r{margin-left:auto;font-size:14px;color:var(--mute);font-variant-numeric:tabular-nums}
+.sec .chev{font-size:16px;color:var(--line-ico);transition:rotate 200ms var(--ease-out)}
+.sec.shut .chev{rotate:-90deg}
+.grp{display:grid;grid-template-rows:1fr;transition:grid-template-rows 240ms var(--ease-out)}
+.grp>div{min-height:0;overflow:hidden}
+.grp.shut{grid-template-rows:0fr}
+.grp .cards{padding-bottom:6px}
+/* rows */
+.rows{border:1px solid var(--hairline);border-radius:10px;background:#fff;box-shadow:var(--shadow-soft);overflow:hidden}
+.row{display:flex;align-items:center;gap:12px;padding:12px 16px;transition:background-color 100ms}
+.row+.row{border-top:1px solid var(--hairline)}.row:active{background:var(--soft)}
+.row .l{flex:1;min-width:0}
+.row .r{text-align:right;flex:none}.row .r b{display:block;font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}.row .r span{font-size:14px;color:var(--mute)}
+.chk{width:22px;height:22px;border-radius:50%;border:1.5px solid var(--hairline-2);flex:none}
+@media (prefers-reduced-motion:reduce){.grp,.sec .chev,.card{transition:none}}
+</style>
+</head>
+<body>
+<div class="bar">
+  <h1>Lead Figure · Screens</h1>
+  <span><span class="lab">Screen</span><span class="seg" id="screen"></span></span>
+  <span><span class="lab">Data</span><span class="seg" id="data"></span></span>
+  <span><span class="lab">Width</span><span class="seg" id="width"></span></span>
+  <span><span class="lab">Card button</span><span class="seg" id="btn"></span></span>
+  <span><span class="lab">Code</span><span class="seg" id="code"></span></span>
+</div>
+<div class="stage" id="stage"></div>
+<script>
+const I={
+  chevd:'<path d="m6 9 6 6 6-6"/>',search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+  sliders:'<path d="M4 6h10"/><path d="M18 6h2"/><circle cx="16" cy="6" r="2"/><path d="M4 12h2"/><path d="M10 12h10"/><circle cx="8" cy="12" r="2"/><path d="M4 18h12"/><circle cx="18" cy="18" r="2"/>',
+  home:'<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  shirt:'<path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z"/>',
+  box:'<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>',
+  tree:'<path d="M13 10h7a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-2.5a1 1 0 0 1-.8-.4l-.9-1.2A1 1 0 0 0 15 3h-2a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z"/><path d="M13 21h7a1 1 0 0 0 1-1v-3a1 1 0 0 0-1-1h-2.88a1 1 0 0 1-.9-.55l-.44-.9a1 1 0 0 0-.9-.55H13a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z"/><path d="M3 3v2c0 1.1.9 2 2 2h3"/><path d="M3 3v13c0 1.1.9 2 2 2h3"/>',
+  more:'<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+  panels:'<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/>',
+  truck:'<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/>',
+  cols:'<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="M15 3v18"/>',
+  pencil:'<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>',
+  eyeoff:'<path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/>'
+};
+const ic=n=>`<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">${I[n]}</svg>`;
+const fmt=n=>new Intl.NumberFormat("id-ID").format(n);
+const rp=n=>"Rp "+fmt(n);
+const shirt=`<span class="thumb">${ic("shirt")}</span>`;
+
+/* ---------- data ---------- */
+const LONG="Perlengkapan Bayi dan Anak Usia Dini Musim Hujan Edisi Terbatas";
+const DATA={
+ Demo:{
+  divisions:[["Pria","PRIA",6,1,true],["Anak Laki-laki","ANAK_LAKI",0,2,true],["Anak Perempuan","ANAK_PEREMPUAN",0,3,true],["Perlengkapan Bayi","PERLENGKAPAN_BAYI",0,4,true],["Sandal dan Sepatu","SANDAL_SEPATU",0,5,true],["Tas","TAS",0,6,true],["Wanita","WANITA",14,7,false]],
+  tags:[["Aksesori","AKSESORI",0,0,true],["Basic","BASIC",0,0,true],["Blus","BLUS",3,0,true],["Celana","CELANA",0,0,true],["Denim","DENIM",0,0,true],["Kaos","KAOS",3,0,true],["Kemeja","KEMEJA",1,0,true],["Lengan Pendek","LENGAN_PENDEK",1,0,true]],
+  sizes:[["No Size","00",0,0,true],["XS","01",0,1,true],["S","02",0,2,true],["M","03",5,3,true],["L","04",6,4,true],["XL","05",3,5,true],["XXL","06",1,6,true],["One Size","08",1,8,true],["EU 37","11",0,11,false]],
+  colours:[["Black","BLACK","#111418",4,true],["Charcoal","CHARCOAL","#3b4452",1,true],["Grey","GREY","#888d94",2,true],["White","WHITE","#ffffff",5,true],["Off White","OFF_WHITE","#eceee3",3,true],["Natural","NATURAL","#d8d2c6",2,true],["Navy","NAVY","#1f2a44",0,false]],
+  articles:[
+   {n:"Kemeja",c:"00000007",d:"Pria",col:["#111418","#fff"],sz:"M–L",st:"Active",sku:4,lo:99000,hi:99000},
+   {n:"Kaos Uji UJI4",c:"00000006",d:"Pria",col:["#111418","#fff"],sz:"M–L",st:"Active",sku:4,lo:99000,hi:99000},
+   {n:"Gamis",c:"00000004",d:"Wanita",col:["#888d94","#fff","#3b4452"],sz:"One Size",st:"Active",sku:3,lo:149000,hi:179000},
+   {n:"Kemeja Oxford",c:"00000002",d:"Pria",col:["#1f2a44","#fff"],sz:"M–XL",st:"Active",sku:8,lo:189000,hi:219000},
+   {n:"Kaos Polos Lama",c:"00000001",d:"Pria",col:["#111418"],sz:"S–XL",st:"Inactive",sku:4,lo:79000,hi:79000},
+  ],
+  newArts:[
+   {sup:"Garmen AA, UD",rows:[["XX","PO-021026-006",120,"3d"],["YY","PO-021026-006",60,"3d"]]},
+   {sup:"Garmen Nusantara, PT",rows:[["AA","PO-021026-005",230,"3d"],["BB","PO-021026-005",40,"3d"],["BB","PO-021026-004",40,"4d"],["AA","PO-021026-004",7,"4d"]]},
+   {sup:"Indorama, PT",rows:[["Kaos Uji UJI4","PO-041026-006",8,"2d"],["Kaos Uji UJI3","PO-041026-005",4,"2d"]]},
+  ],
+  unallotted:[
+   {sup:"Garmen Nusantara, PT",free:280,rows:[["Gamis","00000004","Grey, White, +2 · One Size",40,"02 Oct"],["Kemeja Oxford","00000002","Navy, White, +2 · M–XL",240,"02 Oct"]]},
+   {sup:"Indorama, PT",free:132,rows:[["Kaos Uji UJI3","00000005","Black, White · M, L",4,"04 Oct"],["Kaos Uji UJI4","00000006","Black, White · M, L",4,"04 Oct"],["Kemeja","00000001","Off White, Grey · L, XL",124,"02 Oct"]]},
+  ],
+  allotments:[
+   {no:"ALT-00000004",stores:"C001 · Cikupa, +14",qty:223,items:15,rec:0,st:"Picking",tone:"info"},
+   {no:"ALT-00000007",stores:"C002 · Muaro Bungo",qty:4,items:4,rec:0,st:"Picking",tone:"info"},
+   {no:"ALT-00000001",stores:"C002 · Muaro Bungo",qty:18,items:3,rec:12,st:"Partially received",tone:"warn",gap:6},
+   {no:"ALT-00000002",stores:"C003 · Purbalingga",qty:60,items:5,rec:60,st:"Received",tone:"ok"},
+  ],
+  storeReturns:[
+   {store:"C004 · Bumiayu",ref:"RTN-00000002",koli:3,sent:"03 Oct 2026",st:"transit"},
+   {store:"C002 · Muaro Bungo",ref:"RTN-00000004",koli:1,sent:"02 Oct 2026",st:"transit"},
+   {store:"C001 · Cikupa",ref:"RTN-00000001",koli:5,sent:"01 Oct 2026",st:"received",got:30,missing:0,extra:0},
+   {store:"C003 · Purbalingga",ref:"RTN-00000003",koli:2,sent:"30 Sep 2026",st:"received",got:11,missing:3,extra:0},
+  ],
+  returns:[
+   {no:"RTN-00000002",stores:"C004 · Bumiayu",qty:12,items:2,rec:0,st:"In transit",tone:"info"},
+   {no:"RTN-00000001",stores:"C001 · Cikupa",qty:30,items:3,rec:30,st:"Received",tone:"ok"},
+  ],
+  lanes:[
+   {id:"pick",label:"Pick list",tone:"#666f7d",act:"Pick",cards:[["C001 · Cikupa","ALT-00000004",223,"15 SKUs","3d ago"],["C002 · Muaro Bungo","ALT-00000004",2,"1 SKU","3d ago"],["C003 · Purbalingga","ALT-00000004",2,"1 SKU","3d ago"],["C004 · Bumiayu","ALT-00000004",2,"1 SKU","3d ago"]]},
+   {id:"picked",label:"Picked",tone:"#c08a3e",act:"Pack",cards:[["C002 · Muaro Bungo","ALT-00000001",18,"1 picklist","3d ago"]]},
+   {id:"dispatch",label:"Dispatch",tone:"#6c8be0",act:"Dispatch",cards:[["C001 · Cikupa","ALT-00000003",40,"2 cartons","1d ago"],["C003 · Purbalingga","ALT-00000003",12,"1 carton","1d ago"]]},
+   {id:"recv",label:"Received",tone:"#2f9e5b",act:null,cards:[["C002 · Muaro Bungo","ALT-00000002",16,"received","2d ago"]]},
+  ],
+ },
+ "Worst Case":{
+  divisions:[[LONG,"PERLENGKAPAN_BAYI_DAN_ANAK_USIA_DINI_MUSIM_HUJAN_EDISI_TERBATAS",12345,1,true],["A","A",0,2,true],["Wanita Dewasa Ukuran Besar",  "WANITA_DEWASA_UKURAN_BESAR",1,3,false]],
+  tags:[[LONG,"LONG",9,0,true],["X","X",0,0,true],["Musiman","MUSIMAN",1284,0,false]],
+  sizes:[["One Size Fits All Adults","FITS_ALL",1,99,true],["XS","01",0,1,true],["EU 41.5","16",12345,16,false]],
+  colours:[["Warna Sangat Panjang Sekali Hijau Botol Tua","HIJAU_BOTOL_TUA_SEKALI","#1b4332",12345,true],["W","W","#fff",0,true],["Hitam Pekat","HITAM_PEKAT","#000",1,false]],
+  articles:[{n:LONG,c:"0000012345",d:"Perlengkapan Bayi dan Anak",col:["#111418","#fff","#888d94","#3b4452","#1f2a44","#d8d2c6"],sz:"XS–XXXL",st:"Active",sku:128,lo:9900,hi:11976240000},{n:"X",c:"1",d:"Pria",col:[],sz:"—",st:"Inactive",sku:0,lo:0,hi:0}],
+  newArts:[{sup:LONG,rows:[[LONG,"PO-051026-1284",1284000,"28d"],["Z","PO-051026-1285",1,"1h"]]}],
+  unallotted:[{sup:LONG,free:1284000,rows:[[LONG,"0000012345","Black, White, Grey, Navy, +20 · XS–XXXL",1284000,"28 Dec"]]}],
+  allotments:[{no:"ALT-00012345",stores:"C001 · Perusahaan Dagang Sinar Jaya Abadi, +144",qty:1284000,items:128,rec:842113,st:"Partially received",tone:"warn",gap:99999}],
+  storeReturns:[{store:"C001 · Perusahaan Dagang Sinar Jaya Abadi Nusantara",ref:"RTN-00012345",koli:1284,sent:"28 Dec 2026",st:"transit"},{store:"C",ref:"RTN-1",koli:1,sent:"01 Oct 2026",st:"received",got:1284000,missing:99999,extra:12}],
+  returns:[{no:"RTN-00012345",stores:"C001 · Perusahaan Dagang Sinar Jaya Abadi",qty:1284000,items:128,rec:0,st:"In transit",tone:"info"}],
+  lanes:[{id:"pick",label:"Pick list",tone:"#666f7d",act:"Pick",cards:[[LONG,"ALT-00012345",1284000,"128 SKUs","28d ago"]]},{id:"recv",label:"Received",tone:"#2f9e5b",act:null,cards:[["C","ALT-1",1,"received","1h ago"]]}],
+ },
+};
+const SCREENS=["Divisions","Tags","Sizes","Colors","Articles","New Articles","Allotments","Return to HO","Allotment · Ops","Return to HO · Ops"];
+const WIDTHS=[320,360,375,414];
+const q=new URLSearchParams(location.search);
+let screen=SCREENS.includes(q.get("screen"))?q.get("screen"):"Divisions";
+let key=DATA[q.get("data")]?q.get("data"):"Demo";
+let width=Number(q.get("w"))||414;
+let code=["thin","chip","none"].includes(q.get("c"))?q.get("c"):"rec";
+let btn=["solid","outlined"].includes(q.get("b"))?q.get("b"):"tinted";
+
+/* ---------- chrome ---------- */
+const TABS={
+  master:[["Home","home"],["Articles","shirt"],["New","box"],["Divisions","tree"],["More","more"]],
+  allot:[["Home","home"],["Allotments","box"],["Returns","truck"],["More","more"]],
+  ops:[["Home","home"],["Workload","panels"],["Receiving","truck"],["Allotment","panels"],["More","more"]],
+};
+const CFG={
+  "Divisions":{title:"Divisions",dept:"master",on:"Divisions",status:"Active",search:"Search Divisions",kpi:["Total","Active","Inactive","In Use"],kv:()=>["15","8","7","6"],sw:"In Use"},
+  "Tags":{title:"Tags",dept:"master",on:"Divisions",status:"Active",search:"Search Tags",kpi:["Total","Active","Inactive","In Use"],kv:()=>["21","21","0","4"],sw:"In Use"},
+  "Sizes":{title:"Sizes",dept:"master",on:"Divisions",status:"Active",search:"Search Sizes",kpi:["Total","Active","Inactive","In Use"],kv:()=>["14","14","0","5"],sw:"In Use"},
+  "Colors":{title:"Colors",dept:"master",on:"Divisions",status:"Active",search:"Search Colors",kpi:["Total","Active","Inactive","In Use"],kv:()=>["24","24","0","16"],sw:"In Use"},
+  "Articles":{title:"Articles",dept:"master",on:"Articles",status:"Active",search:"Search Articles",kpi:["Articles","Divisions","Colors","Sizes"],kv:()=>["7","2","9","6"]},
+  "New Articles":{title:"New Articles",dept:"master",on:"New",status:"All",search:"Search New Articles or Supplier",kpi:["New Articles","Pieces","Suppliers"],kv:()=>["10","530","3"]},
+  "Allotments":{title:"Allotments",dept:"allot",on:"Allotments",status:"Active",search:"Search Allotments",kpi:[],kv:()=>[]},
+  "Allotment · Ops":{title:"Allotment",dept:"ops",on:"Allotment",status:null,search:"Search stores or ALT numbers",kpi:[],kv:()=>[]},
+  "Return to HO · Ops":{title:"Store returns",dept:"ops",on:"Receiving",status:"All",search:"Search returns or stores",kpi:[],kv:()=>[]},
+  "Return to HO":{title:"Return to HO",dept:"allot",on:"Returns",status:"Active",search:"Search Returns",kpi:[],kv:()=>[]},
+};
+function phone(inner,cfg){
+  const kp=cfg.kpi.length?`<div class="kstrip">${cfg.kpi.map((k,i)=>`<div><b>${cfg.kv()[i]}</b><span>${k}</span></div>`).join("")}</div>`:"";
+  const sw=cfg.sw?`<span class="sw"><i></i>${cfg.sw}</span>`:"";
+  const tabs=TABS[cfg.dept].map(([l,i])=>`<button class="${l===cfg.on?"on":""}">${ic(i)}${l}</button>`).join("");
+  return `<div class="phone"><div class="top"><b>${cfg.title}</b><span class="sp"></span><div class="av">R</div></div>
+  <div class="scroll">${kp}${sw}${inner}</div>
+  <div class="dock"><div class="c2">${cfg.status?`<span class="chip">${cfg.status}${ic("chevd")}</span>`:""}<span class="field"><span class="s">${ic("search")}${cfg.search}</span>${ic("sliders")}</span><span class="fab">${ic("plus")}</span></div></div>
+  <div class="tabs">${tabs}</div></div>`;
+}
+
+/* ---------- Master vocabulary ---------- */
+const unitOf=k=>k==="Sizes"?"SKU":"article";
+const vToday=(r,k)=>{const [l,c,u,o,a]=r;return `<article class="card today press"><div class="nm ${a?"":"mute"}">${a?"":`<span class="eye">${ic("eyeoff")}</span>`}${l}</div><div style="margin-top:6px"><span class="tag">${c}</span></div><dl><div><dt>In Use</dt><dd>${fmt(u)} ${u===1?unitOf(k):unitOf(k)+"s"}</dd></div><div><dt>Action</dt><dd>${ic("pencil")}</dd></div></dl></article>`};
+const codeLine=(k,c)=>{const m=code==="rec"?(k==="Sizes"?"thin":"none"):code;return m==="thin"?`<span class="mono">${c}</span>`:m==="chip"?`<span class="tag">${c}</span>`:""};
+const pen=`<span class="ib" data-btn aria-label="Edit">${ic("pencil")}</span>`;
+const editBtn=`<button class="edit" data-btn>Edit</button>`;
+const stat=a=>`<span class="dw ${a?"ok":"n"}"><i></i>${a?"Active":"Inactive"}</span>`;
+const vLead=(r,k,mode)=>{const [l,c,u,o,a]=r;const ord="";
+  return `<article class="card press slim" data-edit data-k="${k}" data-t="${l.replace(/"/g,"&quot;")}" data-c="${c}" data-o="${o}"><div class="hd"><div class="l"><div class="nm ${a?"":"mute"}">${a?"":`<span class="eye">${ic("eyeoff")}</span>`}${l}</div>${codeLine(k,c)}</div><div class="lead"><b class="${u?"":"z"}">${fmt(u)}</b><span>${u===1?unitOf(k):unitOf(k)+"s"}</span></div>${mode==="icon"?pen:""}</div>${mode==="foot"?`<div class="foot">${stat(a)}${editBtn}</div>`:""}</article>`};
+const swLead=(r,mode)=>{const [l,c,h,u,a]=r;
+  return `<article class="card press slim" data-edit data-k="Colors" data-t="${l}" data-c="${c}"><div class="hd"><span class="sw2" style="background:${h}"></span><div class="l"><div class="nm ${a?"":"mute"}">${a?"":`<span class="eye">${ic("eyeoff")}</span>`}${l}</div>${codeLine("Colors",c)}</div><div class="lead"><b class="${u?"":"z"}">${fmt(u)}</b><span>${u===1?"SKU":"SKUs"}</span></div>${mode==="icon"?pen:""}</div>${mode==="foot"?`<div class="foot">${stat(a)}${editBtn}</div>`:""}</article>`};
+const swToday=r=>{const [l,c,h,u,a]=r;
+  return `<article class="card today press"><div style="display:flex;gap:10px;align-items:flex-start"><span class="sw2" style="background:${h}"></span><div><div class="nm">${l}</div><div class="mono">${c}</div></div></div><div style="margin-top:8px"><span class="tag">${c}</span></div><dl><div><dt>In Use</dt><dd>${fmt(u)} ${u===1?"SKU":"SKUs"}</dd></div><div><dt>Action</dt><dd>${ic("pencil")}</dd></div></dl></article>`};
+const todaySort=`<div class="sortbar">Sort by<span>Default order</span></div>`;
+
+/* ---------- Articles ---------- */
+const priceOf=a=>a.hi===0?"—":a.lo===a.hi?rp(a.lo):`${rp(a.lo)}`;
+const priceSub=a=>a.hi>a.lo?`up to ${rp(a.hi)}`:"";
+const dots=a=>a.col.length?`<span class="dots">${a.col.slice(0,4).map(c=>`<i style="background:${c}"></i>`).join("")}</span>${a.col.length>4?`<span class="q"> +${a.col.length-4}</span>`:""}`:"";
+const aToday=a=>`<article class="card today press"><div style="display:flex;gap:12px;align-items:flex-start">${shirt}<div style="min-width:0"><div class="nm">${a.n}</div><div class="mono">${a.c}</div></div></div><div style="display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap"><span class="tag">${a.d}</span>${dots(a)}<span class="q">· ${a.sz}</span><span class="pill ${a.st==="Active"?"":"n"}">${a.st}</span></div><dl><div><dt>SKUs</dt><dd>${a.sku}</dd></div><div><dt>Price Range</dt><dd>${a.hi>a.lo?rp(a.lo)+" – "+rp(a.hi):priceOf(a)}</dd></div></dl></article>`;
+const aLeadA=a=>`<article class="card press"><div class="hd">${shirt}<div class="l"><div class="nm ${a.st==="Active"?"":"mute"}">${a.n}</div><div class="mono">${a.c}</div></div><div class="lead"><b>${priceOf(a)}</b><span>${priceSub(a)||"price"}</span></div></div>
+  <div class="foot"><span style="display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center"><span class="tag">${a.d}</span>${dots(a)}<span class="q">${a.sz}</span></span><span class="q"><b>${fmt(a.sku)}</b> ${a.sku===1?"SKU":"SKUs"}${a.st==="Active"?"":` · <span class="dw n"><i></i>Inactive</span>`}</span></div></article>`;
+const aLeadB=a=>`<article class="card press"><div class="hd">${shirt}<div class="l"><div class="nm ${a.st==="Active"?"":"mute"}">${a.n}</div><div class="mono">${a.c}</div><div style="display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;margin-top:4px"><span class="tag">${a.d}</span>${dots(a)}<span class="q">${a.sz}</span></div></div><div class="lead"><b class="${a.sku?"":"z"}">${fmt(a.sku)}</b><span>${a.sku===1?"SKU":"SKUs"}</span></div></div>
+  <div class="foot"><span class="q">${a.hi>a.lo?rp(a.lo)+" – "+rp(a.hi):priceOf(a)}</span><span class="dw ${a.st==="Active"?"ok":"n"}"><i></i>${a.st}</span></div></article>`;
+
+const aUni=a=>`<article class="card press" data-edit data-k="Articles" data-t="${a.n.replace(/"/g,"&quot;")}" data-c="${a.c}"><div class="hd">${shirt}<div class="l"><div class="nm ${a.st==="Active"?"":"mute"}">${a.st==="Active"?"":`<span class="eye">${ic("eyeoff")}</span>`}${a.n}</div><div class="mono">${a.c}</div><div style="display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;margin-top:4px"><span class="tag">${a.d}</span>${dots(a)}</div></div><div class="lead"><b>${priceOf(a)}</b><span>${priceSub(a)||"price"}</span></div></div><div class="foot"><span>${fmt(a.sku)} ${a.sku===1?"SKU":"SKUs"}${a.sz!=="—"?` · ${a.sz}`:""}</span>${editBtn}</div></article>`;
+/* ---------- New Articles ---------- */
+const sum=g=>g.rows.reduce((a,r)=>a+r[2],0);
+const nToday=gs=>`<div class="rows">${gs.map(g=>`<div class="row" style="background:var(--soft);padding:10px 16px"><div class="l"><b style="font-weight:500">${g.sup}</b> <span class="q">${g.rows.length} items · ${fmt(sum(g))} pcs</span></div></div>${g.rows.map(r=>`<div class="row">${shirt}<div class="l"><div style="font-size:15px">${r[0]}</div><div class="mono">${r[1]}</div></div><div class="r"><b style="font-size:15px;font-weight:500">${fmt(r[2])} pcs</b><span>${r[3]} ago</span></div></div>`).join("")}`).join("")}</div>`;
+let shut=new Set();
+const section=(id,dot,label,n,r,body,scope)=>`<div class="sec ${shut.has(scope+id)?"shut":""}"><button data-fold="${scope+id}">${dot?`<span class="dot" style="background:${dot}"></span>`:""}<b>${label}</b><span class="n">${n}</span><span class="r">${r}</span><span class="chev">${ic("chevd")}</span></button></div><div class="grp ${shut.has(scope+id)?"shut":""}"><div>${body}</div></div>`;
+const nCardA=r=>`<article class="card press"><div class="hd">${shirt}<div class="l"><div class="nm">${r[0]}</div><div class="mono">${r[1]}</div></div><div class="lead"><b>${fmt(r[2])}</b><span>pcs</span></div></div><div class="foot"><span>${r[3]} ago</span><button class="edit" data-btn>Set up</button></div></article>`;
+const nRowB=r=>`<div class="row">${shirt}<div class="l"><div class="nm" style="font-size:15px">${r[0]}</div><div class="mono">${r[1]}</div></div><div class="r"><b>${fmt(r[2])}</b><span>pcs · ${r[3]}</span></div></div>`;
+
+/* ---------- Allotments ---------- */
+const uToday=gs=>`<div class="rows">${gs.map(g=>`<div class="row" style="background:#fff"><span class="chk"></span><div class="l"><b style="font-weight:500">${g.sup}</b><div class="q">${g.rows.length} articles · ${fmt(g.free)} pcs free</div></div></div>${g.rows.map(r=>`<div class="row"><span class="chk"></span>${shirt}<div class="l"><div style="font-size:15px">${r[0]}</div><div class="mono">${r[1]}</div><div class="q">${r[2]}</div></div><div class="r"><b style="font-size:15px">${fmt(r[3])} pcs</b><span>${r[4]}</span></div></div>`).join("")}`).join("")}</div>`;
+const uLead=gs=>`<div class="cards">${gs.map(g=>`<article class="card press"><div class="hd"><span class="chk" style="margin-top:3px"></span><div class="l"><div class="nm">${g.sup}</div><div class="q">${g.rows.length} ${g.rows.length===1?"article":"articles"}</div></div><div class="lead"><b>${fmt(g.free)}</b><span>pcs free</span></div></div><div class="rows" style="border:0;border-top:1px solid var(--hairline);border-radius:0 0 9px 9px;box-shadow:none">${g.rows.map(r=>`<div class="row"><span class="chk"></span>${shirt}<div class="l"><div style="font-size:15px;font-weight:500">${r[0]}</div><div class="q">${r[2]}</div></div><div class="r"><b style="font-size:15px">${fmt(r[3])}</b><span>${r[4]}</span></div></div>`).join("")}</div></article>`).join("")}</div>`;
+const aoCard=a=>`<article class="card press ${a.gap?"":""}"><div class="hd"><div class="l"><div class="nm">${a.stores}</div><div class="mono">${a.no}</div></div><div class="lead"><b>${fmt(a.qty)}</b><span>${a.items} ${a.items===1?"item":"items"} · pcs</span></div></div><div class="foot ${a.gap?"t":""}"><span>Received <b class="${a.gap?"bad":""}">${fmt(a.rec)}</b> of ${fmt(a.qty)} pcs${a.gap?` <span class="bad">· ${fmt(a.gap)} not found</span>`:""}</span><span class="pill ${a.tone==="ok"?"":a.tone}">${a.st}</span></div></article>`;
+const aoToday=a=>`<article class="card today press"><div style="display:flex;justify-content:space-between;gap:12px"><div><div class="nm">${a.stores}</div><div class="mono">${a.no}</div></div><span class="pill ${a.tone==="ok"?"":a.tone}">${a.st}</span></div><dl><div><dt>Quantity</dt><dd>${fmt(a.qty)} pcs</dd></div><div><dt>Received</dt><dd>${fmt(a.rec)} pcs</dd></div></dl></article>`;
+
+/* ---------- Ops Allotment ---------- */
+const opToday=lanes=>`<div class="rows">${lanes.flatMap(l=>l.cards.map(c=>[l,c])).map(([l,c],i)=>`<div class="row" style="align-items:flex-start;gap:8px"><div class="l"><div class="q">${i+1}</div><div style="font-size:15px">${c[0]}</div><div class="mono">${c[1]}</div><div class="q"><span class="dw" style="color:${l.tone}"><i></i></span> ${l.label} · ${c[3]} · ${c[4]}</div><div class="q" style="margin-top:6px">Pieces<br><span style="color:var(--ink);font-size:15px">${fmt(c[2])}</span></div></div></div>`).join("")}</div>`;
+const opCard=(l,c)=>`<article class="card press"><div class="hd"><div class="l"><div class="nm">${c[0]}</div><div class="mono">${c[1]}</div></div><div class="lead"><b>${fmt(c[2])}</b><span>pcs</span></div></div><div class="foot"><span>${c[3]} · ${c[4]}</span>${l.act?`<button class="edit">${l.act}</button>`:""}</div></article>`;
+const opLead=lanes=>lanes.map(l=>section(l.id,l.tone,l.label,l.cards.length,fmt(l.cards.reduce((a,c)=>a+c[2],0))+" pcs",`<div class="cards">${l.cards.map(c=>opCard(l,c)).join("")}</div>`,"op:")).join("");
+
+/* ---------- Ops: Return to HO (store returns, received at the DC) ---------- */
+const off=r=>r.st==="received"&&(r.missing>0||r.extra>0);
+const rtToday=rs=>`<div class="cards">${rs.map(r=>`<article class="card today press"><div class="nm">${r.store}</div><div class="mono">${r.ref}</div><dl><div><dt>Sent on</dt><dd>${r.sent}</dd></div><div><dt>Koli</dt><dd>${fmt(r.koli)}</dd></div></dl><div style="margin-top:12px;display:flex;justify-content:flex-end">${r.st==="transit"?'<span class="btn">Count receive</span>':`<span class="${off(r)?"bad":""}" style="font-size:15px">${fmt(r.got)} pcs${r.missing?` · ${fmt(r.missing)} missing`:""}${r.extra?` · ${fmt(r.extra)} extra`:""}</span>`}</div></article>`).join("")}</div>`;
+const rtLead=rs=>`<div class="cards">${rs.map(r=>`<article class="card press"><div class="hd"><div class="l"><div class="nm">${r.store}</div><div class="mono">${r.ref}</div></div><div class="lead"><b>${fmt(r.koli)}</b><span>koli</span></div></div><div class="foot ${off(r)?"t":""}"><span>Sent ${r.sent}${r.st==="received"?`<br>Received <b class="${off(r)?"bad":""}">${fmt(r.got)} pcs</b>${r.missing?` <span class="bad">· ${fmt(r.missing)} missing</span>`:""}${r.extra?` <span class="bad">· ${fmt(r.extra)} extra</span>`:""}`:""}</span>${r.st==="transit"?'<button class="edit">Count receive</button>':'<span class="pill">Received</span>'}</div></article>`).join("")}</div>`;
+
+/* ---------- screens -> phones ---------- */
+function screens(d){
+  const P=(name,blurb,html,cfgPatch)=>({name,blurb,html:phone(html,{...CFG[screen],...(cfgPatch||{})})});
+  if(["Divisions","Tags","Sizes"].includes(screen)){
+    const k=screen, rows=d[k.toLowerCase()];
+    return [
+      P("Today","What the app drew before: name and code, then a labelled two-by-two; the sort sits at the top of the list.",todaySort+`<div class="cards">${rows.map(r=>vToday(r,k)).join("")}</div>`),
+      P("A · Head only","As built: the card has no button; the whole card is the click, and it opens the edit sheet. Nothing says it can be edited.",`<div class="cards">${rows.map(r=>vLead(r,k,"head")).join("")}</div>`),
+      P("B · Uniform card","The same card as New Articles: the figure in the head, then a foot with the status on the left and a button on the right, a word and never a pencil. Tapping the card or the button opens the same sheet.",`<div class="cards">${rows.map(r=>vLead(r,k,"foot")).join("")}</div>`),
+    ];
+  }
+  if(screen==="Colors") return [
+    P("Today","Swatch, name and code, the code again as a chip, then the two-by-two.",todaySort+`<div class="cards">${d.colours.map(swToday).join("")}</div>`),
+    P("A · Head only","As built: the whole card is the click and opens the edit sheet.",`<div class="cards">${d.colours.map(r=>swLead(r,"head")).join("")}</div>`),
+    P("B · Uniform card","Swatch, name and code in the head with the SKU count as the figure; the foot says Active or Inactive and carries Edit.",`<div class="cards">${d.colours.map(r=>swLead(r,"foot")).join("")}</div>`),
+  ];
+  if(screen==="Articles") return [
+    P("Today","Thumbnail and name, a line of division · colours · sizes · status, then SKUs and price range as a two-by-two.",todaySort+`<div class="cards">${d.articles.map(aToday).join("")}</div>`),
+    P("A · Price leads","What it sells for is the figure; division, colours and sizes sit in the foot with the SKU count.",`<div class="cards">${d.articles.map(aLeadA).join("")}</div>`),
+    P("B · SKUs lead","How many SKUs it is made of is the figure; the price range and the status are the foot.",`<div class="cards">${d.articles.map(aLeadB).join("")}</div>`),
+    P("C · Uniform card","The same card as the others: the price is the figure, division and colours sit under the code, and the foot says how many SKUs and sizes on the left and Edit on the right. An inactive article has the eye-off mark and a grey name.",`<div class="cards">${d.articles.map(aUni).join("")}</div>`),
+  ];
+  if(screen==="New Articles"){
+    const A=d.newArts.map(g=>section(g.sup,null,g.sup,`${g.rows.length} ${g.rows.length===1?"item":"items"}`,fmt(sum(g))+" pcs",`<div class="cards">${g.rows.map(nCardA).join("")}</div>`,"na:")).join("");
+    const B=d.newArts.map(g=>section(g.sup,null,g.sup,`${g.rows.length} ${g.rows.length===1?"item":"items"}`,fmt(sum(g))+" pcs",`<div class="rows">${g.rows.map(nRowB).join("")}</div>`,"nb:")).join("");
+    return [
+      P("Today","One white box: a supplier line, then rows with a thumbnail, the PO number and the pieces.",nToday(d.newArts)),
+      P("A · Cards under a supplier","Each new article is a card (pieces as the figure, how long it has waited and Set up in the foot) under a supplier heading that sticks and folds.",A),
+      P("B · Rows under a supplier","The same headings, but each article is a slim row: for a long list, where a button on every line is a lot of blue.",B),
+    ];
+  }
+  if(screen==="Allotments") return [
+    P("Today · Unallotted","A supplier line with a tick, then a tick, a thumbnail and the pieces on every row.",uToday(d.unallotted),{status:"Unallotted"}),
+    P("Unallotted · lead figure","A card per supplier: the pieces still free lead; its articles are rows inside the card. As built.",uLead(d.unallotted),{status:"Unallotted"}),
+    P("Allotments · lead figure","A card per allotment: the pieces lead with the item count under them; what has been received, and the status, in the foot. As built.",`<div class="cards">${d.allotments.map(aoCard).join("")}</div>`),
+  ];
+  if(screen==="Return to HO") return [
+    P("Today","The allotment summary sentence (it says allotments), a type menu, and an empty book.",`<p class="q" style="margin-bottom:12px"><b>0 allotments</b> are active. 0 pcs not shipped yet, 0 in transit.</p><span class="sw">Allotments</span><p class="empty">Nothing here yet.</p>`),
+    P("A · Same card as an allotment","A return is an allotment of type Return to HO, so it is the same card: pieces lead, received and status in the foot.",`<div class="cards">${d.returns.map(aoCard).join("")}</div>`),
+  ];
+  if(screen==="Return to HO · Ops") return [
+    P("Today","A labelled two-by-two (sent on, koli) with the store over its return number; what was counted, or the Count receive button, sits alone at the bottom.",rtToday(d.storeReturns)),
+    P("Lead figure","The koli is the figure, the one number a blind delivery has. The foot says when it left and, once counted, what was found: red, on a soft red wash, when it is not what was announced. The button is the same as every other card's; Received is a pill, because it is only read.",rtLead(d.storeReturns)),
+  ];
+  if(screen==="Allotment · Ops") return [
+    P("Today (before)","A flat table of cards: a number, the store, the number, a lane word, the pieces as a labelled figure.",opToday(d.lanes)),
+    P("Lead figure, by lane","Lanes are the sections of one list, in the order the goods move; a heading sticks to the top and folds on a tap; each card leads with its pieces and carries the verb. Built in the app.",opLead(d.lanes)),
+  ];
+  return [];
+}
+function paint(){
+  document.documentElement.style.setProperty("--w",width+"px");
+  const d=DATA[key];
+  document.getElementById("stage").innerHTML=screens(d).map(p=>`<section class="opt"><h2>${p.name}</h2><p>${p.blurb}</p>${p.html}</section>`).join("");
+  seg("screen",SCREENS,screen,v=>{screen=v;paint();sync()});
+  seg("data",Object.keys(DATA),key,v=>{key=v;paint();sync()});
+  seg("width",WIDTHS.map(String),String(width),v=>{width=Number(v);paint();sync()});
+  document.getElementById("stage").dataset.btn=btn;
+  seg("btn",["tinted","solid","outlined"],btn,v=>{btn=v;paint();sync()});
+  const CODES=[["rec","Recommended"],["thin","Under label"],["chip","Chip"],["none","Hidden"]];
+  const ce=document.getElementById("code");ce.innerHTML=CODES.map(([v,l])=>`<button aria-pressed="${v===code}">${l}</button>`).join("");[...ce.children].forEach((b,i)=>b.onclick=()=>{code=CODES[i][0];paint();sync()});
+}
+function seg(id,values,cur,on){const el=document.getElementById(id);el.innerHTML=values.map(v=>`<button aria-pressed="${v===cur}">${v}</button>`).join("");[...el.children].forEach((b,i)=>b.onclick=()=>on(values[i]))}
+function sync(){history.replaceState(null,"","?"+new URLSearchParams({screen,data:key,w:String(width),b:btn,c:code}))}
+const noun={Divisions:"Division",Tags:"Tag",Sizes:"Size",Colors:"Color",Articles:"Article"};
+function openSheet(card,viaBtn){
+  const ph=card.closest(".phone");if(!ph||ph.querySelector(".sheet"))return;
+  const k=card.dataset.k,ordered=k==="Divisions"||k==="Sizes";
+  ph.insertAdjacentHTML("beforeend",`<div class="veil"></div><div class="sheet"><div class="grab"></div><h3>Edit ${noun[k]}</h3><div class="sub">${viaBtn?"Opened by the Edit button":"Opened by tapping the card"}</div><label>Name</label><div class="in">${card.dataset.t}</div><label>Code</label><div class="in mono">${card.dataset.c}</div><div class="acts"><button class="edit dim">Delete</button><button class="btn">Save</button></div></div>`);
+  const v=ph.querySelector(".veil"),sh=ph.querySelector(".sheet");
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{v.classList.add("in");sh.classList.add("in")}));
+  const shut=()=>{v.classList.remove("in");sh.classList.remove("in");setTimeout(()=>{v.remove();sh.remove()},320)};
+  v.onclick=shut;sh.querySelector(".btn").onclick=shut;sh.querySelector(".acts .edit").onclick=shut;
+}
+document.getElementById("stage").addEventListener("click",e=>{
+  const card=e.target.closest("[data-edit]");
+  if(card)return openSheet(card,!!e.target.closest("[data-btn]"));
+  const b=e.target.closest("[data-fold]");if(!b)return;const id=b.dataset.fold;
+  document.querySelectorAll(`[data-fold="${CSS.escape(id)}"]`).forEach(x=>{
+    const sec=x.closest(".sec"),grp=sec.nextElementSibling;
+    const shutNow=!sec.classList.contains("shut");sec.classList.toggle("shut",shutNow);grp.classList.toggle("shut",shutNow)});
+  shut.has(id)?shut.delete(id):shut.add(id);
+});
+paint();
+</script>
+</body>
+</html>

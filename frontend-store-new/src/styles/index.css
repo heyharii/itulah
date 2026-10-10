@@ -1,9 +1,11 @@
 /* ─────────────────────────────────────────────────────────────────────────
-   The till's stylesheet IS the hub's (frontend-hub/src/styles/index.css),
-   copied whole on 2026-09-25 so the store app reads as the same product as the
-   console: same tokens, same type scale, same rail and sidebar. If the two
-   ever look a generation apart again, diff this file against the hub's before
-   looking anywhere else.
+   The shop's stylesheet IS the hub's (frontend-hub/src/styles/index.css),
+   copied whole on 2026-09-25 and brought level again on 2026-10-06 (airy
+   charcoal: neutral greys, 10/8 radii, the 15px body, the visible scrollbar,
+   the hub's door) so the store app reads as the same product as the console:
+   same tokens, same type scale, same rail and sidebar. If the two ever look a
+   generation apart again, diff this file against the hub's before looking
+   anywhere else.
 
    What is added on top is marked "Till-only" and exists because a counter
    needs it and a desk does not: a customer-facing total, press feedback on a
@@ -57,7 +59,7 @@
      and the winner is decided by stylesheet order rather than by class order.
      Keeping the size out of the namespace leaves `text-body` meaning the
      colour and nothing else, and prose simply inherits this. */
-  --size-body: 0.875rem; /* 14 */
+  --size-body: 0.9375rem; /* 15 — Apple's body size (owner, 2026-10-04) */
 
   /* text — four greys, in descending emphasis, plus two non-text marks.
      WARM, not cool. Every grey here now carries a little yellow-green, which
@@ -72,8 +74,8 @@
      units, counts and anything the eye should skip. */
   --ink: #20242c;
   --text: #394150;
-  --body: #626b78;
-  --mute: #737c89;
+  --body: #565f6d;
+  --mute: #666f7d;
   --faint: #b9c0c9;
   --line-ico: #89919d;
 
@@ -82,31 +84,31 @@
      two columns of chrome are legibly two), `soft-2` the hover wash and the
      fill behind an input. */
   --canvas: #ffffff;
-  --soft: #f8f9fb;
-  --soft-2: #f0f2f5;
-  --soft-3: #f7f8fa;
-  --hairline: #e7eaf0;
-  --hairline-2: #dce1e8;
-  --hairline-strong: #c7ced8;
+  --soft: #f8f8f9;
+  --soft-2: #f0f0f2;
+  --soft-3: #f6f6f7;
+  --hairline: #e6e6e9;
+  --hairline-2: #dadade;
+  --hairline-strong: #c6c6cc;
   --dark: #191b20;
   --on-dark: #ffffff;
-  --backdrop: #dfe3ea;
+  --backdrop: #e0e0e4;
   /* The rail is the one dark column in the app. It answers "which part of
      the business", and being the only dark surface in the chrome is what lets
      it answer that without a single word being read. Its ramp is its own
      rather than borrowed from the page's inks: grey text on near-black needs
      different steps than grey text on white to read at the same weight. */
-  --rail: #16181d;
-  --rail-2: #23262d;
-  --rail-3: #2e323a;
-  --rail-ink: #f2f4f7;
-  --rail-text: #b4bac4;
-  --rail-mute: #7d8491;
-  --rail-hair: #262a31;
+  --rail: #242526;
+  --rail-2: #303234;
+  --rail-3: #393b3d;
+  --rail-ink: #ffffff;
+  --rail-text: #c3c4c7;
+  --rail-mute: #a1a3a8;
+  --rail-hair: #343638;
   /* The veil is WHITE. Nothing in this system darkens: drawers and sheets
      wash the content behind them toward near-white. A black scrim is the
      single most recognisable way a screen stops being Cloud Hub. */
-  --scrim: rgba(247, 248, 250, 0.72);
+  --scrim: rgba(246, 246, 247, 0.72);
 
   /* Two blues, one job each, and they never swap.
      ACCENT is selection — active nav, primary series, selected row, focus.
@@ -152,8 +154,8 @@
   /* Readable text on the soft status fills. The saturated hues above are for
      dots, meters and glyphs; at 11px on a tint they fail contrast, which is
      why the prototypes carry a second, darker value for the label itself. */
-  --ok-fg: #15803d;
-  --warn-fg: #b45309;
+  --ok-fg: #137a37;
+  --warn-fg: #a64a08;
   --bad-fg: #be123c;
   --info-fg: #2c57bf;
 
@@ -174,8 +176,8 @@
      radius of the four because they are the only thing that stands ON a
      surface rather than being one. */
   --r-shell: 1rem; /* 16 */
-  --r-card: 0.75rem; /* 12 */
-  --r-inner: 0.4375rem; /* 7 — controls, tags, inputs */
+  --r-card: 0.625rem; /* 10 — a white card on a grey page reads as a sheet laid down */
+  --r-inner: 0.5rem; /* 8 — controls, tags, inputs: on the 4/8 grid */
   --r-sheet: 1rem; /* 16 */
 
   /* The tooltip chip, and the avatar wash. Both are the prototype's, and both
@@ -209,6 +211,20 @@
   --app-library: #8b6b4a;
   --app-reports: #6d6af2;
   --app-system: #5b6472;
+
+  /* ── Space: the look of a clock that is not the wall's ──────────────────
+     The hub's virtual clock draws a lavender-to-violet field. The shop has no
+     virtual clock, so nothing here paints with these — they are carried so the
+     `:root` stays the hub's byte for byte (`npm run design-lint`'s parity
+     check), and the day a screen shows a bent clock they are already here. */
+  --space-a: #ece9f6;
+  --space-mid: #c9bdf0;
+  --space-b: #8b6bd0;
+  --space-core: #5a3ca6;
+  --space-grain: #ffffff;
+  --space-dust: #5b3fa8;
+  --space-ink: #2b1f55;
+  --space-ink-2: #2f2360;
 
   /* ── Motion ──────────────────────────────────────────────────────────
      Four curves, chosen by job rather than by taste, plus the timing bands
@@ -305,12 +321,14 @@
      Named once because the toolbar's whole rhythm is these things agreeing:
      the moment one of them is 30 and its neighbour 32, the bar reads crooked
      and nobody can say why. Hari's spec of 2026-09-10 said 28; the reference
-     screens hold 32 and the ruling was to follow the screens. */
-  --spacing-control: 32px;
+     screens hold 32 and the ruling was to follow the screens. 36 since
+     2026-09-28, with "airy charcoal". */
+  --spacing-control: 36px;
   /* A table row. 48 rather than the old ~38: the reference tables are read
      across, not scanned down, and a row you can rest your eye on needs the
-     height. Fewer rows fit — that is the trade, made deliberately. */
-  --spacing-row: 48px;
+     height. Fewer rows fit — that is the trade, made deliberately. 52 since
+     2026-09-28 (airy charcoal), the prototype's row. */
+  --spacing-row: 52px;
 
   --font-sans:
     "Inter Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -370,6 +388,9 @@
   --color-a-blue: var(--a-blue);
   --color-a-pink: var(--a-pink);
   --color-a-violet: var(--a-violet);
+  --color-space-core: var(--space-core);
+  --color-space-ink: var(--space-ink);
+  --color-space-ink-2: var(--space-ink-2);
   --color-fill-green: var(--fill-green);
   --color-fill-sky: var(--fill-sky);
   --color-fill-orange: var(--fill-orange);
@@ -390,10 +411,10 @@
 
   /* The type scale, named. Every size in DESIGN.md's `scale` block lives here
      so a screen asks for `text-card-title`, not for 15px. */
-  --text-hero: 1.0625rem; /* 17 declared — page title */
-  --text-hero--line-height: 1.4118;
+  --text-hero: 1.375rem; /* 22 — page title */
+  --text-hero--line-height: 1.875rem; /* 30 */
   --text-hero--letter-spacing: -0.02em;
-  --text-card-title: 0.9375rem; /* 15 */
+  --text-card-title: 1rem; /* 16 — one step above the 15px label and body */
   --text-card-title--letter-spacing: -0.01em;
   /* The metric size, from Hari's spec of 2026-09-10 verbatim: Inter 18/24
      Semi Bold, -0.1px. Down from 23, which was a headline pretending to be a
@@ -434,16 +455,16 @@
      to follow the screens. Its own name rather than borrowing `card-title`,
      because the day a control's size moves it must not drag every card
      heading in the app with it. */
-  --text-control: 0.875rem; /* 14 */
+  --text-control: 0.9375rem; /* 15 */
   --text-control--line-height: 1.25rem; /* 20 */
-  --text-meta: 0.875rem; /* 14 */
+  --text-meta: 0.9375rem; /* 15 */
   /* 14, up from 11. The outline tag is a LABEL that happens to be enclosed,
      not a badge: the reference screens set it at the same size as the text
      beside it and let the colour and the hairline do the separating. At 11 it
      read as a stamp applied to the row rather than as a fact about it. */
-  --text-pill: 0.875rem; /* 14 */
-  --text-id: 0.875rem; /* 14 — mono ids */
-  --text-cell: 0.875rem; /* 14 — table body */
+  --text-pill: 0.9375rem; /* 15 */
+  --text-id: 0.9375rem; /* 15 — mono ids */
+  --text-cell: 0.9375rem; /* 15 — table body */
 }
 
 @layer base {
@@ -542,18 +563,28 @@
     }
   }
 
-  /* Scrollbars are chrome, and chrome in this system is pale. */
+  /* The scrollbar is the one chrome that must be seen: the client could not
+     find the handle on the hub (2026-10-05) and asked for it clearer in colour
+     and size, and always showing. Styling it at all switches the platform's
+     overlay bar to a standing one; blue, the accent, so it reads as something
+     to grab, with a faint track so the lane is visible even when the handle is
+     at the far end. */
   ::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
+    width: 12px;
+    height: 12px;
   }
   ::-webkit-scrollbar-thumb {
-    background: #eeeeee;
+    background: color-mix(in srgb, var(--accent) 60%, transparent);
     border-radius: 8px;
-    border: 3px solid var(--canvas);
+    border: 2px solid var(--canvas);
+    min-height: 40px;
+    min-width: 40px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--accent);
   }
   ::-webkit-scrollbar-track {
-    background: transparent;
+    background: var(--accent-bg);
   }
 }
 
@@ -623,6 +654,10 @@
 html {
   -webkit-tap-highlight-color: transparent;
   -webkit-text-size-adjust: 100%;
+  /* No double-tap-to-zoom anywhere on the page, so a second quick tap on a row
+     is a second tap and not a zoom. Pinch still zooms: this is not
+     `user-scalable=no`, which would take zoom from people who need it. */
+  touch-action: manipulation;
 }
 html,
 body {
@@ -640,6 +675,9 @@ button,
 [role="tab"] {
   user-select: none;
   -webkit-user-select: none;
+  /* No long-press callout (copy / share / open) on a control: a press and
+     hold on a button is not a request for a menu. */
+  -webkit-touch-callout: none;
 }
 
 /* With `viewport-fit=cover` the page runs under the notch; the shell pads
@@ -708,7 +746,7 @@ button,
     content: attr(data-label);
     display: block;
     margin-bottom: 0.125rem;
-    font-size: 0.75rem;
+    font-size: 0.875rem;
     font-weight: 400;
     color: var(--mute);
     text-transform: none;
@@ -745,164 +783,58 @@ button,
   }
 }
 
-/* ── The door: v2 sign-in, quiet and airy ────────────────────────────────
-   The one place this app allows itself a gradient (hub v2, direction E ·
-   Quiet): a pale blue-grey weather that drifts behind a white card, with a
-   fine grain so the soft stops never band. Everything past the door is the
-   calm surface — white, hairlines, colour only where it means something.
-   Motion is the card arriving and its parts rising one after another; the
-   reduced-motion rule in the base layer stills all of it. */
-:root {
-  --door-base: #f2f4f8;
-  --door-1: #dbe5f7;
-  --door-2: #e7ecf5;
-  --door-3: #f7f8fa;
-  --door-4: #eef1f6;
-  --door-5: #e9edf4;
-  --door-6: #dbe4f4;
-  --ease-arrive: cubic-bezier(0.16, 1, 0.3, 1);
-}
+/* ── the door ────────────────────────────────────────────────────────────
+   Sign-in (`components/sign-in-door.tsx`) — the hub's, copied. The one screen
+   allowed a gradient, and it spends it on the charcoal half only: a blue glow
+   that echoes the dot in the app icon, drifting slowly enough to be felt
+   rather than watched, under a film of grain so the dark reads as a material
+   and not as a flat fill. The form half stays white and still.
 
-@property --door-ax {
-  syntax: "<percentage>";
-  inherits: false;
-  initial-value: 72%;
-}
-@property --door-ay {
-  syntax: "<percentage>";
-  inherits: false;
-  initial-value: 30%;
-}
-@property --door-bx {
-  syntax: "<percentage>";
-  inherits: false;
-  initial-value: 24%;
-}
-@property --door-by {
-  syntax: "<percentage>";
-  inherits: false;
-  initial-value: 70%;
-}
-
-@keyframes door-drift {
-  50% {
-    --door-ax: 58%;
-    --door-ay: 20%;
-    --door-bx: 36%;
-    --door-by: 82%;
-  }
-  100% {
-    --door-ax: 80%;
-    --door-ay: 46%;
-    --door-bx: 16%;
-    --door-by: 58%;
-  }
-}
-@keyframes door-arrive {
-  from {
-    opacity: 0;
-    transform: translateY(20px) scale(0.98);
-  }
-}
+   `door-rise` is the page arriving: each block rises 8px as it fades in,
+   60ms apart (`--i` is the block's place), the way a sheet of paper is laid
+   down rather than switched on. The reduced-motion block in the base layer
+   collapses all of it to the end state; the glow simply stops. */
 @keyframes door-rise {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(0.5rem);
   }
 }
-
-.door {
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  background-color: var(--door-base);
-  background-image:
-    radial-gradient(44% 52% at var(--door-ax) var(--door-ay), var(--door-1) 0%, transparent 100%),
-    radial-gradient(40% 50% at var(--door-bx) var(--door-by), var(--door-2) 0%, transparent 100%),
-    radial-gradient(70% 42% at 50% 104%, var(--door-3) 0%, transparent 100%),
-    linear-gradient(125deg, var(--door-4) 0%, var(--door-5) 45%, var(--door-6) 100%);
-  animation: door-drift 20s ease-in-out infinite alternate;
-}
-/* The glow behind the card: a slow turn of pale blues, blurred, breathing. */
-@keyframes door-turn {
-  to {
-    rotate: 360deg;
-  }
-}
-@keyframes door-breathe {
+@keyframes door-in {
   from {
-    opacity: 0.55;
+    opacity: 0;
+  }
+}
+@keyframes door-drift {
+  from {
+    transform: translate3d(-6%, 5%, 0) scale(1);
   }
   to {
-    opacity: 0.85;
+    transform: translate3d(6%, -6%, 0) scale(1.14);
   }
 }
-.door-aura {
-  position: absolute;
-  inset: -12px;
-  z-index: -1;
-  overflow: hidden;
-  border-radius: 44px;
-  filter: blur(38px);
-  opacity: 0.6;
-  animation: door-breathe 5s ease-in-out 1.2s infinite alternate;
+@keyframes door-live {
+  from {
+    box-shadow: 0 0 0 0 rgb(54 184 39 / 45%);
+  }
+  to {
+    box-shadow: 0 0 0 0.375rem rgb(54 184 39 / 0%);
+  }
 }
-.door-aura::before {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 150%;
-  aspect-ratio: 1;
-  translate: -50% -50%;
-  background: conic-gradient(from 0deg, #c7d6f5, #8fb1f7, #e3e8f0, #aac4f8, #d5dcea, #c7d6f5);
-  animation: door-turn 16s linear infinite;
+.door-rise {
+  animation: door-rise 520ms var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 60ms + 80ms);
 }
-/* Fields on the door: white, a hairline inside, a soft halo on focus. */
-.door-input {
-  background-color: var(--canvas);
-  box-shadow:
-    0 1px 2px rgb(0 0 0 / 5%),
-    inset 0 0 0 1px var(--hairline-2);
-  transition: box-shadow var(--t-hover) var(--ease-out);
+.door-in {
+  animation: door-in 900ms var(--ease-out) both;
 }
-.door-input:hover {
-  box-shadow:
-    0 1px 2px rgb(0 0 0 / 5%),
-    inset 0 0 0 1px var(--hairline-strong);
+.door-glow {
+  animation: door-drift 16s var(--ease-in-out) infinite alternate;
 }
-.door-input:focus,
-.door-input:focus-visible {
-  outline: none;
-  box-shadow:
-    0 0 0 4px rgb(37 99 235 / 16%),
-    inset 0 0 0 1px var(--accent);
+.door-live {
+  animation: door-live 2.4s var(--ease-out) infinite;
 }
-.door::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  opacity: 0.18;
-  mix-blend-mode: soft-light;
+.door-grain {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
-}
-.door-card {
-  animation: door-arrive 0.7s var(--ease-arrive) both;
-  box-shadow:
-    0 1px 2px rgb(24 39 60 / 5%),
-    0 32px 64px -32px rgb(24 39 60 / 28%),
-    0 0 0 1px rgb(24 39 60 / 5%);
-}
-.door-card > * {
-  animation: door-rise 0.6s var(--ease-arrive) both;
-  animation-delay: calc(var(--i, 0) * 70ms + 140ms);
-}
-/* The one action on the door: the hub v2 button — a white sheen over the
-   blue and a hairline of light along its top edge. */
-.door-action {
-  background-image: linear-gradient(180deg, rgb(255 255 255 / 16%), rgb(255 255 255 / 0%));
-  box-shadow:
-    0 1px 2px rgb(24 39 60 / 16%),
-    inset 0 1px 0 rgb(255 255 255 / 22%),
-    inset 0 0 0 1px rgb(0 0 0 / 8%);
+  mix-blend-mode: soft-light;
 }

@@ -10,13 +10,15 @@ import { Input } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { EmptyState } from "@/components/ui/states"
+import { Pill } from "@/components/ui/pill"
 import { Tag } from "@/components/ui/tag"
 import { SHOW_MISSING, withoutMissing } from "@/lib/features"
 import { count } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
-  availability,
-  fleetPools,
-  inventoryKeys,
+  AVAILABILITY_OPENING_POOL,
+  availabilityQuery,
+  fleetPoolsQuery,
   type AvailabilityItem,
 } from "@/lib/queries/inventory"
 import { queryState } from "@/lib/query-state"
@@ -24,6 +26,7 @@ import { tableSetup, type TableSetup } from "@/lib/table"
 import { useDebounced } from "@/lib/use-debounced"
 import { Choice, Metric, MetricRow } from "@/screens/inventory/parts"
 import { placements } from "@/screens/inventory/shared"
+import { CardFigure, CardName } from "@/components/ui/phone-cards"
 import {
   DisplayUnitPicker,
   useDisplayUnit,
@@ -71,6 +74,7 @@ function availabilityColumns(
       accessorFn: (row) => `${row.article_name} ${row.article_code}`,
       header: "Article",
       size: 260,
+      meta: { card: "hide" },
       cell: ({ row }) => (
         <div className="min-w-0">
           <span className="block truncate text-ink">
@@ -86,6 +90,7 @@ function availabilityColumns(
       accessorKey: "sku_code",
       header: "SKU",
       size: 140,
+      meta: { card: "hide" },
       cell: ({ row }) => (
         <span className="font-mono text-id text-body">
           {row.original.sku_code}
@@ -97,6 +102,7 @@ function availabilityColumns(
       accessorFn: (row) => `${row.colour ?? ""} ${row.size ?? ""}`,
       header: "Variant",
       size: 150,
+      meta: { card: "hide" },
       cell: ({ row }) => (
         <span className="text-body">
           {[row.original.colour, row.original.size]
@@ -109,6 +115,7 @@ function availabilityColumns(
       accessorKey: "division_code",
       header: "Division",
       size: 110,
+      meta: { card: "hide" },
       cell: ({ row }) =>
         row.original.division_code ? (
           <Tag>{row.original.division_code}</Tag>
@@ -120,14 +127,14 @@ function availabilityColumns(
       accessorKey: "stock_qty",
       header: "Stock",
       size: 100,
-      meta: { align: "right" },
+      meta: { align: "right", card: "hide" },
       cell: ({ row }) => display.format(row.original.stock_qty),
     },
     {
       accessorKey: "allotted_qty",
       header: "Allotted",
       size: 100,
-      meta: { align: "right" },
+      meta: { align: "right", card: "hide" },
       cell: ({ row }) => (
         <span
           className={
@@ -142,7 +149,7 @@ function availabilityColumns(
       accessorKey: "on_hand_qty",
       header: "On Hand",
       size: 110,
-      meta: { align: "right" },
+      meta: { align: "right", card: "hide" },
       // The decision metric, and the reason the list opens sorted by it: a
       // negative on hand is stock promised twice.
       cell: ({ row }) => (
@@ -163,7 +170,7 @@ function availabilityColumns(
       accessorKey: "missing_qty",
       header: "Missing",
       size: 100,
-      meta: { align: "right" },
+      meta: { align: "right", card: "hide" },
       cell: ({ row }) => (
         <span
           className={
@@ -174,11 +181,87 @@ function availabilityColumns(
         </span>
       ),
     },
+    // Four columns that exist only on a card (`cardLead`; a phone): the article
+    // over its variant and SKU, what is on hand (the figure the list is read
+    // by, red when it was promised twice), stock and allotted on the foot, and
+    // the flag for the over-promised.
+    {
+      id: "head",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "title" },
+      accessorFn: (row) => row.article_name,
+      cell: ({ row }) => {
+        const variant = [row.original.colour, row.original.size]
+          .filter(Boolean)
+          .join(" · ")
+        return (
+          <CardName
+            name={row.original.article_name}
+            line={
+              <>
+                {variant !== "" && <>{variant} · </>}
+                <span className="font-mono">{row.original.sku_code}</span>
+              </>
+            }
+          />
+        )
+      },
+    },
+    {
+      id: "lead",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "lead" },
+      accessorFn: (row) => row.on_hand_qty,
+      cell: ({ row }) => (
+        <CardFigure
+          value={display.format(row.original.on_hand_qty)}
+          caption="on hand"
+          tone={
+            row.original.on_hand_qty < 0
+              ? "bad"
+              : row.original.on_hand_qty === 0
+                ? "quiet"
+                : undefined
+          }
+        />
+      ),
+    },
+    {
+      id: "foot",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "foot" },
+      accessorFn: (row) => row.stock_qty,
+      cell: ({ row }) => (
+        <span className="tabular-nums">
+          Stock {display.format(row.original.stock_qty)} · Allotted{" "}
+          {display.format(row.original.allotted_qty)}
+        </span>
+      ),
+    },
+    {
+      id: "flag",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { align: "right", card: "status" },
+      accessorFn: (row) => (row.on_hand_qty < 0 ? 1 : 0),
+      cell: ({ row }) =>
+        row.original.on_hand_qty < 0 ? (
+          <Pill tone="bad">Over-promised</Pill>
+        ) : null,
+    },
   ]
 }
 
 export function Availability() {
-  const [pool, setPool] = useState("dc.warehouse")
+  const phone = useLayout() === "phone"
+  const [pool, setPool] = useState(AVAILABILITY_OPENING_POOL)
   const [text, setText] = useState("")
   const [view, setView] = useState<"all" | "short">("all")
 
@@ -186,22 +269,10 @@ export function Availability() {
   const needle = useDebounced(text.trim(), 400)
   const shortfall = view === "short"
 
-  const pools = useQuery({
-    queryKey: inventoryKeys.fleet(),
-    queryFn: ({ signal }) => fleetPools(signal),
-  })
+  const pools = useQuery(fleetPoolsQuery())
 
-  const page = useInfiniteQuery({
-    queryKey: inventoryKeys.availability(pool, needle, shortfall),
-    queryFn: ({ pageParam, signal }) =>
-      availability(
-        { sourcePoolId: pool, query: needle, shortfall, cursor: pageParam },
-        signal
-      ),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-    placeholderData: (previous) => previous,
-  })
+  // Shared with the prefetcher (`screens/inventory/prefetch.ts`).
+  const page = useInfiniteQuery(availabilityQuery(pool, needle, shortfall))
 
   const rows = useMemo(
     () =>
@@ -225,8 +296,17 @@ export function Availability() {
         getRowId: (row: AvailabilityItem) => row.sku_id,
         // The server orders by SKU code and nothing else; see above.
         enableSorting: false,
+        // The card's own columns are drawn on a phone and never on a desk.
+        state: {
+          columnVisibility: {
+            head: phone,
+            lead: phone,
+            foot: phone,
+            flag: phone,
+          },
+        },
       }),
-      [rows, columns]
+      [rows, columns, phone]
     )
   )
 
@@ -271,7 +351,7 @@ export function Availability() {
         />
       </Toolbar>
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(page, {
           loading: "Reading the pool…",
           render: (answer) => {
@@ -280,41 +360,45 @@ export function Availability() {
             const data = answer.pages[0]
             return (
               <>
-                <CardStrip className="justify-between">
-                  <span className="text-meta font-medium text-ink">
-                    {data.source_pool_label}
-                    <span className="ml-2 font-mono text-id text-mute">
-                      {data.source_place_id}
+                {/* A phone keeps the pool and its figures as a card of their
+                    own, over the cards of its SKUs. */}
+                <div className="max-md:mb-3 max-md:overflow-hidden max-md:rounded-card max-md:border max-md:border-hairline max-md:bg-canvas max-md:shadow-soft">
+                  <CardStrip className="justify-between max-md:flex-wrap">
+                    <span className="text-meta font-medium text-ink">
+                      {data.source_pool_label}
+                      <span className="ml-2 font-mono text-id text-mute">
+                        {data.source_place_id}
+                      </span>
                     </span>
-                  </span>
-                  <span className="text-[0.875rem] text-mute">
-                    {data.inventory_equation}
-                  </span>
-                </CardStrip>
+                    <span className="text-[0.875rem] text-mute">
+                      {data.inventory_equation}
+                    </span>
+                  </CardStrip>
 
-                <div className="border-b border-hairline px-4 py-3.5">
-                  <MetricRow>
-                    <Metric
-                      label="Stock"
-                      value={display.format(data.stock_qty)}
-                    />
-                    <Metric
-                      label="Allotted"
-                      value={display.format(data.allotted_qty)}
-                    />
-                    <Metric
-                      label="On hand"
-                      value={display.format(data.on_hand_qty)}
-                      tone={data.on_hand_qty < 0 ? "bad" : "ink"}
-                    />
-                    {SHOW_MISSING && (
+                  <div className="border-b border-hairline px-4 py-3.5 max-md:border-b-0">
+                    <MetricRow>
                       <Metric
-                        label="Missing"
-                        value={display.format(data.missing_qty)}
-                        tone={data.missing_qty > 0 ? "warn" : "ink"}
+                        label="Stock"
+                        value={display.format(data.stock_qty)}
                       />
-                    )}
-                  </MetricRow>
+                      <Metric
+                        label="Allotted"
+                        value={display.format(data.allotted_qty)}
+                      />
+                      <Metric
+                        label="On hand"
+                        value={display.format(data.on_hand_qty)}
+                        tone={data.on_hand_qty < 0 ? "bad" : "ink"}
+                      />
+                      {SHOW_MISSING && (
+                        <Metric
+                          label="Missing"
+                          value={display.format(data.missing_qty)}
+                          tone={data.missing_qty > 0 ? "warn" : "ink"}
+                        />
+                      )}
+                    </MetricRow>
+                  </div>
                 </div>
 
                 {rows.length === 0 ? (
@@ -328,11 +412,15 @@ export function Availability() {
                 ) : (
                   <>
                     <DataTable<AvailabilityItem>
+                      refresh={[page]}
                       table={table}
                       more={page}
                       className="max-h-[calc(100dvh-26rem)]"
+                      cardSort={false}
+                      cardsApart
+                      cardLead
                     />
-                    <div className="border-t border-hairline px-4 py-2.5 text-[0.875rem] text-mute tabular-nums">
+                    <div className="border-t border-hairline px-4 py-2.5 text-[0.875rem] text-mute tabular-nums max-md:border-t-0 max-md:px-1">
                       {count(data.total_items)} SKUs
                     </div>
                   </>

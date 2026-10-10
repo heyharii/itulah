@@ -154,7 +154,7 @@ export function OpenStoresSheet({
             />
             <p className="mt-4 text-meta text-body">
               Each store gets its own cash and reports, floor, back-room and
-              reject stock, a return pool at the Gudang, a code to pair its
+              reject stock, a return pool at the warehouse, a code to pair its
               server, and a manager invited by link — the same link every other
               invitation sends.
             </p>

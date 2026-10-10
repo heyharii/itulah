@@ -86,7 +86,7 @@ export function ReadinessRing({
   done,
   total,
   complete,
-  size = 34,
+  size = 52,
 }: {
   done: number
   total: number
@@ -129,7 +129,7 @@ export function ReadinessRing({
           strokeDashoffset={round * (1 - share)}
         />
       </svg>
-      <span className="text-[0.625rem] font-semibold text-ink tabular-nums">
+      <span className="text-[0.875rem] leading-none font-semibold text-ink tabular-nums">
         {complete ? "✓" : `${done}/${total}`}
       </span>
     </div>

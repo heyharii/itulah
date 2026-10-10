@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
 import { useUnits, type UnitView } from "@/lib/queries/organisation"
 import { cn } from "@/lib/utils"
+import { PhoneChoice } from "@/screens/finance/parts"
 
 /// The frame every Finance › Stores page stands in: the shops down the left,
 /// the page of the chosen shop on the right.
@@ -89,7 +90,13 @@ export function StoreFrame({
 
   return (
     <PageContent>
-      <PageHeader crumb="Finance › Stores" title={title} sub={sub} />
+      {/* A phone's top bar already names the screen. */}
+      <PageHeader
+        className="max-md:hidden"
+        crumb="Finance › Stores"
+        title={title}
+        sub={sub}
+      />
 
       {units.isPending ? (
         <LoadingState>Reading the shops…</LoadingState>
@@ -98,10 +105,13 @@ export function StoreFrame({
       ) : unit === undefined ? (
         <EmptyState>No shop is open yet.</EmptyState>
       ) : (
-        <div className="flex items-start gap-6">
+        <div className="flex items-start gap-6 max-md:block">
+          {/* The shops stand in a column on a desk. On a phone a column of
+              224px left the page 122px to be read in; there the shop is a
+              chip in the dock (`PhoneChoice`, below). */}
           <nav
             aria-label="Shops"
-            className="sticky top-4 w-56 shrink-0 overflow-hidden rounded-card border border-hairline-2 bg-canvas shadow-soft"
+            className="sticky top-4 w-56 shrink-0 overflow-hidden rounded-card border border-hairline-2 bg-canvas shadow-soft max-md:hidden"
           >
             {stores.map((store) => (
               <button
@@ -140,6 +150,17 @@ export function StoreFrame({
             </div>
             {children(unit)}
           </div>
+          {/* After the screen's own dock pieces, so its chip is the last. */}
+          <PhoneChoice
+            title="Shop"
+            value={unit.id}
+            onChange={choose}
+            options={stores.map((store) => ({
+              value: store.id,
+              label: `${store.name} · ${store.code}`,
+              short: store.name,
+            }))}
+          />
         </div>
       )}
     </PageContent>

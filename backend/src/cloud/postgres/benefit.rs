@@ -85,8 +85,12 @@ pub async fn benefit_settings(pool: &PgPool) -> Result<Vec<BenefitSettingView>, 
                 effective_from: row.try_get("effective_from")?,
                 enabled: row.try_get("enabled")?,
                 code_minutes: row.try_get("code_minutes")?,
-                set_by: row.try_get::<Option<String>, _>("by_actor")?.unwrap_or_default(),
-                reason: row.try_get::<Option<String>, _>("reason")?.unwrap_or_default(),
+                set_by: row
+                    .try_get::<Option<String>, _>("by_actor")?
+                    .unwrap_or_default(),
+                reason: row
+                    .try_get::<Option<String>, _>("reason")?
+                    .unwrap_or_default(),
             })
         })
         .collect()
@@ -261,7 +265,9 @@ pub async fn benefit_account(
                 reason: row.try_get("reason")?,
                 unit_id: row.try_get("unit_id")?,
                 sale_ref: row.try_get("sale_ref")?,
-                by: row.try_get::<Option<String>, _>("by_name")?.unwrap_or_default(),
+                by: row
+                    .try_get::<Option<String>, _>("by_name")?
+                    .unwrap_or_default(),
                 at: row.try_get("created_at")?,
             })
         })
@@ -357,7 +363,9 @@ pub async fn issue_benefit_code(
             });
         }
     }
-    Err(AppError::Conflict("no free code right now; try again".into()))
+    Err(AppError::Conflict(
+        "no free code right now; try again".into(),
+    ))
 }
 
 fn rand_six() -> u32 {
@@ -366,10 +374,7 @@ fn rand_six() -> u32 {
 }
 
 /// Whose code this is, if it is still good. Does not use it up.
-async fn holder_of(
-    tx: &mut Transaction<'_, Postgres>,
-    code: &str,
-) -> Result<String, AppError> {
+async fn holder_of(tx: &mut Transaction<'_, Postgres>, code: &str) -> Result<String, AppError> {
     let employee: Option<String> = sqlx::query_scalar(
         "SELECT employee_id FROM benefit_code
           WHERE code = $1 AND used_at IS NULL AND expires_at > now()",
@@ -378,7 +383,9 @@ async fn holder_of(
     .fetch_optional(&mut **tx)
     .await?;
     employee.ok_or_else(|| {
-        AppError::NotFound("that code is not good: wrong, used, or expired — ask for a new one".into())
+        AppError::NotFound(
+            "that code is not good: wrong, used, or expired — ask for a new one".into(),
+        )
     })
 }
 
@@ -386,7 +393,9 @@ pub async fn benefit_holder(pool: &PgPool, code: &str) -> Result<BenefitHolderVi
     let mut tx = pool.begin().await?;
     let (enabled, _) = setting_now(&mut tx).await?;
     if !enabled {
-        return Err(AppError::Conflict("the employee benefit is not turned on".into()));
+        return Err(AppError::Conflict(
+            "the employee benefit is not turned on".into(),
+        ));
     }
     let employee_id = holder_of(&mut tx, code).await?;
     let balance = locked_balance(&mut tx, &employee_id).await?;
@@ -421,10 +430,14 @@ pub async fn spend_benefit(
     by: &Authorization,
 ) -> Result<BenefitHolderView, AppError> {
     if amount_minor <= 0 {
-        return Err(AppError::Validation("spend a positive number of rupiah".into()));
+        return Err(AppError::Validation(
+            "spend a positive number of rupiah".into(),
+        ));
     }
     if sale_ref.trim().is_empty() {
-        return Err(AppError::Validation("a spend names the sale it pays".into()));
+        return Err(AppError::Validation(
+            "a spend names the sale it pays".into(),
+        ));
     }
     if basket_has_promotion {
         return Err(AppError::Conflict(
@@ -434,7 +447,9 @@ pub async fn spend_benefit(
     let mut tx = pool.begin().await?;
     let (enabled, _) = setting_now(&mut tx).await?;
     if !enabled {
-        return Err(AppError::Conflict("the employee benefit is not turned on".into()));
+        return Err(AppError::Conflict(
+            "the employee benefit is not turned on".into(),
+        ));
     }
     let employee_id = holder_of(&mut tx, code).await?;
     if cashier_employee_id == Some(employee_id.as_str()) {
@@ -495,7 +510,9 @@ pub async fn return_benefit(
     by: &Authorization,
 ) -> Result<i64, AppError> {
     if amount_minor <= 0 {
-        return Err(AppError::Validation("give back a positive number of rupiah".into()));
+        return Err(AppError::Validation(
+            "give back a positive number of rupiah".into(),
+        ));
     }
     let mut tx = pool.begin().await?;
     let spent: Option<(String, String, i64)> = sqlx::query_as(
@@ -505,9 +522,8 @@ pub async fn return_benefit(
     .bind(sale_ref.trim())
     .fetch_optional(&mut *tx)
     .await?;
-    let (employee_id, unit_id, spent) = spent.ok_or_else(|| {
-        AppError::NotFound(format!("sale {sale_ref} spent no benefit"))
-    })?;
+    let (employee_id, unit_id, spent) =
+        spent.ok_or_else(|| AppError::NotFound(format!("sale {sale_ref} spent no benefit")))?;
     let balance = locked_balance(&mut tx, &employee_id).await?;
     let returned: i64 = sqlx::query_scalar(
         "SELECT COALESCE(SUM(delta_minor), 0)::bigint FROM benefit_entry

@@ -228,14 +228,13 @@ pub async fn upsert_edge_assignment(
     // password of its own. A store has no such exchange: a new store grant
     // without one is a grant nobody can use.
     if credential_hash.is_none() && origin.role != EdgeRole::Dc {
-        let granted = sqlx::query(
-            "SELECT 1 FROM edge_identity_assignment WHERE origin_id=$1 AND user_id=$2",
-        )
-        .bind(&origin_id)
-        .bind(request.user_id)
-        .fetch_optional(pool)
-        .await?
-        .is_some();
+        let granted =
+            sqlx::query("SELECT 1 FROM edge_identity_assignment WHERE origin_id=$1 AND user_id=$2")
+                .bind(&origin_id)
+                .bind(request.user_id)
+                .fetch_optional(pool)
+                .await?
+                .is_some();
         if !granted {
             return Err(AppError::Validation(
                 "a store grant needs a password at that node: stores have no Cloud sign-in".into(),
@@ -1428,13 +1427,15 @@ pub async fn reconcile_node_access_tx(
     user_id: Option<Uuid>,
     actor: &str,
 ) -> Result<Vec<String>, AppError> {
-    Ok(sqlx::query_scalar(
-        "SELECT origin_id FROM node_access_reconcile($1::uuid, $2) AS origin_id",
+    Ok(
+        sqlx::query_scalar(
+            "SELECT origin_id FROM node_access_reconcile($1::uuid, $2) AS origin_id",
+        )
+        .bind(user_id)
+        .bind(actor)
+        .fetch_all(&mut **tx)
+        .await?,
     )
-    .bind(user_id)
-    .bind(actor)
-    .fetch_all(&mut **tx)
-    .await?)
 }
 
 /// [`reconcile_node_access_tx`] in a transaction of its own.

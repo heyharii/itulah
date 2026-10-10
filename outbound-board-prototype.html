@@ -13,13 +13,23 @@
    Ops → Outbound: one board, five lanes, only outbound.
 
    Picklist → Picked → Packed → In transit → Received. A card is one store's
-   share of one allotment. Cards are never dragged: each lane has the one
-   thing the Gudang does there, and doing it moves the card. Dispatch takes
+   share of one allotment. Each lane has the one thing the Gudang does there, and doing it moves the card. On a desk
+   a card can also be dragged (a drop opens the sheet that does the step, never writes).
+   The warehouse can move its own work back — Picked → To pick, Packed → Picked or To pick — never from
+   In transit; it asks first. Dispatch takes
    several cards at once — one truck, one surat jalan per store.
 
    Everything else the downloaded "Papan Outbound HO" carried lives in its
    own place in the hub: allotments in Merchandise, receiving in Ops →
    Receiving, stock control in Inventory.
+
+   Cancel and edit from MD (9 Oct): the second script at the foot of this file
+   adds MD · Allotments (list, sheet, Edit, Cancel) and what the warehouse sees
+   when MD changes something that is already in the building. Cancel only while
+   every picklist is still on the Pick List; Edit add/reduce any time except what
+   was sent; the warehouse does the physical part and confirms; a card with work
+   owed cannot be packed or dispatched. The "Cue" switch (bottom right) tries
+   four ways to show a packed store that MD reduced.
 
    Hub tokens, 16px root, nothing under 14px, English copy.
    ───────────────────────────────────────────────────────────────────────── */
@@ -249,6 +259,173 @@ tbody td{height:64px}
 .tree td{height:52px}
 .nm{line-height:1.4}
 .sk{line-height:1.4;margin-top:4px}
+
+/* ═══ Edit and cancel from MD — what the warehouse sees ═══════════════════ */
+.btn.tint{background:var(--accent-bg);border-color:transparent;color:var(--accent);font-weight:600;transition:transform 160ms var(--ease-out),background 150ms}
+.btn.tint:hover{background:#e3edff}
+.btn:active{transform:scale(.97)}
+.btn.danger{color:var(--bad-fg);border-color:transparent;background:none}
+.btn.danger:hover{background:#fbeaea}
+.btn.dsolid{background:var(--bad-fg);color:#fff;border-color:var(--bad-fg)}
+.btn.dsolid:hover{background:#9f1239}
+.btn[disabled]{opacity:.45;cursor:default;transform:none}
+.proto{z-index:35;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-start;left:84px;right:auto;max-width:calc(100vw - 100px)}
+.board{margin-bottom:96px}
+.proto .seg b.r{color:#ff8a8a}
+.proto .lbl{color:#a9abb1;align-self:center;padding:0 6px 0 10px}
+.ci{position:relative}
+.ci.reddot::after{content:"";position:absolute;top:6px;right:6px;width:9px;height:9px;border-radius:50%;background:#ef4444;box-shadow:0 0 0 2px var(--rail-3)}
+.card{position:relative}
+.card.alert{animation:alertin 1.8s var(--ease-out)}
+@keyframes alertin{0%{box-shadow:0 0 0 3px rgb(190 18 60/.45);transform:translateY(-6px);opacity:0}15%{opacity:1;transform:none}100%{box-shadow:0 0 0 3px rgb(190 18 60/0)}}
+.card.cancelled .store{text-decoration:none}
+.card .was{color:var(--mute);font-weight:400;margin-right:6px;text-decoration:line-through}
+.card .age{color:var(--bad-fg);font-size:14px}
+.tagw{font-size:14px;font-weight:500;color:var(--accent);margin-left:6px;white-space:nowrap}
+.box.off{background:var(--soft-2);border-color:var(--hairline);color:var(--faint);cursor:not-allowed}
+.box.off svg{display:block;width:12px;height:12px;stroke-width:2.4}
+.lh .s .fixn{color:var(--bad-fg);font-weight:500}
+.tabs button .fx{color:var(--bad-fg);font-weight:600}
+/* cue B: keep / take out */
+.split{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.split>div{border-radius:8px;padding:8px 10px;background:var(--soft)}
+.split>div.out{background:#fbeaea;color:var(--bad-fg)}
+.split small{display:block;font-size:14px;color:inherit;opacity:.85}
+.split b{display:block;font-weight:600;font-variant-numeric:tabular-nums}
+/* cue C: koli chips */
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips span{height:28px;padding:0 8px;border-radius:7px;background:var(--soft-2);font-size:14px;display:inline-flex;align-items:center;gap:4px;font-family:"JetBrains Mono",ui-monospace,monospace;color:var(--body)}
+.chips span.x{background:#fbeaea;color:var(--bad-fg);box-shadow:inset 0 0 0 1px rgb(190 18 60/.4)}
+/* cue D: stamp */
+.stamp{display:inline-block;transform:rotate(-4deg);border:2px solid var(--bad-fg);color:var(--bad-fg);border-radius:8px;padding:0 8px;font-weight:700;letter-spacing:.06em;font-size:14px;line-height:22px;opacity:.8;pointer-events:none}
+/* MD: tabs, list, sheet */
+.vtabs{display:flex;gap:4px;margin:0 0 18px;border-bottom:1px solid var(--hairline)}
+.vtabs button{height:42px;padding:0 14px;color:var(--body);position:relative;font-weight:500}
+.vtabs button.on{color:var(--ink)}
+.vtabs button.on::after{content:"";position:absolute;left:10px;right:10px;bottom:-1px;height:2px;background:var(--ink);border-radius:2px}
+.vtabs button b{font-weight:500;color:var(--mute);margin-left:6px}
+.sw{display:inline-flex;align-items:center;gap:7px;font-weight:500}
+.sw i{width:8px;height:8px;border-radius:50%;background:var(--faint);display:inline-block}
+.sw.active i{background:var(--accent)}.sw.active{color:var(--accent)}
+.sw.completed i{background:var(--ok)}.sw.completed{color:var(--ok-fg)}
+.sw.cancelled{color:var(--mute)}
+.mdt tr.go{cursor:pointer}
+.mdt tr.go:hover td{background:var(--soft)}
+.mdt td .sub2{display:block;color:var(--mute);font-size:14px;margin-top:2px}
+.mdt td .sub2.red{color:var(--bad-fg)}
+.mdcards{display:none}
+.mdc{background:var(--canvas);border-radius:10px;border:1px solid var(--hairline);margin-bottom:12px;overflow:hidden}
+.mdc .hd{display:flex;justify-content:space-between;gap:12px;padding:16px 16px 12px}
+.mdc .hd b{font-weight:600;color:var(--ink);font-size:16px;display:block}
+.mdc .big{text-align:right}.mdc .big b{font-size:24px;line-height:30px}.mdc .big span{color:var(--mute);font-size:14px}
+.mdc .ft{border-top:1px solid var(--hairline);padding:12px 16px;display:flex;justify-content:space-between;align-items:center;gap:12px;min-height:56px}
+.mdc .ft .sub2{color:var(--mute);font-size:14px;margin-top:2px}
+.mdc .ft .sub2.red{color:var(--bad-fg)}
+.sf .grow{flex:1}
+.fnote{color:var(--body);align-self:center;font-size:14px;min-width:0}
+.fnote.red{color:var(--bad-fg)}
+.sbn{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:0 0 20px}
+.sbn div{background:var(--soft);border-radius:10px;padding:10px 12px}
+.sbn small{display:block;color:var(--body);font-size:14px}
+.sbn b{font-size:18px;color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+.stl{display:flex;align-items:center;gap:8px;margin:20px 0 8px;color:var(--ink);font-weight:600}
+.stl span{color:var(--mute);font-weight:400}
+.stl .r{margin-left:auto;font-weight:500;font-variant-numeric:tabular-nums}
+.lockrow{display:flex;align-items:center;gap:10px;background:var(--soft);border-radius:10px;padding:12px 14px;color:var(--body);margin:20px 0 8px}
+.lockrow svg{width:16px;height:16px;color:var(--mute)}
+.lockrow b{color:var(--ink);font-weight:500}
+.lockrow .r{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--ink)}
+.ecue{font-size:14px;color:var(--mute);white-space:nowrap}
+.ecue.red{color:var(--bad-fg)}.ecue.acc{color:var(--accent)}
+.addrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--soft);border-radius:10px;padding:12px;margin-top:16px}
+.addrow select,.addrow input{height:40px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:0 10px;background:var(--canvas);font:inherit;color:var(--ink)}
+.addrow input{width:72px;text-align:right}
+.evl{display:flex;flex-direction:column;gap:8px;margin-top:6px}
+.evl div{display:flex;gap:12px;color:var(--text)}
+.evl .mono{color:var(--mute);flex-shrink:0}
+.rch{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 14px}
+.rch button{height:38px;padding:0 14px;border-radius:19px;border:1px solid var(--hairline-2);color:var(--body);font-weight:500;background:var(--canvas)}
+.rch button.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.dlg textarea.nt{width:100%;min-height:72px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);padding:10px 12px;font:inherit;color:var(--ink);outline:none;resize:vertical}
+.dlg textarea.nt:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgb(37 99 235/.12)}
+.banner{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:10px;margin-bottom:16px;font-weight:500}
+.banner.red{background:#fbeaea;color:var(--bad-fg)}
+.banner.acc{background:var(--accent-bg);color:#1e40af}
+.blk{margin-top:14px;padding:12px 14px;border-radius:10px;background:#fbeaea;color:var(--bad-fg)}
+.blk div+div{margin-top:4px}
+.mdpanel .sb{padding:20px 28px}
+@media (max-width:767px){
+  .mdt{display:none}.mdcards{display:block}
+  .sbn{grid-template-columns:repeat(2,1fr)}
+  .proto{left:8px;right:8px;bottom:8px;max-width:none}
+  .proto .seg{flex-wrap:wrap}
+  .board{margin-bottom:150px}
+}
+@media (prefers-reduced-motion:reduce){.card.alert{animation:none;box-shadow:0 0 0 3px rgb(190 18 60/.3)}}
+
+/* ═══ drag and drop ═══════════════════════════════════════════════════════ */
+.card[draggable="true"]{cursor:grab}
+.card[draggable="true"]:active{cursor:grabbing}
+.lane{position:relative;transition:box-shadow 160ms var(--ease-out),background 160ms var(--ease-out),opacity 160ms var(--ease-out)}
+.lane.drop-ok{box-shadow:0 0 0 2px rgb(37 99 235/.3)}
+.lane.drop-ok.over{background:var(--accent-bg);box-shadow:0 0 0 2px var(--accent)}
+.lane.drop-no{opacity:.55}
+.lane.over-no{opacity:1;box-shadow:0 0 0 2px var(--bad-fg)}
+.lane.over-no::after{content:attr(data-msg);position:absolute;left:12px;right:12px;top:42%;background:#fbeaea;color:var(--bad-fg);border-radius:10px;padding:12px;text-align:center;font-weight:500;pointer-events:none}
+.bis{position:fixed;left:50%;bottom:96px;transform:translate(-50%,16px);opacity:0;pointer-events:none;background:var(--ink);color:#fff;border-radius:14px;padding:16px 28px;font-weight:500;display:flex;align-items:center;gap:10px;transition:opacity 180ms var(--ease-out),transform 180ms var(--ease-out),background 150ms;z-index:80;box-shadow:var(--shadow-float);min-width:260px;justify-content:center}
+.bis.on{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+.bis.over{background:var(--accent)}
+@media (max-width:767px){.bis{display:none}}
+@media (prefers-reduced-motion:reduce){.bis{transition:opacity 150ms linear}}
+
+/* ═══ stamped: a card MD changed looks switched off, with one big stamp ═══ */
+.cwrap{position:relative;display:flex;flex-direction:column}
+.cbody{display:flex;flex-direction:column;gap:6px}
+.card.stamped{background:var(--soft);border-color:var(--hairline);overflow:hidden}
+.card.stamped::before{content:"";position:absolute;inset:0;background:repeating-linear-gradient(135deg,rgb(32 36 44/.045) 0 7px,transparent 7px 14px);pointer-events:none;z-index:1}
+.card.stamped .cbody{opacity:.5;filter:grayscale(.8);padding-bottom:44px}
+.card.stamped .act,.card.stamped .age{position:relative;z-index:3}
+.stampbig{position:absolute;left:50%;bottom:6px;transform:translateX(-50%) rotate(-7deg);border:3px solid var(--bad-fg);color:var(--bad-fg);border-radius:10px;padding:2px 14px;font-weight:700;font-size:24px;line-height:32px;letter-spacing:.06em;white-space:nowrap;background:rgb(255 255 255/.7);opacity:.95;pointer-events:none;z-index:2}
+
+/* a card never shrinks to fit its lane: the lane scrolls, and a Remove / Move back button is never clipped */
+.lb>*{flex-shrink:0}
+.card.stamped .cbody{padding-bottom:50px}
+.stampbig{font-size:22px;line-height:30px;bottom:10px}
+
+/* toasts stack instead of sitting on top of each other */
+#toasts{position:fixed;left:50%;bottom:104px;transform:translateX(-50%);display:flex;flex-direction:column;gap:8px;align-items:center;z-index:100;pointer-events:none;max-width:calc(100vw - 32px)}
+#toasts .toast{position:static;transform:none;animation:toastin 220ms var(--ease-out)}
+@keyframes toastin{from{opacity:0;transform:translateY(8px)}}
+
+@media (max-width:767px){
+  .tabs{flex-wrap:wrap;overflow:visible}
+  .card .act .btn{height:44px}
+  .lf .btn{height:44px}
+}
+
+/* the short-pick reason picker in the pick sheet */
+.blkbox{margin-top:14px;padding:14px 16px;border-radius:10px;background:#fffaf1;border:1px solid #f0d9a8}
+.blkbox b{color:var(--ink);font-weight:600}
+.blkbox .rch{margin:10px 0 8px}
+.blkbox p{margin:0;color:var(--body)}
+.sw.short{color:var(--warn-fg)}.sw.short i{background:var(--warn)}
+
+
+/* the reason, as a marker on the card */
+.rpill{display:inline-flex;align-items:center;height:26px;padding:0 10px;border-radius:13px;background:var(--warn-bg);color:var(--warn-fg);font-size:14px;font-weight:500;white-space:nowrap}
+
+.rrow{display:flex;flex-wrap:wrap;gap:6px}
+.rpill.strong{background:var(--warn-fg);color:#fff}
+
+/* Short pick: three ways to tell the card apart (it stays workable, so it never looks switched off) */
+.card.sp-C{overflow:hidden}
+.spstrip.red{background:var(--bad-fg)}
+.spstrip{margin:-14px -16px 8px;padding:0 16px;height:28px;display:flex;align-items:center;background:var(--warn-fg);color:#fff;font-weight:600;font-size:14px;letter-spacing:.02em}
+
+.fromto{font-variant-numeric:tabular-nums;color:var(--body)}
+.fromto .old{color:var(--mute)}
+.fromto b{color:var(--ink);font-weight:600}
+.fromto .dlt{margin-left:8px;color:var(--bad-fg);font-weight:500}
 </style>
 </head>
 <body>
@@ -266,7 +443,8 @@ tbody td{height:64px}
   </div>
 </div>
 <div id="side"></div>
-<div class="proto"><div class="seg" id="vseg"></div></div>
+<div id="mdside"></div>
+<div class="proto"><div class="seg" id="vseg"></div><div class="seg" id="cseg"></div><div class="seg" id="sseg"></div></div>
 <div id="dlg"></div>
 
 <script>
@@ -276,12 +454,13 @@ let seq=0;
 const C=[
   {s:'Store Kemang',a:'ALT-0412',pcs:240,lane:'pick',age:0,sup:'PT Sinar Garmen'},
   {s:'Store PIK',a:'ALT-0412',pcs:180,lane:'pick',age:1,sup:'PT Sinar Garmen',short:12},
-  {s:'Store Senayan',a:'ALT-0411',pcs:96,lane:'pick',age:3,sup:'CV Benang Mas',cancelled:true},
+  {s:'Store Senayan',a:'ALT-0411',pcs:96,lane:'pick',age:3,sup:'CV Benang Mas'},
   {s:'Store BSD',a:'ALT-0410',pcs:150,lane:'picked',age:0,sup:'Konveksi Anugerah'},
-  {s:'Store Bintaro',a:'ALT-0410',pcs:120,lane:'picked',age:1,sup:'Konveksi Anugerah',cancelled:true},
+  {s:'Store Bintaro',a:'ALT-0410',pcs:120,lane:'picked',age:1,sup:'Konveksi Anugerah'},
   {s:'Store Kemang',a:'ALT-0408',pcs:300,lane:'packed',koli:4,age:0,sup:'PT Tekstil Jaya'},
   {s:'Store PIK',a:'ALT-0408',pcs:210,lane:'packed',koli:3,age:1,sup:'PT Tekstil Jaya'},
-  {s:'Store Kelapa Gading',a:'ALT-0407',pcs:80,lane:'packed',koli:1,age:2,sup:'CV Kain Nusantara',cancelled:true},
+  {s:'Store Kelapa Gading',a:'ALT-0407',pcs:80,lane:'packed',koli:1,age:2,sup:'CV Kain Nusantara'},
+  {s:'Store BSD',a:'ALT-0405',pcs:90,lane:'packed',koli:2,age:1,sup:'PT Tekstil Jaya'},
   {s:'Store Senayan',a:'ALT-0405',pcs:260,lane:'transit',koli:3,sj:'SJ-290926-004',age:1},
   {s:'Store BSD',a:'ALT-0404',pcs:140,lane:'transit',koli:2,sj:'SJ-280926-002',age:3},
   {s:'Store Kemang',a:'ALT-0402',pcs:190,lane:'recv',koli:2,sj:'SJ-270926-001',age:2,got:190},
@@ -326,7 +505,7 @@ function card(c){
   const short=c.lane==='recv'&&c.got<c.pcs;
   const qty=c.lane==='recv'?'<span'+(short?' style="color:var(--bad-fg)"':'')+'>'+id(c.got)+'</span> / '+id(c.pcs):id(c.pcs);
   const when=c.lane==='recv'?(c.age?c.age+'d ago':'today'):(c.age?c.age+'d':'today');
-  const flag=c.short&&c.lane==='pick'?'<span class="flag bad">Rack short</span>':short?'<span class="flag bad">'+(c.pcs-c.got)+' missing</span>':'';
+  const flag=c.blk&&c.lane==='pick'?`<span class="flag" style="color:var(--warn-fg)" title="${esc(c.blk.reason)}">Short pick</span>`:c.short&&c.lane==='pick'?'<span class="flag bad">Rack short</span>':short?'<span class="flag bad">'+(c.pcs-c.got)+' missing</span>':'';
   const undo={pick:'Remove',picked:'Back to stock',packed:'Unpack'}[c.lane];
   const act=c.cancelled?'<button class="btn" onclick="event.stopPropagation();dropCard('+c.id+')">'+undo+'</button>'
     :c.lane==='pick'?'<button class="btn" onclick="event.stopPropagation();finishPick('+c.id+')">Picked</button>'
@@ -496,10 +675,1036 @@ function paintView(){
   const ops=VIEW==='ops';
   $('obhead').hidden=!ops;$('board').style.display=ops?'':'none';$('tabs').style.display=ops?'':'none';$('other').hidden=ops;
   const nUnf=UNF.filter(u=>u.state==='open').length,nMis=MIS.filter(m=>m.state==='open').length;
-  $('vseg').innerHTML=[['ops','Ops · Outbound',0],['md','MD · Allotments',nUnf],['inv','Inventory · Missing',nMis]].map(x=>'<button class="'+(VIEW===x[0]?'on':'')+'" onclick="setV(\''+x[0]+'\')">'+x[1]+(x[2]?' <b>'+x[2]+'</b>':'')+'</button>').join('');
-  $('crumb').innerHTML=(ops?'Ops':VIEW==='md'?'Merchandise':'Inventory')+'<i data-lucide="chevron-right"></i><b>'+(ops?'Outbound':VIEW==='md'?'Allotments':'Missing')+'</b>';
+  $('vseg').innerHTML=[['ops','Ops · Outbound',0],['md','MD · Allotments',nUnf],['inv','Inventory · Stock checks',nMis]].map(x=>'<button class="'+(VIEW===x[0]?'on':'')+'" onclick="setV(\''+x[0]+'\')">'+x[1]+(x[2]?' <b>'+x[2]+'</b>':'')+'</button>').join('');
+  $('crumb').innerHTML=(ops?'Ops':VIEW==='md'?'Merchandise':'Inventory')+'<i data-lucide="chevron-right"></i><b>'+(ops?'Outbound':VIEW==='md'?'Allotments':'Stock checks')+'</b>';
   if(ops)render();else{$('other').innerHTML=VIEW==='md'?mdView():invView();icons()}
 }
+paintView();
+</script>
+
+<script>
+/* ═══ Edit and cancel from MD, and what the warehouse sees ═════════════════
+   Rules (owner, 9 Oct, updated late):
+   · Cancel: any time before it is sent. A To-pick card is removed; a Picked or
+     Packed card is stamped CANCELLED and must be moved back, all of it. The cost
+     is said in the dialog and has to be ticked.
+   · Edit: add or reduce, any time, except what has been sent.
+   · MD sees "Cancelled" at once. The warehouse sees a Cancelled card, does the
+     physical part (Remove / Put back / Take out) and confirms. Pieces are
+     back in stock on confirm.
+   · A card with work owed cannot be packed or dispatched. No override.
+   · Not confirmed in 2 h → red on the card, and MD can Remind.
+   ──────────────────────────────────────────────────────────────────────── */
+const MDN='Rina Kusuma',WHN='Agus';
+const WHYS=['Wrong quantity','Wrong store','Stock problem','Supplier','Other'];
+Object.assign(S,{cue:'E',mdTab:'allotted',clock:0,pulse:new Set(),mdA:null,edit:false,draft:{},adds:[],why:null,note:''});
+const EVT={},GONE={},CINFO={};
+const hhmm=m=>{const t=10*60+42+m;return String(Math.floor(t/60)%24).padStart(2,'0')+':'+String(t%60).padStart(2,'0')};
+const logEv=(a,text)=>{(EVT[a]=EVT[a]||[]).unshift({t:hhmm(S.clock),text})};
+const kOf=(c,i)=>{const l=linesOf(c)[i];return l&&l.k!=null?l.k:1+(i%(c.koli||1))};
+const kName=k=>'K'+String(k).padStart(2,'0');
+const ens=c=>{const L=linesOf(c);L.forEach((l,i)=>{if(l.want==null)l.want=l.qty;if(c.lane==='packed'&&l.k==null)l.k=1+(i%(c.koli||1))});return L};
+const wantOf=l=>Math.min(l.want==null?l.qty:l.want,l.qty);
+const target=c=>ens(c).reduce((s,l)=>s+wantOf(l),0);
+const takeOf=l=>Math.max(0,l.qty-wantOf(l));
+const pend=c=>(!c.cancelled&&(c.lane==='picked'||c.lane==='packed'))?ens(c).reduce((s,l)=>s+takeOf(l),0):0;
+const pendLines=c=>ens(c).map((l,i)=>({l,i,take:takeOf(l)})).filter(x=>x.take>0);
+const fixOf=c=>!!c.cancelled||pend(c)>0;
+const unconf=c=>c.t0==null?0:Math.floor((S.clock-c.t0)/60);
+const isSent=c=>c.lane==='transit'||c.lane==='recv';
+const editable=c=>!c.cancelled&&(c.lane==='pick'||c.lane==='picked'||c.lane==='packed');
+const verbOf=c=>'Move back';
+const WORD={pick:'To pick',picked:'Picked',packed:'Packed',transit:'On the road',recv:'Received'};
+const esc=t=>String(t).replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]));
+
+/* keep a card's one-off tags only while it stays in its lane */
+const _move=move;
+move=function(c,lane,extra){c.chg=null;c.added=null;c.bn=null;c.moved=null;return _move(c,lane,extra)};
+const _closeDlg=closeDlg;
+closeDlg=function(){const c=PQ&&PQ.cid!=null?C.find(x=>x.id===PQ.cid):null;if(c)c.bn=null;_closeDlg()};
+
+/* ── the card, with the cue the owner picks ─────────────────────────────── */
+function card(c){
+  const L=ens(c),cue=S.cue;
+  const doc=isSent(c)?c.sj:c.a;
+  const p=pend(c),cx=!!c.cancelled,tgt=target(c),verb=verbOf(c);
+  const meta=c.lane==='pick'||c.lane==='picked'?L.length+' SKUs':c.koli+' koli';
+  const short=c.lane==='recv'&&c.got<c.pcs;
+  const shown=p>0?tgt:c.pcs;
+  let qty=c.lane==='recv'?`<span${short?' style="color:var(--bad-fg)"':''}>${id(c.got)}</span> / ${id(c.pcs)}`:id(shown);
+    const flag=c.short&&c.lane==='pick'?'<span class="flag bad">Rack short</span>':short?`<span class="flag bad">${c.pcs-c.got} missing</span>`:'';
+  const age=fixOf(c)&&unconf(c)>=2?`<div class="age">Waiting ${unconf(c)} h</div>`:'';
+  let extra='';
+  if(p>0){
+    const ks=[...new Set(pendLines(c).map(x=>kOf(c,x.i)))].sort();
+    if(cue==='A')extra=`<div class="note bad">${verb} ${id(p)} pcs · was <s>${id(c.pcs)}</s></div>`;
+    if(cue==='B')extra=`<div class="split"><div><small>Keep</small><b>${id(tgt)}</b></div><div class="out"><small>${verb}</small><b>${id(p)}</b>${c.lane==='packed'?`<small class="mono">${ks.map(kName).join(' ')}</small>`:''}</div></div>`;
+    if(cue==='C'){
+      const chips=c.lane==='packed'
+        ?kolisOf(c).map(k=>{const t=pendLines(c).filter(x=>kOf(c,x.i)===k).reduce((s,x)=>s+x.take,0);return `<span class="${t?'x':''}">${kName(k)}${t?' −'+t:''}</span>`}).join('')
+        :pendLines(c).map(x=>`<span class="x">${x.l.rack} −${x.take}</span>`).join('');
+      extra=`<div class="chips">${chips}</div>`;
+    }
+    if(cue==='D')extra='';
+    if(cue==='E')extra=`<div class="fromto"><span class="old">${id(c.pcs)}</span> → <b>${id(tgt)}</b> pcs<span class="dlt">−${id(p)}</span></div>`;
+  }
+  const box=c.lane==='packed'&&!cx
+    ?(p>0?`<span class="box off" title="${verb} ${p} pcs first" onclick="event.stopPropagation();lockedTick(${c.id})"><i data-lucide="lock"></i></span>`
+         :`<button class="box" onclick="event.stopPropagation();pick(${c.id})" aria-label="Select for dispatch"><i data-lucide="check"></i></button>`):'';
+  let act='';
+  if(cx)act=c.lane==='pick'?`<button class="btn tint" onclick="event.stopPropagation();fixCard(${c.id})">Remove picklist</button>`:`<button class="btn tint" onclick="event.stopPropagation();openRevert(${c.id},'pick')">Move back</button>`;
+  else if(p>0)act=`<button class="btn tint" onclick="event.stopPropagation();openRevert(${c.id},'pick')">Move back</button>`;
+  else if(c.lane==='pick')act=`<button class="btn" onclick="event.stopPropagation();finishPick(${c.id})">Picked</button>`;
+  else if(c.lane==='picked')act=`<button class="btn" onclick="event.stopPropagation();openPack(${c.id})">Pack</button>`;
+  const tags=(c.again?' <span class="again">Pick again</span>':'')+(c.added?`<span class="tagw">Added +${id(c.added)}</span>`:'')+(c.moved?`<span class="tagw">Back +${id(c.moved)}</span>`:'')+(c.chg&&!cx?`<span class="tagw">${id(c.chg.from)} → ${id(c.chg.to)}</span>`:'');
+  const stamped=cx||(cue==='D'&&p>0);
+  const right=cx&&!stamped?'<span class="cx">Cancelled</span>':`<span class="pcs">${qty} pcs${cue==='C'&&p>0?` <span style="color:var(--bad-fg)">−${id(p)}</span>`:''}</span>`;
+  return `<div class="card${cx?' cancelled':''}${stamped?' stamped':''}${spClass(c)}${S.sel.has(c.id)?' sel':''}${S.fresh===c.id?' new':''}${S.open===c.id?' open':''}${S.pulse.has(c.id)?' alert':''}"${c.lane==='recv'||c.lane==='transit'?'':` draggable="true" ondragstart="dragStart(event,${c.id})"`} onclick="openDetail(${c.id})">`
+    +spTop(c)
+    +`<div class="cwrap"><div class="cbody"><div class="r1">${box}<span class="store">${c.s}${tags}</span>${right}</div>`
+    +`<div class="r2"><span class="mono">${doc}</span><span>${meta}${flag?' · '+flag:''}</span></div>`
+    +spMark(c)
+    +(p>0?extra:'')+`</div>${stamped?`<span class="stampbig">${cx?'CANCELLED':'EDITED −'+id(p)}</span>`:''}</div>`
+    +age+(act?`<div class="act">${act}</div>`:'')+'</div>';
+}
+function lockedTick(cid){const c=C.find(x=>x.id===cid);toast(`${c.s} can’t go yet · ${verbOf(c).toLowerCase()} ${pend(c)} pcs first`)}
+function pick(cid){const c=C.find(x=>x.id===cid);if(c.cancelled||pend(c)>0){lockedTick(cid);return}S.sel.has(cid)?S.sel.delete(cid):S.sel.add(cid);render()}
+
+function render(){
+  const cs=shown();
+  $('tabs').innerHTML=LANES.map(l=>{const lc=cs.filter(c=>c.lane===l.k),f=lc.filter(fixOf).length;return `<button class="${S.phoneLane===l.k?'on':''}" onclick="S.phoneLane='${l.k}';render()">${l.l} · ${lc.length}${f?` <span class="fx">· ${f}</span>`:''}</button>`}).join('');
+  $('board').innerHTML=LANES.map(l=>{
+    const lc=cs.filter(c=>c.lane===l.k).sort((a,b)=>Number(fixOf(b))-Number(fixOf(a))||b.age-a.age);
+    const pcs=lc.reduce((s,c)=>s+(l.k==='recv'?c.got:c.cancelled?0:pend(c)>0?target(c):c.pcs),0);
+    const fx=lc.filter(fixOf).length;
+    let foot='';
+    if(l.k==='packed'){const n=[...S.sel].filter(x=>lc.some(c=>c.id===x)).length;foot=`<div class="lf"><button class="btn ${n?'pri':''}" onclick="openDispatch()"><i data-lucide="truck"></i>${n?'Dispatch '+n:'Dispatch'}</button></div>`}
+    return `<section class="lane${S.phoneLane===l.k?' show':''}" data-lane="${l.k}"><div class="lh"><div class="t"><span class="dot" style="background:${l.dot}"></span>${l.l}<span class="n">${id(pcs)} pcs</span></div><div class="s">${lc.length} store${lc.length===1?'':'s'}${fx?` · <span class="fixn">${fx} to fix</span>`:''}</div></div>`
+      +`<div class="lb">${lc.length?lc.map(card).join(''):'<div class="empty">Nothing here.</div>'}</div>${foot}</section>`;
+  }).join('');
+  const any=C.some(fixOf);
+  document.querySelectorAll('.col .ci.on').forEach(e=>e.classList.toggle('reddot',any));
+  S.fresh=null;S.pulse.clear();icons();
+}
+
+/* ── the card's sheet: what is in it, and the work owed ────────────────── */
+function renderDetail(){
+  const c=C.find(x=>x.id===S.open);if(!c){$('side').innerHTML='';return}
+  const L=ens(c),lane=LANES.find(l=>l.k===c.lane),recv=c.lane==='recv',p=pend(c),cx=!!c.cancelled,verb=verbOf(c);
+  const red=t=>`<span style="color:var(--bad-fg)">${t}</span>`;
+  let body;
+  if(p>0){
+    const rows=ens(c).map((l,i)=>({l,i,take:takeOf(l)})).sort((a,b)=>c.lane==='packed'?kOf(c,a.i)-kOf(c,b.i):a.l.rack.localeCompare(b.l.rack));
+    body=`<dl class="facts"><div><dt>Edited by</dt><dd>${MDN} · ${c.edit?c.edit.at:hhmm(S.clock)}</dd></div><div><dt>Quantity</dt><dd>${id(c.pcs)} → ${id(target(c))} pcs</dd></div></dl>`
+      +`<div class="tcard"><table><thead><tr><th class="n">No.</th><th>SKU</th><th>${c.lane==='packed'?'In koli':'Rack'}</th><th class="r">Was</th><th class="r">Now</th><th class="r">${verb}</th></tr></thead><tbody>`
+      +rows.map((x,n)=>`<tr${x.take?'':' style="color:var(--mute)"'}><td class="n">${n+1}</td><td><span class="nm"${x.take?'':' style="color:var(--mute);font-weight:400"'}>${x.l.name} · ${x.l.size}</span><span class="sk">${x.l.sku}</span></td><td class="mono">${c.lane==='packed'?kName(kOf(c,x.i)):x.l.rack}</td><td class="r">${x.l.qty}</td><td class="r">${wantOf(x.l)}</td><td class="r">${x.take?red(x.take):'—'}</td></tr>`).join('')
+      +`</tbody><tfoot><tr><td></td><td colspan="2">Total</td><td class="r">${id(c.pcs)}</td><td class="r">${id(target(c))}</td><td class="r">${red(id(p))}</td></tr></tfoot></table></div>`;
+  }else{
+    const inf=cx&&c.cx?`<dl class="facts"><div><dt>Cancelled by</dt><dd>${c.cx.by} · ${c.cx.at}</dd></div><div><dt>Reason</dt><dd>${esc(c.cx.reason)}</dd></div></dl>`:'';
+    body=inf+`<div class="tcard"><table><thead><tr><th class="n">No.</th><th>SKU</th><th class="r">Qty</th></tr></thead><tbody>`
+      +L.map((l,i)=>{const q=recv?l.qty-(l.miss||0):l.qty;return `<tr><td class="n">${i+1}</td><td><span class="nm">${l.name} · ${l.size}</span><span class="sk">${l.sku}</span></td><td class="r"${recv&&l.miss?' style="color:var(--bad-fg)"':''}>${q}${recv&&l.miss?' / '+l.qty:''}</td></tr>`}).join('')
+      +`</tbody><tfoot><tr><td></td><td>Total</td><td class="r">${recv?id(c.got)+' / ':''}${id(c.pcs)}</td></tr></tfoot></table></div>`;
+  }
+  const print=c.lane==='pick'||c.lane==='picked'?'Print picklist':c.lane==='packed'?'Print koli labels':'Print surat jalan';
+  const ks=[...new Set(pendLines(c).map(x=>kOf(c,x.i)))].sort().map(kName);
+  let left=`<button class="btn" onclick="printDoc(${c.id})"><i data-lucide="printer"></i>${print}</button>`,main='';
+  if(cx)main=c.lane==='pick'?`<button class="btn pri" onclick="confirmFix(${c.id})">Remove picklist</button>`:`<button class="btn pri" onclick="openRevert(${c.id},'pick')">Move back · ${id(c.pcs)} pcs</button>`;
+  else if(p>0){
+    left='';
+    main=`<button class="btn pri" onclick="openRevert(${c.id},'pick')">Move back · ${id(p)} pcs</button>`;
+  }else main=c.lane==='pick'?`<button class="btn pri" onclick="finishPick(${c.id})">Picked</button>`
+    :c.lane==='picked'?`<button class="btn pri" onclick="openPack(${c.id})">Pack</button>`
+    :c.lane==='packed'?`<button class="btn pri" onclick="S.sel.add(${c.id});openDispatch()">Dispatch</button>`:'';
+  const kick=cx?`${lane.l} · <span style="color:var(--bad-fg)">Cancelled</span>`:p>0?`${lane.l} · <span style="color:var(--bad-fg)">Edited by MD</span>`:lane.l;
+  $('side').innerHTML=`<aside class="side"><div class="sh"><div class="g"><div class="kicker"><span class="dot" style="background:${cx||p>0?'var(--bad)':lane.dot}"></span>${kick}</div><h2>${c.s}</h2><div class="docs"><span class="mono">${c.sj||c.a}</span></div>${c.trip?`<div class="docs">${c.trip}</div>`:''}</div><button class="ib" onclick="closeDetail()" aria-label="Close"><i data-lucide="x"></i></button></div>`
+    +`<div class="sb">${body}</div><div class="sf">${left}${main}</div></aside>`;
+  icons();
+}
+
+/* ── the warehouse's side of an edit or a cancel ───────────────────────── */
+function fixCard(cid){const c=C.find(x=>x.id===cid);if(c.cancelled)confirmFix(cid);else openDetail(cid)}
+function confirmFix(cid){
+  const c=C.find(x=>x.id===cid);if(!c)return;
+  const a=c.a,s=c.s;
+  if(c.cancelled){
+    C.splice(C.indexOf(c),1);S.sel.delete(cid);if(S.open===cid){S.open=null;$('side').innerHTML=''}
+    logEv(a,`Warehouse removed the picklist · ${s} · ${WHN}`);
+    toast(`${s} · picklist removed`);
+    if(!C.some(x=>x.a===a)&&CINFO[a]){GONE[a]={...CINFO[a],sup:CINFO[a].sup,confirmed:hhmm(S.clock)};logEv(a,`Cancelled · all picklists removed`)}
+  }else{
+    const p=pend(c),ks=[...new Set(pendLines(c).map(x=>kOf(c,x.i)))].sort().map(kName),verb=verbOf(c);
+    c.lines=ens(c).map(l=>({...l,qty:wantOf(l),want:wantOf(l)})).filter(l=>l.qty>0);
+    c.pcs=c.lines.reduce((t,l)=>t+l.qty,0);c.t0=null;c.edit=null;
+    logEv(a,`${s} · ${verb.toLowerCase()} ${p} pcs confirmed · ${WHN}`);
+    toast(c.lane==='picked'?`${s} · ${p} pcs back on the racks · in stock`:`${s} · ${p} pcs out of ${ks.join(', ')} · in stock`);
+    S.fresh=c.id;
+  }
+  refreshAll();
+}
+
+/* ── the pick sheet: it can change under the picker's hands ────────────── */
+function renderPicked(){
+  const c=C.find(x=>x.id===PQ.cid);if(!c){closeDlg();return}
+  const L=linesOf(c);L.forEach((l,i)=>{if(PQ.got[i]==null||PQ.got[i]>l.qty)PQ.got[i]=l.qty});
+  const got=L.reduce((s,l,i)=>s+PQ.got[i],0),short=c.pcs-got,cx=!!c.cancelled;
+  const banner=cx?`<div class="banner red"><i data-lucide="octagon-x"></i><span>MD cancelled this picklist. Put back anything you took.</span></div>`
+    :c.bn?`<div class="banner acc"><i data-lucide="info"></i><span>MD changed this picklist · ${id(c.bn.from)} → ${id(c.bn.to)} pcs</span></div>`:'';
+  $('dlg').innerHTML=`<div class="veil" onmousedown="if(event.target===this)closeDlg()"><div class="dlg packw"><div class="dh"><div class="g"><h2>${c.s}</h2><p class="mono">${c.a} · ${id(c.pcs)} pcs</p></div><button class="ib" onclick="closeDlg()" aria-label="Close"><i data-lucide="x"></i></button></div>`
+    +`<div class="db">${banner}<div class="tcard"><table><thead><tr><th class="n">No.</th><th>SKU</th><th class="r">To pick</th><th class="r" style="width:13rem">Picked</th></tr></thead><tbody>`
+    +L.map((l,i)=>{const q=PQ.got[i];return `<tr${!cx&&q<l.qty?' class="shortrow"':''}><td class="n">${i+1}</td><td><span class="nm">${l.name} · ${l.size}</span><span class="sk">${l.sku}</span></td><td class="r">${l.qty}</td><td class="r">`
+      +(cx?'<span style="color:var(--mute)">—</span>':`<span class="qs"><button onclick="pq(${i},-1)"${q?'':' disabled'} aria-label="One less"><i data-lucide="minus"></i></button><input value="${q}" inputmode="numeric" onchange="pqset(${i},this.value)"><button onclick="pq(${i},1)"${q<l.qty?'':' disabled'} aria-label="One more"><i data-lucide="plus"></i></button></span>`)+'</td></tr>'}).join('')
+    +`</tbody><tfoot><tr><td></td><td>Total</td><td class="r">${id(c.pcs)}</td><td class="r"${short&&!cx?' style="color:var(--bad-fg)"':''}>${cx?'—':id(got)}</td></tr></tfoot></table></div></div>`
+    +`<div class="df"><span class="g">${cx?'Anything in your hands goes back to its rack':short?`<b style="color:var(--bad-fg)">${short} pcs short</b> · MD and Inventory are told`:'Everything picked'}</span>`
+    +(cx?`<button class="btn pri" onclick="closeDlg();confirmFix(${c.id})">Confirm cancelled</button>`:`<button class="btn pri" onclick="confirmPicked()">Picked ${id(got)} pcs</button>`)+'</div></div></div>';
+  icons();
+}
+const pickOpen=()=>/To pick<\/th>/.test($('dlg').innerHTML)&&PQ.cid!=null;
+
+/* ── dispatch: a card with work owed cannot go ─────────────────────────── */
+function openDispatch(){
+  const sel=C.filter(c=>S.sel.has(c.id)&&c.lane==='packed');
+  if(!sel.length){toast('Tick the stores going out first');return}
+  const blocked=sel.filter(c=>c.cancelled||pend(c)>0),cs=sel.filter(c=>!blocked.includes(c));
+  if(!cs.length){closeDlg();toast(`${blocked[0].s} can’t go yet · ${blocked[0].cancelled?'cancelled by MD':verbOf(blocked[0]).toLowerCase()+' '+pend(blocked[0])+' pcs first'}`);return}
+  $('dlg').innerHTML=`<div class="veil" onmousedown="if(event.target===this)closeDlg()"><div class="dlg"><div class="dh"><div class="g"><h2>Dispatch</h2></div><button class="ib" onclick="closeDlg()"><i data-lucide="x"></i></button></div>`
+    +`<div class="db"><label class="tlabel" for="trip">Trip notes</label><textarea id="trip" class="trip" placeholder="Driver, vehicle, anything the stores should know"></textarea><div class="tcard"><table><thead><tr><th>Store</th><th>Allotment</th><th class="r">Koli</th><th class="r">Pcs</th></tr></thead><tbody>`
+    +cs.map(c=>`<tr><td class="strong">${c.s}</td><td class="mono">${c.a}</td><td class="r">${c.koli}</td><td class="r">${id(c.pcs)}</td></tr>`).join('')+'</tbody></table></div>'
+    +(blocked.length?`<div class="blk">${blocked.map(c=>`<div>${c.s} stays behind · ${c.cancelled?'cancelled by MD':verbOf(c).toLowerCase()+' '+pend(c)+' pcs first'}</div>`).join('')}</div>`:'')+'</div>'
+    +`<div class="df"><span class="g">${cs.length} surat jalan · ${cs.reduce((s,c)=>s+c.koli,0)} koli</span><button class="btn pri" onclick="doDispatch()"><i data-lucide="printer"></i>Dispatch and print</button></div></div></div>`;
+  icons();
+}
+function doDispatch(){
+  const cs=C.filter(c=>S.sel.has(c.id)&&c.lane==='packed'&&!c.cancelled&&pend(c)===0);
+  const note=($('trip')&&$('trip').value||'').trim();
+  cs.forEach((c,i)=>move(c,'transit',{sj:'SJ-011026-00'+(i+5),trip:note}));
+  S.sel.clear();closeDlg();refreshAll();toast(cs.length+' surat jalan printed · in transit');
+}
+
+/* ── MD · Allotments ───────────────────────────────────────────────────── */
+function stDot(s){return `<span class="sw ${s.toLowerCase()}"><i></i>${s}</span>`}
+function statusOf(g){return g.every(c=>c.cancelled)?'Cancelled':g.every(c=>c.lane==='recv')?'Completed':'Active'}
+const canCancel=g=>g.some(c=>!c.cancelled&&!isSent(c));
+function whyNo(g){
+  if(!g.length||g.every(c=>c.cancelled))return '';
+  const out=g.filter(c=>c.lane!=='pick'&&!c.cancelled).reduce((s,c)=>s+c.pcs,0);
+  return out?`${id(out)} pcs are already picked, packed or sent · change them with Edit`:'';
+}
+function groups(){const m=new Map();C.forEach(c=>{if(!m.has(c.a))m.set(c.a,[]);m.get(c.a).push(c)});return[...m.entries()].sort((x,y)=>y[0].localeCompare(x[0]))}
+function rowOf(a,g){
+  const live=g.every(c=>c.cancelled)?g:g.filter(c=>!c.cancelled),pcs=live.reduce((s,c)=>s+(c.lane==='recv'?c.got:pend(c)>0?target(c):c.pcs),0);
+  const cnt={};g.forEach(c=>{const k=c.cancelled?'cancelled':c.lane;cnt[k]=(cnt[k]||0)+1});
+  const where=['pick','picked','packed','transit','recv','cancelled'].filter(k=>cnt[k]).map(k=>`${cnt[k]} ${k==='cancelled'?'cancelled':WORD[k].toLowerCase()}`).join(' · ');
+  const st=statusOf(g),owed=g.reduce((s,c)=>s+pend(c),0),worst=Math.max(0,...g.filter(fixOf).map(unconf));
+  let note='',red=false;
+  if(st==='Received short'){const exp=g.reduce((s,c)=>s+c.pcs,0),gt=g.reduce((s,c)=>s+(c.got!=null?c.got:c.pcs),0);note=`Received ${id(gt)}/${id(exp)} · ${id(exp-gt)} short · Inventory investigating`}
+  if(st==='Cancelled'&&worst>=2){note=`Waiting for warehouse · ${worst} h`;red=true}
+  else if(owed>0){note=worst>=2?`Waiting for warehouse · ${worst} h`:`Warehouse to move back ${id(owed)} pcs`;red=worst>=2}
+  return{a,sup:g[0].sup||'—',stores:g.length,pcs,where,st,note,red};
+}
+function mdAllotted(){
+  const rows=groups().map(([a,g])=>rowOf(a,g));
+  const gone=Object.entries(GONE).map(([a,x])=>({a,sup:x.sup,stores:x.stores,pcs:x.pcs,where:`${x.stores} cancelled`,st:'Cancelled',note:'',red:false,gone:true}));
+  const all=[...rows,...gone];
+  const tbl=`<div class="tcard mdt"><table><thead><tr><th>Allotment</th><th class="r">Stores</th><th class="r">Pcs</th><th>Where</th><th>Status</th></tr></thead><tbody>`
+    +all.map(r=>`<tr class="go" onclick="openMD('${r.a}')"><td><span class="mono">${r.a}</span><span class="sub2">${r.sup}</span></td><td class="r">${r.stores}</td><td class="r">${id(r.pcs)}</td><td>${r.where}</td><td>${stDot(r.st)}${r.note?`<span class="sub2${r.red?' red':''}">${r.note}</span>`:''}</td></tr>`).join('')+'</tbody></table></div>';
+  const cards=`<div class="mdcards">`+all.map(r=>`<div class="mdc" onclick="openMD('${r.a}')"><div class="hd"><div><b>${r.sup}</b><span class="mono" style="color:var(--mute)">${r.a}</span></div><div class="big"><b>${id(r.pcs)}</b><span>pcs · ${r.stores} store${r.stores===1?'':'s'}</span></div></div><div class="ft"><div>${stDot(r.st)}${r.note?`<div class="sub2${r.red?' red':''}">${r.note}</div>`:`<div class="sub2">${r.where}</div>`}</div><button class="btn tint">Open</button></div></div>`).join('')+'</div>';
+  return tbl+cards;
+}
+function mdUnfilled(){
+  const open=UNF.filter(u=>u.state==='open'),rest=UNF.filter(u=>u.state!=='open');
+  const st=u=>u.state==='wait'?'<span class="pill info">Waiting for stock</span>':u.state==='again'?'<span class="pill ok">Pick again issued</span>':u.state==='closed'?'<span class="pill">Closed short</span>':'';
+  const row=(u,i)=>`<tr><td class="n">${i+1}</td><td class="mono">${u.a}</td><td class="strong">${u.s}</td><td><span class="nm">${u.name}</span><span class="sk">${u.sku}</span></td><td class="r">${u.qty} pcs</td><td class="act">${u.state==='open'?`<button class="btn" onclick="mdDecide('${u.id}','wait')">Wait</button> <button class="btn" onclick="mdDecide('${u.id}','closed')">Close short</button>`:st(u)}</td></tr>`;
+  return `<h3 class="vt">Unfilled <span>${open.length}</span></h3>`
+    +(open.length?`<div class="tcard"><table><thead><tr><th class="n">No.</th><th>Allotment</th><th>Store</th><th>SKU</th><th class="r">Unfilled</th><th class="act"></th></tr></thead><tbody>${open.map(row).join('')}</tbody></table></div>`:'<div class="none">Nothing unfilled.</div>')
+    +(rest.length?`<h3 class="vt">Decided</h3><div class="tcard"><table><tbody>${rest.map(row).join('')}</tbody></table></div>`:'');
+}
+function mdView(){
+  const nUnf=UNF.filter(u=>u.state==='open').length;
+  return `<div class="vh"><h1>Allotments</h1></div><div class="vtabs"><button class="${S.mdTab==='allotted'?'on':''}" onclick="S.mdTab='allotted';paintView()">Allotted<b>${groups().length+Object.keys(GONE).length}</b></button><button class="${S.mdTab==='unfilled'?'on':''}" onclick="S.mdTab='unfilled';paintView()">Still needed<b>${nUnf}</b></button></div>`
+    +(S.mdTab==='allotted'?mdAllotted():mdUnfilled());
+}
+
+/* ── the allotment's sheet, view and edit ──────────────────────────────── */
+function openMD(a){S.mdA=a;S.edit=false;S.draft={};S.adds=[];paintMD()}
+function closeMD(){S.mdA=null;S.edit=false;paintMD()}
+const draftOf=(c,i)=>S.draft[c.id]&&S.draft[c.id][i]!=null?S.draft[c.id][i]:wantOf(ens(c)[i]);
+function ed(cid,i,d){const c=C.find(x=>x.id===cid);S.draft[cid]=S.draft[cid]||{};S.draft[cid][i]=Math.max(0,draftOf(c,i)+d);paintMD()}
+function edset(cid,i,v){S.draft[cid]=S.draft[cid]||{};S.draft[cid][i]=Math.max(0,parseInt(v)||0);paintMD()}
+function startEdit(){S.edit=true;S.draft={};S.adds=[];paintMD()}
+function addItem(){const q=Math.max(1,parseInt($('addQ').value)||0);S.adds.push({s:$('addS').value,art:+$('addA').value,size:'M',qty:q});paintMD()}
+function rmAdd(i){S.adds.splice(i,1);paintMD()}
+function editSummary(){
+  let notPicked=0,work=0,added=0;
+  C.filter(c=>c.a===S.mdA&&editable(c)).forEach(c=>ens(c).forEach((l,i)=>{
+    const w=draftOf(c,i);
+    if(c.lane==='pick'){if(w<wantOf(l))notPicked+=wantOf(l)-w;else added+=w-wantOf(l)}
+    else{work+=Math.max(0,l.qty-Math.min(w,l.qty));added+=Math.max(0,w-l.qty)}
+  }));
+  S.adds.forEach(x=>added+=x.qty);
+  return{notPicked,work,added};
+}
+function editCue(c,i){
+  const l=ens(c)[i],w=draftOf(c,i);
+  if(c.lane==='pick')return w<wantOf(l)?'<span class="ecue">Not picked yet · no work</span>':w>wantOf(l)?`<span class="ecue acc">+${w-wantOf(l)} to pick</span>`:'';
+  const take=Math.max(0,l.qty-Math.min(w,l.qty)),more=Math.max(0,w-l.qty);
+  const where=c.lane==='packed'?` from ${kName(kOf(c,i))}`:'';
+  return (take?`<span class="ecue red">${verbOf(c)} ${take}${where}</span>`:'')+(more?`<span class="ecue acc">+${more} to pick</span>`:'');
+}
+function paintMD(){
+  let box=$('mdside');if(!box){document.body.insertAdjacentHTML('beforeend','<div id="mdside"></div>');box=$('mdside')}
+  if(!S.mdA||VIEW!=='md'){box.innerHTML='';return}
+  const a=S.mdA,g=C.filter(c=>c.a===a),gone=GONE[a];
+  if(!g.length&&!gone){box.innerHTML='';return}
+  const sup=g[0]?g[0].sup:gone.sup,status=gone?'Cancelled':statusOf(g);
+  const head=`<div class="sh"><div class="g"><div class="kicker">${stDot(status)}</div><h2>${a}</h2><div class="docs">${sup} · Created 02 Oct 2026 by ${MDN}</div></div><button class="ib" onclick="closeMD()" aria-label="Close"><i data-lucide="x"></i></button></div>`;
+  let body='',foot='';
+  if(gone){
+    body=`<dl class="facts"><div><dt>Cancelled by</dt><dd>${gone.by} · ${gone.at}</dd></div><div><dt>Reason</dt><dd>${esc(gone.reason)}</dd></div><div><dt>Picklists removed</dt><dd>${gone.stores} · ${id(gone.pcs)} pcs</dd></div><div><dt>Confirmed by the warehouse</dt><dd>${WHN} · ${gone.confirmed}</dd></div></dl>`;
+    foot=`<span class="grow"></span><button class="btn" onclick="closeMD()">Close</button>`;
+  }else{
+    const sum=k=>g.filter(c=>!c.cancelled&&c.lane===k).reduce((s,c)=>s+(c.lane==='recv'?c.got:pend(c)>0?target(c):c.pcs),0);
+    const nums=`<div class="sbn">${['pick','picked','packed','transit','recv'].map(k=>`<div><small>${WORD[k]}</small><b>${id(sum(k))}</b></div>`).join('')}</div>`;
+    const cards=g.slice().sort((x,y)=>['pick','picked','packed','transit','recv'].indexOf(x.lane)-['pick','picked','packed','transit','recv'].indexOf(y.lane)||x.s.localeCompare(y.s));
+    if(!S.edit){
+      body=nums+`<div class="tcard"><table><thead><tr><th>Store</th><th>Stage</th><th class="r">Pcs</th></tr></thead><tbody>`
+        +cards.map(c=>{const o=pend(c);return `<tr><td class="strong">${c.s}</td><td>${c.cancelled?'<span style="color:var(--bad-fg)">Cancelled</span>':stageCell(c)+(o?`<span class="sub2 red" style="display:block;font-size:14px">${verbOf(c)} ${o}${unconf(c)>=2?` · waiting ${unconf(c)} h`:''}</span>`:'')}</td><td class="r">${c.cancelled?'—':id(o>0?target(c):c.pcs)}</td></tr>`}).join('')+'</tbody></table></div>';
+      const worst=Math.max(0,...g.filter(fixOf).map(unconf));
+      if(worst>=2)body+=`<div class="blk" style="margin-top:16px;display:flex;align-items:center;gap:12px"><span style="flex:1">Waiting for the warehouse · ${worst} h</span><button class="btn" onclick="remind()">Remind</button></div>`;
+    }else{
+      body=nums;
+      cards.forEach(c=>{
+        if(isSent(c)){body+=`<div class="lockrow"><i data-lucide="lock"></i><span><b>${c.s}</b> · ${c.lane==='transit'?'on the road':'received'} · ${c.sj}</span><span class="r">${id(c.pcs)} pcs</span></div>`;return}
+        if(!editable(c)){body+=`<div class="lockrow"><span><b>${c.s}</b> · cancelled</span></div>`;return}
+        const L=ens(c);
+        body+=`<div class="stl">${c.s}<span>${WORD[c.lane]}</span></div><div class="tcard"><table><thead><tr><th>SKU</th><th class="r">Now</th><th class="r" style="width:12rem">New quantity</th><th></th></tr></thead><tbody>`
+          +L.map((l,i)=>{const w=draftOf(c,i);return `<tr><td><span class="nm">${l.name} · ${l.size}</span><span class="sk">${l.sku}</span></td><td class="r">${wantOf(l)}</td><td class="r"><span class="qs"><button onclick="ed(${c.id},${i},-1)"${w?'':' disabled'} aria-label="One less"><i data-lucide="minus"></i></button><input value="${w}" inputmode="numeric" onchange="edset(${c.id},${i},this.value)"><button onclick="ed(${c.id},${i},1)" aria-label="One more"><i data-lucide="plus"></i></button></span></td><td>${editCue(c,i)}</td></tr>`}).join('')+'</tbody></table></div>';
+      });
+      body+=`<div class="stl">Add an item</div>`+(S.adds.length?`<div class="tcard"><table><tbody>${S.adds.map((x,i)=>`<tr><td><span class="nm">${ARTS[x.art][0]} · ${x.size}</span><span class="sk">${x.s}</span></td><td class="r">+${x.qty}</td><td class="r"><button class="btn sm" onclick="rmAdd(${i})">Remove</button></td></tr>`).join('')}</tbody></table></div>`:'')
+        +`<div class="addrow"><select id="addS">${STORES.map(s=>`<option>${s}</option>`).join('')}</select><select id="addA">${ARTS.map((x,i)=>`<option value="${i}">${x[0]}</option>`).join('')}</select><input id="addQ" value="12" inputmode="numeric" aria-label="Quantity"><button class="btn tint" onclick="addItem()">Add</button></div>`;
+    }
+    const ev=EVT[a]||[];
+    if(ev.length)body+=`<h3 class="vt" style="margin-top:24px">Activity</h3><div class="evl">${ev.map(e=>`<div><span class="mono">${e.t}</span><span>${e.text}</span></div>`).join('')}</div>`;
+    if(!S.edit){
+      const cc=canCancel(g),why=whyNo(g);
+      foot=`<button class="btn danger"${cc?'':' disabled'} onclick="cancelDlg()">Cancel allotment</button>${!cc&&why?`<span class="fnote">${why}</span>`:''}<span class="grow"></span><button class="btn pri"${g.some(editable)?'':' disabled'} onclick="startEdit()">Edit</button>`;
+    }else{
+      const s=editSummary(),parts=[];
+      if(s.work)parts.push(`<span style="color:var(--bad-fg)">${id(s.work)} pcs the warehouse moves back</span>`);
+      if(s.notPicked)parts.push(`${id(s.notPicked)} not picked yet`);
+      if(s.added)parts.push(`<span style="color:var(--accent)">+${id(s.added)} to pick</span>`);
+      foot=`<span class="fnote">${parts.join(' · ')||'No changes yet'}</span><span class="grow"></span><button class="btn" onclick="S.edit=false;paintMD()">Back</button><button class="btn pri"${parts.length?'':' disabled'} onclick="saveEdit()">Save changes</button>`;
+    }
+  }
+  box.innerHTML=`<aside class="side mdpanel">${head}<div class="sb">${body}</div><div class="sf">${foot}</div></aside>`;
+  icons();
+}
+
+/* ── apply an edit (also used by the simulate buttons) ─────────────────── */
+function addPick(a,s,sup,lines,ctx){
+  const qty=lines.reduce((t,l)=>t+l.qty,0);
+  let c=C.find(x=>x.a===a&&x.s===s&&x.lane==='pick'&&!x.cancelled);
+  if(c){const L=ens(c);lines.forEach(n=>{const m=L.find(l=>l.sku===n.sku);if(m){m.qty+=n.qty;m.want=m.qty}else L.push({...n,want:n.qty})});const from=c.pcs;c.pcs=L.reduce((t,l)=>t+l.qty,0);c.chg={from:c.chg?c.chg.from:from,to:c.pcs};c.bn=c.chg;S.pulse.add(c.id)}
+  else{c={id:++seq,s,a,sup,pcs:qty,lane:'pick',age:0,lines:lines.map(l=>({...l,want:l.qty})),added:qty};C.unshift(c);S.pulse.add(c.id)}
+  return qty;
+}
+function lineFor(art,size,qty){const a=ARTS[art];return{name:a[0],sku:a[1]+'-'+size,size,rack:String.fromCharCode(65+art%5)+'-'+String(1+(art*5)%12).padStart(2,'0'),qty}}
+function applyDraft(a,draft,adds){
+  const sup=(C.find(x=>x.a===a)||{}).sup;let work=0,notPicked=0,added=0;
+  C.filter(c=>c.a===a&&editable(c)).forEach(c=>{
+    const L=ens(c),d=draft[c.id]||{};const from=c.pcs;let changed=false;const extra=[];
+    L.forEach((l,i)=>{
+      const w=d[i]!=null?d[i]:wantOf(l);
+      if(c.lane==='pick'){if(w!==l.qty){if(w<l.qty)notPicked+=l.qty-w;else added+=w-l.qty;l.qty=l.want=w;changed=true}}
+      else{const nw=Math.min(w,l.qty);if(nw!==wantOf(l)){l.want=nw;changed=true}if(w>l.qty){extra.push(lineFor(ARTS.findIndex(x=>l.sku.startsWith(x[1])),l.size,w-l.qty));added+=w-l.qty}}
+    });
+    if(c.lane==='pick'){
+      c.lines=L.filter(l=>l.qty>0);
+      if(!c.lines.length){c.cancelled=true;c.cx={by:MDN,reason:'Removed in an edit',at:hhmm(S.clock)};c.t0=S.clock;CINFO[a]=CINFO[a]||{pcs:from,stores:1,reason:'Removed in an edit',by:MDN,at:hhmm(S.clock),sup};S.pulse.add(c.id)}
+      else if(changed){c.pcs=c.lines.reduce((t,l)=>t+l.qty,0);c.chg={from,to:c.pcs};c.bn=c.chg;S.pulse.add(c.id)}
+    }else{
+      const p=pend(c);if(p>0){if(c.t0==null)c.t0=S.clock;c.edit={by:MDN,at:hhmm(S.clock)};if(changed){work+=p;S.pulse.add(c.id)}}else if(c.t0!=null)c.t0=null;
+      if(extra.length)addPick(a,c.s,c.sup,extra);
+    }
+  });
+  (adds||[]).forEach(x=>{addPick(a,x.s,sup,[lineFor(x.art,x.size,x.qty)]);added+=x.qty});
+  const parts=[];if(work)parts.push(`${work} for the warehouse to move back`);if(notPicked)parts.push(`${notPicked} not picked yet`);if(added)parts.push(`+${added} to pick`);
+  logEv(a,`Edited by ${MDN} · ${parts.join(' · ')}`);
+  toast(`${a} edited · ${parts.join(' · ')}`);
+  refreshAll();
+  if(pickOpen())renderPicked();
+}
+function saveEdit(){applyDraft(S.mdA,S.draft,S.adds);S.edit=false;S.draft={};S.adds=[];paintMD()}
+
+/* ── cancel ────────────────────────────────────────────────────────────── */
+function cancelDlg(){
+  const a=S.mdA,g=C.filter(c=>c.a===a);if(!canCancel(g))return;
+  S.why=null;S.note='';paintCancel();
+}
+function paintCancel(){
+  const a=S.mdA,g=C.filter(c=>c.a===a),pcs=g.reduce((s,c)=>s+c.pcs,0);
+  $('dlg').innerHTML=`<div class="veil" onmousedown="if(event.target===this)closeDlg()"><div class="dlg" style="width:min(32rem,100%)"><div class="dh"><div class="g"><h2>Cancel ${a}?</h2></div><button class="ib" onclick="closeDlg()" aria-label="Close"><i data-lucide="x"></i></button></div>`
+    +`<div class="db"><p style="margin:0 0 14px;color:var(--text)">${g.length} picklist${g.length===1?'':'s'} · ${id(pcs)} pcs. Nothing has been picked.</p><span class="tlabel">Reason</span><div class="rch">${WHYS.map((w,i)=>`<button class="${S.why===w?'on':''}" onclick="S.why=WHYS[${i}];paintCancel()">${w}</button>`).join('')}</div>`
+    +`<textarea class="nt" placeholder="Note (optional)" oninput="S.note=this.value">${esc(S.note)}</textarea></div>`
+    +`<div class="df"><span class="g">The warehouse removes the picklists and confirms</span><button class="btn" onclick="closeDlg()">Keep</button><button class="btn dsolid"${S.why?'':' disabled'} onclick="confirmCancel()">Cancel allotment</button></div></div></div>`;
+  icons();
+}
+function doCancel(a,why,note){
+  const g=C.filter(c=>c.a===a);
+  const reason=why+(note?` · ${note}`:'');
+  CINFO[a]={pcs:g.reduce((s,c)=>s+c.pcs,0),stores:g.length,reason,by:MDN,at:hhmm(S.clock),sup:g[0].sup};
+  g.forEach(c=>{c.cancelled=true;c.cx={by:MDN,reason,at:hhmm(S.clock)};c.t0=S.clock;S.pulse.add(c.id);S.sel.delete(c.id)});
+  logEv(a,`Cancelled by ${MDN} · ${reason}`);
+  toast(`MD cancelled ${a} · ${g.length} picklist${g.length===1?'':'s'}`);
+  refreshAll();
+  if(pickOpen())renderPicked();
+}
+function confirmCancel(){const a=S.mdA;closeDlg();doCancel(a,S.why,S.note.trim());S.why=null;S.note='';paintMD()}
+function remind(){const a=S.mdA;C.filter(c=>c.a===a).forEach(c=>{c.reminded=true});logEv(a,`Reminder sent to the warehouse`);toast('Reminder sent to the warehouse');paintMD()}
+
+/* ── prototype controls ────────────────────────────────────────────────── */
+function sim(kind){
+  if(kind==='cancel'){const g=C.filter(c=>c.a==='ALT-0412');if(!canCancel(g)){toast('ALT-0412 can’t be cancelled any more');return}doCancel('ALT-0412','Wrong quantity','')}
+  if(kind==='reduce'){
+    const c=C.find(x=>x.a==='ALT-0408'&&x.s==='Store Kemang'&&x.lane==='packed');
+    if(!c){toast('Store Kemang has already gone');return}
+    if(pend(c)>0){toast('ALT-0408 · Store Kemang is already reduced');return}
+    const L=ens(c);applyDraft('ALT-0408',{[c.id]:{0:Math.max(0,L[0].qty-20),1:Math.max(0,L[1].qty-30)}},[]);
+  }
+  if(kind==='add'){if(!C.some(x=>x.a==='ALT-0412')){toast('ALT-0412 is gone');return}applyDraft('ALT-0412',{},[{s:'Store Kemang',art:2,size:'M',qty:30}])}
+}
+function skip(){S.clock+=180;toast('+3 h');refreshAll()}
+function setCue(k){S.cue=k;paintView()}
+function refreshAll(){paintView()}
+function paintView(){
+  const ops=VIEW==='ops';
+  $('obhead').hidden=!ops;$('board').style.display=ops?'':'none';$('tabs').style.display=ops?'':'none';$('other').hidden=ops;
+  const nUnf=UNF.filter(u=>u.state==='open').length,nMis=MIS.filter(m=>m.state==='open').length,nfix=C.filter(fixOf).length;
+  $('vseg').innerHTML=[['ops','Ops · Outbound',nfix],['md','MD · Allotments',nUnf],['inv','Inventory · Stock checks',nMis]].map(x=>`<button class="${VIEW===x[0]?'on':''}" onclick="setV('${x[0]}')">${x[1]}${x[2]?` <b${x[0]==='ops'?' class="r"':''}>${x[2]}</b>`:''}</button>`).join('');
+  $('cseg').innerHTML='<span class="lbl">Cue</span>'+[['A','Inline'],['B','Split'],['C','Koli'],['D','Stamp'],['E','Strip']].map(x=>`<button class="${S.cue===x[0]?'on':''}" onclick="setCue('${x[0]}')">${x[0]} ${x[1]}</button>`).join('');
+  $('crumb').innerHTML=(ops?'Ops':VIEW==='md'?'Merchandise':'Inventory')+'<i data-lucide="chevron-right"></i><b>'+(ops?'Outbound':VIEW==='md'?'Allotments':'Stock checks')+'</b>';
+  if(ops)render();else{$('other').innerHTML=VIEW==='md'?mdView():invView();icons()}
+  paintMD();
+}
+$('sseg').innerHTML='<span class="lbl">MD does</span><button onclick="sim(\'reduce\')">−50 on ALT-0408</button><button onclick="sim(\'add\')">+30 on ALT-0412</button><button onclick="sim(\'cancel\')">Cancel ALT-0412</button><button onclick="skip()">+3 h</button><button onclick="location.reload()">Reset</button>';
+paintView();
+</script>
+
+<script>
+/* ═══ Drag and drop, and a reduction on a Picked card ══════════════════════
+   Desk only, as in the hub: a drop NEVER writes — it opens the sheet that owns
+   the step, and that sheet asks. Forward moves open the next station; going
+   back opens the card's own sheet. A card with work owed cannot move forward
+   (the lane says why, in red) and has one more place to go: "Back in stock".
+   The card's own button stays: it is the keyboard and the phone way in.
+   ──────────────────────────────────────────────────────────────────────── */
+let DR=null;
+const laneIx=k=>LANES.findIndex(l=>l.k===k);
+const FWD={
+  'pick>picked':c=>finishPick(c.id),
+  'picked>packed':c=>openPack(c.id),
+  'packed>transit':c=>{S.sel.add(c.id);openDispatch()},
+  'packed>picked':c=>openDetail(c.id),
+  'picked>pick':c=>openDetail(c.id),
+  'transit>packed':c=>openDetail(c.id)
+};
+function dropRule(c,lane){
+  if(c.lane===lane)return{ok:false,silent:true};
+  if(c.cancelled)return lane==='BIS'?{ok:true,act:()=>openDetail(c.id)}:{ok:false,msg:'Cancelled by MD · remove the picklist'};
+  const p=pend(c);
+  if(p>0){
+    if(lane==='BIS'||laneIx(lane)<laneIx(c.lane))return{ok:true,act:()=>openDetail(c.id)};
+    return{ok:false,msg:`${verbOf(c)} ${p} pcs first`};
+  }
+  if(lane==='BIS')return{ok:false,silent:true};
+  const f=FWD[c.lane+'>'+lane];
+  return f?{ok:true,act:()=>f(c)}:{ok:false,silent:true};
+}
+function dragStart(e,cid){
+  const c=C.find(x=>x.id===cid);DR={cid};
+  e.dataTransfer.setData('text/plain',String(cid));e.dataTransfer.effectAllowed='move';
+  document.body.classList.add('dragging');
+  document.querySelectorAll('#board .lane').forEach(l=>{const r=dropRule(c,l.dataset.lane);l.classList.toggle('drop-ok',!!r.ok);l.classList.toggle('drop-no',!r.ok&&!r.silent)});
+  if(fixOf(c)&&dropRule(c,'BIS').ok)$('bis').classList.add('on');
+}
+function dragEnd(){
+  DR=null;document.body.classList.remove('dragging');
+  document.querySelectorAll('#board .lane').forEach(l=>l.classList.remove('drop-ok','drop-no','over','over-no'));
+  $('bis').classList.remove('on','over');
+}
+(function(){
+  const bis=document.createElement('div');bis.id='bis';bis.className='bis';bis.innerHTML='<i data-lucide="package-check"></i>Back in stock';document.body.appendChild(bis);
+  const board=$('board');
+  board.addEventListener('dragover',e=>{
+    if(!DR)return;const lane=e.target.closest('.lane');if(!lane)return;
+    const c=C.find(x=>x.id===DR.cid);if(!c)return;const r=dropRule(c,lane.dataset.lane);
+    board.querySelectorAll('.lane').forEach(l=>l.classList.remove('over','over-no'));
+    if(r.ok){e.preventDefault();e.dataTransfer.dropEffect='move';lane.classList.add('over')}
+    else if(r.msg){lane.dataset.msg=r.msg;lane.classList.add('over-no')}
+  });
+  board.addEventListener('drop',e=>{
+    if(!DR)return;const lane=e.target.closest('.lane');if(!lane)return;
+    const c=C.find(x=>x.id===DR.cid);const r=dropRule(c,lane.dataset.lane);e.preventDefault();dragEnd();if(r.ok)r.act();
+  });
+  bis.addEventListener('dragover',e=>{if(DR){e.preventDefault();bis.classList.add('over')}});
+  bis.addEventListener('dragleave',()=>bis.classList.remove('over'));
+  bis.addEventListener('drop',e=>{e.preventDefault();const c=C.find(x=>x.id===(DR&&DR.cid));dragEnd();if(c){const r=dropRule(c,'BIS');if(r.ok)r.act()}});
+  addEventListener('dragend',dragEnd);
+})();
+
+/* ── the pack sheet can change under the packer's hands too ───────────── */
+const packOpen=()=>PK.cid!=null&&/Close koli|Everything is in a koli/.test($('dlg').innerHTML);
+const _renderPack=renderPack;
+renderPack=function(){
+  _renderPack();
+  const c=C.find(x=>x.id===PK.cid);if(!c)return;
+  const p=pend(c);if(!c.cancelled&&p===0)return;
+  const db=document.querySelector('#dlg .db'),df=document.querySelector('#dlg .df .btn.pri');
+  if(db)db.insertAdjacentHTML('afterbegin',`<div class="banner red"><i data-lucide="octagon-x"></i><span>${c.cancelled?'MD cancelled this store · move everything back first · packing waits.':`MD reduced this store · ${verbOf(c).toLowerCase()} ${id(p)} pcs first · packing waits.`}</span></div>`);
+  if(df)df.disabled=true;
+  icons();
+};
+const _doPack=doPack;
+doPack=function(){const c=C.find(x=>x.id===PK.cid);if(c&&(c.cancelled||pend(c)>0)){toast(`${verbOf(c)} ${pend(c)} pcs first`);return}_doPack()};
+const _refreshAll=refreshAll;
+refreshAll=function(){_refreshAll();if(packOpen())renderPack()};
+
+/* ── one more simulate button: −50 on a Picked card ───────────────────── */
+const _sim=sim;
+sim=function(kind){
+  if(kind==='reducePicked'){
+    const c=C.find(x=>x.a==='ALT-0410'&&x.s==='Store BSD'&&x.lane==='picked');
+    if(!c){toast('Store BSD has already moved on');return}
+    if(pend(c)>0){toast('ALT-0410 · Store BSD is already reduced');return}
+    const L=ens(c);applyDraft('ALT-0410',{[c.id]:{0:Math.max(0,L[0].qty-20),1:Math.max(0,L[1].qty-30)}},[]);return;
+  }
+  _sim(kind);
+};
+$('sseg').innerHTML='<span class="lbl">MD does</span><button onclick="sim(\'reduce\')">−50 · packed</button><button onclick="sim(\'reducePicked\')">−50 · picked</button><button onclick="sim(\'add\')">+30 on ALT-0412</button><button onclick="sim(\'cancel\')">Cancel ALT-0412</button><button onclick="skip()">+3 h</button><button onclick="location.reload()">Reset</button>';
+paintView();
+</script>
+
+<script>
+/* ═══ Moving a card back ═══════════════════════════════════════════════════
+   (owner, 9 Oct) The warehouse can undo its own work: Picked → To pick,
+   Packed → Picked or To pick. Never from In transit. It is a physical thing,
+   so it asks first (a drop, or the card sheet's "Move back…", opens the
+   question); on confirm the card changes lane, pieces that went back to a rack
+   are in stock again, and MD's numbers follow.
+   ──────────────────────────────────────────────────────────────────────── */
+const BACK_WORD={pick:'To pick',picked:'Picked'};
+function openRevert(cid,to){
+  const c=C.find(x=>x.id===cid);
+  if(!c||c.cancelled||isSent(c))return;
+  if(!(to==='pick'||to==='picked')||laneIx(to)>=laneIx(c.lane))return;
+  S.rv={cid,to};paintRevert();
+}
+function paintRevert(){
+  const{cid,to}=S.rv,c=C.find(x=>x.id===cid);if(!c){closeDlg();return}
+  const from=c.lane,L=ens(c),p=pend(c);
+  const opts=from==='packed'?['picked','pick']:['pick'];
+  const outcome=from==='packed'
+    ?(to==='picked'?`${c.koli} koli opened · labels void · ${id(c.pcs)} pcs go back to the picked pile`
+                   :`${c.koli} koli opened · labels void · ${id(c.pcs)} pcs go back to their racks · in stock`)
+    :`${id(c.pcs)} pcs go back to their racks · in stock`;
+  const chips=opts.length>1?`<div class="rch">${opts.map(o=>`<button class="${to===o?'on':''}" onclick="S.rv.to='${o}';paintRevert()">${BACK_WORD[o]}</button>`).join('')}</div>`:'';
+  $('dlg').innerHTML=`<div class="veil" onmousedown="if(event.target===this)closeDlg()"><div class="dlg packw" style="width:min(40rem,100%)"><div class="dh"><div class="g"><h2>Move ${c.s} back?</h2><p class="mono">${c.a} · ${id(c.pcs)} pcs · now ${WORD[from].toLowerCase()}</p></div><button class="ib" onclick="closeDlg()" aria-label="Close"><i data-lucide="x"></i></button></div>`
+    +`<div class="db">${chips}<div class="tcard"><table><thead><tr><th class="n">No.</th><th>SKU</th><th>${from==='packed'?'In koli':'Rack'}</th><th class="r">Qty</th></tr></thead><tbody>`
+    +L.map((l,i)=>`<tr><td class="n">${i+1}</td><td><span class="nm">${l.name} · ${l.size}</span><span class="sk">${l.sku}</span></td><td class="mono">${from==='packed'?kName(kOf(c,i)):l.rack}</td><td class="r">${l.qty}</td></tr>`).join('')
+    +`</tbody><tfoot><tr><td></td><td colspan="2">Total</td><td class="r">${id(c.pcs)}</td></tr></tfoot></table></div>`
+    +`<p style="color:var(--body);margin:14px 0 0">${outcome}${p>0&&to==='pick'?` · ${id(p)} of them were already to put back`:''}</p></div>`
+    +`<div class="df"><span class="g"></span><button class="btn" onclick="closeDlg()">Keep</button><button class="btn pri" onclick="confirmRevert()">Move back to ${BACK_WORD[to]}</button></div></div></div>`;
+  icons();
+}
+function confirmRevert(){
+  const{cid,to}=S.rv,c=C.find(x=>x.id===cid);if(!c){closeDlg();return}
+  const from=c.lane,had=c.pcs,kolis=c.koli;
+  if(to==='pick'){
+    c.lines=ens(c).map(l=>({...l,qty:wantOf(l),want:wantOf(l)})).filter(l=>l.qty>0);
+    c.pcs=c.lines.reduce((t,l)=>t+l.qty,0);c.t0=null;c.edit=null;
+  }
+  move(c,to);c.koli=undefined;c.kolis=undefined;S.sel.delete(c.id);
+  logEv(c.a,`${WHN} moved ${c.s} back to ${BACK_WORD[to]}`);
+  toast(from==='packed'
+    ?`${c.s} · ${kolis} koli opened · back to ${BACK_WORD[to]}`
+    :`${c.s} · ${id(had)} pcs back on the racks · to pick again`);
+  S.rv=null;closeDlg();if(S.open===c.id)renderDetail();refreshAll();
+}
+
+/* drag rules: back moves ask; In transit never moves */
+dropRule=function(c,lane){
+  if(c.lane===lane)return{ok:false,silent:true};
+  if(c.cancelled)return lane==='BIS'?{ok:true,act:()=>openDetail(c.id)}:{ok:false,msg:'Cancelled by MD · remove the picklist'};
+  if(isSent(c))return{ok:false,silent:true};
+  const p=pend(c);
+  if(lane==='BIS')return p>0?{ok:true,act:()=>openRevert(c.id,'pick')}:{ok:false,silent:true};
+  if(laneIx(lane)<laneIx(c.lane))return(lane==='pick'||lane==='picked')?{ok:true,act:()=>openRevert(c.id,lane)}:{ok:false,silent:true};
+  if(p>0)return{ok:false,msg:`${verbOf(c)} ${p} pcs first`};
+  const f=FWD[c.lane+'>'+lane];return f?{ok:true,act:()=>f(c)}:{ok:false,silent:true};
+};
+
+/* the card sheet gets "Move back…" for Picked and Packed cards */
+const _renderDetail=renderDetail;
+renderDetail=function(){
+  _renderDetail();
+  const c=C.find(x=>x.id===S.open);
+  if(c&&!c.cancelled&&pend(c)===0&&(c.lane==='picked'||c.lane==='packed')){
+    const sf=document.querySelector('#side .sf');
+    if(sf)sf.insertAdjacentHTML('afterbegin',`<button class="btn" style="margin-right:auto" onclick="openRevert(${c.id},'${c.lane==='packed'?'picked':'pick'}')">Move back…</button>`);
+  }
+};
+paintView();
+</script>
+
+<script>
+/* ═══ Moving back a part ═══════════════════════════════════════════════════
+   (owner, 9 Oct) Not the whole card: pick the lines and the quantity.
+   Packed → Picked: those pieces leave their koli (the koli's label is
+   reprinted; a koli left empty goes away) and join the card of the same store
+   in Picked. Picked → To pick: those pieces go back on their racks and the
+   store's picklist asks for them again. Pieces MD already took out of the
+   allotment (work owed) go back first and are not asked for again.
+   ──────────────────────────────────────────────────────────────────────── */
+const kolisOf=c=>[...new Set(ens(c).map((l,i)=>kOf(c,i)))].sort((a,b)=>a-b);
+function revertPlan(c,m){
+  const L=ens(c);let moved=0,excess=0,keep=0;const touched=new Set(),left=new Set();
+  L.forEach((l,i)=>{
+    const q=Math.min(m[i]!=null?m[i]:l.qty,l.qty),e=Math.min(q,takeOf(l));
+    moved+=q;excess+=e;keep+=q-e;
+    if(q>0)touched.add(kOf(c,i));
+    if(l.qty-q>0)left.add(kOf(c,i));
+  });
+  const total=L.reduce((s,l)=>s+l.qty,0);
+  const t=[...touched].sort((a,b)=>a-b),emptied=t.filter(k=>!left.has(k));
+  return{moved,excess,keep,total,touched:t,emptied,all:moved===total};
+}
+function openRevert(cid,to){
+  const c=C.find(x=>x.id===cid);
+  if(!c||c.cancelled||isSent(c))return;
+  if(!(to==='pick'||to==='picked')||laneIx(to)>=laneIx(c.lane))return;
+  const m={},edited=pend(c)>0;ens(c).forEach((l,i)=>{m[i]=edited?takeOf(l):l.qty});
+  S.rv={cid,to,m};paintRevert();
+}
+function rvq(i,d){const c=C.find(x=>x.id===S.rv.cid),l=ens(c)[i];S.rv.m[i]=Math.max(0,Math.min(l.qty,(S.rv.m[i]!=null?S.rv.m[i]:l.qty)+d));paintRevert()}
+function rvset(i,v){const c=C.find(x=>x.id===S.rv.cid),l=ens(c)[i];S.rv.m[i]=Math.max(0,Math.min(l.qty,parseInt(v)||0));paintRevert()}
+function rvFill(all){const c=C.find(x=>x.id===S.rv.cid);ens(c).forEach((l,i)=>{S.rv.m[i]=all==='excess'?takeOf(l):all?l.qty:0});paintRevert()}
+function paintRevert(){
+  const{cid,to,m}=S.rv,c=C.find(x=>x.id===cid);if(!c){closeDlg();return}
+  const from=c.lane,L=ens(c),pl=revertPlan(c,m);
+  const opts=from==='packed'?['picked','pick']:['pick'];
+  const chips=opts.length>1?`<div class="rch">${opts.map(o=>`<button class="${to===o?'on':''}" onclick="S.rv.to='${o}';paintRevert()">${BACK_WORD[o]}</button>`).join('')}</div>`:'';
+  const ks=pl.touched.map(kName).join(', ');
+  let outcome='';
+  if(!pl.moved)outcome='Choose what goes back.';
+  else if(from==='packed'){
+    const lab=pl.all?`${c.koli} koli opened · labels void`:`${ks} reopened · ${pl.touched.length===1?'label':'labels'} reprinted${pl.emptied.length?` · ${pl.emptied.map(kName).join(', ')} empty, removed`:''}`;
+    outcome=to==='picked'?`${lab} · ${id(pl.moved)} pcs join the picked pile`
+      :`${lab} · ${id(pl.moved)} pcs go back to their racks · ${pl.keep?id(pl.keep)+' to pick again':'nothing to pick again'}`;
+  }else outcome=`${id(pl.moved)} pcs go back to their racks · ${pl.keep?id(pl.keep)+' to pick again':'nothing to pick again'}`;
+  if(pl.excess&&pl.moved)outcome+=` · ${id(pl.excess)} of them were already to put back`;
+  $('dlg').innerHTML=`<div class="veil" onmousedown="if(event.target===this)closeDlg()"><div class="dlg packw" style="width:min(46rem,100%)"><div class="dh"><div class="g"><h2>Move back from ${c.s}</h2><p class="mono">${c.a} · ${id(c.pcs)} pcs · now ${WORD[from].toLowerCase()}</p></div><button class="ib" onclick="closeDlg()" aria-label="Close"><i data-lucide="x"></i></button></div>`
+    +`<div class="db"><div class="khead">${chips||'<span></span>'}<span>${pend(c)>0?`<button class="link" onclick="rvFill('excess')">MD’s edit</button> · `:''}<button class="link" onclick="rvFill(true)">All</button> · <button class="link" onclick="rvFill(false)">None</button></span></div>`
+    +`<div class="tcard"><table><thead><tr><th class="n">No.</th><th>SKU</th><th>${from==='packed'?'In koli':'Rack'}</th><th class="r">Now</th><th class="r" style="width:14rem">Move back</th></tr></thead><tbody>`
+    +L.map((l,i)=>{const q=m[i]!=null?m[i]:l.qty;return `<tr${q===0?' class="gone"':''}><td class="n">${i+1}</td><td><span class="nm">${l.name} · ${l.size}</span><span class="sk">${l.sku}</span></td><td class="mono">${from==='packed'?kName(kOf(c,i)):l.rack}</td><td class="r">${l.qty}</td><td class="r"><span class="qs"><button onclick="rvq(${i},-1)"${q?'':' disabled'} aria-label="One less"><i data-lucide="minus"></i></button><input value="${q}" inputmode="numeric" onchange="rvset(${i},this.value)"><button onclick="rvq(${i},1)"${q<l.qty?'':' disabled'} aria-label="One more"><i data-lucide="plus"></i></button></span></td></tr>`}).join('')
+    +`</tbody><tfoot><tr><td></td><td colspan="2">Total</td><td class="r">${id(pl.total)}</td><td class="r">${id(pl.moved)}</td></tr></tfoot></table></div>`
+    +`<p style="color:var(--body);margin:14px 0 0">${outcome}</p></div>`
+    +`<div class="df"><span class="g">${pl.moved?`${id(pl.moved)} of ${id(pl.total)} pcs`:''}</span><button class="btn" onclick="closeDlg()">Keep</button><button class="btn pri"${pl.moved?'':' disabled'} onclick="confirmRevert()">Move back ${pl.all?'all':id(pl.moved)+' pcs'}</button></div></div></div>`;
+  icons();
+}
+function confirmRevert(){
+  const{cid,to,m}=S.rv,c=C.find(x=>x.id===cid);if(!c){closeDlg();return}
+  const from=c.lane,L=ens(c),pl=revertPlan(c,m);if(!pl.moved)return;
+  const dest=[];
+  L.forEach((l,i)=>{
+    const q=Math.min(m[i]!=null?m[i]:l.qty,l.qty);if(q<=0)return;
+    const W=wantOf(l),e=Math.min(q,l.qty-W),k=q-e;
+    if(to==='picked')dest.push({name:l.name,sku:l.sku,size:l.size,rack:l.rack,qty:q,want:k});
+    else if(k>0)dest.push({name:l.name,sku:l.sku,size:l.size,rack:l.rack,qty:k,want:k});
+    l.qty-=q;l.want=Math.max(0,W-k);
+  });
+  const rest=L.filter(l=>l.qty>0),oldKoli=c.koli;
+  const sum=a=>a.reduce((t,l)=>t+l.qty,0);
+  let landed=null;
+  if(!rest.length){
+    // everything went back: the card itself moves (or is gone when nothing is to be picked again)
+    if(!dest.length){C.splice(C.indexOf(c),1);S.sel.delete(c.id);if(S.open===c.id){S.open=null;$('side').innerHTML=''}}
+    else{c.lines=dest;c.pcs=sum(dest);c.t0=null;c.edit=null;move(c,to);c.koli=undefined;c.kolis=undefined;if(to==='pick')c.again=true;S.sel.delete(c.id);landed=c}
+  }else{
+    c.lines=rest;c.pcs=sum(rest);
+    if(from==='packed'){c.koli=new Set(rest.map(l=>l.k)).size;c.kolis=undefined}
+    if(pend(c)===0){c.t0=null;c.edit=null}
+    if(dest.length){
+      let d=C.find(x=>x.id!==c.id&&x.a===c.a&&x.s===c.s&&x.lane===to&&!x.cancelled);
+      if(d){const DL=ens(d);dest.forEach(n=>{const f=DL.find(l=>l.sku===n.sku);if(f){f.qty+=n.qty;f.want=(f.want!=null?f.want:f.qty-n.qty)+n.want}else DL.push(n)});d.pcs=sum(DL);d.moved=(d.moved||0)+sum(dest)}
+      else{d={id:++seq,s:c.s,a:c.a,sup:c.sup,pcs:sum(dest),lane:to,age:0,lines:dest,moved:sum(dest),again:to==='pick'};C.unshift(d)}
+      landed=d;
+    }
+  }
+  if(landed){S.fresh=landed.id;S.pulse.add(landed.id);if(pend(landed)>0){landed.t0=S.clock;landed.edit=landed.edit||{by:MDN,at:hhmm(S.clock)}}}
+  logEv(c.a,`${WHN} moved ${id(pl.moved)} pcs of ${c.s} back to ${BACK_WORD[to]}`);
+  toast(from==='packed'
+    ?`${c.s} · ${pl.all?oldKoli+' koli opened':pl.touched.map(kName).join(', ')+' reopened · label reprinted'} · ${id(pl.moved)} pcs to ${BACK_WORD[to]}`
+    :`${c.s} · ${id(pl.moved)} pcs back on the racks${pl.keep?' · to pick again':''}`);
+  S.rv=null;closeDlg();if(S.open===c.id)renderDetail();refreshAll();
+}
+paintView();
+</script>
+
+<script>
+/* ═══ Cancel at any stage before it is sent ════════════════════════════════
+   (owner, 9 Oct, late) Cancel no longer waits for every picklist to be on the
+   Pick List: it is "reduce everything not sent to nothing", so it uses the same
+   machinery as an edit. A cancelled To-pick card is removed in one tap; a
+   cancelled Picked / Packed card carries the CANCELLED stamp and has to be
+   moved back, all of it. What the cost is — pieces the warehouse must move
+   back — is said in the dialog and has to be ticked. Sent stays sent.
+   ──────────────────────────────────────────────────────────────────────── */
+S.ack=false;
+function whyNo(g){
+  if(!g.length||g.every(c=>c.cancelled))return '';
+  return g.every(c=>isSent(c))?'Everything has already been sent':'';
+}
+function cancelDlg(){
+  const a=S.mdA,g=C.filter(c=>c.a===a);if(!canCancel(g))return;
+  S.why=null;S.note='';S.ack=false;paintCancel();
+}
+function paintCancel(){
+  const a=S.mdA,g=C.filter(c=>c.a===a&&!isSent(c)&&!c.cancelled),sent=C.filter(c=>c.a===a&&isSent(c));
+  const by=k=>g.filter(c=>c.lane===k),pc=k=>by(k).reduce((s,c)=>s+c.pcs,0);
+  const work=pc('picked')+pc('packed');
+  const row=(k,label,detail,red)=>by(k).length?`<div style="display:flex;gap:12px;padding:8px 0;border-top:1px solid var(--hairline)"><span style="width:6.5rem;color:var(--body)">${label}</span><span style="flex:1;${red?'color:var(--bad-fg)':'color:var(--text)'}">${detail}</span><span style="font-variant-numeric:tabular-nums;color:var(--ink)">${id(pc(k))} pcs</span></div>`:'';
+  const koli=by('packed').reduce((s,c)=>s+(c.koli||0),0);
+  $('dlg').innerHTML=`<div class="veil" onmousedown="if(event.target===this)closeDlg()"><div class="dlg" style="width:min(34rem,100%)"><div class="dh"><div class="g"><h2>Cancel ${a}?</h2></div><button class="ib" onclick="closeDlg()" aria-label="Close"><i data-lucide="x"></i></button></div>`
+    +`<div class="db"><div style="margin-bottom:16px">`
+    +row('pick','To pick',`${by('pick').length} picklist${by('pick').length===1?'':'s'} · removed`,false)
+    +row('picked','Picked',`${by('picked').length} store${by('picked').length===1?'':'s'} · the warehouse puts it back`,true)
+    +row('packed','Packed',`${by('packed').length} store${by('packed').length===1?'':'s'} in ${koli} koli · the warehouse unpacks it`,true)
+    +(sent.length?`<div style="display:flex;gap:12px;padding:8px 0;border-top:1px solid var(--hairline);color:var(--mute)"><span style="width:6.5rem">Sent</span><span style="flex:1">keeps going</span><span style="font-variant-numeric:tabular-nums">${id(sent.reduce((s,c)=>s+c.pcs,0))} pcs</span></div>`:'')
+    +`</div>`
+    +(work>0?`<label style="display:flex;gap:10px;align-items:flex-start;background:#fbeaea;color:var(--bad-fg);border-radius:10px;padding:12px 14px;margin-bottom:16px;cursor:pointer"><input type="checkbox" ${S.ack?'checked':''} onchange="S.ack=this.checked;paintCancel()" style="margin-top:4px;width:18px;height:18px;accent-color:var(--bad-fg)"><span>The warehouse has to move back ${id(work)} pcs that are already ${pc('picked')&&pc('packed')?'picked or packed':pc('packed')?'packed':'picked'}.</span></label>`:'')
+    +`<span class="tlabel">Reason</span><div class="rch">${WHYS.map((w,i)=>`<button class="${S.why===w?'on':''}" onclick="S.why=WHYS[${i}];paintCancel()">${w}</button>`).join('')}</div>`
+    +`<textarea class="nt" placeholder="Note (optional)" oninput="S.note=this.value">${esc(S.note)}</textarea></div>`
+    +`<div class="df"><span class="g">${work>0?'The warehouse moves it back and confirms':'The warehouse removes the picklists'}</span><button class="btn" onclick="closeDlg()">Keep</button><button class="btn dsolid"${S.why&&(work===0||S.ack)?'':' disabled'} onclick="confirmCancel()">Cancel allotment</button></div></div></div>`;
+  icons();
+}
+function doCancel(a,why,note){
+  const g=C.filter(c=>c.a===a&&!isSent(c)&&!c.cancelled);if(!g.length)return;
+  const reason=why+(note?` · ${note}`:'');
+  CINFO[a]={pcs:g.reduce((s,c)=>s+c.pcs,0),stores:g.length,reason,by:MDN,at:hhmm(S.clock),sup:g[0].sup};
+  g.forEach(c=>{
+    if(c.lane==='picked'||c.lane==='packed')ens(c).forEach(l=>{l.want=0});
+    c.cancelled=true;c.cx={by:MDN,reason,at:hhmm(S.clock)};c.t0=S.clock;S.pulse.add(c.id);S.sel.delete(c.id);
+  });
+  logEv(a,`Cancelled by ${MDN} · ${reason}`);
+  toast(`MD cancelled ${a} · ${g.length} store${g.length===1?'':'s'}`);
+  refreshAll();
+  if(pickOpen())renderPicked();
+  if(packOpen())renderPack();
+}
+function checkGone(a){
+  if(!C.some(x=>x.a===a)&&CINFO[a]&&!GONE[a]){GONE[a]={...CINFO[a],confirmed:hhmm(S.clock)};logEv(a,'Cancelled · everything is back')}
+}
+const _confirmRevert6=confirmRevert;
+confirmRevert=function(){const c=S.rv&&C.find(x=>x.id===S.rv.cid),a=c&&c.a;_confirmRevert6();if(a)checkGone(a);paintView()};
+
+function lockedTick(cid){
+  const c=C.find(x=>x.id===cid);
+  toast(c.cancelled?`${c.s} can’t go · cancelled by MD, move it back`:`${c.s} can’t go yet · move back ${pend(c)} pcs first`);
+}
+function openRevert(cid,to){
+  const c=C.find(x=>x.id===cid);
+  if(!c||isSent(c)||(c.cancelled&&c.lane==='pick'))return;
+  if(!(to==='pick'||to==='picked')||laneIx(to)>=laneIx(c.lane))return;
+  const m={},edited=pend(c)>0;ens(c).forEach((l,i)=>{m[i]=edited?takeOf(l):l.qty});
+  S.rv={cid,to,m};paintRevert();
+}
+dropRule=function(c,lane){
+  if(c.lane===lane)return{ok:false,silent:true};
+  if(isSent(c))return{ok:false,silent:true};
+  if(c.cancelled){
+    if(c.lane==='pick')return lane==='BIS'?{ok:true,act:()=>openDetail(c.id)}:{ok:false,msg:'Cancelled by MD · remove the picklist'};
+    if(lane==='BIS')return{ok:true,act:()=>openRevert(c.id,'pick')};
+    if(laneIx(lane)<laneIx(c.lane)&&(lane==='pick'||lane==='picked'))return{ok:true,act:()=>openRevert(c.id,lane)};
+    return{ok:false,msg:'Cancelled by MD · move it back'};
+  }
+  const p=pend(c);
+  if(lane==='BIS')return p>0?{ok:true,act:()=>openRevert(c.id,'pick')}:{ok:false,silent:true};
+  if(laneIx(lane)<laneIx(c.lane))return(lane==='pick'||lane==='picked')?{ok:true,act:()=>openRevert(c.id,lane)}:{ok:false,silent:true};
+  if(p>0)return{ok:false,msg:`${verbOf(c)} ${p} pcs first`};
+  const f=FWD[c.lane+'>'+lane];return f?{ok:true,act:()=>f(c)}:{ok:false,silent:true};
+};
+paintView();
+</script>
+
+<script>
+/* stacked toasts: a longer message stays a little longer */
+function toast(m){
+  let box=$('toasts');if(!box){box=document.createElement('div');box.id='toasts';document.body.appendChild(box)}
+  const t=document.createElement('div');t.className='toast';t.textContent=m;box.appendChild(t);
+  setTimeout(()=>t.remove(),Math.min(6000,2400+m.length*35));
+}
+</script>
+
+<script>
+/* ═══ Cannot continue — Ops reports, it does not decide ═══════════════════
+   (owner's correction, 9 Oct) A short pick used to create an Inventory
+   "Missing" at once. Wrong owner. Now:
+     Ops        reports "Cannot continue picking · N pcs unfulfilled", the reason,
+                and who acts next. That is all it says.
+     MD         sees what is Still needed and decides: Wait or Close short.
+     Inventory  only when the reason is about stock: a Stock check, which it
+                settles through its own process (Found / Lost).
+     Ops        resumes when the blocker is gone and the demand is still open.
+   An operational reason (label, equipment) stays with Ops: no Inventory case.
+   A cancelled demand is never revived by a Found.
+   ──────────────────────────────────────────────────────────────────────── */
+const REASONS=[
+  ['Stock at rack could not be confirmed','Inventory','Stock unconfirmed'],
+  ['Item not found at the rack','Inventory','Not at rack'],
+  ['Item damaged','Inventory','Damaged'],
+  ['Label or equipment problem','Ops','Label / equipment'],
+  ['Other','Ops','Other']
+];
+const sumQ=a=>a.reduce((t,l)=>t+l.qty,0);
+const nextOf=owner=>owner==='Inventory'?'Inventory stock check':'Ops resolves it';
+const demandWord=u=>({open:'Still needed',wait:'Waiting for stock',closed:'Closed short',cancelled:'Demand cancelled',again:'Picking again'}[u.state]);
+
+/* ── the pick sheet asks WHY, not "who is told" ────────────────────────── */
+const _finishPick7=finishPick;
+finishPick=function(cid){PQ.why=null;_finishPick7(cid)};
+function renderPicked(){
+  const c=C.find(x=>x.id===PQ.cid);if(!c){closeDlg();return}
+  const L=linesOf(c);L.forEach((l,i)=>{if(PQ.got[i]==null||PQ.got[i]>l.qty)PQ.got[i]=l.qty});
+  const got=L.reduce((s,l,i)=>s+PQ.got[i],0),short=c.pcs-got,cx=!!c.cancelled;
+  const banner=cx?`<div class="banner red"><i data-lucide="octagon-x"></i><span>MD cancelled this picklist. Put back anything you took.</span></div>`
+    :c.bn?`<div class="banner acc"><i data-lucide="info"></i><span>MD changed this picklist · ${id(c.bn.from)} → ${id(c.bn.to)} pcs</span></div>`:'';
+  const why=short>0&&!cx?`<div class="blkbox"><b>${id(short)} ${short===1?'pc':'pcs'} can’t be picked</b><div class="rch">${REASONS.map((r,i)=>`<button class="${PQ.why===i?'on':''}" onclick="PQ.why=${i};renderPicked()">${r[0]}</button>`).join('')}</div>${PQ.why==null?'<p>Say why picking can’t continue.</p>':''}</div>`:'';
+  $('dlg').innerHTML=`<div class="veil" onmousedown="if(event.target===this)closeDlg()"><div class="dlg packw"><div class="dh"><div class="g"><h2>${c.s}</h2><p class="mono">${c.a} · ${id(c.pcs)} pcs</p></div><button class="ib" onclick="closeDlg()" aria-label="Close"><i data-lucide="x"></i></button></div>`
+    +`<div class="db">${banner}<div class="tcard"><table><thead><tr><th class="n">No.</th><th>SKU</th><th class="r">To pick</th><th class="r" style="width:13rem">Picked</th></tr></thead><tbody>`
+    +L.map((l,i)=>{const q=PQ.got[i];return `<tr${!cx&&q<l.qty?' class="shortrow"':''}><td class="n">${i+1}</td><td><span class="nm">${l.name} · ${l.size}</span><span class="sk">${l.sku}</span></td><td class="r">${l.qty}</td><td class="r">`
+      +(cx?'<span style="color:var(--mute)">—</span>':`<span class="qs"><button onclick="pq(${i},-1)"${q?'':' disabled'} aria-label="One less"><i data-lucide="minus"></i></button><input value="${q}" inputmode="numeric" onchange="pqset(${i},this.value)"><button onclick="pq(${i},1)"${q<l.qty?'':' disabled'} aria-label="One more"><i data-lucide="plus"></i></button></span>`)+'</td></tr>'}).join('')
+    +`</tbody><tfoot><tr><td></td><td>Total</td><td class="r">${id(c.pcs)}</td><td class="r"${short&&!cx?' style="color:var(--bad-fg)"':''}>${cx?'—':id(got)}</td></tr></tfoot></table></div>${why}</div>`
+    +`<div class="df"><span class="g">${cx?'Anything in your hands goes back to its rack':short?`<b style="color:var(--bad-fg)">${id(short)} ${short===1?'pc':'pcs'} unfulfilled</b>`:'Everything picked'}</span>`
+    +(cx?`<button class="btn pri" onclick="closeDlg();confirmFix(${c.id})">Confirm cancelled</button>`
+       :short?`<button class="btn pri"${PQ.why==null?' disabled':''} onclick="confirmPicked()">${got?`Picked ${id(got)} · report ${id(short)}`:'Report · cannot continue'}</button>`
+       :`<button class="btn pri" onclick="confirmPicked()">Picked ${id(got)} pcs</button>`)+'</div></div></div>';
+  icons();
+}
+function confirmPicked(){
+  const c=C.find(x=>x.id===PQ.cid);if(!c)return;
+  const L=linesOf(c),got=L.reduce((s,l,i)=>s+PQ.got[i],0),short=c.pcs-got;
+  if(short<=0){c.lines=L.map((l,i)=>({...l,qty:PQ.got[i]}));closeDlg();move(c,'picked');render();toast(`${c.s} picked`);return}
+  if(PQ.why==null)return;
+  const why=REASONS[PQ.why];
+  const pickedL=L.map((l,i)=>({...l,qty:PQ.got[i],want:PQ.got[i]})).filter(l=>l.qty>0);
+  const missL=L.map((l,i)=>({...l,qty:l.qty-PQ.got[i],want:l.qty-PQ.got[i]})).filter(l=>l.qty>0);
+  let b;
+  if(!pickedL.length){b=c;c.lines=missL;c.pcs=sumQ(missL)}
+  else{
+    c.lines=pickedL;c.pcs=sumQ(pickedL);move(c,'picked');
+    b={id:++seq,s:c.s,a:c.a,sup:c.sup,pcs:sumQ(missL),lane:'pick',age:0,lines:missL};C.unshift(b);
+  }
+  b.t0=S.clock;
+  const first=missL[0],label=missL.length===1?`${first.name} · ${first.size}`:`${first.name} · ${first.size} +${missL.length-1} more`;
+  const uid='u'+(++fseq);
+  b.blk={reason:why[0],tag:why[2],owner:why[1],status:'blocked',by:WHN,at:hhmm(S.clock),uid};
+  UNF.unshift({id:uid,a:c.a,s:c.s,sku:missL.length===1?first.sku:`${missL.length} SKUs`,name:label,qty:sumQ(missL),state:'open',reason:why[0],owner:why[1],inv:why[1]==='Inventory'?'checking':null,cardId:b.id});
+  if(why[1]==='Inventory')MIS.unshift({id:'m'+fseq,sku:missL.length===1?first.sku:`${missL.length} SKUs`,name:label,rack:first.rack,qty:sumQ(missL),from:`${c.a} · ${c.s}`,by:WHN,when:'Just now',state:'open',unf:uid});
+  logEv(c.a,`${WHN} · cannot continue picking · ${c.s} · ${sumQ(missL)} pcs unfulfilled · ${why[0]}`);
+  S.pulse.add(b.id);S.fresh=b.id;closeDlg();render();paintView();
+  toast(`Cannot continue picking · ${sumQ(missL)} pcs unfulfilled`);
+}
+
+const _rd7=renderDetail;
+renderDetail=function(){
+  _rd7();
+  const c=C.find(x=>x.id===S.open);
+  if(c&&c.blk&&!c.cancelled){
+    const b=c.blk,sb=document.querySelector('#side .sb');
+    if(sb)sb.insertAdjacentHTML('afterbegin',`<dl class="facts"><div><dt>Short pick</dt><dd>${esc(b.reason)}</dd></div><div><dt>Reported by</dt><dd>${b.by} · ${b.at}</dd></div>${b.status==='lost'?'<div><dt>Inventory</dt><dd>Lost · MD decides</dd></div>':''}</dl>`);
+  }
+};
+/* ── MD: what is still needed, and what to do about it ────────────────── */
+function unfStatus(u){
+  if(u.state==='cancelled')return {a:'Demand cancelled · no further picking',b:u.inv==='Found'?`Inventory: found ${u.qty} · back in available stock`:u.inv==='checking'?'Inventory: stock check continues':u.inv==='Lost'?`Inventory: lost ${u.qty}`:''};
+  const a=`Cannot continue picking · ${u.reason}`;
+  let b='';
+  if(u.owner==='Inventory')b=u.inv==='checking'?'Inventory: stock check in progress':u.inv==='Found'?`Inventory: found ${u.qty} · ${u.state==='closed'?'back in available stock':'picking can resume'}`:`Inventory: lost ${u.qty}`;
+  else b=u.state==='again'?'Ops: resumed':'Ops: resolving';
+  return{a,b};
+}
+function mdUnfilled(){
+  const live=UNF.filter(u=>u.state==='open'||u.state==='wait'||(u.state==='cancelled'&&!u.seen)),rest=UNF.filter(u=>!live.includes(u));
+  const act=u=>{
+    if(u.state==='open')return `<button class="btn" onclick="mdDecide('${u.id}','wait')">Wait</button> <button class="btn" onclick="mdDecide('${u.id}','closed')">Close short</button>`;
+    if(u.state==='wait')return u.inv==='Lost'?`<button class="btn" onclick="mdDecide('${u.id}','closed')">Close short</button>`:'<span class="pill info">Waiting for stock</span>';
+    return `<span class="pill${u.state==='again'?' ok':''}">${demandWord(u)}</span>`;
+  };
+  const row=(u,i)=>{const s=unfStatus(u);return `<tr><td class="n">${i+1}</td><td class="mono">${u.a}</td><td class="strong">${u.s}</td><td><span class="nm">${u.name}</span><span class="sk">${u.sku}</span></td><td class="r">${u.qty} pcs</td><td style="white-space:normal;min-width:16rem">${s.a}${s.b?`<span class="sk" style="margin-top:2px">${s.b}</span>`:''}</td><td class="act">${act(u)}</td></tr>`};
+  const head='<thead><tr><th class="n">No.</th><th>Allotment</th><th>Store</th><th>SKU</th><th class="r">Still needed</th><th>Why</th><th class="act"></th></tr></thead>';
+  return `<h3 class="vt">Still needed <span>${live.length}</span></h3>`
+    +(live.length?`<div class="tcard"><table>${head}<tbody>${live.map(row).join('')}</tbody></table></div>`:'<div class="none">Nothing is waiting on a decision.</div>')
+    +(rest.length?`<h3 class="vt">Decided</h3><div class="tcard"><table><tbody>${rest.map(row).join('')}</tbody></table></div>`:'');
+}
+function mdDecide(uid,what){
+  const u=UNF.find(x=>x.id===uid);if(!u)return;
+  u.state=what;const card=C.find(c=>c.id===u.cardId);
+  if(what==='closed'){
+    if(card&&card.blk){C.splice(C.indexOf(card),1);if(S.open===card.id){S.open=null;$('side').innerHTML=''}}
+    logEv(u.a,`Closed short by ${MDN} · ${u.s} · ${u.qty} pcs`);
+    toast(`Closed short · ${u.s} gets ${u.qty} pcs less`);
+  }else{logEv(u.a,`${MDN} · waiting for stock · ${u.s} · ${u.qty} pcs`);toast('Waiting for stock')}
+  paintView();
+}
+
+/* ── Inventory: stock checks, settled by Inventory ─────────────────────── */
+function invView(){
+  const open=MIS.filter(m=>m.state==='open'),rest=MIS.filter(m=>m.state!=='open');
+  const dem=m=>{const u=UNF.find(x=>x.id===m.unf);return u?demandWord(u):'—'};
+  const row=(m,i)=>`<tr><td class="n">${i+1}</td><td><span class="nm">${m.name}</span><span class="sk">${m.sku}</span></td><td class="mono">${m.rack}</td><td class="r">${m.qty} pcs</td><td><span class="nm" style="font-weight:400">${m.from}</span><span class="sk">Reported by ${m.by} · ${m.when}</span></td><td>${dem(m)}</td><td class="act">${m.state==='open'?`<button class="btn" onclick="invDecide('${m.id}','found')">Found</button> <button class="btn" onclick="invDecide('${m.id}','lost')">Lost</button>`:`<span class="pill${m.state==='found'?' ok':' bad'}">${m.state==='found'?'Found':'Lost'}</span>`}</td></tr>`;
+  const head='<thead><tr><th class="n">No.</th><th>SKU</th><th>Rack</th><th class="r">Qty</th><th>Reported</th><th>MD</th><th class="act"></th></tr></thead>';
+  return '<div class="vh"><h1>Stock checks</h1></div>'
+    +`<h3 class="vt">Open <span>${open.length}</span></h3>`
+    +(open.length?`<div class="tcard"><table>${head}<tbody>${open.map(row).join('')}</tbody></table></div>`:'<div class="none">No stock checks open.</div>')
+    +(rest.length?`<h3 class="vt">Settled</h3><div class="tcard"><table><tbody>${rest.map(row).join('')}</tbody></table></div>`:'');
+}
+function invDecide(mid,what){
+  const m=MIS.find(x=>x.id===mid);if(!m)return;
+  m.state=what;const u=UNF.find(x=>x.id===m.unf);
+  if(u)u.inv=what==='found'?'Found':'Lost';
+  const card=u?C.find(c=>c.id===u.cardId):null;
+  if(what==='found'){
+    if(u&&card&&card.blk&&(u.state==='open'||u.state==='wait')&&!card.cancelled){card.blk=null;u.state='again';S.pulse.add(card.id);toast(`Found ${m.qty} · ${card.s} can be picked`)}
+    else toast(`Found ${m.qty} · back in available stock${u&&u.state==='cancelled'?' · demand cancelled':u&&u.state==='closed'?' · demand closed':''}`);
+  }else{
+    if(card&&card.blk)card.blk.status='lost';
+    toast(`Lost ${m.qty} · MD decides what is still needed`);
+  }
+  logEv(m.from.split(' · ')[0],`Inventory · stock check · ${what==='found'?'found':'lost'} ${m.qty}`);
+  paintView();
+}
+
+/* ── a cancelled demand is never revived by a Found ───────────────────── */
+const _doCancel7=doCancel;
+doCancel=function(a,why,note){
+  _doCancel7(a,why,note);
+  UNF.filter(u=>u.a===a&&u.state!=='closed').forEach(u=>{u.state='cancelled'});
+  paintView();
+};
+
+/* ── Received short is not Completed ───────────────────────────────────── */
+function statusOf(g){
+  if(g.every(c=>c.cancelled))return 'Cancelled';
+  if(g.every(c=>c.lane==='recv'))return g.some(c=>c.got<c.pcs)?'Received short':'Completed';
+  return 'Active';
+}
+
+/* ── seed: yesterday's short pick is now a blocked card + a stock check ── */
+(function(){
+  const u=UNF[0];if(!u||u.cardId)return;
+  const card={id:++seq,s:'Store Bintaro',a:'ALT-0409',sup:'Konveksi Anugerah',pcs:3,lane:'pick',age:1,
+    lines:[{name:'Kaos Crew Basic',sku:'KAO-CRW-BS-XXL',size:'XXL',rack:'C-04',qty:3,want:3}],
+    blk:{reason:'Stock at rack could not be confirmed',tag:'Stock unconfirmed',owner:'Inventory',status:'blocked',by:WHN,at:'Yesterday',uid:u.id},t0:-1500};
+  C.push(card);
+  Object.assign(u,{reason:'Stock at rack could not be confirmed',owner:'Inventory',inv:'checking',cardId:card.id});
+})();
+paintView();
+</script>
+
+<script>
+/* ═══ The shortfall stays on the picklist ══════════════════════════════════
+   (owner, 9 Oct) Target 100, picked 95: the 95 go on (Picked → Packed → sent);
+   the 5 stay on To pick for the same allotment and store. The shortfall does not
+   hold the 95 back, and MD does not have to choose "Wait". MD sees
+   "Target 100 · Sent 95 · To pick 5" and can close the remaining 5 when they are
+   not needed. Ops reports "5 pcs can’t be picked yet"; it never sets Missing.
+   The blocked card is stamped BLOCKED, like the other cards that cannot move.
+   ──────────────────────────────────────────────────────────────────────── */
+const ageWord=h=>h>=24?`${Math.floor(h/24)} d`:`${h} h`;
+const _confirmPicked8=confirmPicked;
+
+function stageCell(c){
+  if(c.blk){const b=c.blk;return `To pick${b.picked?`<span class="sub2" style="display:block;font-size:14px;color:var(--mute)">Short · picked ${id(b.picked)} of ${id(b.target)}</span>`:`<span class="sub2" style="display:block;font-size:14px;color:var(--mute)">Short</span>`}`}
+  return WORD[c.lane];
+}
+
+/* ── MD: target, sent, what is left — and one decision ────────────────── */
+function unfNumbers(u){
+  const cards=C.filter(c=>c.a===u.a&&c.s===u.s);
+  const sent=cards.filter(isSent).reduce((s,c)=>s+(c.lane==='recv'?c.got:c.pcs),0);
+  const left=cards.filter(c=>c.blk&&c.blk.uid===u.id).reduce((s,c)=>s+c.pcs,0)||(u.state==='closed'?0:u.qty);
+  const target=u.target||(sent+left);
+  const doing=Math.max(0,target-sent-left-(u.state==='closed'?u.qty:0));
+  return{target,sent,doing,left};
+}
+function unfStatus(u){
+  const nb=unfNumbers(u);
+  const a=`Target ${id(nb.target)} · Sent ${id(nb.sent)}${nb.doing?` · In progress ${id(nb.doing)}`:''} · To pick ${id(u.state==='closed'?0:nb.left)}`;
+  let b;
+  if(u.state==='cancelled')b=u.inv==='Found'?`Demand cancelled · Inventory found ${u.qty} · back in available stock`:'Demand cancelled · no further picking';
+  else if(u.state==='closed')b=`Remaining ${u.qty} closed`;
+  else if(u.state==='again')b='Picking again';
+  else{
+    const why=esc(u.reason);
+    if(u.owner==='Inventory')b=u.inv==='checking'?`${why} · Inventory stock check in progress`:u.inv==='Found'?`${why} · Inventory found ${u.qty} · picking can resume`:`${why} · Inventory: lost ${u.qty}`;
+    else b=`${why} · Ops is resolving it`;
+  }
+  return{a,b};
+}
+function mdUnfilled(){
+  const live=UNF.filter(u=>u.state==='open'),rest=UNF.filter(u=>u.state!=='open');
+  const act=u=>u.state==='open'?`<button class="btn" onclick="mdDecide('${u.id}','closed')">Close remaining</button>`:`<span class="pill${u.state==='again'?' ok':''}">${{closed:'Closed short',cancelled:'Demand cancelled',again:'Picking again'}[u.state]}</span>`;
+  const row=(u,i)=>{const s=unfStatus(u);return `<tr><td class="n">${i+1}</td><td class="mono">${u.a}</td><td class="strong">${u.s}</td><td><span class="nm">${u.name}</span><span class="sk">${u.sku}</span></td><td style="white-space:normal;min-width:20rem"><span class="nm" style="font-weight:500">${s.a}</span><span class="sk" style="margin-top:2px">${s.b}</span></td><td class="act">${act(u)}</td></tr>`};
+  const head='<thead><tr><th class="n">No.</th><th>Allotment</th><th>Store</th><th>SKU</th><th>Target · Sent · To pick</th><th class="act"></th></tr></thead>';
+  return `<h3 class="vt">Still needed <span>${live.length}</span></h3>`
+    +(live.length?`<div class="tcard"><table>${head}<tbody>${live.map(row).join('')}</tbody></table></div>`:'<div class="none">Nothing is left over.</div>')
+    +(rest.length?`<h3 class="vt">Decided</h3><div class="tcard"><table><tbody>${rest.map(row).join('')}</tbody></table></div>`:'');
+}
+function mdDecide(uid,what){
+  const u=UNF.find(x=>x.id===uid);if(!u||what!=='closed')return;
+  u.state='closed';const card=C.find(c=>c.id===u.cardId);
+  if(card&&card.blk){C.splice(C.indexOf(card),1);if(S.open===card.id){S.open=null;$('side').innerHTML=''}}
+  logEv(u.a,`Remaining ${u.qty} closed by ${MDN} · ${u.s}`);
+  toast(`Closed · ${u.s} gets ${u.qty} pcs less`);
+  paintView();
+}
+/* an allotment that finished with a closed remainder is Closed short, not Completed */
+const _statusOf8=statusOf;
+statusOf=function(g){
+  const st=_statusOf8(g);
+  if(st==='Completed'&&UNF.some(u=>u.a===g[0].a&&u.state==='closed'))return 'Closed short';
+  return st;
+};
+/* the pick sheet's report carries the target and what was picked */
+confirmPicked=function(){
+  const c=C.find(x=>x.id===PQ.cid);if(!c)return;
+  const L=linesOf(c),target=L.reduce((s,l)=>s+l.qty,0),got=L.reduce((s,l,i)=>s+PQ.got[i],0);
+  const before=new Set(C.map(x=>x.id)),wasBlk=c.blk,left=target-got;
+  _confirmPicked8();
+  if(wasBlk&&left<=0){const u0=UNF.find(x=>x.id===wasBlk.uid);if(u0&&u0.state==='open')u0.state='again';c.blk=null}
+  C.filter(x=>x.blk&&!before.has(x.id)||x.id===c.id&&x.blk).forEach(b=>{if(b.blk.target==null){b.blk.target=target;b.blk.picked=got}});
+  const u=UNF[0];if(u&&u.target==null&&u.a===c.a&&u.s===c.s){u.target=target;u.picked=got}
+  paintView();
+};
+(function(){const u=UNF.find(x=>x.cardId);if(u&&u.target==null){u.target=3;u.picked=0}const c=C.find(x=>x.blk&&x.blk.target==null);if(c){c.blk.target=3;c.blk.picked=0}})();
+paintView();
+</script>
+
+<script>
+/* ═══ Strips: Short pick is amber, Edited is red; Cancelled keeps the big stamp ═══
+   (owner, 9 Oct) A strip across the top of the card says what is different
+   about it and leaves the card itself alone — Short pick is still pickable, an
+   edited card still has its Move back button. Only Cancelled is switched off.
+   ──────────────────────────────────────────────────────────────────────── */
+S.mark='C';
+const isSP=c=>!!c.blk&&c.lane==='pick'&&!c.cancelled;
+const isEd=c=>S.cue==='E'&&!c.cancelled&&pend(c)>0;
+const spClass=c=>(isSP(c)||isEd(c))?' sp sp-C':'';
+function spTop(c){
+  if(isSP(c))return `<div class="spstrip" title="${esc(c.blk.reason)}">Short pick</div>`;
+  if(isEd(c))return `<div class="spstrip red" title="MD edited this store">Edited −${id(pend(c))}</div>`;
+  return '';
+}
+function spMark(c){return ''}
 paintView();
 </script>
 </body>

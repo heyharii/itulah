@@ -4,6 +4,7 @@ import { useState } from "react"
 import type { TaxReportRow } from "@itulah/contract"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/field"
@@ -17,6 +18,7 @@ import { csvName, downloadCsv, toCsv } from "@/lib/csv"
 import { count, money } from "@/lib/format"
 import { payKeys, taxMethodLabel, taxReport } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
+import { CardFigure, CardName, PhoneCards } from "@/components/ui/phone-cards"
 import { MONTH_COLUMNS, lastMonth } from "@/screens/people/tax-report-columns"
 
 /// Tax › PPh 21 & BPJS — one month across everybody the caller reaches: the
@@ -26,6 +28,7 @@ import { MONTH_COLUMNS, lastMonth } from "@/screens/people/tax-report-columns"
 /// summed by the server from slips built since 0800; a slip from before that
 /// carries no tax figures and is not in the report.
 export function TaxReportPage() {
+  const phone = useLayout() === "phone"
   const [period, setPeriod] = useState(lastMonth)
   const report = useQuery({
     queryKey: payKeys.taxReport(period),
@@ -36,6 +39,9 @@ export function TaxReportPage() {
   const sum = (pick: (row: TaxReportRow) => number | null) =>
     rows.reduce((total, row) => total + Number(pick(row) ?? 0), 0)
 
+  const exportCsv = () =>
+    downloadCsv(csvName(`PPh21 BPJS ${period}`), toCsv(MONTH_COLUMNS, rows))
+
   return (
     <PageContent>
       <PageHeader
@@ -43,18 +49,15 @@ export function TaxReportPage() {
         title="PPh 21 & BPJS"
         sub="One month across everybody: the figures behind the monthly tax return and the BPJS invoice."
         actions={
-          <Button
-            variant="ghost"
-            disabled={rows.length === 0}
-            onClick={() =>
-              downloadCsv(
-                csvName(`PPh21 BPJS ${period}`),
-                toCsv(MONTH_COLUMNS, rows)
-              )
-            }
-          >
-            Export CSV
-          </Button>
+          !phone && (
+            <Button
+              variant="ghost"
+              disabled={rows.length === 0}
+              onClick={exportCsv}
+            >
+              Export CSV
+            </Button>
+          )
         }
       />
 
@@ -92,7 +95,7 @@ export function TaxReportPage() {
         />
       </KpiStrip>
 
-      <Card className="overflow-hidden px-4 py-2">
+      <Card className="overflow-hidden px-4 py-2 max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:p-0 max-md:shadow-none">
         {queryState(report, {
           loading: "Adding up the month…",
           render: () =>
@@ -102,6 +105,54 @@ export function TaxReportPage() {
                 built for the month shows here as soon as it exists, draft or
                 not.
               </EmptyState>
+            ) : phone ? (
+              <PhoneCards
+                rows={rows}
+                rowId={(row) => `${row.run_id}-${row.employee_id}`}
+                spec={{
+                  title: (row) => (
+                    <CardName
+                      name={row.full_name ?? row.employee_code}
+                      line={
+                        <>
+                          <span className="block">
+                            {row.unit_id} · {row.npwp ?? "no NPWP"}
+                          </span>
+                          <span className="block">
+                            {row.ptkp ?? "—"} · {row.ter_category ?? "—"}
+                            {row.final_tax_month === true && " · year settled"}
+                          </span>
+                        </>
+                      }
+                    />
+                  ),
+                  lead: (row) =>
+                    row.pph21_minor === null ? (
+                      <CardFigure
+                        value="—"
+                        caption="not worked out"
+                        tone="quiet"
+                      />
+                    ) : (
+                      <CardFigure
+                        value={money(row.pph21_minor)}
+                        caption="PPh 21"
+                      />
+                    ),
+                  foot: (row) => (
+                    <span className="flex flex-col leading-6">
+                      <span>
+                        BPJS from pay {money(row.bpjs_employee_minor)}
+                      </span>
+                      <span>Company {money(row.bpjs_company_minor)}</span>
+                    </span>
+                  ),
+                  action: (row) =>
+                    row.tax_method !== null && row.tax_method !== "GROSS" ? (
+                      <Pill tone="info">{taxMethodLabel(row.tax_method)}</Pill>
+                    ) : null,
+                }}
+              />
             ) : (
               <MiniTable
                 head={[
@@ -166,6 +217,18 @@ export function TaxReportPage() {
             ),
         })}
       </Card>
+
+      {/* On a phone the export is the last thing on the page, not the first. */}
+      <div className="mt-4 md:hidden">
+        <Button
+          variant="tint"
+          className="w-full"
+          disabled={rows.length === 0}
+          onClick={exportCsv}
+        >
+          Export CSV
+        </Button>
+      </div>
     </PageContent>
   )
 }

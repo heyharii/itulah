@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
+import { Fab } from "@/components/ui/fab"
 import { Button } from "@/components/ui/button"
 import { Day } from "@/components/ui/day"
 import { Field, Input, Select } from "@/components/ui/field"
@@ -24,7 +26,12 @@ import {
 import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
 import { AllowanceLines } from "@/screens/people/payroll-setup"
-import { ListCard, RowOpen, SheetFooter } from "@/screens/people/settings-kit"
+import {
+  CardFoot,
+  ListCard,
+  RowOpen,
+  SheetFooter,
+} from "@/screens/people/settings-kit"
 import { bpOf, digits, useOpener } from "@/screens/people/settings-lib"
 import { percent } from "@/screens/people/slip-lines"
 import type { PayComponentView, SalaryStructureView } from "@itulah/contract"
@@ -39,6 +46,7 @@ import type { PayComponentView, SalaryStructureView } from "@itulah/contract"
 /// and THR are the system's own.
 export function PayComponentSettings() {
   const canWrite = useCanWrite()
+  const phone = useLayout() === "phone"
   const structures = useQuery({
     queryKey: payKeys.structures(),
     queryFn: ({ signal }) => salaryStructures(signal),
@@ -53,11 +61,15 @@ export function PayComponentSettings() {
 
   return (
     <PageContent>
+      {canWrite && (
+        <Fab label="New structure" onClick={() => structure.show()} />
+      )}
       <PageHeader
         crumb="People"
         title="Salary Structures & Components"
         sub="The named pay packages an agreement is filled from, and the components a payslip may carry."
         actions={
+          !phone &&
           canWrite && (
             <>
               <Button onClick={() => component.show()}>New component</Button>
@@ -121,7 +133,14 @@ export function PayComponentSettings() {
         })}
       </ListCard>
 
-      <ListCard title="Pay components">
+      <ListCard
+        title="Pay components"
+        foot={
+          canWrite ? (
+            <CardFoot label="New component" onClick={() => component.show()} />
+          ) : undefined
+        }
+      >
         {queryState(components, {
           loading: "Reading the components…",
           render: (rows) =>
@@ -247,8 +266,7 @@ function StructureSheet({
     onSuccess: done,
   })
   const retire = useMutation({
-    mutationFn: () =>
-      retireSalaryStructure(row?.code ?? "", "tidak dipakai lagi"),
+    mutationFn: () => retireSalaryStructure(row?.code ?? "", "no longer used"),
     onSuccess: done,
   })
 
@@ -577,7 +595,7 @@ function ComponentSheet({
     onSuccess: done,
   })
   const retire = useMutation({
-    mutationFn: () => retireComponent(row?.code ?? "", "tidak dipakai lagi"),
+    mutationFn: () => retireComponent(row?.code ?? "", "no longer used"),
     onSuccess: done,
   })
 

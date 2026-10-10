@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
+import { Fab } from "@/components/ui/fab"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox, Field, Input } from "@/components/ui/field"
@@ -22,6 +24,7 @@ import {
 import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
 import { FormSheet, NameCell } from "@/screens/people/settings-parts"
+import { CardFoot } from "@/screens/people/settings-kit"
 import { RELATIONS, useSheetTarget } from "@/screens/people/settings-hooks"
 
 type GroupRow = Awaited<ReturnType<typeof groupEntities>>[number]
@@ -33,16 +36,21 @@ type UnitRow = Awaited<ReturnType<typeof businessUnits>>[number]
 /// together by line of business.
 export function GroupSettings() {
   const canWrite = useCanWrite()
+  const phone = useLayout() === "phone"
   const group = useSheetTarget<GroupRow>()
   const unit = useSheetTarget<UnitRow>()
 
   return (
     <PageContent>
+      {canWrite && (
+        <Fab label="Add business unit" onClick={() => unit.show(null)} />
+      )}
       <PageHeader
         crumb="People"
         title="Group & Business Units"
         sub="The companies around this one, and the lines of business its units belong to."
         actions={
+          !phone &&
           canWrite && (
             <>
               <Button variant="ghost" onClick={() => group.show(null)}>
@@ -71,6 +79,7 @@ function GroupList({
     queryFn: ({ signal }) => groupEntities(signal),
   })
   const label = new Map(RELATIONS.map((one) => [one.value, one.label]))
+  const canWrite = useCanWrite()
   return (
     <Card className="mb-4">
       <CardHeader>
@@ -125,6 +134,9 @@ function GroupList({
           ),
         })}
       </div>
+      {canWrite && (
+        <CardFoot label="Add group company" onClick={() => sheet.show(null)} />
+      )}
     </Card>
   )
 }

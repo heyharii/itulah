@@ -3,6 +3,7 @@ import { useNavigate } from "@tanstack/react-router"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockChoice } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { PageHeader } from "@/components/ui/page-header"
@@ -10,16 +11,22 @@ import { Status } from "@/components/ui/pill"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { EmptyState, LoadMore } from "@/components/ui/states"
 import { count, moment } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   describeEventKind,
-  eventKeys,
-  priceEventPage,
+  priceEventPagesQuery,
   type PriceEvent,
   type PriceEventKind,
 } from "@/lib/queries/changes"
 import { commercialFleet, commercialKeys } from "@/lib/queries/commercial"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
+import {
+  CardFigure,
+  CardFoot,
+  CardName,
+  Sentence,
+} from "@/components/ui/phone-cards"
 
 /// History — the price book's log.
 ///
@@ -73,10 +80,10 @@ function kindsOf(lens: string): readonly PriceEventKind[] {
   }
 }
 
-/// How many events one page of the log asks for.
-const LOG_PAGE = 150
-
 export function History() {
+  // A phone draws each entry as a card and keeps the kind of event in the
+  // drawer over the bottom bar (`DockChoice`).
+  const phone = useLayout() === "phone"
   const navigate = useNavigate()
   const shop = useSheet("site")
   const lens = useSheet("log-kind")
@@ -99,16 +106,7 @@ export function History() {
   /// the answer and nothing loaded is thrown away.
   const kinds = kindsOf(lens.value ?? "ALL")
   const siteId = shop.value ?? null
-  const events = useInfiniteQuery({
-    queryKey: eventKeys.pages(siteId, kinds),
-    queryFn: ({ pageParam, signal }) =>
-      priceEventPage(
-        { siteId, kinds, cursor: pageParam, limit: LOG_PAGE },
-        signal
-      ),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-  })
+  const events = useInfiniteQuery(priceEventPagesQuery(siteId, kinds))
 
   const fleet = useQuery({
     queryKey: commercialKeys.fleet(),
@@ -180,28 +178,62 @@ export function History() {
     <PageContent>
       <PageHeader crumb="Marketing" title="History" />
 
-      <Toolbar className="mb-5">
-        <Segmented
-          options={KINDS}
-          value={lens.value ?? "ALL"}
-          onChange={(next) => (next === "ALL" ? lens.close() : lens.open(next))}
-        />
-        <Toolbar.Spacer />
-        {shop.value !== undefined && (
-          <button
-            type="button"
-            onClick={shop.close}
-            className="text-[0.875rem] text-mute underline underline-offset-2 hover:text-ink"
-          >
-            {shopName.get(shop.value) ?? shop.value} · show every store
-          </button>
-        )}
-        <span className="text-[0.875rem] text-mute tabular-nums">
-          {count(entries.length)} entries
-        </span>
-      </Toolbar>
+      {phone ? (
+        <>
+          <DockChoice
+            value={lens.value ?? "ALL"}
+            options={KINDS.map((one) => ({
+              value: one.value,
+              label: one.label,
+              short: one.label,
+            }))}
+            onChange={(next) =>
+              next === "ALL" ? lens.close() : lens.open(next)
+            }
+          />
+          <Sentence>
+            {count(entries.length)} {entries.length === 1 ? "entry" : "entries"}
+            {shop.value !== undefined && (
+              <>
+                {" "}
+                at {shopName.get(shop.value) ?? shop.value}.{" "}
+                <button
+                  type="button"
+                  onClick={shop.close}
+                  className="text-accent underline underline-offset-2"
+                >
+                  Show every store
+                </button>
+              </>
+            )}
+          </Sentence>
+        </>
+      ) : (
+        <Toolbar className="mb-5">
+          <Segmented
+            options={KINDS}
+            value={lens.value ?? "ALL"}
+            onChange={(next) =>
+              next === "ALL" ? lens.close() : lens.open(next)
+            }
+          />
+          <Toolbar.Spacer />
+          {shop.value !== undefined && (
+            <button
+              type="button"
+              onClick={shop.close}
+              className="text-[0.875rem] text-mute underline underline-offset-2 hover:text-ink"
+            >
+              {shopName.get(shop.value) ?? shop.value} · show every store
+            </button>
+          )}
+          <span className="text-[0.875rem] text-mute tabular-nums">
+            {count(entries.length)} entries
+          </span>
+        </Toolbar>
+      )}
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(events, {
           loading: "Loading…",
           render: () =>
@@ -223,17 +255,28 @@ export function History() {
               <div className="flex flex-col">
                 {days.map(([date, rows]) => (
                   <section key={date}>
-                    <h3 className="sticky top-0 z-10 border-b border-hairline bg-soft-3 px-6 py-3 text-[0.875rem] font-medium text-mute">
+                    <h3 className="sticky top-0 z-10 border-b border-hairline bg-soft-3 px-6 py-3 text-[0.875rem] font-medium text-mute max-md:-mx-1 max-md:border-b-0 max-md:px-1 max-md:py-2 max-md:not-first:mt-3">
                       {moment(rows[0].lead.at).split(",")[0] ?? date}
                     </h3>
-                    {rows.map((entry) => (
-                      <Row
-                        key={entry.lead.id}
-                        entry={entry}
-                        shopName={shopName}
-                        onPickShop={(siteId) => shop.open(siteId)}
-                      />
-                    ))}
+                    <div className="max-md:flex max-md:flex-col max-md:gap-2.5">
+                      {rows.map((entry) =>
+                        phone ? (
+                          <PhoneEntry
+                            key={entry.lead.id}
+                            entry={entry}
+                            shopName={shopName}
+                            onPickShop={(siteId) => shop.open(siteId)}
+                          />
+                        ) : (
+                          <Row
+                            key={entry.lead.id}
+                            entry={entry}
+                            shopName={shopName}
+                            onPickShop={(siteId) => shop.open(siteId)}
+                          />
+                        )
+                      )}
+                    </div>
                   </section>
                 ))}
                 {/* The log scrolls with the page, so its foot is watched
@@ -338,6 +381,95 @@ function Row({
               type="button"
               onClick={() => onPickShop(siteId)}
               className="rounded-inner border border-hairline-2 px-3 py-1 text-[0.875rem] text-body transition-colors hover:border-hairline-strong hover:text-ink"
+            >
+              {shopName.get(siteId) ?? siteId}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/// One entry of the log as a phone's card: the book is the head, how many
+/// prices it carried the figure, and the foot says what happened, when and (for
+/// a person's act) who — with the shops as its one button. A failure's own
+/// words stay under the name, where they are the diagnostic.
+function PhoneEntry({
+  entry,
+  shopName,
+  onPickShop,
+}: {
+  entry: Entry
+  shopName: ReadonlyMap<string, string>
+  onPickShop: (siteId: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const { lead, shops, prices } = entry
+  const many = shops.length > 1
+  const time = moment(lead.at).split(", ").pop()
+  return (
+    <div className="rounded-card border border-hairline bg-canvas shadow-soft">
+      <div className="flex items-start gap-3 p-4">
+        <div className="min-w-0 flex-1">
+          <CardName
+            name={lead.publication_name}
+            line={
+              lead.detail === null ? undefined : (
+                <span className="text-bad">{lead.detail}</span>
+              )
+            }
+          />
+        </div>
+        {prices > 0 && (
+          <div className="shrink-0">
+            <CardFigure value={count(prices)} caption="prices" />
+          </div>
+        )}
+      </div>
+      <div className="flex items-center justify-between gap-3 rounded-b-card border-t border-hairline px-4 py-3 text-[0.875rem] text-mute">
+        <CardFoot
+          status={
+            <Status tone={toneOf(lead.kind)}>
+              {describeEventKind(lead.kind)}
+            </Status>
+          }
+        >
+          {time}
+          {shops.length === 0 && lead.actor ? ` · ${lead.actor}` : ""}
+        </CardFoot>
+        {shops.length === 1 && (
+          <Button
+            variant="tint"
+            size="card"
+            className="max-w-[10rem] shrink-0"
+            onClick={() => onPickShop(shops[0])}
+          >
+            <span className="truncate">
+              {shopName.get(shops[0]) ?? shops[0]}
+            </span>
+          </Button>
+        )}
+        {many && (
+          <Button
+            variant="tint"
+            size="card"
+            className="shrink-0"
+            aria-expanded={open}
+            onClick={() => setOpen((was) => !was)}
+          >
+            {count(shops.length)} stores
+          </Button>
+        )}
+      </div>
+      {open && (
+        <div className="flex flex-wrap gap-2 border-t border-hairline px-4 py-3">
+          {shops.map((siteId) => (
+            <button
+              key={siteId}
+              type="button"
+              onClick={() => onPickShop(siteId)}
+              className="rounded-inner border border-hairline-2 px-3 py-1.5 text-[0.875rem] text-body active:bg-soft"
             >
               {shopName.get(siteId) ?? siteId}
             </button>

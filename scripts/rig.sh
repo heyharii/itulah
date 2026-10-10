@@ -31,6 +31,11 @@
 #   RIG_AUTH_MODE        disabled | required           (default: disabled)
 #   RIG_ADMIN_PASSWORD   bootstrap admin password when auth is required
 #   RIG_PORT_CLOUD/DC/STORE  listener ports (defaults 8180 / 8181 / 8182)
+#   RIG_DC_HOSTING       edge | cloud   (default: edge) — `cloud` runs the Gudang
+#                        inside the cloud (INVENTORY_DC_HOSTING=cloud): no DC node
+#                        is started and the `dc` origin is switched off, so the
+#                        cloud executes allotments itself and /api/v1/dc/* is
+#                        served on the cloud port
 #
 # The virtual clock re-anchors at every launch: a run always wakes up on its
 # virtual New Year, and `reset` starts the year over.
@@ -49,6 +54,7 @@ virtual_start="${RIG_VIRTUAL_START:-$(date +%Y)-01-01T00:00:00+07:00}"
 port_cloud="${RIG_PORT_CLOUD:-8180}"
 port_dc="${RIG_PORT_DC:-8181}"
 port_store="${RIG_PORT_STORE:-8182}"
+dc_hosting="${RIG_DC_HOSTING:-edge}"
 # Where the two edges listen. Loopback by default; 0.0.0.0 lets a handheld or a
 # till on the LAN reach them (demo only — the rig runs with auth disabled).
 edge_host="${RIG_EDGE_HOST:-127.0.0.1}"
@@ -180,6 +186,7 @@ CLOUD_URL=http://127.0.0.1:$port_cloud
 CLOUD_PORT=$port_cloud
 DC_PORT=$port_dc
 STORE_PORT=$port_store
+DC_HOSTING=$dc_hosting
 EDGE_HOST=$edge_host
 SYNC_KEY=$sync_key
 AUTH_MODE=$auth_mode
@@ -211,9 +218,21 @@ auth_env() {
 
 launch_run() {  # launch_run <run_dir> <db>
   local dir="$1" db="$2" run_url pid
+  # A run started before DC hosting existed has no DC_HOSTING in its env file.
+  local dc_hosting="${DC_HOSTING:-$dc_hosting}"
   run_url="$(url_for_db "$db")"
   mkdir -p "$dir/logs" "$dir/frontend"
   : > "$dir/pids"
+
+  # The Gudang in the cloud: with no DC origin enabled the cloud finds no node
+  # to send allotments to and does the warehouse's work itself.
+  if [[ "$dc_hosting" == "cloud" ]]; then
+    psql "$run_url" -v ON_ERROR_STOP=1 -qAt \
+      -c "UPDATE sync_origin_credential SET inventory_enabled = false WHERE node_role = 'DC' AND origin_id <> 'dc-cloud'" >/dev/null
+    export INVENTORY_DC_HOSTING=cloud
+  else
+    unset INVENTORY_DC_HOSTING
+  fi
 
   step "node cloud: 127.0.0.1:$port_cloud"
   auth_env
@@ -235,22 +254,26 @@ launch_run() {  # launch_run <run_dir> <db>
   pid=$!; echo "cloud=$pid" >> "$dir/pids"
   wait_http cloud "http://127.0.0.1:$port_cloud/api/v1/health" "$pid"
 
-  step "node dc:    127.0.0.1:$port_dc  (origin dc → cloud ingest)"
-  auth_env
-  # SYNC_UPLOAD_URL is the cloud BASE: HttpTransport::new appends the
-  # ingest/handshake paths itself.
-  # The role is explicit because a developer's edge reads the checkout's
-  # `.env` (edge::node::prepare_environment), and that file describes the
-  # cloud: without it both edges start as INVENTORY_NODE_ROLE=CLOUD and exit.
-  env BIND_ADDR="$edge_host:$port_dc" \
-    INVENTORY_SITE_ID=dc INVENTORY_NODE_ID=dc INVENTORY_NODE_ROLE=DC \
-    INVENTORY_DATABASE_PATH="$dir/dc-edge.sqlite3" FRONTEND_DIR="$dir/frontend" \
-    INVENTORY_ENABLE_TEST_CONTROLS=true INVENTORY_ORIGIN_GENERATION=1 \
-    SYNC_UPLOAD_URL="http://127.0.0.1:$port_cloud" \
-    SYNC_UPLOAD_KEY="$sync_key" RUST_LOG=info \
-    "$bin_dir/dc" >"$dir/logs/dc.log" 2>&1 &
-  pid=$!; echo "dc=$pid" >> "$dir/pids"
-  wait_http dc "http://127.0.0.1:$port_dc/api/v1/inventory/control/clock" "$pid"
+  if [[ "$dc_hosting" == "cloud" ]]; then
+    step "node dc:    none — the Gudang runs inside the cloud"
+  else
+    step "node dc:    127.0.0.1:$port_dc  (origin dc → cloud ingest)"
+    auth_env
+    # SYNC_UPLOAD_URL is the cloud BASE: HttpTransport::new appends the
+    # ingest/handshake paths itself.
+    # The role is explicit because a developer's edge reads the checkout's
+    # `.env` (edge::node::prepare_environment), and that file describes the
+    # cloud: without it both edges start as INVENTORY_NODE_ROLE=CLOUD and exit.
+    env BIND_ADDR="$edge_host:$port_dc" \
+      INVENTORY_SITE_ID=dc INVENTORY_NODE_ID=dc INVENTORY_NODE_ROLE=DC \
+      INVENTORY_DATABASE_PATH="$dir/dc-edge.sqlite3" FRONTEND_DIR="$dir/frontend" \
+      INVENTORY_ENABLE_TEST_CONTROLS=true INVENTORY_ORIGIN_GENERATION=1 \
+      SYNC_UPLOAD_URL="http://127.0.0.1:$port_cloud" \
+      SYNC_UPLOAD_KEY="$sync_key" RUST_LOG=info \
+      "$bin_dir/dc" >"$dir/logs/dc.log" 2>&1 &
+    pid=$!; echo "dc=$pid" >> "$dir/pids"
+    wait_http dc "http://127.0.0.1:$port_dc/api/v1/inventory/control/clock" "$pid"
+  fi
 
   step "node store: 127.0.0.1:$port_store  (origin store-01 → cloud ingest)"
   auth_env

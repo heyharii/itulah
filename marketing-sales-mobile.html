@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Marketing and Sales Mobile</title>
+<style>
+:root{
+  --ink:#20242c;--text:#394150;--body:#565f6d;--mute:#666f7d;--faint:#b9c0c9;--line-ico:#89919d;
+  --canvas:#fff;--soft:#f8f8f9;--soft-2:#f0f0f2;--page:#f6f6f7;--hairline:#e6e6e9;--hairline-2:#dadade;
+  --accent:#2563eb;--accent-bg:#eff5ff;--ok-fg:#137a37;--ok-line:#b9dcbf;--bad:#b42318;--bad-bg:#fdf4f4;--warn:#9a5b00;--info:#1e40af;
+  --shadow-soft:0 1px 2px rgb(24 39 60 / 6%),0 1px 1px rgb(24 39 60 / 4%);
+  --shadow-float:0 12px 32px rgb(15 23 42 / 16%),0 2px 6px rgb(15 23 42 / 8%);
+  --ease-out:cubic-bezier(.23,1,.32,1);--ease-drawer:cubic-bezier(.32,.72,0,1);--w:414px;
+}
+*{box-sizing:border-box;margin:0}
+body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;background:#e4e4e8;color:var(--ink);-webkit-font-smoothing:antialiased;font-size:15px}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;text-align:inherit;padding:0}
+svg{display:block;flex:none}
+.ico{width:1em;height:1em;stroke:currentColor;fill:none;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.9}
+.bar{position:sticky;top:0;left:0;z-index:100;display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center;padding:12px 20px;background:rgb(255 255 255 / .92);backdrop-filter:blur(10px);border-bottom:1px solid var(--hairline-2)}
+.bar h1{font-size:15px;font-weight:600;margin-right:6px}
+.seg{display:inline-flex;flex-wrap:wrap;gap:2px;padding:2px;border-radius:9px;background:#d9d9de}
+.seg button{padding:5px 11px;border-radius:7px;font-size:14px;font-weight:500;color:#444}
+.seg button[aria-pressed=true]{background:#fff;color:#111;box-shadow:0 1px 2px rgb(0 0 0 / .15)}
+.seg.g{background:#cfd6e6}
+.lab{font-size:14px;color:#555;margin-right:8px}
+.stage{display:flex;gap:28px;padding:24px 20px 60px;overflow-x:auto;align-items:flex-start}
+.opt{flex:none}
+.opt h2{font-size:15px;font-weight:600;margin:0 4px 2px}
+.opt>p{font-size:14px;color:#555;margin:0 4px 10px;max-width:var(--w);min-height:88px}
+
+.phone{position:relative;width:var(--w);height:896px;background:var(--page);border-radius:30px;border:1px solid #cfcfd6;box-shadow:0 18px 40px rgb(0 0 0 / .14);overflow:hidden;display:flex;flex-direction:column}
+.top{height:51px;flex:none;background:#fff;border-bottom:1px solid var(--hairline);display:flex;align-items:center;gap:10px;padding:0 12px 0 16px}
+.top b{font-weight:600;font-size:17px;letter-spacing:-.01em}.top .sp{flex:1}
+.av{width:32px;height:32px;border-radius:50%;background:var(--accent-bg);color:var(--accent);display:grid;place-items:center;font-weight:600;font-size:15px}
+.scroll{flex:1;overflow-y:auto;overflow-x:hidden;padding:16px 16px 24px;position:relative}
+.dock{flex:none;padding:0 8px 8px}
+.dock .c2{display:flex;gap:6px;align-items:center;padding:8px;border-radius:1.75rem;border:1px solid rgb(0 0 0 / .06);background:rgb(255 255 255 / .95);box-shadow:var(--shadow-float)}
+.chip{display:inline-flex;align-items:center;gap:4px;height:36px;padding:0 10px 0 14px;border-radius:999px;background:var(--soft-2);font-size:14px;font-weight:500;white-space:nowrap;transition:scale 120ms var(--ease-out)}
+.chip:active{scale:.97}
+.field{flex:1;min-width:0;display:flex;align-items:center;height:36px;border-radius:999px;background:var(--soft-2);padding:0 8px 0 12px;color:var(--mute);font-size:14px;gap:8px}
+.field .s{flex:1;display:flex;align-items:center;gap:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.field .gear{width:28px;height:28px;display:grid;place-items:center;border-radius:50%;margin-right:-2px}
+.field .gear:active{background:rgb(0 0 0 / .06)}
+.fab{width:36px;height:36px;border-radius:50%;background:var(--accent);color:#fff;display:grid;place-items:center;font-size:20px;flex:none;transition:scale 120ms var(--ease-out)}
+.fab:active{scale:.94}
+.fab.wide{width:auto;padding:0 18px;border-radius:999px;font-size:14px;font-weight:600;gap:6px;display:inline-flex}
+.tabs{height:80px;flex:none;background:#fff;border-top:1px solid var(--hairline);display:grid;grid-template-columns:repeat(5,1fr);padding-bottom:24px;position:relative}
+.tabs::after{content:"";position:absolute;bottom:8px;left:50%;width:134px;height:5px;margin-left:-67px;border-radius:3px;background:#1a1a1a}
+.tabs button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:14px;font-weight:500;color:var(--mute);white-space:nowrap}
+.tabs button .ico{font-size:22px;color:var(--line-ico)}
+.tabs button.on{color:var(--accent);background:linear-gradient(180deg,rgb(37 99 235 / .08),transparent)}.tabs button.on .ico{color:var(--accent)}
+
+/* figures */
+.kgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+.kgrid div{padding:12px 14px;border:1px solid var(--hairline);border-radius:10px;background:#fff;box-shadow:var(--shadow-soft);min-width:0}
+.kgrid span{display:block;font-size:14px;color:var(--mute)}
+.kgrid b{display:block;margin-top:2px;font-size:20px;font-weight:600;letter-spacing:-.01em;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.kgrid em{display:block;font-style:normal;font-size:14px;color:var(--mute)}
+.sentence{margin-bottom:14px;font-size:15px;line-height:1.5;color:var(--body);text-wrap:pretty}
+.sentence b{font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.h{display:flex;align-items:baseline;gap:8px;margin:18px 1px 8px}.h b{font-size:16px;font-weight:600}.h span{font-size:14px;color:var(--mute)}
+
+/* cards */
+.cards{display:flex;flex-direction:column;gap:10px}
+.card{border:1px solid var(--hairline);border-radius:10px;background:var(--canvas);box-shadow:var(--shadow-soft);transition:scale 120ms var(--ease-out)}
+.card.press:active{scale:.985}
+.card .hd{display:flex;gap:12px;padding:16px;align-items:flex-start}
+.card .l{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.thumb{width:44px;height:44px;border-radius:8px;background:var(--soft-2);display:grid;place-items:center;flex:none;color:#9aa1ac}
+.thumb svg{width:26px;height:26px}
+.rank{width:28px;height:28px;border-radius:50%;background:var(--soft-2);display:grid;place-items:center;font-size:14px;font-weight:600;color:var(--body);flex:none;margin-top:1px;font-variant-numeric:tabular-nums}
+.nm{font-size:16px;font-weight:600;letter-spacing:-.01em;line-height:1.3;overflow-wrap:anywhere}.nm.mute{color:var(--mute)}
+.q{font-size:14px;color:var(--mute);line-height:1.45;overflow-wrap:anywhere}.q b{font-weight:500;color:var(--ink)}
+.mono{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace;font-size:14px;color:var(--mute);overflow-wrap:anywhere}
+.lead{text-align:right;flex:none;max-width:52%}
+.lead b{display:block;font-size:22px;line-height:1.15;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.lead b.z{color:var(--mute)}.lead b.up{color:var(--ok-fg)}.lead b.down{color:var(--bad)}
+.lead span{display:block;margin-top:2px;font-size:14px;color:var(--mute);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.foot{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border-top:1px solid var(--hairline);border-radius:0 0 9px 9px;font-size:14px;color:var(--mute);line-height:1.5}
+.foot>span:first-child{min-width:0;overflow-wrap:anywhere}
+.foot.t{background:var(--bad-bg);border-top-color:#f9e9e9}
+.foot .bad,.bad{color:var(--bad)}
+.dw{display:inline-flex;align-items:center;gap:6px;font-size:14px;font-weight:500;white-space:nowrap;color:var(--ink)}.dw i{width:7px;height:7px;border-radius:50%;background:currentColor}
+.dw.ok{color:var(--ok-fg)}.dw.n{color:var(--mute)}.dw.info{color:var(--accent)}.dw.warn{color:var(--warn)}
+.pill{display:inline-flex;align-items:center;height:30px;padding:0 12px;border-radius:8px;border:1px solid var(--ok-line);color:var(--ok-fg);font-size:14px;font-weight:500;background:#fff;white-space:nowrap}
+.pill.n{border-color:var(--hairline-2);color:var(--body)}.pill.warn{border-color:#e9d3a6;color:var(--warn)}.pill.info{border-color:#c3d4f7;color:var(--info)}.pill.bad{border-color:#f0c4c0;color:var(--bad)}
+.edit{position:relative;display:inline-flex;align-items:center;justify-content:center;height:32px;padding:0 14px;border:0;border-radius:8px;background:var(--accent-bg);color:var(--accent);font-size:15px;font-weight:600;white-space:nowrap;transition:scale 120ms var(--ease-out),background-color 100ms}
+.edit::after{content:"";position:absolute;inset:-6px}
+.edit:active{scale:.97;background:#dfeaff}
+.sec{position:sticky;top:-16px;z-index:5;margin:0 -16px;padding:0 16px;background:var(--page)}
+.sec>div{display:flex;align-items:center;gap:8px;padding:12px 0 8px}
+.sec b{font-size:16px;font-weight:600}.sec .n{font-size:15px;color:var(--mute)}.sec .r{margin-left:auto;font-size:14px;color:var(--mute);font-variant-numeric:tabular-nums}
+.empty{padding:36px 16px;text-align:center;font-size:14px;color:var(--body)}
+.chart{background:#fff;border:1px solid var(--hairline);border-radius:10px;box-shadow:var(--shadow-soft);padding:14px 14px 10px;margin-bottom:14px}
+.chart .t{display:flex;justify-content:space-between;align-items:baseline;gap:8px}.chart .t b{font-size:20px;font-weight:600;letter-spacing:-.01em;font-variant-numeric:tabular-nums}.chart .t span{font-size:14px;color:var(--mute)}
+.chart svg{width:100%;height:96px;margin-top:8px}
+.chart .ax{display:flex;justify-content:space-between;font-size:14px;color:var(--mute);margin-top:4px}
+.lookup{background:#fff;border:1px solid var(--hairline);border-radius:10px;padding:16px;box-shadow:var(--shadow-soft)}
+.dl{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px;margin-top:12px}.dl dt{font-size:14px;color:var(--mute)}.dl dd{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+
+/* Today (what the app draws now): controls at the top, strips that scroll sideways */
+.hs{display:flex;gap:10px;overflow-x:auto;margin:0 -16px 14px;padding:0 16px;scrollbar-width:thin}
+.hs>div{flex:none;min-width:150px;padding:12px 14px;border:1px solid var(--hairline);border-radius:10px;background:#fff}
+.hs span{display:block;font-size:14px;color:var(--mute)}.hs b{display:block;font-size:20px;font-weight:600}
+.tbtn{display:inline-flex;align-items:center;height:36px;padding:0 14px;border-radius:8px;background:var(--soft-2);font-size:15px;margin-bottom:10px}
+.tbtn.p{background:var(--accent);color:#fff}
+.tfield{height:36px;border:1px solid var(--hairline-2);border-radius:8px;background:#fff;width:100%;margin-bottom:10px;padding:0 12px;display:flex;align-items:center;color:var(--mute);font-size:14px}
+.row2{display:flex;gap:8px;margin-bottom:10px;align-items:center}.row2 .tfield{margin:0;flex:1}
+.tabstrip{display:flex;gap:4px;padding:4px;border-radius:10px;background:var(--soft-2);overflow-x:auto;margin-bottom:10px;white-space:nowrap}
+.tabstrip span{padding:6px 12px;border-radius:7px;font-size:14px}.tabstrip .on{background:#fff;box-shadow:0 1px 2px rgb(0 0 0 / .12)}
+.wide{overflow-x:auto;border:1px solid var(--hairline);border-radius:10px;background:#fff}
+.wide table{border-collapse:collapse;min-width:620px;font-size:14px}.wide th,.wide td{padding:12px 14px;text-align:right;white-space:nowrap}.wide th:first-child,.wide td:first-child{text-align:left}.wide tr+tr td{border-top:1px solid var(--hairline)}.wide th{color:var(--mute);font-weight:500}
+
+/* sheets */
+.veil{position:absolute;inset:0;background:rgb(15 23 42 / .32);opacity:0;transition:opacity 220ms var(--ease-out);z-index:20}.veil.in{opacity:1}
+.sheet{position:absolute;left:0;right:0;bottom:0;z-index:21;background:#fff;border-radius:20px 20px 0 0;box-shadow:var(--shadow-float);padding:8px 8px 28px;translate:0 100%;transition:translate 320ms var(--ease-drawer);max-height:80%;overflow:auto}
+.sheet.in{translate:0 0}
+.sheet .grab{width:36px;height:4px;border-radius:2px;background:var(--hairline-2);margin:0 auto 8px}
+.sheet h3{font-size:17px;font-weight:600;padding:4px 12px 8px}
+.srow{display:flex;align-items:center;gap:12px;width:100%;min-height:48px;padding:0 12px;border-radius:8px;font-size:15px;color:var(--ink);transition:background-color 100ms,scale 100ms var(--ease-out)}
+.srow:active{background:var(--soft-2);scale:.985}
+.srow .n{margin-left:auto;color:var(--mute);font-variant-numeric:tabular-nums}.srow .ck{margin-left:auto;color:var(--accent)}
+.srow.a{color:var(--accent);font-weight:500}
+.sdiv{height:1px;background:var(--hairline);margin:6px 12px}
+@media (prefers-reduced-motion:reduce){.sheet,.veil,.card,.edit,.fab,.chip{transition:none}}
+</style>
+</head>
+<body>
+<div class="bar">
+  <h1>Marketing · Sales · Mobile</h1>
+  <span><span class="lab">Screen</span><span class="seg" id="screen"></span></span>
+  <span><span class="lab">Data</span><span class="seg" id="data"></span></span>
+  <span><span class="lab">Width</span><span class="seg" id="width"></span></span>
+</div>
+<div class="stage" id="stage"></div>
+<script>
+const I={
+  home:'<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  tag:'<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/>',
+  pct:'<line x1="19" x2="5" y1="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>',
+  mega:'<path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
+  ticket:'<path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/>',
+  chart:'<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="m19 9-5 5-4-4-3 3"/>',
+  split:'<rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>',
+  undo:'<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/>',
+  more:'<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+  search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+  gear:'<path d="M4 6h10"/><path d="M18 6h2"/><circle cx="16" cy="6" r="2"/><path d="M4 12h2"/><path d="M10 12h10"/><circle cx="8" cy="12" r="2"/><path d="M4 18h12"/><circle cx="18" cy="18" r="2"/>',
+  chev:'<path d="m6 9 6 6 6-6"/>',check:'<path d="M20 6 9 17l-5-5"/>',
+  shirt:'<path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z"/>',
+  user:'<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  cal:'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+};
+const ic=n=>`<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">${I[n]}</svg>`;
+const fmt=n=>new Intl.NumberFormat("id-ID").format(n);
+const rp=n=>"Rp "+fmt(n);
+const thumb=`<span class="thumb">${ic("shirt")}</span>`;
+const LONG="Promo Gajian Akhir Bulan Khusus Member Gold dan Platinum Semua Toko";
+
+/* ---------- data ---------- */
+const DATA={
+ Demo:{
+  promos:[
+   {n:"Weekend 20%",who:"Everyone",st:"Live",benefit:"20% off",given:4820000,uses:312,stores:12,per:"04 Oct – 31 Oct 2026"},
+   {n:"Buy 2 Get 1 Kaos",who:"Members only",st:"Live",benefit:"Buy 2 get 1",given:1250000,uses:88,stores:6,per:"01 Oct – 15 Oct 2026"},
+   {n:"Payday Rp 25.000 off",who:"Members only",st:"Paused",benefit:"Rp 25.000 off",given:600000,uses:24,stores:13,per:"28 Sep – 05 Oct 2026"},
+   {n:"Gajian Sale",who:"Everyone",st:"Scheduled",benefit:"15% off",given:0,uses:0,stores:13,per:"25 Oct – 31 Oct 2026"},
+   {n:"Back to School",who:"Everyone",st:"Ended",benefit:"10% off",given:9400000,uses:1020,stores:13,per:"20 Jul – 31 Aug 2026"},
+  ],
+  camps:[
+   {n:"Ramadan Sale",obj:"Clear stock",target:"Wanita",offers:3,used:3100000,budget:5000000,stores:13,runs:2,st:"Running"},
+   {n:"Member Week",obj:"Win back members",target:"Everyone",offers:2,used:0,budget:2000000,stores:13,runs:0,st:"Scheduled"},
+   {n:"Back to School",obj:"Grow basket",target:"Anak",offers:4,used:9800000,budget:10000000,stores:13,runs:3,st:"Ended"},
+  ],
+  vouchers:[
+   {code:"VCH-000124",who:"Siti Rahma",face:100000,left:60000,st:"Live",issued:"02 Oct 2026"},
+   {code:"VCH-000121",who:"Budi Santoso",face:50000,left:0,st:"Spent",issued:"29 Sep 2026"},
+   {code:"VCH-000118",who:"Dewi Lestari",face:200000,left:200000,st:"Cancelled",issued:"27 Sep 2026"},
+   {code:"VCH-000102",who:"Agus Salim",face:75000,left:75000,st:"Expired",issued:"01 Aug 2026"},
+  ],
+  prices:[
+   {n:"Kemeja Oxford",c:"00000002",price:189000,cost:129000,final:null,note:""},
+   {n:"Kaos Uji UJI4",c:"00000006",price:99000,cost:62000,final:79200,note:"Markdown −20%"},
+   {n:"Gamis",c:"00000004",price:149000,cost:95000,final:134100,note:"Weekend 20% · Store 03 price"},
+   {n:"Kaos Uji UJI3",c:"00000005",price:99000,cost:62000,final:null,note:""},
+  ],
+  days:[
+   {d:"06 Oct 2026",live:true,take:12480000,vs:8,tx:64,avg:195000,units:141,upt:"2,2",shops:9},
+   {d:"05 Oct 2026",take:18920000,vs:3,tx:97,avg:195100,units:214,upt:"2,2",shops:13},
+   {d:"04 Oct 2026",take:21340000,vs:12,tx:110,avg:194000,units:249,upt:"2,3",shops:13},
+   {d:"03 Oct 2026",take:9870000,vs:-14,tx:52,avg:189800,units:108,upt:"2,1",shops:12},
+   {d:"02 Oct 2026",take:11480000,vs:-4,tx:58,avg:197900,units:131,upt:"2,3",shops:13},
+  ],
+  trend:[8,9,7,10,12,11,9,13,15,14,12,16,18,17,14,19,21,20,16,18,22,24,21,18,20,25,23,19,22,21],
+  stores:[
+   {n:"Store 03 · Purbalingga",net:48200000,pct:28,qty:612,stock:1420},
+   {n:"Store 01 · Cikupa",net:41900000,pct:24,qty:540,stock:2210},
+   {n:"Store 02 · Muaro Bungo",net:31600000,pct:18,qty:402,stock:980},
+   {n:"Store 04 · Bumiayu",net:27500000,pct:16,qty:366,stock:1105},
+   {n:"Store 05 · Jambi",net:23800000,pct:14,qty:291,stock:760},
+  ],
+  rets:[
+   {no:"RTN-S-000031",store:"Store 03 · Purbalingga",amt:189000,at:"05 Oct 2026, 14:20",by:"Rina",why:"Wrong size"},
+   {no:"RTN-S-000030",store:"Store 01 · Cikupa",amt:99000,at:"04 Oct 2026, 11:05",by:"Dimas",why:"Defect"},
+  ],
+  member:{n:"Siti Rahma",id:"M-0004711",tier:"Gold",pts:1240,spent:4820000,visits:18,last:"05 Oct 2026"},
+ },
+ "Worst Case":{
+  promos:[{n:LONG,who:"Members only",st:"Live",benefit:"Buy 2 get 1 + Rp 25.000 off the third item",given:1284000000,uses:1284000,stores:144,per:"04 Oct – 31 Dec 2026"},{n:"X",who:"Everyone",st:"Ended",benefit:"1%",given:0,uses:0,stores:1,per:"01 Oct – 02 Oct 2026"}],
+  camps:[{n:LONG,obj:"Clear stock of the autumn season across every division",target:"Wanita",offers:12,used:1284000000,budget:1500000000,stores:144,runs:12,st:"Running"}],
+  vouchers:[{code:"VCH-0000012345",who:"Perusahaan Dagang Sinar Jaya Abadi Nusantara",face:1284000000,left:1284000000,st:"Live",issued:"02 Oct 2026"}],
+  prices:[{n:LONG,c:"0000012345",price:11976240000,cost:99000,final:9580992000,note:"Markdown −20% · Weekend 20% · Store 03 price"}],
+  days:[{d:"06 Oct 2026",live:true,take:1284000000,vs:-99,tx:128400,avg:195000,units:1284000,upt:"12,2",shops:144}],
+  trend:[8,9,7,10,12,11,9,13,15,14,12,16,18,17,14,19,21,20,16,18,22,24,21,18,20,25,23,19,22,21],
+  stores:[{n:"Store 03 · Perusahaan Dagang Sinar Jaya Abadi Nusantara",net:1284000000,pct:100,qty:1284000,stock:12840000}],
+  rets:[{no:"RTN-S-000031",store:"Store 03 · Perusahaan Dagang Sinar Jaya Abadi Nusantara",amt:11976240000,at:"05 Oct 2026, 14:20",by:"Rina Agustina Wulandari",why:"Wrong size"}],
+  member:{n:"Perusahaan Dagang Sinar Jaya Abadi Nusantara",id:"M-0000000001",tier:"Platinum",pts:1284000,spent:1284000000,visits:1284,last:"05 Oct 2026"},
+ },
+};
+const DIMS=["Store","Division","Tag","Article","SKU","PO","Supplier","Campaign","Payment","Cashier session"];
+
+const SCREENS=["Overview","Pricelist","Promotions","Campaigns","Vouchers","Sales","Sales by","Returns","Member"];
+const q=new URLSearchParams(location.search);
+let screen=SCREENS.includes(q.get("screen"))?q.get("screen"):"Promotions";
+let key=DATA[q.get("data")]?q.get("data"):"Demo";
+let width=Number(q.get("w"))||414;
+
+/* ---------- chrome ---------- */
+const MK=[["Home","home"],["Pricelist","tag"],["Promotions","pct"],["Campaigns","mega"],["Vouchers","ticket"]];
+const SL_TODAY=[["Home","home"],["Sales by S…","split"],["Sales by D…","split"],["Sales by Tag","tag"],["More","more"]];
+const SL=[["Home","home"],["Sales","chart"],["Sales by","split"],["Returns","undo"],["More","more"]];
+const CFG={
+  "Overview":{title:"Overview",tabs:MK,on:"Home"},
+  "Pricelist":{title:"Pricelist",tabs:MK,on:"Pricelist",status:"Pricelist",search:"Search Pricelist",fab:"plus",sheet:{status:["Pricelist","Final price"],menu:["Filter","Sort"]}},
+  "Promotions":{title:"Promotions",tabs:MK,on:"Promotions",status:"Live",search:"Search Promotions",fab:"plus",
+    sheet:{status:[["All","5"],["Live","2"],["Paused","1"],["Scheduled","1"],["Ended","1"]],menu:["Filter","Sort"],act:"Sync usage to stores",note:"Sent automatically every 5 minutes"}},
+  "Campaigns":{title:"Campaigns",tabs:MK,on:"Campaigns",status:"Running",search:"Search Campaigns",fab:"plus",sheet:{status:[["All","3"],["Running","1"],["Scheduled","1"],["Ended","1"]],menu:["Filter","Sort"]}},
+  "Vouchers":{title:"Vouchers",tabs:MK,on:"Vouchers",status:"All",search:"Search Vouchers",fab:"plus",sheet:{status:[["All","4"],["Live","1"],["Spent","1"],["Cancelled","1"],["Expired","1"]],menu:["Filter","Sort"],act:"Switch to Coupons"}},
+  "Sales":{title:"Sales",tabs:SL,on:"Sales",status:"This week",search:"Search days",sheet:{status:["Today","This week","Last 30 days","This year","Pick dates…"],menu:["Filter","Sort"],act:"Export"}},
+  "Sales by":{title:"Sales by Store",tabs:SL,on:"Sales by",status:"Store",search:"Search stores",sheet:{status:DIMS,menu:["Filter","Sort","Date range","All units","All divisions"],act:"Export"}},
+  "Returns":{title:"Returns",tabs:SL,on:"Returns",status:"Last 30 days",search:"Search Returns",sheet:{status:["Today","Last 7 days","Last 30 days","This year"],menu:["Filter","Sort"],act:"Export"}},
+  "Member":{title:"Member",tabs:SL,on:"More",lookup:true},
+};
+function phone(inner,cfg,today){
+  const tabs=cfg.tabs.map(([l,i])=>`<button class="${l===cfg.on?"on":""}">${ic(i)}${l}</button>`).join("");
+  const dock=today?"":cfg.lookup?`<div class="dock"><div class="c2"><span class="field"><span class="s">${ic("search")}Member card id</span></span><button class="fab wide">Look up</button></div></div>`
+   :`<div class="dock"><div class="c2">${cfg.status?`<button class="chip" data-sheet="status">${cfg.status}${ic("chev")}</button>`:""}<span class="field"><span class="s">${ic("search")}${cfg.search}</span><button class="gear" data-sheet="menu" aria-label="Filter and sort">${ic("gear")}</button></span>${cfg.fab?`<button class="fab" aria-label="New">${ic("plus")}</button>`:""}</div></div>`;
+  return `<div class="phone" data-today="${today?1:0}" data-cfg='${JSON.stringify(cfg.sheet||{}).replace(/'/g,"&#39;")}'><div class="top"><b>${cfg.title}</b><span class="sp"></span><div class="av">R</div></div><div class="scroll">${inner}</div>${dock}<div class="tabs">${tabs}</div></div>`;
+}
+
+/* ---------- cards ---------- */
+const dot=(st)=>{const t={Live:"ok",Running:"ok",Paused:"warn",Scheduled:"info",Ended:"n",Spent:"n",Cancelled:"n",Expired:"n"}[st]||"n";return `<span class="dw ${t}"><i></i>${st}</span>`};
+const promoCard=p=>`<article class="card press"><div class="hd"><div class="l"><div class="nm ${p.st==="Ended"?"mute":""}">${p.n}</div><div class="q">${p.who} · ${p.benefit}</div></div><div class="lead"><b class="${p.given?"":"z"}">${p.given?rp(p.given):"—"}</b><span>${fmt(p.uses)} ${p.uses===1?"use":"uses"}</span></div></div><div class="foot"><span>${dot(p.st)}<br>${p.per} · ${fmt(p.stores)} ${p.stores===1?"store":"stores"}</span><button class="edit">Edit</button></div></article>`;
+const campCard=c=>`<article class="card press"><div class="hd"><div class="l"><div class="nm ${c.st==="Ended"?"mute":""}">${c.n}</div><div class="q">${c.obj} · ${c.target}</div></div><div class="lead"><b class="${c.used?"":"z"}">${c.used?rp(c.used):"—"}</b><span>of ${rp(c.budget)} · ${Math.round(c.used/c.budget*100)}%</span></div></div><div class="foot"><span>${dot(c.st)}<br>${fmt(c.offers)} offers · ${fmt(c.stores)} stores · ${fmt(c.runs)} runs</span><button class="edit">Edit</button></div></article>`;
+const vCard=v=>`<article class="card press"><div class="hd"><div class="l"><div class="nm">${v.who}</div><div class="mono">${v.code}</div></div><div class="lead"><b class="${v.left?"":"z"}">${rp(v.left)}</b><span>left of ${rp(v.face)}</span></div></div><div class="foot"><span>Issued ${v.issued}</span><span class="pill ${v.st==="Live"?"":v.st==="Cancelled"?"bad":"n"}">${v.st}</span></div></article>`;
+const pCard=p=>`<article class="card press"><div class="hd">${thumb}<div class="l"><div class="nm">${p.n}</div><div class="mono">${p.c}</div></div><div class="lead"><b>${rp(p.price)}</b><span>${p.final?`final ${rp(p.final)}`:"price"}</span></div></div><div class="foot"><span>Cost ${rp(p.cost)} · Markup ${Math.round((p.price/p.cost-1)*100)}%${p.note?`<br>${p.note}`:""}</span><button class="edit">Change</button></div></article>`;
+const dCard=d=>`<article class="card press"><div class="hd"><div class="l"><div class="nm">${d.d}${d.live?` <span class="pill info" style="height:24px;padding:0 8px;vertical-align:2px;margin-left:4px">Live</span>`:""}</div><div class="q">${fmt(d.tx)} ${d.tx===1?"transaction":"transactions"} · ${fmt(d.shops)} ${d.shops===1?"shop":"shops"}</div></div><div class="lead"><b>${rp(d.take)}</b><span class="${d.vs>=0?"":"bad"}">${d.vs>=0?"+":"−"}${Math.abs(d.vs)}% vs prev</span></div></div><div class="foot"><span>Avg ${rp(d.avg)} · ${fmt(d.units)} units · UPT ${d.upt}</span></div></article>`;
+const sCard=s=>`<article class="card press"><div class="hd"><div class="l"><div class="nm">${s.n}</div><div class="q">${fmt(s.qty)} sold · ${fmt(s.stock)} in stock</div></div><div class="lead"><b>${rp(s.net)}</b><span>${s.pct}% of total</span></div></div></article>`;
+const rCard=r=>`<article class="card press"><div class="hd"><div class="l"><div class="nm">${r.store}</div><div class="mono">${r.no}</div></div><div class="lead"><b>${rp(r.amt)}</b><span>refunded</span></div></div><div class="foot"><span>${r.at} · ${r.by}</span><span class="pill n">${r.why}</span></div></article>`;
+const spark=t=>{const mx=Math.max(...t),mn=Math.min(...t);const pts=t.map((v,i)=>`${(i/(t.length-1)*300).toFixed(1)},${(88-(v-mn)/(mx-mn||1)*76).toFixed(1)}`);return `<svg viewBox="0 0 300 96" preserveAspectRatio="none" aria-hidden="true"><polygon points="0,96 ${pts.join(" ")} 300,96" fill="var(--accent-bg)"/><polyline points="${pts.join(" ")}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/></svg>`};
+
+/* ---------- screens ---------- */
+function screens(d){
+  const P=(name,blurb,html,cfg,today)=>({name,blurb,html:phone(html,{...CFG[screen],...(cfg||{})},today)});
+  const given=d.promos.reduce((a,p)=>a+p.given,0);
+  if(screen==="Overview") return [
+    P("Today","Four figures in a strip that scrolls sideways (Campaigns is cut off), then an empty chart and the campaigns list.",`<div class="hs"><div><span>Given away</span><b>Rp 0</b></div><div><span>Baskets touched</span><b>0</b></div><div><span>Campaigns running</span><b>0</b></div><div><span>Vouchers outstanding</span><b>Rp 0</b></div></div><div class="chart"><div class="t"><b>What the offers gave away</b></div><div class="empty">Nothing given away.</div></div>`,{},true),
+    P("A · Figures, then who gave most","Four figures in a two-by-two, nothing sideways. Under them the promotions in the order they gave away most, as the same cards as the Promotions list. Nothing at the top to press.",`<div class="kgrid"><div><span>Given away</span><b>${rp(given)}</b></div><div><span>Baskets touched</span><b>${fmt(d.promos.reduce((a,p)=>a+p.uses,0))}</b></div><div><span>Campaigns running</span><b>${d.camps.filter(c=>c.st==="Running").length}</b></div><div><span>Vouchers out</span><b>${rp(d.vouchers.reduce((a,v)=>a+(v.st==="Live"?v.left:0),0))}</b></div></div><div class="h"><b>Gave away most</b><span>06 Sep – 06 Oct 2026</span></div><div class="cards">${[...d.promos].sort((a,b)=>b.given-a.given).slice(0,3).map(promoCard).join("")}</div>`),
+    P("B · One sentence, one list","The figures as one sentence, as on the Purchase Orders list, and one list of what needs somebody: a promotion that ends this week, a price change not yet on every shop.",`<p class="sentence"><b>${rp(given)}</b> given away across <b>${fmt(d.promos.reduce((a,p)=>a+p.uses,0))}</b> baskets. <b>${d.camps.filter(c=>c.st==="Running").length}</b> campaign running, <b>${rp(d.vouchers.reduce((a,v)=>a+(v.st==="Live"?v.left:0),0))}</b> in vouchers still out.</p><div class="h"><b>Needs someone</b><span>2</span></div><div class="cards"><article class="card press"><div class="hd"><div class="l"><div class="nm">Weekend 20%</div><div class="q">Ends in 3 days</div></div><div class="lead"><b>${fmt(312)}</b><span>uses</span></div></div><div class="foot"><span>${dot("Live")}</span><button class="edit">Edit</button></div></article><article class="card press"><div class="hd"><div class="l"><div class="nm">Price changes</div><div class="q">Store 05 and Store 06 are behind</div></div><div class="lead"><b>2</b><span>stores</span></div></div><div class="foot"><span>Last seen 05 Oct 2026</span><button class="edit">Open</button></div></article></div>`),
+  ];
+  if(screen==="Pricelist") return [
+    P("Proposed","A card per article: the price it sells at is the figure, markup over cost and why a final price differs under it, Change in the foot. The Pricelist | Final price switch is the dock's status button; division, tag and price kind are in the filter sheet.",`<div class="cards">${d.prices.map(pCard).join("")}</div>`),
+  ];
+  if(screen==="Promotions") return [
+    P("Today","A Sync button and a New button at the top, tabs that run off the edge (Ended is cut), a search box, then the list.",`<span class="tbtn">Sync usage to stores</span><div class="q" style="margin:-4px 0 10px">Sent automatically every 5 minutes</div><div class="tabstrip" style="width:calc(100% + 40px)"><span class="on">All 5</span><span>Live 2</span><span>Paused 1</span><span>Scheduled 1</span><span>Ended 1</span></div><div class="row2"><div class="tfield">Search</div><span class="tbtn p" style="margin:0">New promotion</span></div><div class="cards">${d.promos.slice(0,2).map(p=>`<article class="card"><div class="hd"><div class="l"><div class="nm">${p.n}</div><div class="q">${p.who}</div></div></div></article>`).join("")}</div>`,{},true),
+    P("Proposed","The status is the dock's button (counts in its sheet), search and filter in the field, New is the round plus. Sync usage is a row at the bottom of the ⚙ sheet. A promotion's figure is what it gave away; its foot says where it stands and has Edit.",`<div class="cards">${d.promos.filter(p=>p.st==="Live").concat(d.promos.filter(p=>p.st!=="Live")).map(promoCard).join("")}</div>`),
+  ];
+  if(screen==="Campaigns") return [
+    P("Today","A search box and a New campaign button side by side at the top.",`<div class="row2"><div class="tfield">Search</div><span class="tbtn p" style="margin:0">New campaign</span></div><div class="empty">No campaigns.</div>`,{},true),
+    P("Proposed","Same dock. A campaign's figure is the budget it has used, said in rupiah with the budget and the percentage under it (numbers, not a bar); the foot says where it stands, how many offers, stores and runs.",`<div class="cards">${d.camps.map(campCard).join("")}</div>`),
+  ];
+  if(screen==="Vouchers") return [
+    P("Today","Five tiles that each take a row, a Coupons button, tabs, then a search with a New button that runs off the edge.",`<span class="tbtn">Coupons</span><div class="kgrid" style="grid-template-columns:1fr"><div><span>Outstanding</span><b>Rp 0</b><em>0 live</em></div></div><div class="kgrid"><div><span>Issued</span><b>Rp 0</b></div><div><span>Spent</span><b>Rp 0</b></div><div><span>Cancelled</span><b>Rp 0</b></div><div><span>Expired</span><b>Rp 0</b><em>0 vouchers</em></div></div><div class="tabstrip"><span class="on">All</span><span>Live</span><span>Spent</span><span>Cancelled</span></div>`,{},true),
+    P("Proposed","The five tiles become one sentence. Each voucher is a card: what is left on it is the figure, the member and the code are the head, the foot says when it was issued and where it stands. Coupons is a row in the ⚙ sheet.",`<p class="sentence"><b>${rp(d.vouchers.reduce((a,v)=>a+(v.st==="Live"?v.left:0),0))}</b> is still out on <b>${d.vouchers.filter(v=>v.st==="Live").length}</b> live vouchers. <b>${rp(d.vouchers.reduce((a,v)=>a+(v.face-v.left),0))}</b> has been spent.</p><div class="cards">${d.vouchers.map(vCard).join("")}</div>`),
+  ];
+  if(screen==="Sales") return [
+    P("Today","A chart, then each day as a labelled two-column grid inside a box that scrolls sideways.",`<div class="wide" style="margin-bottom:12px"><table><tr><th>6 Oct 2026</th><th>Takings</th><th>vs prev</th><th>Transactions</th><th>Avg transaction</th><th>Units</th><th>UPT</th><th>Shops</th></tr></table></div>`,{},true),
+    P("Proposed","The trend as a chart that fits the width, then a card per day: takings are the figure, how it compares with the day before is the line under it, the rest is the foot. The period is the dock's button; Export is at the bottom of its sheet.",`<div class="chart"><div class="t"><b>${rp(d.days.reduce((a,x)=>a+x.take,0))}</b><span>this week</span></div>${spark(d.trend.slice(-7))}<div class="ax"><span>30 Sep</span><span>6 Oct</span></div></div><div class="cards">${d.days.map(dCard).join("")}</div>`),
+  ];
+  if(screen==="Sales by") return [
+    P("Today","Search, two date boxes, units, divisions and Export all stacked at the top, then a table whose columns run off the right.",`<div class="tfield">Search</div><div class="row2"><div class="tfield">01 Jan 2026</div><div class="tfield">06 Oct 2026</div></div><div class="tfield">All units</div><div class="row2"><div class="tfield">All divisions</div><span class="tbtn" style="margin:0">Export</span></div><div class="wide"><table><tr><th>Store</th><th>Stock</th><th>Qty</th><th>Sales</th></tr><tr><td>Store 01</td><td>16</td><td>0</td><td>0</td></tr></table></div>`,{},true),
+    P("Proposed","Ten separate rows become one chip: By store, division, tag, article… in its sheet. A card per row, biggest first: net sales is the figure with its share under it, pieces sold and stock on the line under the name. No foot: there is nothing to press. The date range, units and division are in the filter sheet; Export is at its bottom. Stock · Quantity · Sales per store, which the wide table spread across the screen, is a sheet one tap on the row opens, not more columns (not drawn here).",`<p class="sentence"><b>${rp(d.stores.reduce((a,x)=>a+x.net,0))}</b> net sales, <b>${fmt(d.stores.reduce((a,x)=>a+x.qty,0))}</b> pieces, across <b>${d.stores.length}</b> stores. Biggest first.</p><div class="cards">${d.stores.map(sCard).join("")}</div>`),
+  ];
+  if(screen==="Returns") return [
+    P("Today","Search and Filter at the top, two tiles, then the list.",`<div class="tfield" style="width:60%">Search</div><span class="tbtn">Filter</span><div class="kgrid"><div><span>Returns</span><b>0</b></div><div><span>Refunded</span><b>Rp 0</b></div></div><div class="empty">Nothing has been taken back yet. A return is raised against a completed sale, from that sale's own record.</div>`,{},true),
+    P("Proposed","The two tiles are a sentence. A card per return: what was refunded is the figure, the store and the return number the head; the foot says when and who rang it, and why it came back is its tag.",`<p class="sentence"><b>${d.rets.length}</b> returns, <b>${rp(d.rets.reduce((a,r)=>a+r.amt,0))}</b> refunded.</p><div class="cards">${d.rets.map(rCard).join("")}</div>`),
+  ];
+  if(screen==="Member"){
+    const m=d.member;
+    return [
+      P("Today","A field and a Look up button at the top; nothing else until an id is typed.",`<div class="row2"><div class="tfield">Member id</div><span class="tbtn" style="margin:0">Look up</span></div><div class="empty">Type a member id above. There is no customer directory on this node to browse.</div>`,{},true),
+      P("Proposed","The field and Look up are the dock: the card id on the left, the button where the plus is. The result is a card — spend is the figure, points, visits and last visit under it.",`<div class="cards"><article class="card press"><div class="hd"><div class="l"><div class="nm">${m.n}</div><div class="mono">${m.id}</div><div class="q">${m.tier}</div></div><div class="lead"><b>${rp(m.spent)}</b><span>spent this year</span></div></div><div class="foot"><span>${fmt(m.pts)} points · ${fmt(m.visits)} visits<br>Last visit ${m.last}</span><button class="edit">History</button></div></article></div>`),
+    ];
+  }
+  return [];
+}
+
+/* ---------- paint ---------- */
+function paint(){
+  document.documentElement.style.setProperty("--w",width+"px");
+  const d=DATA[key];
+  document.getElementById("stage").innerHTML=screens(d).map(p=>`<section class="opt"><h2>${p.name}</h2><p>${p.blurb}</p>${p.html}</section>`).join("");
+  seg("screen",SCREENS,screen,v=>{screen=v;paint();sync()});
+  seg("data",Object.keys(DATA),key,v=>{key=v;paint();sync()});
+  seg("width",["320","360","375","414"],String(width),v=>{width=Number(v);paint();sync()});
+}
+function seg(id,values,cur,on){const el=document.getElementById(id);el.innerHTML=values.map(v=>`<button aria-pressed="${v===cur}">${v}</button>`).join("");[...el.children].forEach((b,i)=>b.onclick=()=>on(values[i]))}
+function sync(){history.replaceState(null,"","?"+new URLSearchParams({screen,data:key,w:String(width)}))}
+
+/* the dock opens a sheet from the bottom: status, or the filter/sort menu with the screen's own actions */
+document.getElementById("stage").addEventListener("click",e=>{
+  const t=e.target.closest("[data-sheet]");if(!t)return;
+  const ph=t.closest(".phone");if(ph.querySelector(".sheet"))return;
+  const cfg=JSON.parse(ph.dataset.cfg||"{}");const menu=t.dataset.sheet==="menu";
+  const row=(x,i)=>{const [l,n]=Array.isArray(x)?x:[x,null];const cur=!menu&&i===0;return `<button class="srow">${l}${n?`<span class="n">${n}</span>`:cur?`<span class="ck">${ic("check")}</span>`:""}</button>`};
+  const body=menu?`${(cfg.menu||[]).map(row).join("")}${cfg.act?`<div class="sdiv"></div><button class="srow a">${cfg.act}</button>${cfg.note?`<div class="q" style="padding:0 12px 4px">${cfg.note}</div>`:""}`:""}`:(cfg.status||[]).map(row).join("");
+  ph.insertAdjacentHTML("beforeend",`<div class="veil"></div><div class="sheet"><div class="grab"></div><h3>${menu?"Show":"Status"}</h3>${body}</div>`);
+  const v=ph.querySelector(".veil"),s=ph.querySelector(".sheet");
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{v.classList.add("in");s.classList.add("in")}));
+  const shut=()=>{v.classList.remove("in");s.classList.remove("in");setTimeout(()=>{v.remove();s.remove()},320)};
+  v.onclick=shut;s.querySelectorAll(".srow").forEach(b=>b.onclick=shut);
+});
+paint();
+</script>
+</body>
+</html>

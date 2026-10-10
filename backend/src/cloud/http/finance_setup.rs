@@ -4,6 +4,7 @@
 //! All of it is Finance head-office work, so every route asks for ADMIN.
 
 use super::auth::Principal;
+use crate::cloud::postgres::number_series::{NumberSeries, NumberSeriesList, NumberSeriesPatch};
 use crate::cloud::{
     application::{AppError, AppState},
     domain::{role_allows, Role},
@@ -14,7 +15,6 @@ use crate::cloud::{
         UpsertEdcTerminalRequest,
     },
 };
-use crate::cloud::postgres::number_series::{NumberSeries, NumberSeriesList, NumberSeriesPatch};
 use axum::{
     extract::{Path, State},
     routing::{get, post, put},
@@ -86,8 +86,7 @@ pub async fn set_finance_setting(
 ) -> Result<Json<FinanceSetting>, AppError> {
     allowed(&principal, "change a Finance setting")?;
     Ok(Json(
-        infrastructure::set_finance_setting(&state.db, &key, &request, &principal.username)
-            .await?,
+        infrastructure::set_finance_setting(&state.db, &key, &request, &principal.username).await?,
     ))
 }
 
@@ -201,7 +200,13 @@ pub fn finance_setup_routes(router: Router<AppState>) -> Router<AppState> {
             "/api/v1/finance/acquirer-settlements/{id}/accept-mdr-variance",
             post(accept_mdr_variance),
         )
-        .route("/api/v1/finance/stock-transfers/post", post(post_stock_transfers))
+        .route(
+            "/api/v1/finance/stock-transfers/post",
+            post(post_stock_transfers),
+        )
         .route("/api/v1/finance/number-series", get(number_series))
-        .route("/api/v1/finance/number-series/{kind}", put(set_number_series))
+        .route(
+            "/api/v1/finance/number-series/{kind}",
+            put(set_number_series),
+        )
 }

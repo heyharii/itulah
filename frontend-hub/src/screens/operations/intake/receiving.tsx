@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Plus, X } from "lucide-react"
+import { Plus, RotateCcw, X } from "lucide-react"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { useEffect, useMemo, useRef, useState } from "react"
@@ -8,42 +8,52 @@ import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Pill } from "@/components/ui/pill"
-import { SavedDialog } from "@/components/ui/dialog"
+import { ConfirmButton } from "@/components/ui/dialog"
 import { DataTable } from "@/components/ui/data-table"
 import { Input, Select } from "@/components/ui/field"
 import {
   IntakeHeader,
   useIntakeSearch,
 } from "@/screens/operations/intake/header"
+import { prefetchReceivingDetail } from "@/screens/operations/prefetch"
 import { ROOMY } from "@/screens/operations/roomy"
 import { TwoLines } from "@/screens/operations/two-lines"
 import {
   SupplierName,
   useSupplierName,
 } from "@/screens/procurement/supplier-name"
-import { Sheet } from "@/components/ui/sheet"
+import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { EmptyState, Problem } from "@/components/ui/states"
 import { dc } from "@/lib/api"
 import { wholeProduct } from "@/lib/decimal"
-import { count, label, recentMoment } from "@/lib/format"
+import { count, decimal, label, quantity, recentMoment } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
-import {
-  procurementKeys,
-  purchaseOrderDetail,
-  purchaseOrderPage,
-} from "@/lib/queries/procurement"
+import { pullIn, useSaid } from "@/lib/pull-in"
 import { keys } from "@/lib/operations/keys"
+import {
+  countSheetBookQuery,
+  countSheetOrderQuery,
+  purchaseWorkQuery,
+  verifyQueueQuery,
+} from "@/lib/operations/queries"
 import { queryState } from "@/lib/query-state"
 import { cn } from "@/lib/utils"
 import { useEdgeActor } from "@/lib/edge-session"
 import { useNameOfLogin } from "@/lib/queries/hr-employees"
 import { titled } from "@/screens/procurement/po-print"
+import {
+  VariantPhoto,
+  variantKey,
+  variantLabel,
+} from "@/screens/procurement/variant-photo"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { idempotencyKey } from "@itulah/contract/client"
 import type {
   PurchaseCountAwaitingVerification,
+  PurchaseCountVariant,
   PurchaseWorkLine,
+  RecalledCount,
 } from "@itulah/contract"
 
 /// **Receiving** — the loading bay, as one list of orders.
@@ -86,6 +96,44 @@ function latestOf(
   return awaiting.reduce((a, b) => (b.counted_at > a.counted_at ? b : a))
 }
 
+/// What the waiting counts say: the articles' own pieces, and apart from them
+/// the pieces that were not what the order named — `counted_quantity` holds
+/// both, so the two are never added to each other.
+function tallyOf(awaiting: readonly PurchaseCountAwaitingVerification[]) {
+  const wrong = awaiting.reduce((sum, one) => sum + one.wrong_quantity, 0)
+  const all = awaiting.reduce((sum, one) => sum + one.counted_quantity, 0)
+  return { pieces: all - wrong, wrong }
+}
+
+/// The amounts one count is written in, as the sheet opens them again: the
+/// unit it was typed in when it was typed in one ("9.5 KODI"), else the
+/// line's own pieces in the unit its stock is kept in.
+function recalledParts(one: RecalledCount, stock: string): CountPart[] {
+  return one.counted_unit_code !== null && one.counted_unit_quantity !== null
+    ? [{ quantity: one.counted_unit_quantity, unit: one.counted_unit_code }]
+    : [
+        {
+          quantity: String(one.counted_quantity - one.wrong_quantity),
+          unit: stock,
+        },
+      ]
+}
+
+/// What a recalled count said of each variant, as the boxes hold it: the
+/// figure by the variant's colour and size (0963).
+function recalledVariants(
+  variants: readonly PurchaseCountVariant[] | undefined
+): Record<string, string> {
+  const written: Record<string, string> = {}
+  for (const one of variants ?? [])
+    written[variantKey(one)] = String(one.counted_quantity)
+  return written
+}
+
+/// A variant's figure as typed: whole pieces, 0 included. Anything else —
+/// a decimal, a sign — is not a count of pieces.
+const WHOLE = /^\d+$/
+
 /// The count in one cell: the pieces, and under them who counted and when.
 function CountedCell({
   awaiting,
@@ -94,11 +142,13 @@ function CountedCell({
 }) {
   const nameOfLogin = useNameOfLogin()
   const latest = latestOf(awaiting)
+  const { pieces, wrong } = tallyOf(awaiting)
   return (
     <span className="flex flex-col items-end leading-5 whitespace-nowrap tabular-nums">
-      <span className="font-medium text-ink">
-        {`${count(awaiting.reduce((sum, one) => sum + one.counted_quantity, 0))} pcs`}
-      </span>
+      <span className="font-medium text-ink">{`${count(pieces)} pcs`}</span>
+      {wrong > 0 && (
+        <span className="text-mute">{`+ ${count(wrong)} Not as Ordered`}</span>
+      )}
       {/* A login can be 32 characters, and 32 characters and a time are wider
           than the column: ellipsis at the end of the NAME (the time is what
           is compared across rows), the whole line on hover. */}
@@ -127,14 +177,16 @@ function CardCounted({
 }) {
   const nameOfLogin = useNameOfLogin()
   const latest = latestOf(awaiting)
+  const { pieces, wrong } = tallyOf(awaiting)
   return (
     <span className="flex flex-col leading-6 tabular-nums">
       <span>
         {"Counted "}
         <span className="text-cell font-semibold text-ink">
-          {`${count(awaiting.reduce((sum, one) => sum + one.counted_quantity, 0))} pcs`}
+          {`${count(pieces)} pcs`}
         </span>
       </span>
+      {wrong > 0 && <span>{`+ ${count(wrong)} Not as Ordered`}</span>}
       <span className="truncate">
         {`${titled(nameOfLogin(latest.counted_by))} · ${recentMoment(latest.counted_at)}`}
       </span>
@@ -146,6 +198,7 @@ function CardCounted({
 const TO_COUNT_FIRST = { id: "to-count", desc: false } as const
 
 export function Receiving() {
+  const client = useQueryClient()
   const counting = useSheet("delivery")
   const search = useIntakeSearch()
   const nameOf = useSupplierName()
@@ -164,15 +217,13 @@ export function Receiving() {
   })
 
   const work = useQuery({
-    queryKey: keys.purchaseWork(),
-    queryFn: ({ signal }) => dc.purchaseWork(signal),
+    ...purchaseWorkQuery(),
     // New orders arrive while the page is open: look again while it is seen.
     refetchInterval: 10_000,
     refetchOnWindowFocus: true,
   })
   const queue = useQuery({
-    queryKey: keys.verifyQueue(),
-    queryFn: ({ signal }) => dc.countsAwaitingVerification(signal),
+    ...verifyQueueQuery(),
     refetchInterval: 10_000,
     refetchOnWindowFocus: true,
   })
@@ -242,6 +293,13 @@ export function Receiving() {
           const reason = row.original.lines.find(
             (line) => line.recount_reason !== null
           )?.recount_reason
+          // The bay took its own count back before anybody reviewed it: what
+          // it came to, so the next count is not made blind to it.
+          const recalled = row.original.lines.filter((line) => line.recalled)
+          const was = recalled.reduce(
+            (sum, line) => sum + (line.recalled?.counted_quantity ?? 0),
+            0
+          )
           return (
             <span className="flex min-w-0 flex-col gap-0.5 py-1 leading-5">
               <span className="block truncate font-medium text-ink max-md:font-semibold">
@@ -253,6 +311,11 @@ export function Receiving() {
               <span className="font-mono text-id text-mute">
                 {row.original.po_number}
               </span>
+              {recalled.length > 0 ? (
+                <span className="block truncate text-body">
+                  {`Recalled · was ${count(was)} pcs`}
+                </span>
+              ) : null}
               {reason ? (
                 <span className="block truncate text-body">
                   {`“${reason}”`}
@@ -313,8 +376,7 @@ export function Receiving() {
         // One column for the count: what was counted, who and when, once it is
         // counted; the Count receive button while it is not (owner, 2026-10-05).
         id: "count",
-        accessorFn: (row: OrderRow) =>
-          row.awaiting.reduce((sum, one) => sum + one.counted_quantity, 0),
+        accessorFn: (row: OrderRow) => tallyOf(row.awaiting).pieces,
         header: "Count",
         size: 300,
         meta: { align: "right", card: "status" },
@@ -327,10 +389,13 @@ export function Receiving() {
             ) : (
               <CountedCell awaiting={order.awaiting} />
             )
-          const again = order.lines.some((line) => line.recount_reason !== null)
+          const again = order.lines.some(
+            (line) => line.recount_reason !== null || line.recalled
+          )
           return (
             <Button
               variant="primary"
+              size="card"
               onClick={(event) => {
                 event.stopPropagation()
                 openers.current.count(order.po_number)
@@ -404,11 +469,13 @@ export function Receiving() {
               </EmptyState>
             ) : (
               <DataTable<OrderRow>
+                refresh={[work, queue]}
                 table={table}
                 touch
-                onRowClick={(row) => {
-                  if (row.awaiting.length === 0) counting.open(row.po_number)
-                }}
+                onRowClick={(row) => counting.open(row.po_number)}
+                onRowIntent={(row) =>
+                  void prefetchReceivingDetail(client, row.po_number)
+                }
                 isSelected={(row) => row.po_number === counting.value}
                 pageScroll
                 cardSort={false}
@@ -449,6 +516,138 @@ const COUNT_HEAD = "text-eyebrow font-medium whitespace-nowrap text-body"
 /// One amount of a count, in one unit.
 type CountPart = { quantity: string; unit: string }
 
+/// What counted amounts come to, by the unit each is kept in — nearly always
+/// pieces: "120 pcs", or "120 pcs + 40 cm" for a delivery with a length in it.
+function totalText(
+  counted: readonly { pieces: number; unit: string }[]
+): string {
+  const totals = [...new Set(counted.map((one) => one.unit))].map((unit) => ({
+    unit,
+    pieces: counted
+      .filter((one) => one.unit === unit)
+      .reduce((sum, one) => sum + one.pieces, 0),
+  }))
+  return totals.length === 0
+    ? "0 pcs"
+    : totals
+        .map(
+          (total) =>
+            `${count(total.pieces)} ${total.pieces === 1 && total.unit === "pcs" ? "pc" : total.unit}`
+        )
+        .join(" + ")
+}
+
+/// The count sheet's rows when the count is only read: the article, and what
+/// was counted.
+const READ_ROW = "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 px-4"
+
+/// A count that waits for its review, as the counter sees it again: what was
+/// counted, by whom and when — and nothing of the order. The sheet stays blind:
+/// no ordered quantity, no difference, no price.
+function CountRead({
+  awaiting,
+  kindOf,
+}: {
+  awaiting: readonly PurchaseCountAwaitingVerification[]
+  kindOf: (line: { po_line_id: string; article_code: string }) => string
+}) {
+  const nameOfLogin = useNameOfLogin()
+  const latest = latestOf(awaiting)
+  const { wrong } = tallyOf(awaiting)
+  // Each line's own pieces: the stored count holds the not-as-ordered ones
+  // too, and they are told apart below.
+  const lines = awaiting.map((one) => ({
+    one,
+    pieces: one.counted_quantity - one.wrong_quantity,
+    unit: (one.stock_unit_code ?? "PCS").toLowerCase(),
+  }))
+  return (
+    <div className="flex min-w-0 flex-col gap-4">
+      <Facts>
+        <Fact term="Counted by">{titled(nameOfLogin(latest.counted_by))}</Fact>
+        <Fact term="Counted at">{recentMoment(latest.counted_at)}</Fact>
+      </Facts>
+      <Card className="overflow-hidden">
+        <div className={cn(READ_ROW, "h-10 border-b border-hairline bg-soft")}>
+          <span className={COUNT_HEAD}>Article</span>
+          <span className={cn(COUNT_HEAD, "text-right")}>Counted</span>
+        </div>
+        <div className="divide-y divide-hairline">
+          {lines.map(({ one, pieces, unit }) => (
+            <div key={one.count_id} className={cn(READ_ROW, "py-3.5")}>
+              <TwoLines
+                top={one.article_name}
+                bottom={kindOf(one)}
+                className="min-h-11"
+              />
+              <span className="flex min-h-11 flex-col items-end justify-center text-right tabular-nums">
+                <span className="font-medium text-ink">
+                  {`${count(pieces)} ${unit}`}
+                </span>
+                {one.counted_unit_code !== null &&
+                  one.counted_unit_quantity !== null && (
+                    <span className="text-[0.875rem] text-mute">
+                      {`${decimal(Number(one.counted_unit_quantity), 3)} ${one.counted_unit_code}`}
+                    </span>
+                  )}
+              </span>
+              {/* Counted per variant (0963): each variant's own figure, under
+                the line's — what was counted, never what was ordered. */}
+              {(one.variants ?? []).length > 0 && (
+                <div className="col-span-2 flex flex-col gap-2 pt-2">
+                  {(one.variants ?? []).map((variant) => (
+                    <div
+                      key={variantKey(variant)}
+                      className="flex min-h-11 items-center gap-3"
+                    >
+                      <VariantPhoto
+                        urls={variant.image_urls}
+                        fallback={null}
+                        name={variantLabel(one.article_name, variant)}
+                        slot={(one.variants ?? []).some(
+                          (other) => (other.image_urls ?? []).length > 0
+                        )}
+                      />
+                      <span className="line-clamp-2 min-w-0 flex-1 text-body">
+                        {variantLabel(one.article_name, variant)}
+                      </span>
+                      <span className="text-right text-ink tabular-nums">
+                        {`${count(variant.counted_quantity)} ${unit}`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+        <div
+          className={cn(READ_ROW, "border-t border-hairline bg-soft py-3.5")}
+        >
+          <span className="flex min-h-11 items-center font-medium text-ink">
+            Total Counted
+          </span>
+          <span className="flex min-h-11 items-center justify-end text-right font-medium text-ink tabular-nums">
+            {totalText(lines)}
+          </span>
+        </div>
+        {wrong > 0 && (
+          <div
+            className={cn(READ_ROW, "border-t border-hairline bg-soft py-3.5")}
+          >
+            <span className="flex min-h-11 items-center font-medium text-ink">
+              Not as Ordered
+            </span>
+            <span className="flex min-h-11 items-center justify-end text-right font-medium text-bad-fg tabular-nums">
+              {quantity(wrong)}
+            </span>
+          </div>
+        )}
+      </Card>
+    </div>
+  )
+}
+
 /// Counting an order, blind.
 ///
 /// No ordered quantity, no earlier count, no progress against a target — the
@@ -477,16 +676,13 @@ export function CountSheet({
   // article's code stands in.
   const poNumber = order?.po_number ?? null
   const book = useQuery({
-    queryKey: procurementKeys.ordersPage({ q: poNumber ?? "" }),
-    queryFn: ({ signal }) => purchaseOrderPage({ q: poNumber ?? "" }, signal),
+    ...countSheetBookQuery(poNumber ?? ""),
     enabled: open && poNumber !== null,
   })
   const headOffice = book.data?.rows.find((one) => one.po_number === poNumber)
   const kinds = useQuery({
-    queryKey: procurementKeys.order(headOffice?.purchase_order_id ?? ""),
-    queryFn: ({ signal }) =>
-      purchaseOrderDetail(headOffice!.purchase_order_id, signal),
-    enabled: headOffice !== undefined,
+    ...countSheetOrderQuery(headOffice?.purchase_order_id ?? ""),
+    enabled: open && headOffice !== undefined,
   })
   const kindOf = (line: { po_line_id: string; article_code: string }) => {
     const found = kinds.data?.lines.find(
@@ -505,13 +701,27 @@ export function CountSheet({
   /// (the owner, 2026-09-29). Unset is one empty amount in the unit the order
   /// was placed in, or pieces; the counter may switch (owner, 2026-09-26).
   const [parts, setParts] = useState<Record<string, CountPart[]>>({})
+  /// A line ordered in variants is counted per variant (owner, 2026-10-10):
+  /// one figure in pieces per colour × size, by line and by `variantKey`. The
+  /// line's count is what they add up to.
+  const [variantText, setVariantText] = useState<
+    Record<string, Record<string, string>>
+  >({})
   /// What the counter writes as not matching the order, per line, in pieces:
   /// cartons where the supplier's picker put another colour, model or
   /// article. Part of the count, never of the acceptance — at review these
   /// pieces go back to the supplier on a purchase return.
   /// Pieces of the whole delivery that are not what was ordered: ONE total
   /// (the owner, 2026-10-04), not a figure on every line.
-  const [wrongText, setWrongText] = useState("")
+  /// `null` until the counter types: a recalled count opens with the figure
+  /// it had.
+  const [typedWrong, setWrongText] = useState<string | null>(null)
+  const recalledWrong = (order?.lines ?? []).reduce(
+    (sum, line) => sum + (line.recalled?.wrong_quantity ?? 0),
+    0
+  )
+  const wrongText =
+    typedWrong ?? (recalledWrong > 0 ? String(recalledWrong) : "")
   /// The unit that figure is written in — "20 KODI" — one of the units the
   /// delivery's lines can be counted in. Empty is pieces.
   const [wrongUnit, setWrongUnit] = useState("")
@@ -519,6 +729,7 @@ export function CountSheet({
   const receipts = useQuery({
     queryKey: keys.receipts(),
     queryFn: ({ signal }) => dc.goodsReceipts(signal),
+    enabled: open && order !== null,
   })
 
   // Minted once per thing being written, and kept across a retry. A bay with
@@ -534,6 +745,7 @@ export function CountSheet({
     return fresh
   }
 
+  const said = useSaid()
   const record = useMutation({
     mutationFn: async (
       entries: {
@@ -542,6 +754,7 @@ export function CountSheet({
         wrong: number
         unit: string | null
         unitQuantity: string | null
+        variants: PurchaseCountVariant[]
       }[]
     ) => {
       const supplier = order!.supplier_id
@@ -563,44 +776,53 @@ export function CountSheet({
             idempotency_key: keyFor(`receipt:${order!.po_number}`),
           })
         ).receipt_id
-      // Sequential, not parallel: the first line is what creates the movement
-      // group the rest join, and four counts racing into one document is four
-      // chances to be told the document is not there yet.
-      for (const entry of entries) {
-        await dc.countPurchase({
-          receipt_id: receiptId,
+      // One command for the whole sheet: every counted line of this order
+      // commits in one transaction on the node, and one idempotency key
+      // replays the sheet. The old per-line loop repeated the delivery, the
+      // order and every check N times over the air.
+      await dc.countPurchases({
+        receipt_id: receiptId,
+        counts: entries.map((entry) => ({
           po_line_id: entry.line,
           counted_quantity: entry.quantity,
           wrong_quantity: entry.wrong,
           counted_unit_code: entry.unit,
           counted_unit_quantity: entry.unitQuantity,
-          actor_id: actor,
-          idempotency_key: keyFor(`count:${entry.line}`),
-        })
-      }
+          variants: entry.variants,
+        })),
+        actor_id: actor,
+        idempotency_key: keyFor(
+          `sheet:${order!.po_number}:${entries.map((entry) => entry.line).join(",")}`
+        ),
+      })
       return entries.length
     },
     onSuccess: (sent) => {
       setParts({})
-      setWrongText("")
+      setVariantText({})
+      setWrongText(null)
       setWrongUnit("")
       minted.current.clear()
-      void client.invalidateQueries({ queryKey: keys.verifyQueue() })
-      void client.invalidateQueries({ queryKey: keys.receipts() })
-      void client.invalidateQueries({ queryKey: keys.purchaseWork() })
-      // Done is said once, in the receipt dialog over the list, and the sheet
-      // goes: a count sent is not a form to keep looking at (owner,
-      // 2026-10-02). This component stays mounted between openings, so the
-      // state survives the close.
-      setSentCount(
-        `Count sent · ${count(sent)} ${sent === 1 ? "line" : "lines"}`
-      )
-      onClose()
+      // The button says it, the sheet goes, the order's row takes it in
+      // (owner, 2026-10-10: pull in + toast). The queues are read again only
+      // then, or the order would leave the list under the button.
+      const poNo = order!.po_number
+      void said.say("Count sent").then(() => {
+        onClose()
+        said.reset()
+        void client.invalidateQueries({ queryKey: keys.verifyQueue() })
+        void client.invalidateQueries({ queryKey: keys.receipts() })
+        void client.invalidateQueries({ queryKey: keys.purchaseWork() })
+        void pullIn({
+          from: said.start(),
+          rowId: poNo,
+          pill: `${count(sent)} ${sent === 1 ? "item" : "items"}`,
+          title: `Count sent · ${count(sent)} ${sent === 1 ? "line" : "lines"}`,
+          description: poNo,
+        })
+      })
     },
   })
-
-  /// The count the sheet sent, held in the receipt dialog until it is read.
-  const [sentCount, setSentCount] = useState<string | null>(null)
 
   // The count sent for one order is not the next one's banner.
   const { reset } = record
@@ -618,10 +840,42 @@ export function CountSheet({
   }
   const factorOf = (line: Line, code: string) =>
     unitsOf(line).units.find((one) => one.code === code)?.factor ?? "1"
+  /// Nothing typed yet: the line's recalled count, if the bay took one back —
+  /// the counter corrects their own numbers — else one empty amount.
   const partsOf = (line: Line): CountPart[] =>
-    parts[line.po_line_id] ?? [{ quantity: "", unit: unitsOf(line).first }]
+    parts[line.po_line_id] ??
+    (line.recalled
+      ? recalledParts(line.recalled, unitsOf(line).stock)
+      : [{ quantity: "", unit: unitsOf(line).first }])
   const writeParts = (line: Line, next: CountPart[]) =>
     setParts((current) => ({ ...current, [line.po_line_id]: next }))
+  /// The variants a line is counted in; none for a line not split into them,
+  /// or a list read from an older node.
+  const variantsOf = (line: Line) => line.variants ?? []
+  /// One variant's figure: what was typed, else what the recalled count said
+  /// of it, else nothing yet.
+  const variantTextOf = (
+    line: Line,
+    variant: { colour_code: string | null; size_code: string | null }
+  ): string => {
+    const key = variantKey(variant)
+    return (
+      variantText[line.po_line_id]?.[key] ??
+      recalledVariants(line.recalled?.variants)[key] ??
+      ""
+    )
+  }
+  const writeVariant = (line: Line, key: string, text: string) =>
+    setVariantText((current) => ({
+      ...current,
+      [line.po_line_id]: {
+        // The recalled figures are the starting point: typing one variant
+        // keeps the others as they were.
+        ...recalledVariants(line.recalled?.variants),
+        ...current[line.po_line_id],
+        [key]: text,
+      },
+    }))
   /// Another amount, in the first unit the line is not already counted in —
   /// pieces first, because "and fifty loose" is what a second amount almost
   /// always is.
@@ -634,10 +888,97 @@ export function CountSheet({
       ) ?? stock
     writeParts(line, [...partsOf(line), { quantity: "", unit }])
   }
+  /// Taking the waiting count back, before anybody has reviewed it. Every
+  /// count of the order goes together: a sheet is one order's lines and is
+  /// recalled whole. The node refuses once the buyer has accepted it or sent
+  /// it back, and the refusal says who did.
+  const recall = useMutation({
+    mutationFn: () => {
+      const ids = order!.awaiting.map((one) => one.count_id)
+      return dc.recallCounts({
+        count_ids: ids,
+        actor_id: actor,
+        idempotency_key: keyFor(`recall:${order!.po_number}:${ids.join(",")}`),
+      })
+    },
+    onSuccess: (result) => {
+      // The same arrival is counted again from the counter's own numbers.
+      const written: Record<string, CountPart[]> = {}
+      for (const one of result.items) {
+        const line = order?.lines.find(
+          (row) => row.po_line_id === one.po_line_id
+        )
+        written[one.po_line_id] = recalledParts(
+          one,
+          line === undefined ? "PCS" : unitsOf(line).stock
+        )
+      }
+      setParts((current) => ({ ...current, ...written }))
+      // And each variant's own figure, for a line counted per variant.
+      const perVariant: Record<string, Record<string, string>> = {}
+      for (const one of result.items) {
+        if ((one.variants ?? []).length > 0)
+          perVariant[one.po_line_id] = recalledVariants(one.variants)
+      }
+      setVariantText((current) => ({ ...current, ...perVariant }))
+      const wrong = result.items.reduce(
+        (sum, one) => sum + one.wrong_quantity,
+        0
+      )
+      setWrongText(wrong > 0 ? String(wrong) : null)
+      setWrongUnit("")
+      minted.current.clear()
+      // The sheet turns into the counting form at once, not when the queue
+      // has been read again.
+      const taken = new Set(result.items.map((one) => one.count_id))
+      client.setQueryData<PurchaseCountAwaitingVerification[]>(
+        keys.verifyQueue(),
+        (queue) => queue?.filter((one) => !taken.has(one.count_id))
+      )
+      void client.invalidateQueries({ queryKey: keys.verifyQueue() })
+      void client.invalidateQueries({ queryKey: keys.purchaseWork() })
+      void client.invalidateQueries({ queryKey: keys.purchaseSummary() })
+      void client.invalidateQueries({ queryKey: keys.receipts() })
+      // A confirm dialog has no plain button to say it from: toast only.
+      void pullIn({
+        from: null,
+        rowId: order?.po_number,
+        pill: "Recalled",
+        title: "Count recalled",
+        description: order?.po_number,
+      })
+    },
+    // Someone has been first: look at the queue as it is now.
+    onError: () => {
+      void client.invalidateQueries({ queryKey: keys.verifyQueue() })
+    },
+  })
+  // A refusal belongs to the order it was about. It is kept when that order
+  // has left the list (it was accepted), so the sheet can still say who did.
+  const { reset: resetRecall } = recall
+  useEffect(() => {
+    if (poNumber !== null) resetRecall()
+  }, [poNumber, resetRecall])
+
   /// What a line's amounts come to in pieces — exactly, so 9.5 KODI is 190.
   /// `undefined` while nothing is written; `null` when an amount is not a
   /// whole number of pieces, which the node would refuse.
   const piecesOf = (line: Line): number | null | undefined => {
+    // Counted per variant: the line is the sum of its variants. One left
+    // blank beside others that are written is 0 of it — it did not come.
+    if (variantsOf(line).length > 0) {
+      const typed = variantsOf(line).map((variant) =>
+        variantTextOf(line, variant).trim()
+      )
+      if (typed.every((text) => text === "")) return undefined
+      let total = 0
+      for (const text of typed) {
+        if (text === "") continue
+        if (!WHOLE.test(text)) return null
+        total += Number(text)
+      }
+      return total
+    }
     const written = partsOf(line).filter((part) => part.quantity.trim() !== "")
     if (written.length === 0) return undefined
     let total = 0
@@ -718,19 +1059,41 @@ export function CountSheet({
     const only = written.length === 1 ? written[0] : null
     // The wrong pieces are in the stored count, so a unit amount written for
     // the right ones alone would no longer add up to it.
+    // A line counted per variant is sent in pieces, with its breakdown: the
+    // node checks the variants add up to the line's own pieces.
+    const split = variantsOf(line).length > 0
     const inUnit =
-      only !== null && wrong === 0 && factorOf(line, only.unit) !== "1"
+      !split &&
+      only !== null &&
+      wrong === 0 &&
+      factorOf(line, only.unit) !== "1"
     return {
       line: line.po_line_id,
       quantity: quantity + wrong,
       wrong,
       unit: inUnit ? only.unit : null,
       unitQuantity: inUnit ? only.quantity.trim().replace(",", ".") : null,
+      variants: split
+        ? variantsOf(line).map((variant) => {
+            const text = variantTextOf(line, variant).trim()
+            return {
+              colour_code: variant.colour_code,
+              size_code: variant.size_code,
+              counted_quantity: text === "" ? 0 : Number(text),
+            }
+          })
+        : [],
     }
   })
   /// A total that cannot be sent — not whole, or more than was counted — holds
   /// the whole submission until it is fixed.
-  const miswritten = wrongPieces === null
+  /// So does a variant figure that is not whole pieces: leaving it out would
+  /// send its line short by exactly that variant.
+  const miswritten =
+    wrongPieces === null ||
+    (order?.lines ?? []).some(
+      (line) => variantsOf(line).length > 0 && piecesOf(line) === null
+    )
 
   /// What has been written down so far, by the unit it is kept in — nearly
   /// always pieces. Beside the lines rather than at the bottom (the owner,
@@ -741,23 +1104,9 @@ export function CountSheet({
     if (pieces === undefined || pieces === null || pieces <= 0) return []
     return [{ line, pieces, unit: unitsOf(line).stock.toLowerCase() }]
   })
-  const totals = [...new Set(counted.map((one) => one.unit))].map((unit) => ({
-    unit,
-    pieces: counted
-      .filter((one) => one.unit === unit)
-      .reduce((sum, one) => sum + one.pieces, 0),
-  }))
 
   /// What the lines come to, as the table's own total row says it.
-  const countedText =
-    totals.length === 0
-      ? "0 pcs"
-      : totals
-          .map(
-            (total) =>
-              `${count(total.pieces)} ${total.pieces === 1 && total.unit === "pcs" ? "pc" : total.unit}`
-          )
-          .join(" + ")
+  const countedText = totalText(counted)
 
   return (
     <>
@@ -774,20 +1123,52 @@ export function CountSheet({
         footer={
           order !== null && (
             <div className="flex items-center justify-end gap-3">
-              <Button
-                variant="primary"
-                pending={record.isPending}
-                disabled={entries.length === 0 || miswritten}
-                onClick={() => record.mutate(entries)}
-              >
-                {record.isPending ? "Sending…" : "Submit count"}
-              </Button>
+              {order.awaiting.length > 0 && said.said === null ? (
+                // Before anybody has reviewed it, the count can be taken back.
+                <ConfirmButton
+                  label={
+                    <>
+                      <RotateCcw />
+                      Recall Count
+                    </>
+                  }
+                  variant="soft"
+                  title="Recall this count?"
+                  description="The count stays in history as Recalled. Stock does not change. You count again for the same arrival."
+                  confirmLabel="Recall Count"
+                  pending={recall.isPending}
+                  // The dialog waits on the write: a refusal (the buyer was
+                  // first) is said right under the question.
+                  onConfirm={() => recall.mutateAsync()}
+                />
+              ) : (
+                <Button
+                  variant="primary"
+                  pending={record.isPending}
+                  disabled={entries.length === 0 || miswritten}
+                  said={said.said}
+                  onClick={(event) => {
+                    said.mark(event.currentTarget)
+                    record.mutate(entries)
+                  }}
+                >
+                  {record.isPending ? "Sending…" : "Submit count"}
+                </Button>
+              )}
             </div>
           )
         }
       >
         {order === null ? (
-          <EmptyState>Nothing to count.</EmptyState>
+          <div className="flex flex-col gap-4">
+            <Problem error={recall.error} />
+            <EmptyState>Nothing to count.</EmptyState>
+          </div>
+        ) : order.awaiting.length > 0 ? (
+          <div className="flex min-w-0 flex-col gap-4">
+            <CountRead awaiting={order.awaiting} kindOf={kindOf} />
+            <Problem error={recall.error} />
+          </div>
         ) : (
           <div className="flex flex-col gap-5">
             <div className="flex min-w-0 flex-col gap-4">
@@ -814,6 +1195,101 @@ export function CountSheet({
                     const { units, stock } = unitsOf(line)
                     const lineParts = partsOf(line)
                     const pieces = piecesOf(line)
+                    const variants = variantsOf(line)
+                    if (variants.length > 0) {
+                      // Counted per variant (owner, 2026-10-10): the line on
+                      // top with what its variants add up to, live, and one
+                      // box per colour × size under it. Blind as ever: what
+                      // the variant is and looks like, never how many.
+                      const photos = variants.some(
+                        (variant) => (variant.image_urls ?? []).length > 0
+                      )
+                      return (
+                        <div key={line.po_line_id} className="pb-3.5">
+                          <div className={cn(COUNT_ROW, "py-3.5")}>
+                            <TwoLines
+                              top={line.article_name}
+                              bottom={`${kindOf(line)}${line.received_stock_units > 0 ? ` · ${count(line.received_stock_units)} already in` : ""}`}
+                              className="min-h-11"
+                            />
+                            <span className="max-sm:hidden" />
+                            <span
+                              className={cn(
+                                "flex min-h-11 items-center justify-end text-right tabular-nums",
+                                pieces === null
+                                  ? "text-[0.875rem] text-bad-fg"
+                                  : pieces === undefined
+                                    ? "text-mute"
+                                    : "font-medium text-ink"
+                              )}
+                            >
+                              {pieces === null
+                                ? "Not whole pieces"
+                                : pieces === undefined
+                                  ? "—"
+                                  : `${count(pieces)} ${stock.toLowerCase()}`}
+                            </span>
+                          </div>
+                          <div className="flex flex-col gap-2">
+                            {variants.map((variant) => {
+                              const key = variantKey(variant)
+                              const name = variantLabel(
+                                line.article_name,
+                                variant
+                              )
+                              const text = variantTextOf(line, variant)
+                              return (
+                                <div
+                                  key={key}
+                                  className={cn(COUNT_ROW, "items-center")}
+                                >
+                                  <span className="flex min-h-11 min-w-0 items-center gap-3">
+                                    <VariantPhoto
+                                      urls={variant.image_urls}
+                                      fallback={line.image_url}
+                                      name={name}
+                                      slot={photos || line.image_url !== null}
+                                    />
+                                    <span className="line-clamp-2 min-w-0 text-body">
+                                      {name}
+                                    </span>
+                                  </span>
+                                  <div className="flex items-center gap-2">
+                                    <Input
+                                      className="h-11 w-24 text-center font-semibold"
+                                      inputMode="numeric"
+                                      autoComplete="off"
+                                      aria-label={`Counted pieces of ${name}`}
+                                      aria-invalid={
+                                        text.trim() !== "" &&
+                                        !WHOLE.test(text.trim())
+                                      }
+                                      padLabel={name}
+                                      value={text}
+                                      onChange={(event) =>
+                                        writeVariant(
+                                          line,
+                                          key,
+                                          event.target.value
+                                        )
+                                      }
+                                    />
+                                    <span className="w-28 text-[0.875rem] text-body max-sm:w-auto">
+                                      {stock.toLowerCase()}
+                                    </span>
+                                    {/* The remove slot of a counted amount,
+                                      so the boxes line up with the lines
+                                      counted as a whole. */}
+                                    <span className="size-11 max-sm:hidden" />
+                                  </div>
+                                  <span className="max-sm:hidden" />
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )
+                    }
                     return (
                       <div
                         key={line.po_line_id}
@@ -941,7 +1417,7 @@ export function CountSheet({
 
                 {/* One figure for the whole delivery, not one per line: its
                   field sits right under the counted lines, in the same
-                  column, and the totals close the table (owner, 2026-10-10). */}
+                  column, and the total closes the table (owner, 2026-10-10). */}
                 <div
                   className={cn(COUNT_ROW, "border-t border-hairline py-3.5")}
                 >
@@ -1005,7 +1481,7 @@ export function CountSheet({
                       ? wrongProblem
                       : wrongPieces === undefined
                         ? "—"
-                        : `${count(wrongPieces)} pcs`}
+                        : `${quantity(wrongPieces)}`}
                   </span>
                 </div>
               </Card>
@@ -1029,25 +1505,18 @@ export function CountSheet({
                           Total Not as Ordered
                         </dt>
                         <dd className="flex min-h-11 items-center justify-end text-right text-[1.0625rem] font-semibold text-bad-fg">
-                          {`${count(wrongPieces)} pcs`}
+                          {quantity(wrongPieces)}
                         </dd>
                       </>
                     )}
                 </dl>
               </div>
 
-              <Problem error={record.error} />
+              <Problem error={record.error ?? recall.error} />
             </div>
           </div>
         )}
       </Sheet>
-      <SavedDialog
-        open={sentCount !== null}
-        onOpenChange={(next) => {
-          if (!next) setSentCount(null)
-        }}
-        title={sentCount ?? ""}
-      />
     </>
   )
 }

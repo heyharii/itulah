@@ -191,11 +191,7 @@ pub struct SectionRule {
     pub reads: Reads,
 }
 
-const fn rule(
-    prefix: &'static str,
-    writes: &'static [&'static str],
-    reads: Reads,
-) -> SectionRule {
+const fn rule(prefix: &'static str, writes: &'static [&'static str], reads: Reads) -> SectionRule {
     SectionRule {
         prefix,
         writes,
@@ -210,10 +206,18 @@ pub const SECTION_RULES: &[SectionRule] = &[
     rule("/api/v1/finance", &["finance"], Reads::Same),
     // A shop manager clears their own shift's or count's item off the
     // attention queue (`required_role` says why this is not an accounting act).
-    rule("/api/v1/finance/attention", &["finance", "stores"], Reads::Same),
+    rule(
+        "/api/v1/finance/attention",
+        &["finance", "stores"],
+        Reads::Same,
+    ),
     // GA files an asset under a class and shows the class's name, so GA reads
     // the list; defining a class stays Finance's.
-    rule("/api/v1/finance/asset-classes", &["finance"], Reads::Also(&["ga"])),
+    rule(
+        "/api/v1/finance/asset-classes",
+        &["finance"],
+        Reads::Also(&["ga"]),
+    ),
     rule("/api/v1/payment-terms", &["finance"], Reads::Open),
     rule("/api/v1/store-money", &["finance", "stores"], Reads::Same),
     // ── stores: a store's own page and opening checklist ───────────────
@@ -261,7 +265,11 @@ pub const SECTION_RULES: &[SectionRule] = &[
         &["procurement", "operations", "merchandise", "inventory"],
         Reads::Same,
     ),
-    rule("/api/v1/purchase-destinations", &["procurement"], Reads::Open),
+    rule(
+        "/api/v1/purchase-destinations",
+        &["procurement"],
+        Reads::Open,
+    ),
     rule(
         "/api/v1/suppliers",
         &["procurement", "finance"],
@@ -291,7 +299,11 @@ pub const SECTION_RULES: &[SectionRule] = &[
         Reads::Open,
     ),
     // Units of measure (a dozen is twelve), not organisational units.
-    rule("/api/v1/units", &["merchandise", "procurement"], Reads::Open),
+    rule(
+        "/api/v1/units",
+        &["merchandise", "procurement"],
+        Reads::Open,
+    ),
     rule(
         "/api/v1/inventory/allotments",
         &["merchandise"],
@@ -338,13 +350,21 @@ pub const SECTION_RULES: &[SectionRule] = &[
     // `/api/v1/customer/{card}/…` is deliberately absent: it is the
     // counter's lookup of the card in front of it (see `COUNTER_ACTS`).
     // ── sales ──────────────────────────────────────────────────────────
-    rule("/api/v1/sales", &["sales"], Reads::Also(&["finance", "stores"])),
+    rule(
+        "/api/v1/sales",
+        &["sales"],
+        Reads::Also(&["finance", "stores"]),
+    ),
     rule(
         "/api/v1/shop-sales",
         &["sales"],
         Reads::Also(&["finance", "stores"]),
     ),
-    rule("/api/v1/returns", &["sales", "stores"], Reads::Also(&["finance"])),
+    rule(
+        "/api/v1/returns",
+        &["sales", "stores"],
+        Reads::Also(&["finance"]),
+    ),
     rule(
         "/api/v1/checkout-exceptions",
         &["sales", "stores"],
@@ -364,22 +384,46 @@ pub const SECTION_RULES: &[SectionRule] = &[
     // office's decisions on it (approving a run, deciding a hire) stay behind
     // their own action keys. Everyone's own self-service is not in the table
     // at all (see the module doc).
-    rule("/api/v1/payroll", &["people", "stores"], Reads::Also(&["finance"])),
+    rule(
+        "/api/v1/payroll",
+        &["people", "stores"],
+        Reads::Also(&["finance"]),
+    ),
     rule("/api/v1/payroll/components", &["people"], Reads::Open),
     rule("/api/v1/hr-scheduler", &["people"], Reads::Same),
     rule("/api/v1/recruitment", &["people", "stores"], Reads::Same),
     rule("/api/v1/hire-proposals", &["people", "stores"], Reads::Same),
-    rule("/api/v1/change-proposals", &["people", "stores"], Reads::Same),
+    rule(
+        "/api/v1/change-proposals",
+        &["people", "stores"],
+        Reads::Same,
+    ),
     rule("/api/v1/exit-interviews", &["people"], Reads::Same),
-    rule("/api/v1/full-and-final-statements", &["people"], Reads::Also(&["finance"])),
+    rule(
+        "/api/v1/full-and-final-statements",
+        &["people"],
+        Reads::Also(&["finance"]),
+    ),
     rule("/api/v1/performance", &["people", "stores"], Reads::Same),
-    rule("/api/v1/training-programs", &["people"], Reads::Also(&["stores"])),
+    rule(
+        "/api/v1/training-programs",
+        &["people"],
+        Reads::Also(&["stores"]),
+    ),
     rule("/api/v1/attendance-policy", &["people"], Reads::Open),
     rule("/api/v1/leave-policy", &["people"], Reads::Open),
     rule("/api/v1/overtime-policy", &["people"], Reads::Open),
     rule("/api/v1/people-policy", &["people"], Reads::Open),
-    rule("/api/v1/attendance-periods", &["people", "stores"], Reads::Same),
-    rule("/api/v1/attendance-terminals", &["people", "system"], Reads::Same),
+    rule(
+        "/api/v1/attendance-periods",
+        &["people", "stores"],
+        Reads::Same,
+    ),
+    rule(
+        "/api/v1/attendance-terminals",
+        &["people", "system"],
+        Reads::Same,
+    ),
     rule("/api/v1/org", &["people"], Reads::Open),
     rule("/api/v1/lifecycle", &["people", "stores"], Reads::Same),
     // ── general affairs ────────────────────────────────────────────────
@@ -405,7 +449,11 @@ pub const SECTION_RULES: &[SectionRule] = &[
     // The fleet status page, sync freshness and alerts (0637-0640) are IT's.
     rule("/api/v1/fleet", &["system"], Reads::Same),
     rule("/api/v1/organisation", &["system", "people"], Reads::Open),
-    rule("/api/v1/vocabulary", &["system", "merchandise"], Reads::Open),
+    rule(
+        "/api/v1/vocabulary",
+        &["system", "merchandise"],
+        Reads::Open,
+    ),
     // ── reports ────────────────────────────────────────────────────────
     rule("/api/v1/reports", &["reports"], Reads::Same),
     rule(
@@ -450,7 +498,10 @@ fn under(path: &str, prefix: &str) -> bool {
 }
 
 fn is_read(method: &str) -> bool {
-    matches!(method.to_ascii_uppercase().as_str(), "GET" | "HEAD" | "OPTIONS")
+    matches!(
+        method.to_ascii_uppercase().as_str(),
+        "GET" | "HEAD" | "OPTIONS"
+    )
 }
 
 /// The rule governing a path, when one does.
@@ -551,7 +602,11 @@ mod tests {
                 Reads::Same | Reads::Open => &[],
             };
             for section in rule.writes.iter().chain(reads) {
-                assert!(SECTIONS.contains(section), "{} names {section}", rule.prefix);
+                assert!(
+                    SECTIONS.contains(section),
+                    "{} names {section}",
+                    rule.prefix
+                );
             }
         }
     }
@@ -618,7 +673,10 @@ mod tests {
             ("POST", "/api/v1/flows/abc/confirm"),
             ("GET", "/api/v1/setup"),
         ] {
-            assert!(section_gate(method, path, &cashier).is_ok(), "{method} {path}");
+            assert!(
+                section_gate(method, path, &cashier).is_ok(),
+                "{method} {path}"
+            );
         }
         assert!(section_gate("GET", "/api/v1/finance/bills", &cashier).is_err());
     }
@@ -641,7 +699,11 @@ mod tests {
 
     #[test]
     fn a_read_only_job_reads_its_sections_and_writes_nothing() {
-        let auditor = job("AUDITOR", &["finance", "reports", "sales", "inventory"], true);
+        let auditor = job(
+            "AUDITOR",
+            &["finance", "reports", "sales", "inventory"],
+            true,
+        );
         assert!(section_gate("GET", "/api/v1/finance/trial-balance", &auditor).is_ok());
         assert!(section_gate("GET", "/api/v1/ga/overview", &auditor).is_err());
         assert!(section_gate("POST", "/api/v1/finance/attention/a/resolve", &auditor).is_err());

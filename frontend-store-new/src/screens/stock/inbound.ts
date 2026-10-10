@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 
+import { count } from "@/lib/format"
 import {
   fetchInbound,
   fetchInboundDelivery,
@@ -56,6 +57,11 @@ export function deliveryName(delivery: StoreInboundDelivery): string {
   return delivery.shipment_reference ?? `From ${delivery.source_site_id}`
 }
 
+/// "1 carton", "3 cartons" — what the DC calls koli.
+export function cartons(n: number): string {
+  return `${count(n)} ${n === 1 ? "carton" : "cartons"}`
+}
+
 export type Verdict = {
   readonly tone: "info" | "ok" | "warn" | "bad"
   readonly label: string
@@ -70,8 +76,7 @@ export function verdictOf(delivery: StoreInboundDelivery): Verdict {
   }
   const result = delivery.result
   if (result === null) return { tone: "ok", label: "Received" }
-  if (result.missing_units > 0)
-    return { tone: "bad", label: "Received short" }
+  if (result.missing_units > 0) return { tone: "bad", label: "Received short" }
   return { tone: "ok", label: "Received" }
 }
 

@@ -3,6 +3,7 @@ import { Search, X } from "lucide-react"
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Panel } from "@/components/ui/dialog"
@@ -14,6 +15,7 @@ import {
   LoadingState,
 } from "@/components/ui/states"
 import { count } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { cn } from "@/lib/utils"
 import {
   COLS,
@@ -22,6 +24,7 @@ import {
   type Col,
 } from "@/screens/operations/articles/data"
 import { History } from "@/screens/operations/articles/history"
+import { CardFigure, CardName, PhoneCard } from "@/components/ui/phone-cards"
 import { TwoLines } from "@/screens/operations/two-lines"
 
 /// **Stock by article** (stock-options-prototype.html, D · Band, with a search
@@ -67,6 +70,7 @@ export function StockByArticle() {
   const [col, setCol] = useState<Col | null>(null)
   const [open, setOpen] = useState<string | null>(null)
   const scroller = useRef<HTMLDivElement>(null)
+  const phone = useLayout() === "phone"
 
   const typed = useDeferredValue(text).trim().toLowerCase()
   const found = useMemo(() => {
@@ -111,11 +115,35 @@ export function StockByArticle() {
 
   const opened = open === null ? null : data.rows.find((r) => r.key === open)
 
+  // A phone's list is cards, and a card list is every row in the page: so it
+  // is shown a page at a time, and asks for the next. Starts again whenever
+  // the search or the pool changes.
+  const [paged, setPaged] = useState({ key: "", n: PAGE })
+  const pageKey = `${typed}|${col ?? ""}`
+  const upto = paged.key === pageKey ? paged.n : PAGE
+
   return (
-    <PageContent fill>
+    <PageContent fill={!phone}>
       <PageHeader title="Stock by Article" />
 
-      <label className="relative mb-6 block">
+      {/* On a phone the search and the pool are the dock's. */}
+      <DockTools
+        search={{ value: text, onChange: setText, label: "Search articles" }}
+        status={{
+          value: col ?? "",
+          options: [
+            { value: "", label: "All stock" },
+            ...COLS.filter((c) => sums[c.id] > 0 || c.id === col).map((c) => ({
+              value: c.id,
+              label: c.label,
+              count: sums[c.id],
+            })),
+          ],
+          onChange: (next) => setCol(next === "" ? null : (next as Col)),
+        }}
+      />
+
+      <label className="relative mb-6 block max-md:hidden">
         <span className="sr-only">Search</span>
         <Search
           aria-hidden
@@ -147,11 +175,37 @@ export function StockByArticle() {
         </Banner>
       )}
 
-      <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <Card className="flex min-h-0 flex-1 flex-col overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {data.fleetError !== null ? (
           <ErrorState error={data.fleetError} onRetry={data.retry} />
         ) : data.pending ? (
           <LoadingState />
+        ) : phone ? (
+          shown.length === 0 ? (
+            <EmptyState>Nothing found.</EmptyState>
+          ) : (
+            <>
+              <ul className="flex flex-col gap-2.5">
+                {shown.slice(0, upto).map((row) => (
+                  <ArticleCard
+                    key={row.key}
+                    row={row}
+                    col={col}
+                    onOpen={() => setOpen(row.key)}
+                  />
+                ))}
+              </ul>
+              {shown.length > upto && (
+                <Button
+                  variant="soft"
+                  className="mt-3 self-center"
+                  onClick={() => setPaged({ key: pageKey, n: upto + PAGE })}
+                >
+                  Show more · {count(shown.length - upto)} left
+                </Button>
+              )}
+            </>
+          )
         ) : (
           <div ref={scroller} className="min-h-0 flex-1 overflow-auto">
             <div role="table" className="min-w-[86.5rem]">
@@ -308,6 +362,55 @@ export function StockByArticle() {
 
       <Where row={opened ?? null} onClose={() => setOpen(null)} />
     </PageContent>
+  )
+}
+
+/// How many articles a phone draws before it asks for more.
+const PAGE = 60
+
+/// One article as a phone's card: its name over its SKU, the figure it is read
+/// by (its total, or the pool somebody chose), and every pool that holds
+/// pieces of it, one under another with its figure — the band and the eleven
+/// columns of a desk, as the ones that have something to say.
+function ArticleCard({
+  row,
+  col,
+  onOpen,
+}: {
+  row: ArticleRow
+  col: Col | null
+  onOpen: () => void
+}) {
+  const lead = col ?? "total"
+  const heldIn = COLS.filter((c) => c.id !== "total" && row.v[c.id] > 0)
+  return (
+    <PhoneCard
+      onOpen={onOpen}
+      head={<CardName name={row.name} code={row.second} />}
+      lead={
+        <CardFigure
+          value={count(row.v[lead])}
+          caption={COLS.find((c) => c.id === lead)?.label}
+          tone={row.v[lead] > 0 ? undefined : "quiet"}
+        />
+      }
+      body={
+        heldIn.length === 0 ? undefined : (
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5">
+            {heldIn.map((c) => (
+              <div key={c.id} className="min-w-0">
+                <dt className="text-[0.875rem] leading-4 text-mute">
+                  {c.label}
+                </dt>
+                <dd className="mt-0.5 text-cell text-ink tabular-nums">
+                  <Figure col={c.id} pcs={row.v[c.id]} />
+                </dd>
+              </div>
+            ))}
+          </dl>
+        )
+      }
+    />
   )
 }
 

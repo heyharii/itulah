@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Send } from "lucide-react"
 
+import { useSite } from "@/components/shell/sidebar"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Fab } from "@/components/ui/fab"
 import { Pill } from "@/components/ui/pill"
 import { KeyValue } from "@/components/ui/rows"
 import { Screen } from "@/components/ui/screen"
@@ -83,27 +85,26 @@ export function SyncScreen() {
         ? describe(send.error)
         : null
 
-  const action = (
-    <Button
-      variant="primary"
-      // The hub's 32px header button under a mouse; the 44px floor anywhere a
-      // finger is.
-      className="md:pointer-fine:h-8 md:pointer-fine:px-3"
-      disabled={send.isPending || status?.sender_enabled !== true}
-      onClick={() => send.mutate()}
-    >
-      <Send />
-      {send.isPending ? "Sending…" : "Send now"}
-    </Button>
-  )
+  const sendNow = () => send.mutate()
+  const cannotSend = send.isPending || status?.sender_enabled !== true
 
   return (
     <Screen
-      actions={action}
+      actions={
+        <Button variant="primary" disabled={cannotSend} onClick={sendNow}>
+          <Send />
+          {send.isPending ? "Sending…" : "Send now"}
+        </Button>
+      }
     >
-      {/* No page header on a phone — the bar names the screen — so the one
-          action stands at the top of the page, full width. */}
-      <div className="mb-4 md:hidden [&>*]:w-full">{action}</div>
+      {/* The screen's one act, on a phone, is the dock's wide button — where
+          the thumb is, not at the top of the page. */}
+      <Fab
+        label={send.isPending ? "Sending…" : "Send now"}
+        icon={Send}
+        disabled={cannotSend}
+        onClick={sendNow}
+      />
 
       {failure !== null && (
         <Banner tone="bad" className="mb-4">
@@ -125,7 +126,7 @@ export function SyncScreen() {
             />
           </Card>
         ) : (
-          <LoadingState>Loading…</LoadingState>
+          <LoadingState>Reading the sync status…</LoadingState>
         )
       ) : (
         <Outbox
@@ -151,6 +152,7 @@ function Outbox({
   unsent: number
   node: NodeIdentity | null
 }) {
+  const site = useSite()
   const shape = HEALTH[health]
   const cooling = status.breaker_open_until !== null
 
@@ -191,10 +193,10 @@ function Outbox({
           sub="Head office has these"
         />
         <Stat
-          label="Refused by head office"
+          label="Rejected by head office"
           value={count(status.dead_lettered)}
           // These never retry. Somebody has to look at them.
-          sub={status.dead_lettered > 0 ? "Needs a person" : "Nothing refused"}
+          sub={status.dead_lettered > 0 ? "Needs a person" : "Nothing rejected"}
           tone={status.dead_lettered > 0 ? "bad" : undefined}
         />
         <Stat
@@ -271,9 +273,7 @@ function Outbox({
             <KeyValue term="Node">
               <span className="font-mono text-id">{node?.node_id ?? "—"}</span>
             </KeyValue>
-            <KeyValue term="Shop">
-              <span className="font-mono text-id">{node?.site_id ?? "—"}</span>
-            </KeyValue>
+            <KeyValue term="Shop">{node === null ? "—" : site}</KeyValue>
             <KeyValue term="Sign-in">
               {node === null ? (
                 "—"
@@ -321,7 +321,7 @@ function CardHead({
 }) {
   return (
     <div className="flex items-center justify-between gap-2.5 px-4 pt-3.5 pb-1">
-      <h2 className="text-card-title font-semibold text-ink">{title}</h2>
+      <h2 className="text-[0.9375rem] font-medium text-ink">{title}</h2>
       {children}
     </div>
   )

@@ -23,12 +23,12 @@ export function DockSelection({
   return (
     <>
       <DockPortal slot="search">
-        <div className="dock-field flex h-9 min-w-0 items-center rounded-full bg-accent-bg pr-3 pl-1">
+        <div className="dock-field flex h-11 min-w-0 items-center rounded-full bg-accent-bg pr-3 pl-1">
           <button
             type="button"
             aria-label="Clear selection"
             onClick={onClear}
-            className="grid size-7 shrink-0 place-items-center rounded-full text-accent transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.92]"
+            className="relative grid size-9 shrink-0 place-items-center rounded-full text-accent transition-[scale] duration-(--t-press) ease-(--ease-out) after:absolute after:-inset-1 after:content-[''] active:scale-[0.92]"
           >
             <X className="size-4" />
           </button>
@@ -41,7 +41,7 @@ export function DockSelection({
         <button
           type="button"
           onClick={action.onClick}
-          className="dock-wide inline-flex h-9 w-full items-center justify-center rounded-full bg-cta px-4 text-[0.875rem] font-semibold text-cta-fg shadow-soft transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.96]"
+          className="dock-wide inline-flex h-11 w-full items-center justify-center rounded-full bg-cta px-4 text-[0.875rem] font-semibold text-cta-fg shadow-soft transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.96]"
         >
           <span className="truncate">{action.label}</span>
         </button>

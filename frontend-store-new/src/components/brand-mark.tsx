@@ -1,0 +1,55 @@
+import { cn } from "@/lib/utils"
+
+/// The app icon, drawn rather than loaded: a black tile, a white "C", the blue
+/// dot — the hub's (`frontend-hub/src/components/brand-mark.tsx`), copied, so
+/// the shop's back office carries the same mark as the console.
+///
+/// The tile carries a hairline of white on its inside edge. On charcoal a
+/// black square with no edge is a hole in the page; the line is what makes it
+/// an object lying on it.
+export function BrandMark({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 32 32"
+      aria-hidden
+      className={cn("size-8 shrink-0", className)}
+    >
+      <rect width="32" height="32" rx="7.5" fill="#111214" />
+      <rect
+        x="0.5"
+        y="0.5"
+        width="31"
+        height="31"
+        rx="7"
+        fill="none"
+        stroke="rgb(255 255 255 / 10%)"
+      />
+      <path
+        d="M18.2 11.6A6.5 6.5 0 1 0 18.2 20.4"
+        fill="none"
+        stroke="#fff"
+        strokeWidth="3.6"
+        strokeLinecap="round"
+      />
+      <circle cx="23.4" cy="16" r="2.2" fill="var(--accent)" />
+    </svg>
+  )
+}
+
+/// The screen the app opens on: white, the mark in the middle, nothing else.
+/// It stands where "Checking your session…" used to, and it is drawn again, as
+/// static markup, in `index.html` before any script has loaded — so the
+/// picture does not change between the first paint and this. A signed-in
+/// person goes from it straight into the app; a signed-out one into the
+/// sign-in page, whose own header is the same mark a little higher.
+export function Launch() {
+  return (
+    <main
+      aria-busy
+      aria-label="Checking your session"
+      className="grid h-full place-items-center bg-canvas"
+    >
+      <BrandMark className="size-[5.5rem]" />
+    </main>
+  )
+}

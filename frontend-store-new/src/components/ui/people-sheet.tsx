@@ -1,115 +1,120 @@
-import { Dialog } from "@base-ui/react/dialog"
-import { X } from "lucide-react"
-
-import { Button } from "@/components/ui/button"
+import { Sheet } from "@/components/ui/sheet"
 import { cn } from "@/lib/utils"
 
-/// The sheet a People row opens into, and the one a "record" button opens.
+/// The sheet a People row opens into — now the kit's `Sheet`
+/// (`components/ui/sheet.tsx`), the hub's record anatomy, behind the props the
+/// People screens were written with.
 ///
-/// The prototype puts every detail and every form in a sheet
-/// (`prototypes/hr-v3/hr.html`, `sheet()`): a crumb, a title, a line under it,
-/// the sections, and the decision pinned at the foot where it stays visible
-/// however long the body is. This is that sheet, on Base UI's dialog so that
-/// focus is trapped, Escape leaves, and the page behind does not scroll.
+///   id      mono, above the title: the business number a person says aloud
+///           (`HO-0006`, a leave request's number). Left out when there is none.
+///   title   the record's own name — a person's FULL name, never their login.
+///   status  the ONE badge in the head (a `Pill`), the record's state.
+///   crumb   what KIND of record this is ("Leave", "Shift swap"), then `sub`
+///           (the place, the date) — both end up in the caption under the title,
+///           joined with a dot.
+///   foot    the record's actions, pinned: on every width. A decision is
+///           `[Reject] [Approve]` (`useDecision` in `screens/hr/parts.tsx`), a
+///           form is `[Cancel] [Save]`; wrap them in `<SheetFoot>`.
+///   tabs    optional sections (they wrap on a phone, never scroll sideways).
 ///
-/// On a desk it stands at the right edge, full height, the width of a record.
-/// On a phone it rises from the bottom and stops short of the top, so the
-/// screen it came from is still visibly there behind it.
-///
-/// The veil is WHITE, as every overlay in this language is — a dark dim is the
-/// single most recognisable way a screen stops being the hub.
+/// The audit's anatomy (REPORT §2), in one place: head never holds actions,
+/// the foot is their only home, facts read as label over value.
 export function PeopleSheet({
   open,
   onOpenChange,
+  id,
   crumb,
   title,
   sub,
   status,
   foot,
+  tabs,
+  width,
   children,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  /// What kind of record this is — "Leave", "Claim · CL-0042".
+  id?: React.ReactNode
   crumb?: React.ReactNode
   title: React.ReactNode
   sub?: React.ReactNode
-  /// Pills under the title.
+  /// The one status badge: a `Pill`.
   status?: React.ReactNode
-  /// The decision, pinned under the body. Buttons, usually two.
   foot?: React.ReactNode
-  children: React.ReactNode
+  tabs?: React.ComponentProps<typeof Sheet>["tabs"]
+  /// `wide` for a form somebody writes a sentence into.
+  width?: "rail" | "wide"
+  children?: React.ReactNode
 }) {
+  const hasCrumb = crumb !== undefined && crumb !== null && crumb !== ""
+  const hasSub = sub !== undefined && sub !== null && sub !== ""
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-50 bg-[var(--scrim)] transition-opacity duration-(--t-panel) ease-(--ease-out) data-[ending-style]:opacity-0 data-[starting-style]:opacity-0" />
-        <Dialog.Popup
-          className={cn(
-            "fixed z-50 flex flex-col border-hairline-2 bg-canvas shadow-float outline-none",
-            "transition-[opacity,translate] duration-(--t-sheet) ease-(--ease-out) data-[ending-style]:opacity-0 data-[starting-style]:opacity-0",
-            // Phone: from the bottom.
-            "inset-x-0 bottom-0 max-h-[calc(100dvh-3rem)] rounded-t-sheet border-t data-[ending-style]:translate-y-6 data-[starting-style]:translate-y-6",
-            // Desk: from the right, full height.
-            "md:inset-x-auto md:top-0 md:right-0 md:bottom-0 md:max-h-none md:w-[32rem] md:max-w-[calc(100vw-2rem)] md:rounded-none md:border-t-0 md:border-l md:data-[ending-style]:translate-x-6 md:data-[ending-style]:translate-y-0 md:data-[starting-style]:translate-x-6 md:data-[starting-style]:translate-y-0",
-            "motion-reduce:transition-opacity",
-          )}
-        >
-          <div className="flex items-start gap-3 border-b border-hairline px-5 pt-4 pb-3.5">
-            <div className="min-w-0 flex-1">
-              {crumb !== undefined && (
-                <div className="mb-1 text-[0.75rem] font-medium text-mute">
-                  {crumb}
-                </div>
-              )}
-              <Dialog.Title className="text-title font-semibold text-ink">
-                {title}
-              </Dialog.Title>
-              {sub !== undefined && (
-                <p className="mt-0.5 text-meta text-body">{sub}</p>
-              )}
-              {status !== undefined && (
-                <div className="mt-2 flex flex-wrap gap-1.5">{status}</div>
-              )}
-            </div>
-            <Dialog.Close
-              render={
-                <Button variant="quiet" size="icon" aria-label="Close">
-                  <X />
-                </Button>
-              }
-            />
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-            {children}
-          </div>
-          {foot !== undefined && (
-            <div className="pb-safe border-t border-hairline px-5 pt-3">
-              <div className="pb-3">{foot}</div>
-            </div>
-          )}
-        </Dialog.Popup>
-      </Dialog.Portal>
-    </Dialog.Root>
+    <Sheet
+      open={open}
+      onOpenChange={onOpenChange}
+      id={id}
+      title={title}
+      badge={status}
+      caption={
+        hasCrumb || hasSub ? (
+          <>
+            {crumb}
+            {hasCrumb && hasSub ? " · " : ""}
+            {sub}
+          </>
+        ) : undefined
+      }
+      footer={foot}
+      tabs={tabs}
+      width={width}
+    >
+      {children}
+    </Sheet>
   )
 }
 
-/// A titled block inside a sheet — the prototype's `.sec` with its `h3`.
-/// Micro-caps here are right: they label a block, not a column, and there is
-/// no data at the same size to confuse them with.
+/// The sheet's foot row: buttons side by side, right-aligned — the hub's
+/// `flex justify-end gap-2`. A decision is `[Reject][Approve]`, a form
+/// `[Cancel][Save]`: the destructive one on the left, the one filled button on
+/// the right.
+export function SheetFoot({
+  className,
+  children,
+}: {
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <div
+      className={cn("flex flex-wrap items-center justify-end gap-2", className)}
+    >
+      {children}
+    </div>
+  )
+}
+
+/// A titled block inside a sheet — the audit's SubHead: 15px medium, the
+/// count (or any aside) beside it; blocks are spaced by the sheet's own gap.
 export function SheetSection({
   title,
+  aside,
   children,
   className,
 }: {
   title: React.ReactNode
+  aside?: React.ReactNode
   children: React.ReactNode
   className?: string
 }) {
   return (
-    <section className={cn("mb-5 last:mb-0", className)}>
-      <h3 className="mb-2 text-eyebrow font-semibold tracking-[0.04em] text-mute uppercase">
+    <section className={cn("mb-6 last:mb-0", className)}>
+      <h3 className="mb-3 flex items-baseline gap-2 text-[0.9375rem] font-medium text-ink">
         {title}
+        {aside !== undefined && (
+          <span className="text-[0.875rem] font-normal text-mute tabular-nums">
+            {aside}
+          </span>
+        )}
       </h3>
       {children}
     </section>

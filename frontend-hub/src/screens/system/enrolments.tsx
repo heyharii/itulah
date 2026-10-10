@@ -320,7 +320,7 @@ export function InstallSheet({
                 }}
               >
                 <option value="STORE">Store</option>
-                <option value="DC">Gudang</option>
+                <option value="DC">Warehouse</option>
               </Select>
             </Field>
             <Field label="Code valid for">

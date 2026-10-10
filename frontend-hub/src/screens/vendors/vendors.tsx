@@ -11,8 +11,10 @@ import {
   SupplierBankAccountsPanel,
   SupplierContactsPanel,
 } from "@/components/suppliers/panels"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Fab } from "@/components/ui/fab"
 import { Field, Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
@@ -21,6 +23,7 @@ import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState, LoadMore } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { count } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { queryState } from "@/lib/query-state"
 import {
   createSupplier,
@@ -34,6 +37,12 @@ import { useSections } from "@/lib/session"
 import { useSheet } from "@/lib/sheets"
 import { useDebounced } from "@/lib/use-debounced"
 import { cn } from "@/lib/utils"
+import {
+  CardName,
+  type CardSpec,
+  DESK_BAR,
+  PhoneCards,
+} from "@/components/ui/phone-cards"
 import {
   supplierDisplayName,
   titled,
@@ -125,6 +134,7 @@ export function Vendors() {
   const [search, setSearch] = useState("")
   const [adding, setAdding] = useState(false)
   const mayEdit = useMayEditSuppliers()
+  const phone = useLayout() === "phone"
 
   // The search is the server's, so it waits for the typing to stop.
   const needle = useDebounced(search.trim(), 300)
@@ -166,23 +176,44 @@ export function Vendors() {
             : "The providers of electricity, rented premises, repairs and other services. Procurement adds and changes them."
         }
         actions={
-          <>
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              className="h-8 w-56"
-            />
-            {mayEdit && (
-              <Button variant="primary" onClick={() => setAdding(true)}>
-                <Plus />
-                Add supplier
-              </Button>
-            )}
-          </>
+          // On a phone the search and the book are the dock's, and the one
+          // thing this page makes is its round button.
+          phone ? undefined : (
+            <>
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                className="h-8 w-56"
+              />
+              {mayEdit && (
+                <Button variant="primary" onClick={() => setAdding(true)}>
+                  <Plus />
+                  Add supplier
+                </Button>
+              )}
+            </>
+          )
         }
       />
 
-      <Toolbar>
+      {mayEdit && <Fab label="Add supplier" onClick={() => setAdding(true)} />}
+      <DockTools
+        search={{
+          value: search,
+          onChange: setSearch,
+          label: "Search suppliers",
+        }}
+        status={{
+          value: book,
+          options: [
+            { value: "EXPENSE", label: "Operating" },
+            { value: "AFFILIATE", label: "Affiliate" },
+          ],
+          onChange: (next) => setBook(next as SupplierCategory),
+        }}
+      />
+
+      <div className={DESK_BAR}>
         {/* Two books, not three. Merchandise is the other menu's — a supplier
             list that could show garment factories would be the single list
             this screen exists instead of. */}
@@ -201,7 +232,7 @@ export function Vendors() {
             {head.total === 1 ? "supplier" : "suppliers"}
           </span>
         )}
-      </Toolbar>
+      </div>
 
       {queryState(vendors, {
         loading: "Loading suppliers…",
@@ -222,6 +253,14 @@ export function Vendors() {
                   : "No affiliate suppliers yet. Add another unit in the company group that transacts with this company."}
               </EmptyState>
             </Card>
+          ) : phone ? (
+            <PhoneCards
+              rows={rows}
+              rowId={(row) => row.supplier_id}
+              spec={VENDOR_CARD}
+              onOpen={(row) => editing.open(row.supplier_id)}
+              more={vendors}
+            />
           ) : (
             <Card className="overflow-hidden">
               <div className="grid h-10 grid-cols-[7rem_minmax(0,1fr)_11rem_9rem_6rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
@@ -255,6 +294,29 @@ export function Vendors() {
       />
     </PageContent>
   )
+}
+
+/// A supplier as a phone's card: the name over its code, who to ring, the
+/// account its bills usually debit (said plainly when it is not set), and
+/// whether it is still used.
+const VENDOR_CARD: CardSpec<Supplier> = {
+  title: (row) => (
+    <CardName name={supplierDisplayName(row)} code={row.supplier_code} />
+  ),
+  meta: [(row) => row.contact_name ?? row.phone],
+  foot: (row) =>
+    row.expense_account_code === null ? (
+      <span className="italic">Account not set</span>
+    ) : (
+      <span>
+        Account <span className="font-mono">{row.expense_account_code}</span>
+      </span>
+    ),
+  action: (row) => (
+    <Pill tone={row.status === "ACTIVE" ? "ok" : "neutral"}>
+      {row.status === "ACTIVE" ? "Active" : "Inactive"}
+    </Pill>
+  ),
 }
 
 function VendorRow({

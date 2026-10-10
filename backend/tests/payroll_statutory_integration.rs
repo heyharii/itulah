@@ -180,7 +180,9 @@ struct Hub {
 
 impl Hub {
     async fn open(pool: &PgPool) -> Self {
-        let _ = tracing_subscriber::fmt().with_env_filter("error").try_init();
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter("error")
+            .try_init();
         cloud::bootstrap_admin(pool, Some(ADMIN_PASSWORD), true)
             .await
             .unwrap_or_else(|error| panic!("bootstrap: {error}"));
@@ -201,18 +203,32 @@ impl Hub {
     }
 
     async fn get(&self, path: &str) -> Response {
-        send(self.app.clone(), "GET", path, read_headers(&self.cookies), None).await
+        send(
+            self.app.clone(),
+            "GET",
+            path,
+            read_headers(&self.cookies),
+            None,
+        )
+        .await
     }
 
     async fn ok(&self, path: &str, body: Value) -> Value {
         let response = self.post(path, body).await;
-        assert_eq!(response.status, StatusCode::OK, "POST {path}: {:?}", response.body);
+        assert_eq!(
+            response.status,
+            StatusCode::OK,
+            "POST {path}: {:?}",
+            response.body
+        );
         response.body
     }
 
     /// Register somebody, hire them and post them to `unit` from `from`.
     async fn staff(&self, code: &str, unit: &str, from: &str) -> String {
-        let registered = self.ok("/api/v1/employees", json!({ "employee_code": code })).await;
+        let registered = self
+            .ok("/api/v1/employees", json!({ "employee_code": code }))
+            .await;
         let id = registered["employee_id"]
             .as_str()
             .unwrap_or_else(|| panic!("employee_id: {registered:?}"))
@@ -270,7 +286,9 @@ impl Hub {
             )
             .await;
         let run_id = opened["id"].as_str().unwrap_or_default().to_owned();
-        let slips = self.get(&format!("/api/v1/payroll/runs/{run_id}/slips")).await;
+        let slips = self
+            .get(&format!("/api/v1/payroll/runs/{run_id}/slips"))
+            .await;
         assert_eq!(slips.status, StatusCode::OK, "{:?}", slips.body);
         let list = slips.body.as_array().cloned().unwrap_or_default();
         (run_id, list)
@@ -325,12 +343,16 @@ async fn tuan_r_is_withheld_200_000_a_month_and_515_000_in_december(pool: PgPool
         )
         .await;
     assert_eq!(stated.status, StatusCode::OK, "{:?}", stated.body);
-    assert_eq!(stated.body[0]["effective_from"], "2027-01-01", "newest first");
+    assert_eq!(
+        stated.body[0]["effective_from"], "2027-01-01",
+        "newest first"
+    );
 
     let r = hub.staff("R0001", "store-07", "2026-01-05").await;
     hub.pay(&r, "2026-01-01", 10_000_000, json!([])).await;
     hub.identity(&r, "ptkp", "K/0").await;
-    hub.identity(&r, "bpjs_ketenagakerjaan", "11000000001").await;
+    hub.identity(&r, "bpjs_ketenagakerjaan", "11000000001")
+        .await;
     hub.ok(
         &format!("/api/v1/employees/{r}/payroll-identity"),
         json!({ "field": "bank_account", "bank_name": "BCA", "bank_account": "1234567890",
@@ -362,7 +384,11 @@ async fn tuan_r_is_withheld_200_000_a_month_and_515_000_in_december(pool: PgPool
             assert_eq!(slip["final_tax_month"], true);
         }
         withheld += tax;
-        assert_eq!(slip["net_minor"], 10_000_000 - 100_000 - tax, "month {month}");
+        assert_eq!(
+            slip["net_minor"],
+            10_000_000 - 100_000 - tax,
+            "month {month}"
+        );
     }
     assert_eq!(withheld, 2_715_000, "the year's Pasal 17 tax");
 
@@ -376,8 +402,11 @@ async fn tuan_r_is_withheld_200_000_a_month_and_515_000_in_december(pool: PgPool
     .await;
     let (theirs, their_csrf) = sign_in(&hub.app, "hr.budi", ADMIN_PASSWORD).await;
     for run_id in &runs {
-        hub.ok(&format!("/api/v1/payroll/runs/{run_id}/submission"), json!({ "reason": "dicek" }))
-            .await;
+        hub.ok(
+            &format!("/api/v1/payroll/runs/{run_id}/submission"),
+            json!({ "reason": "dicek" }),
+        )
+        .await;
         let approved = send(
             hub.app.clone(),
             "POST",
@@ -386,11 +415,18 @@ async fn tuan_r_is_withheld_200_000_a_month_and_515_000_in_december(pool: PgPool
             Some(json!({ "reason": "disetujui" })),
         )
         .await;
-        assert_eq!(approved.status, StatusCode::OK, "approve {run_id}: {:?}", approved.body);
+        assert_eq!(
+            approved.status,
+            StatusCode::OK,
+            "approve {run_id}: {:?}",
+            approved.body
+        );
     }
 
     // The year's 1721-A1, line by line as PMK 168's example states it.
-    let a1 = hub.get(&format!("/api/v1/employees/{r}/annual-tax?year=2027")).await;
+    let a1 = hub
+        .get(&format!("/api/v1/employees/{r}/annual-tax?year=2027"))
+        .await;
     assert_eq!(a1.status, StatusCode::OK, "{:?}", a1.body);
     let a1 = a1.body;
     assert_eq!(a1["gross_minor"], 120_000_000);
@@ -403,7 +439,10 @@ async fn tuan_r_is_withheld_200_000_a_month_and_515_000_in_december(pool: PgPool
     assert_eq!(a1["tax_due_minor"], 2_715_000);
     assert_eq!(a1["tax_withheld_minor"], 2_715_000);
     assert_eq!(a1["settled"], true);
-    assert_eq!((a1["from_month"].clone(), a1["to_month"].clone()), (json!(1), json!(12)));
+    assert_eq!(
+        (a1["from_month"].clone(), a1["to_month"].clone()),
+        (json!(1), json!(12))
+    );
 
     let all = hub.get("/api/v1/payroll/annual-tax?year=2027").await;
     assert_eq!(all.body.as_array().map(Vec::len), Some(1), "{:?}", all.body);
@@ -425,23 +464,49 @@ async fn tuan_r_is_withheld_200_000_a_month_and_515_000_in_december(pool: PgPool
 async fn bpjs_follows_its_rates_and_caps_and_the_companys_share_is_taxable(pool: PgPool) {
     let hub = Hub::open(&pool).await;
     let siti = hub.staff("K0701", "store-07", "2026-01-05").await;
-    hub.pay(&siti, "2026-01-01", 14_500_000, json!([{ "code": "JABATAN", "minor": 500_000 }]))
-        .await;
+    hub.pay(
+        &siti,
+        "2026-01-01",
+        14_500_000,
+        json!([{ "code": "JABATAN", "minor": 500_000 }]),
+    )
+    .await;
     hub.identity(&siti, "ptkp", "TK/0").await;
     hub.identity(&siti, "bpjs_kesehatan", "0001234567890").await;
-    hub.identity(&siti, "bpjs_ketenagakerjaan", "11000000002").await;
+    hub.identity(&siti, "bpjs_ketenagakerjaan", "11000000002")
+        .await;
 
     let (_, slips) = hub.run("store-07", "2026-04").await;
     let slip = slip_of(&slips, &siti);
 
     assert_eq!(amount(slip, "deductions", "BPJS_KES"), Some(120_000));
     assert_eq!(amount(slip, "deductions", "BPJS_JHT"), Some(300_000));
-    assert_eq!(amount(slip, "deductions", "BPJS_JP"), Some(110_863), "1 % of the JP cap");
-    assert_eq!(amount(slip, "company_contributions", "BPJS_KES_CO"), Some(480_000));
-    assert_eq!(amount(slip, "company_contributions", "BPJS_JHT_CO"), Some(555_000));
-    assert_eq!(amount(slip, "company_contributions", "BPJS_JP_CO"), Some(221_726));
-    assert_eq!(amount(slip, "company_contributions", "BPJS_JKK_CO"), Some(36_000), "0,24 %");
-    assert_eq!(amount(slip, "company_contributions", "BPJS_JKM_CO"), Some(45_000));
+    assert_eq!(
+        amount(slip, "deductions", "BPJS_JP"),
+        Some(110_863),
+        "1 % of the JP cap"
+    );
+    assert_eq!(
+        amount(slip, "company_contributions", "BPJS_KES_CO"),
+        Some(480_000)
+    );
+    assert_eq!(
+        amount(slip, "company_contributions", "BPJS_JHT_CO"),
+        Some(555_000)
+    );
+    assert_eq!(
+        amount(slip, "company_contributions", "BPJS_JP_CO"),
+        Some(221_726)
+    );
+    assert_eq!(
+        amount(slip, "company_contributions", "BPJS_JKK_CO"),
+        Some(36_000),
+        "0,24 %"
+    );
+    assert_eq!(
+        amount(slip, "company_contributions", "BPJS_JKM_CO"),
+        Some(45_000)
+    );
     assert_eq!(
         amount(slip, "deductions", "BPJS_KES_CO"),
         None,
@@ -449,10 +514,20 @@ async fn bpjs_follows_its_rates_and_caps_and_the_companys_share_is_taxable(pool:
     );
 
     assert_eq!(slip["taxable_gross_minor"], 15_561_000);
-    assert_eq!(amount(slip, "deductions", "PPH21"), Some(1_089_270), "7 % of 15.561.000");
+    assert_eq!(
+        amount(slip, "deductions", "PPH21"),
+        Some(1_089_270),
+        "7 % of 15.561.000"
+    );
     assert_eq!(slip["gross_minor"], 15_000_000);
-    assert_eq!(slip["deduction_total_minor"], 120_000 + 300_000 + 110_863 + 1_089_270);
-    assert_eq!(slip["net_minor"], 15_000_000 - 120_000 - 300_000 - 110_863 - 1_089_270);
+    assert_eq!(
+        slip["deduction_total_minor"],
+        120_000 + 300_000 + 110_863 + 1_089_270
+    );
+    assert_eq!(
+        slip["net_minor"],
+        15_000_000 - 120_000 - 300_000 - 110_863 - 1_089_270
+    );
     assert_eq!(
         slip["company_borne_minor"],
         480_000 + 555_000 + 221_726 + 36_000 + 45_000
@@ -474,7 +549,11 @@ async fn nobody_pays_bpjs_without_being_enrolled(pool: PgPool) {
     assert_eq!(amount(slip, "deductions", "BPJS_KES"), None);
     assert_eq!(amount(slip, "deductions", "BPJS_JHT"), None);
     assert_eq!(slip["company_borne_minor"], 0);
-    assert_eq!(amount(slip, "deductions", "PPH21"), Some(0), "TER A row 1 is 0 %");
+    assert_eq!(
+        amount(slip, "deductions", "PPH21"),
+        Some(0),
+        "TER A row 1 is 0 %"
+    );
     assert_eq!(slip["net_minor"], 5_000_000);
 }
 
@@ -511,12 +590,18 @@ async fn a_gross_up_pays_its_own_tax_and_netto_is_the_companys(pool: PgPool) {
     assert_eq!(amount(u, "earnings", "TUNJ_PPH21"), Some(230_179));
     assert_eq!(amount(u, "deductions", "PPH21"), Some(230_179));
     assert_eq!(u["gross_minor"], 10_230_179);
-    assert_eq!(u["net_minor"], 10_000_000, "the allowance pays exactly the tax");
+    assert_eq!(
+        u["net_minor"], 10_000_000,
+        "the allowance pays exactly the tax"
+    );
 
     let n = slip_of(&slips, &netto);
     assert_eq!(n["tax_method"], "NETTO");
     assert_eq!(amount(n, "deductions", "PPH21"), None);
-    assert_eq!(amount(n, "company_contributions", "PPH21_CO"), Some(200_000));
+    assert_eq!(
+        amount(n, "company_contributions", "PPH21_CO"),
+        Some(200_000)
+    );
     assert_eq!(n["net_minor"], 10_000_000);
     assert_eq!(n["company_borne_minor"], 200_000);
 }
@@ -531,11 +616,16 @@ async fn without_a_ptkp_the_net_is_unknown_and_the_slip_says_why(pool: PgPool) {
 
     let (_, slips) = hub.run("store-07", "2026-04").await;
     let slip = slip_of(&slips, &ani);
-    assert_eq!(slip["gross_minor"], 6_000_000, "the gross is still a real sum");
+    assert_eq!(
+        slip["gross_minor"], 6_000_000,
+        "the gross is still a real sum"
+    );
     assert_eq!(slip["net_minor"], Value::Null);
     assert_eq!(slip["deduction_total_minor"], Value::Null);
     assert_eq!(slip["pph21_minor"], Value::Null);
-    let because = slip["components_incomplete_because"].as_str().unwrap_or_default();
+    let because = slip["components_incomplete_because"]
+        .as_str()
+        .unwrap_or_default();
     assert!(because.contains("PTKP"), "{because}");
 }
 
@@ -548,8 +638,13 @@ async fn without_a_ptkp_the_net_is_unknown_and_the_slip_says_why(pool: PgPool) {
 async fn a_month_is_paid_by_the_days_posted_and_the_agreement_on_each(pool: PgPool) {
     let hub = Hub::open(&pool).await;
     let late = hub.staff("K0730", "store-07", "2026-04-16").await;
-    hub.pay(&late, "2026-04-16", 6_000_000, json!([{ "code": "MAKAN", "minor": 600_000 }]))
-        .await;
+    hub.pay(
+        &late,
+        "2026-04-16",
+        6_000_000,
+        json!([{ "code": "MAKAN", "minor": 600_000 }]),
+    )
+    .await;
     hub.identity(&late, "ptkp", "TK/0").await;
 
     let raised = hub.staff("K0731", "store-07", "2026-01-05").await;
@@ -584,8 +679,20 @@ async fn the_tax_tables_are_the_regulations(pool: PgPool) {
     let ter = tables.body["ter"].as_array().cloned().unwrap_or_default();
 
     let expect = [
-        ("A", 44, vec!["TK/0", "TK/1", "K/0"], (5_400_000, 0), (1_400_000_000, 3_300)),
-        ("B", 40, vec!["TK/2", "TK/3", "K/1", "K/2"], (6_200_000, 0), (1_405_000_000, 3_300)),
+        (
+            "A",
+            44,
+            vec!["TK/0", "TK/1", "K/0"],
+            (5_400_000, 0),
+            (1_400_000_000, 3_300),
+        ),
+        (
+            "B",
+            40,
+            vec!["TK/2", "TK/3", "K/1", "K/2"],
+            (6_200_000, 0),
+            (1_405_000_000, 3_300),
+        ),
         ("C", 41, vec!["K/3"], (6_600_000, 0), (1_419_000_000, 3_300)),
     ];
     for (category, rows, ptkp, first, last_bounded) in expect {
@@ -600,22 +707,58 @@ async fn the_tax_tables_are_the_regulations(pool: PgPool) {
         assert_eq!(list[0]["rate_bp"], first.1);
         assert_eq!(list[rows - 2]["upto_minor"], last_bounded.0);
         assert_eq!(list[rows - 2]["rate_bp"], last_bounded.1);
-        assert_eq!(list[rows - 1]["upto_minor"], Value::Null, "the last row is open");
+        assert_eq!(
+            list[rows - 1]["upto_minor"],
+            Value::Null,
+            "the last row is open"
+        );
         assert_eq!(list[rows - 1]["rate_bp"], 3_400);
-        let climbs = list.windows(2).all(|w| w[0]["rate_bp"].as_i64() < w[1]["rate_bp"].as_i64());
+        let climbs = list
+            .windows(2)
+            .all(|w| w[0]["rate_bp"].as_i64() < w[1]["rate_bp"].as_i64());
         assert!(climbs, "table {category} rates climb");
     }
     // Spot rows that decide common Indonesian wages.
-    let a = ter.iter().find(|t| t["category"] == "A").cloned().unwrap_or_default();
-    assert_eq!(a["rows"][8], json!({ "upto_minor": 10_050_000, "rate_bp": 200 }));
-    assert_eq!(a["rows"][15], json!({ "upto_minor": 15_100_000, "rate_bp": 600 }));
-    let b = ter.iter().find(|t| t["category"] == "B").cloned().unwrap_or_default();
-    assert_eq!(b["rows"][4], json!({ "upto_minor": 9_200_000, "rate_bp": 100 }));
-    let c = ter.iter().find(|t| t["category"] == "C").cloned().unwrap_or_default();
-    assert_eq!(c["rows"][32], json!({ "upto_minor": 169_000_000, "rate_bp": 2_600 }));
+    let a = ter
+        .iter()
+        .find(|t| t["category"] == "A")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(
+        a["rows"][8],
+        json!({ "upto_minor": 10_050_000, "rate_bp": 200 })
+    );
+    assert_eq!(
+        a["rows"][15],
+        json!({ "upto_minor": 15_100_000, "rate_bp": 600 })
+    );
+    let b = ter
+        .iter()
+        .find(|t| t["category"] == "B")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(
+        b["rows"][4],
+        json!({ "upto_minor": 9_200_000, "rate_bp": 100 })
+    );
+    let c = ter
+        .iter()
+        .find(|t| t["category"] == "C")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(
+        c["rows"][32],
+        json!({ "upto_minor": 169_000_000, "rate_bp": 2_600 })
+    );
 
-    assert_eq!(tables.body["pasal_17"][0], json!({ "upto_minor": 60_000_000, "rate_bp": 500 }));
-    assert_eq!(tables.body["pasal_17"][4], json!({ "upto_minor": null, "rate_bp": 3_500 }));
+    assert_eq!(
+        tables.body["pasal_17"][0],
+        json!({ "upto_minor": 60_000_000, "rate_bp": 500 })
+    );
+    assert_eq!(
+        tables.body["pasal_17"][4],
+        json!({ "upto_minor": null, "rate_bp": 3_500 })
+    );
     let ptkp = tables.body["ptkp"].as_array().cloned().unwrap_or_default();
     let of = |status: &str| {
         ptkp.iter()
@@ -644,7 +787,12 @@ async fn a_statutory_component_cannot_be_defined_by_hand(pool: PgPool) {
             }),
         )
         .await;
-    assert_eq!(refused.status, StatusCode::BAD_REQUEST, "{:?}", refused.body);
+    assert_eq!(
+        refused.status,
+        StatusCode::BAD_REQUEST,
+        "{:?}",
+        refused.body
+    );
 
     let stale = hub
         .post(
@@ -703,7 +851,8 @@ async fn the_accrual_owes_the_tax_office_and_bpjs_and_pays_net(pool: PgPool) {
     hub.pay(&siti, "2026-01-01", 15_000_000, json!([])).await;
     hub.identity(&siti, "ptkp", "TK/0").await;
     hub.identity(&siti, "bpjs_kesehatan", "0001234567891").await;
-    hub.identity(&siti, "bpjs_ketenagakerjaan", "11000000003").await;
+    hub.identity(&siti, "bpjs_ketenagakerjaan", "11000000003")
+        .await;
     let (run_id, _) = hub.run("store-07", "2026-04").await;
 
     cloud::payroll_accrual_post(&pool, &run_id, "store-07", "admin")
@@ -713,8 +862,16 @@ async fn the_accrual_owes_the_tax_office_and_bpjs_and_pays_net(pool: PgPool) {
     assert_eq!(balance(&pool, "2011").await, -1_089_270, "PPh 21 owed");
     let employee_bpjs = 120_000 + 300_000 + 110_863;
     let company_bpjs = 480_000 + 555_000 + 221_726 + 36_000 + 45_000;
-    assert_eq!(balance(&pool, "2021").await, -(employee_bpjs + company_bpjs), "BPJS owed");
-    assert_eq!(balance(&pool, "6017").await, company_bpjs, "the company's BPJS is its cost");
+    assert_eq!(
+        balance(&pool, "2021").await,
+        -(employee_bpjs + company_bpjs),
+        "BPJS owed"
+    );
+    assert_eq!(
+        balance(&pool, "6017").await,
+        company_bpjs,
+        "the company's BPJS is its cost"
+    );
     assert_eq!(
         balance(&pool, "2017").await,
         -(15_000_000 - employee_bpjs - 1_089_270),
@@ -735,12 +892,21 @@ async fn thr_is_a_months_wage_after_a_year_and_a_share_before_and_is_taxed(pool:
     let ani = hub.staff("K0750", "store-07", "2025-01-01").await;
     let budi = hub.staff("K0751", "store-07", "2026-01-05").await;
     for who in [&ani, &budi] {
-        hub.pay(who, "2025-01-01", 5_000_000, json!([{ "code": "JABATAN", "minor": 500_000 }]))
-            .await;
+        hub.pay(
+            who,
+            "2025-01-01",
+            5_000_000,
+            json!([{ "code": "JABATAN", "minor": 500_000 }]),
+        )
+        .await;
         hub.identity(who, "ptkp", "TK/0").await;
     }
     let (run_id, before) = hub.run("store-07", "2026-03").await;
-    assert_eq!(amount(slip_of(&before, &ani), "earnings", "THR"), None, "no THR until it is put on");
+    assert_eq!(
+        amount(slip_of(&before, &ani), "earnings", "THR"),
+        None,
+        "no THR until it is put on"
+    );
 
     let set = hub
         .post(
@@ -750,17 +916,27 @@ async fn thr_is_a_months_wage_after_a_year_and_a_share_before_and_is_taxed(pool:
         .await;
     assert_eq!(set.status, StatusCode::OK, "{:?}", set.body);
     assert_eq!(set.body["thr_on"], "2026-03-20");
-    let slips = hub.get(&format!("/api/v1/payroll/runs/{run_id}/slips")).await;
+    let slips = hub
+        .get(&format!("/api/v1/payroll/runs/{run_id}/slips"))
+        .await;
     let slips = slips.body.as_array().cloned().unwrap_or_default();
 
     let a = slip_of(&slips, &ani);
     assert_eq!(amount(a, "earnings", "THR"), Some(5_500_000));
     assert_eq!(a["gross_minor"], 11_000_000);
     assert_eq!(a["taxable_gross_minor"], 11_000_000);
-    assert_eq!(amount(a, "deductions", "PPH21"), Some(330_000), "3 % of 11.000.000");
+    assert_eq!(
+        amount(a, "deductions", "PPH21"),
+        Some(330_000),
+        "3 % of 11.000.000"
+    );
 
     let b = slip_of(&slips, &budi);
-    assert_eq!(amount(b, "earnings", "THR"), Some(916_666), "2/12 of 5.500.000");
+    assert_eq!(
+        amount(b, "earnings", "THR"),
+        Some(916_666),
+        "2/12 of 5.500.000"
+    );
 
     // Taken off again, the slips go back.
     let off = hub
@@ -770,7 +946,9 @@ async fn thr_is_a_months_wage_after_a_year_and_a_share_before_and_is_taxed(pool:
         )
         .await;
     assert_eq!(off.status, StatusCode::OK, "{:?}", off.body);
-    let again = hub.get(&format!("/api/v1/payroll/runs/{run_id}/slips")).await;
+    let again = hub
+        .get(&format!("/api/v1/payroll/runs/{run_id}/slips"))
+        .await;
     let again = again.body.as_array().cloned().unwrap_or_default();
     assert_eq!(amount(slip_of(&again, &ani), "earnings", "THR"), None);
 }
@@ -864,7 +1042,10 @@ async fn a_salary_structure_names_a_base_and_its_fixed_allowances(pool: PgPool) 
     assert_eq!(twice.status, StatusCode::BAD_REQUEST, "{:?}", twice.body);
 
     let retired = hub
-        .post("/api/v1/payroll/structures/KASIR/retirement", json!({ "reason": "tidak dipakai" }))
+        .post(
+            "/api/v1/payroll/structures/KASIR/retirement",
+            json!({ "reason": "tidak dipakai" }),
+        )
         .await;
     assert_eq!(retired.status, StatusCode::OK, "{:?}", retired.body);
     assert_eq!(retired.body[0]["retired"], true);
@@ -898,10 +1079,14 @@ async fn pay_can_be_held_on_a_run_and_released(pool: PgPool) {
         .await;
     assert_eq!(held.status, StatusCode::OK, "{:?}", held.body);
     assert_eq!(held.body[0]["reason"], "dokumen belum lengkap");
-    let slips = hub.get(&format!("/api/v1/payroll/runs/{run_id}/slips")).await;
+    let slips = hub
+        .get(&format!("/api/v1/payroll/runs/{run_id}/slips"))
+        .await;
     assert_eq!(slips.body[0]["withheld"], true);
     assert_eq!(slips.body[0]["net_minor"], 5_000_000, "still worked out");
-    let totals = hub.get(&format!("/api/v1/payroll/runs/{run_id}/reconciliation")).await;
+    let totals = hub
+        .get(&format!("/api/v1/payroll/runs/{run_id}/reconciliation"))
+        .await;
     assert_eq!(totals.body["withheld"], 1);
 
     let again = hub
@@ -919,7 +1104,9 @@ async fn pay_can_be_held_on_a_run_and_released(pool: PgPool) {
         )
         .await;
     assert_eq!(released.status, StatusCode::OK, "{:?}", released.body);
-    let slips = hub.get(&format!("/api/v1/payroll/runs/{run_id}/slips")).await;
+    let slips = hub
+        .get(&format!("/api/v1/payroll/runs/{run_id}/slips"))
+        .await;
     assert_eq!(slips.body[0]["withheld"], false);
 }
 
@@ -954,11 +1141,20 @@ async fn a_payslip_password_locks_an_employees_own_payslips(pool: PgPool) {
 
     let (hers, her_csrf) = sign_in(&hub.app, "siti.slip", "siti-login-pass-1").await;
     let own = |headers: Vec<(String, String)>| {
-        send(hub.app.clone(), "GET", "/api/v1/employees/me/payslips", headers, None)
+        send(
+            hub.app.clone(),
+            "GET",
+            "/api/v1/employees/me/payslips",
+            headers,
+            None,
+        )
     };
     let unset = own(read_headers(&hers)).await;
     assert_eq!(unset.status, StatusCode::FORBIDDEN, "{:?}", unset.body);
-    assert!(unset.body["error"].as_str().unwrap_or_default().contains("not set"));
+    assert!(unset.body["error"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("not set"));
 
     let set = send(
         hub.app.clone(),
@@ -972,7 +1168,10 @@ async fn a_payslip_password_locks_an_employees_own_payslips(pool: PgPool) {
 
     let locked = own(read_headers(&hers)).await;
     assert_eq!(locked.status, StatusCode::FORBIDDEN, "{:?}", locked.body);
-    assert!(locked.body["error"].as_str().unwrap_or_default().contains("required"));
+    assert!(locked.body["error"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("required"));
     let mut with = read_headers(&hers);
     with.push(("x-payslip-password".to_owned(), "slip-rahasia".to_owned()));
     let open = own(with).await;
@@ -985,7 +1184,12 @@ async fn a_payslip_password_locks_an_employees_own_payslips(pool: PgPool) {
         None,
     )
     .await;
-    assert_eq!(hers_template.status, StatusCode::OK, "{:?}", hers_template.body);
+    assert_eq!(
+        hers_template.status,
+        StatusCode::OK,
+        "{:?}",
+        hers_template.body
+    );
     assert_eq!(hers_template.body["company_name"], "PT Contoh");
 
     let head_office = hub.get(&format!("/api/v1/employees/{siti}/payslips")).await;
@@ -1003,7 +1207,10 @@ async fn a_payslip_password_locks_an_employees_own_payslips(pool: PgPool) {
     assert_eq!(reset.status, StatusCode::OK, "{:?}", reset.body);
     assert_eq!(reset.body["reset"], true);
     let unset_again = own(read_headers(&hers)).await;
-    assert!(unset_again.body["error"].as_str().unwrap_or_default().contains("not set"));
+    assert!(unset_again.body["error"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("not set"));
 }
 
 // ── loans (0804) ────────────────────────────────────────────────────────────
@@ -1011,7 +1218,11 @@ async fn a_payslip_password_locks_an_employees_own_payslips(pool: PgPool) {
 fn loan_line(slip: &Value) -> Option<i64> {
     slip["deductions"]
         .as_array()
-        .and_then(|lines| lines.iter().find(|line| line["component_code"] == "CICILAN_PINJAMAN"))
+        .and_then(|lines| {
+            lines
+                .iter()
+                .find(|line| line["component_code"] == "CICILAN_PINJAMAN")
+        })
         .and_then(|line| line["amount_minor"].as_i64())
 }
 
@@ -1057,8 +1268,11 @@ async fn a_loan_comes_off_pay_until_it_is_repaid(pool: PgPool) {
         .await;
     assert_eq!(paid.status, StatusCode::OK, "{:?}", paid.body);
 
-    hub.ok(&format!("/api/v1/payroll/runs/{april}/rebuild"), json!({})).await;
-    let slips = hub.get(&format!("/api/v1/payroll/runs/{april}/slips")).await;
+    hub.ok(&format!("/api/v1/payroll/runs/{april}/rebuild"), json!({}))
+        .await;
+    let slips = hub
+        .get(&format!("/api/v1/payroll/runs/{april}/slips"))
+        .await;
     let slips = slips.body.as_array().cloned().unwrap_or_default();
     assert_eq!(loan_line(slip_of(&slips, &siti)), Some(1_000_000));
     assert_eq!(slip_of(&slips, &siti)["net_minor"].as_i64().is_some(), true);
@@ -1076,7 +1290,8 @@ async fn a_loan_comes_off_pay_until_it_is_repaid(pool: PgPool) {
         }),
     )
     .await;
-    hub.ok(&format!("/api/v1/payroll/runs/{april}/rebuild"), json!({})).await;
+    hub.ok(&format!("/api/v1/payroll/runs/{april}/rebuild"), json!({}))
+        .await;
     hub.ok(
         &format!("/api/v1/payroll/runs/{april}/submission"),
         json!({ "reason": "angka sudah dicek" }),
@@ -1143,7 +1358,12 @@ async fn a_month_can_be_prorated_by_working_days(pool: PgPool) {
                     "prorate_basis": "WEEKDAYS", "reason": "salah" }),
         )
         .await;
-    assert_eq!(refused.status, StatusCode::BAD_REQUEST, "{:?}", refused.body);
+    assert_eq!(
+        refused.status,
+        StatusCode::BAD_REQUEST,
+        "{:?}",
+        refused.body
+    );
     let stated = hub
         .ok(
             "/api/v1/payroll/schedule",

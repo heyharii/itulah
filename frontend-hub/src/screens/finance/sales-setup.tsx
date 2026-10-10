@@ -112,9 +112,7 @@ export function SalesSetup() {
       />
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="flex flex-col gap-3 p-4">
-          <h2 className="text-[0.9375rem] font-semibold text-ink">
-            Tambah bank
-          </h2>
+          <h2 className="text-[0.9375rem] font-semibold text-ink">Add bank</h2>
           <p className="text-[0.875rem] text-body">
             Creates the bank&apos;s leaves in the right groups (Cash In Bank
             Giro / Tabungan, Outstanding Giro, Penjualan Debit Card), maps them
@@ -168,7 +166,7 @@ export function SalesSetup() {
                 {flag === "giro"
                   ? "Giro"
                   : flag === "savings"
-                    ? "Tabungan"
+                    ? "Savings"
                     : "Debit card / QRIS"}
               </label>
             ))}
@@ -223,7 +221,7 @@ export function SalesSetup() {
               ))}
             </tbody>
           </table>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-3 gap-2 max-md:grid-cols-1">
             <SiteSelect
               value={terminal.site_id}
               onChange={(site_id) => setTerminal({ ...terminal, site_id })}
@@ -285,7 +283,7 @@ export function SalesSetup() {
               ))}
             </tbody>
           </table>
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-4 gap-2 max-md:grid-cols-2">
             <Input
               value={rate.bank_code}
               onChange={(e) =>
@@ -334,7 +332,7 @@ export function SalesSetup() {
           <h2 className="text-[0.9375rem] font-semibold text-ink">
             Finance settings
           </h2>
-          <table className="text-[0.875rem]">
+          <table className="text-[0.875rem] max-md:block max-md:[&_tbody]:block max-md:[&_td]:block max-md:[&_td]:pr-0 max-md:[&_tr]:block max-md:[&_tr]:border-b max-md:[&_tr]:border-hairline max-md:[&_tr]:py-2.5 max-md:[&_tr:last-child]:border-b-0">
             <tbody>
               {(settings.data ?? []).map((row) => (
                 <tr key={row.setting_key}>

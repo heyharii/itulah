@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
 import { money } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   domainKeys,
   listFacilities,
@@ -19,6 +20,8 @@ import {
   Td,
   Th,
 } from "@/screens/finance-final/parts"
+import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
+import { PhoneFigures } from "@/screens/finance/parts"
 
 /// Financing and owners — money borrowed on terms, and money the owners moved.
 ///
@@ -49,27 +52,40 @@ export function Financing() {
     0
   )
 
+  const phone = useLayout() === "phone"
+
   return (
     <PageContent>
       <PageHeader
+        className="max-md:hidden"
         crumb="Finance · Payables"
         title="Loans"
         sub="Bank loans and leases we owe, and what the owners put in or took out."
       />
 
-      <Grid>
-        <NumberCard label="Principal still owed" value={outstanding} />
-        <NumberCard
-          label="Due within a year"
-          value={current}
-          note="The current part, counted from today"
-        />
-        <NumberCard label="Owners' equity" value={equity} />
-      </Grid>
+      <PhoneFigures
+        items={[
+          { label: "Principal still owed", value: outstanding },
+          { label: "Due within a year", value: current },
+          { label: "Owners' equity", value: equity },
+        ]}
+      />
+      <div className="max-md:hidden">
+        <Grid>
+          <NumberCard label="Principal still owed" value={outstanding} />
+          <NumberCard
+            label="Due within a year"
+            value={current}
+            note="The current part, counted from today"
+          />
+          <NumberCard label="Owners' equity" value={equity} />
+        </Grid>
+      </div>
 
       <Note>
-        Jadwal angsuran datang dari kontrak, bukan dari rumus amortisasi di
-        sini. Yang ditegakkan hanyalah bahwa jadwalnya melunasi pinjamannya.
+        The instalment schedule comes from the contract, not from an
+        amortisation formula here. All that is enforced is that the schedule
+        pays off the loan.
       </Note>
 
       {facilities.isPending ? (
@@ -81,6 +97,35 @@ export function Financing() {
           No loan yet. Loan and lease contracts show here once they are
           recorded.
         </EmptyState>
+      ) : phone ? (
+        <PhoneList
+          rows={rows.map((row) => ({
+            key: row.facility_id,
+            title: row.lender_label,
+            code: row.facility_number,
+            line: row.kind,
+            lead: (
+              <CardFigure
+                value={money(row.outstanding_principal_minor)}
+                caption="principal left"
+              />
+            ),
+            foot: (
+              <span className="flex flex-col tabular-nums">
+                <span>
+                  Principal {money(row.principal_minor)} · interest paid{" "}
+                  {money(row.paid_interest_minor)}
+                </span>
+                <span>Matures {row.maturity_date}</span>
+              </span>
+            ),
+            action: (
+              <Pill tone={row.status === "ACTIVE" ? "info" : "ok"}>
+                {row.status}
+              </Pill>
+            ),
+          }))}
+        />
       ) : (
         <table className="w-full border-collapse text-sm">
           <thead>
@@ -128,6 +173,27 @@ export function Financing() {
         <ErrorState error={owners.error} />
       ) : (owners.data ?? []).length === 0 ? (
         <EmptyState>No owner recorded yet.</EmptyState>
+      ) : phone ? (
+        <PhoneList
+          rows={(owners.data ?? []).map((row) => ({
+            key: row.principal_id,
+            title: row.name,
+            code: row.code,
+            lead: (
+              <CardFigure
+                value={money(row.equity_minor)}
+                caption="net equity"
+              />
+            ),
+            foot: (
+              <span className="tabular-nums">
+                Paid in {money(row.contributed_minor)} · drawings{" "}
+                {money(row.drawn_minor)} · lent{" "}
+                {money(row.loan_outstanding_minor)}
+              </span>
+            ),
+          }))}
+        />
       ) : (
         <table className="w-full border-collapse text-sm">
           <thead>

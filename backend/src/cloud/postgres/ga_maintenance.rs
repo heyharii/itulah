@@ -43,7 +43,7 @@ use uuid::Uuid;
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{
     next_due_from, repair_may_move, repair_object_for_class, DISPOSAL_METHODS, INSPECTION_RESULTS,
-    REPLACEMENT_STATUSES, REPAIR_STATUSES, TASK_INTERVAL_KINDS,
+    REPAIR_STATUSES, REPLACEMENT_STATUSES, TASK_INTERVAL_KINDS,
 };
 
 /// The first page of any of the five lists when a caller does not say.
@@ -907,7 +907,10 @@ pub async fn ga_maintenance_task_page(
         .bind(limit)
         .fetch_all(pool)
         .await?;
-    let out = rows.iter().map(to_task_row).collect::<Result<Vec<_>, _>>()?;
+    let out = rows
+        .iter()
+        .map(to_task_row)
+        .collect::<Result<Vec<_>, _>>()?;
     let next_cursor = next_cursor_after(out.last().map(|row| row.task_id), out.len(), limit)?;
 
     let facet_rows = sqlx::query(
@@ -929,10 +932,13 @@ pub async fn ga_maintenance_task_page(
         sites: Vec::new(),
         statuses: Vec::new(),
     };
-    let total = collect_facets(facet_rows, &mut [
-        ("site", &mut facets.sites),
-        ("status", &mut facets.statuses),
-    ])?;
+    let total = collect_facets(
+        facet_rows,
+        &mut [
+            ("site", &mut facets.sites),
+            ("status", &mut facets.statuses),
+        ],
+    )?;
     Ok(GaMaintenanceTaskPage {
         rows: out,
         next_cursor,
@@ -942,7 +948,10 @@ pub async fn ga_maintenance_task_page(
 }
 
 /// One task, with the names its ids stand for.
-pub async fn ga_maintenance_task(pool: &PgPool, task_id: Uuid) -> Result<GaMaintenanceTaskRow, AppError> {
+pub async fn ga_maintenance_task(
+    pool: &PgPool,
+    task_id: Uuid,
+) -> Result<GaMaintenanceTaskRow, AppError> {
     let sql = format!("{GA_TASK_SELECT} WHERE t.task_id = $1");
     let row = sqlx::query(&sql)
         .bind(task_id)
@@ -1111,7 +1120,8 @@ pub async fn ga_maintenance_task_update(
 // Inspections
 // ---------------------------------------------------------------------------
 
-const GA_INSPECTION_SELECT: &str = "SELECT i.inspection_id, i.asset_id, i.inspected_on, i.inspected_by,
+const GA_INSPECTION_SELECT: &str =
+    "SELECT i.inspection_id, i.asset_id, i.inspected_on, i.inspected_by,
         i.result, i.findings, i.task_id, i.recorded_by, i.recorded_at, i.version,
         a.name AS asset_name, a.asset_number
    FROM ga_inspection i
@@ -1186,7 +1196,10 @@ pub async fn ga_inspection_page(
 }
 
 /// One inspection.
-pub async fn ga_inspection(pool: &PgPool, inspection_id: Uuid) -> Result<GaInspectionRow, AppError> {
+pub async fn ga_inspection(
+    pool: &PgPool,
+    inspection_id: Uuid,
+) -> Result<GaInspectionRow, AppError> {
     let sql = format!("{GA_INSPECTION_SELECT} WHERE i.inspection_id = $1");
     let row = sqlx::query(&sql)
         .bind(inspection_id)
@@ -1356,7 +1369,10 @@ pub async fn ga_repair_page(
         .bind(limit)
         .fetch_all(pool)
         .await?;
-    let out = rows.iter().map(to_repair_row).collect::<Result<Vec<_>, _>>()?;
+    let out = rows
+        .iter()
+        .map(to_repair_row)
+        .collect::<Result<Vec<_>, _>>()?;
     let actual_cost_total_minor = out.iter().map(|row| row.actual_cost_minor).sum();
     let next_cursor = next_cursor_after(out.last().map(|row| row.repair_id), out.len(), limit)?;
 
@@ -1384,11 +1400,14 @@ pub async fn ga_repair_page(
         objects: Vec::new(),
         statuses: Vec::new(),
     };
-    let total = collect_facets(facet_rows, &mut [
-        ("site", &mut facets.sites),
-        ("object", &mut facets.objects),
-        ("status", &mut facets.statuses),
-    ])?;
+    let total = collect_facets(
+        facet_rows,
+        &mut [
+            ("site", &mut facets.sites),
+            ("object", &mut facets.objects),
+            ("status", &mut facets.statuses),
+        ],
+    )?;
     let summary = ga_repair_summary(pool, scope.site_id.as_deref(), today).await?;
     Ok(GaRepairPage {
         rows: out,
@@ -1704,13 +1723,12 @@ pub async fn ga_repair_approve_budget(
         ));
     }
     let mut tx = pool.begin().await?;
-    let current = sqlx::query(
-        "SELECT status, created_by FROM ga_repair WHERE repair_id = $1 FOR UPDATE",
-    )
-    .bind(repair_id)
-    .fetch_optional(&mut *tx)
-    .await?
-    .ok_or_else(|| AppError::NotFound("repair".into()))?;
+    let current =
+        sqlx::query("SELECT status, created_by FROM ga_repair WHERE repair_id = $1 FOR UPDATE")
+            .bind(repair_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| AppError::NotFound("repair".into()))?;
     let status: String = current.try_get("status")?;
     let maker: String = current.try_get("created_by")?;
     if maker == actor {
@@ -1749,7 +1767,8 @@ pub async fn ga_repair_approve_budget(
 // Replacements
 // ---------------------------------------------------------------------------
 
-const GA_REPLACEMENT_SELECT: &str = "SELECT p.replacement_id, p.old_asset_id, p.new_asset_id, p.repair_id,
+const GA_REPLACEMENT_SELECT: &str =
+    "SELECT p.replacement_id, p.old_asset_id, p.new_asset_id, p.repair_id,
         p.reason, p.supplier_id, p.status, p.proposed_on, p.approved_by, p.approved_at,
         p.decided_by, p.created_by, p.created_at, p.updated_by, p.updated_at, p.version,
         old.name AS old_asset_name, new.name AS new_asset_name, s.name AS supplier_name,
@@ -2123,10 +2142,13 @@ pub async fn ga_disposal_page(pool: &PgPool, limit: i64) -> Result<GaDisposalPag
         statuses: Vec::new(),
         methods: Vec::new(),
     };
-    let total = collect_facets(facet_rows, &mut [
-        ("status", &mut facets.statuses),
-        ("method", &mut facets.methods),
-    ])?;
+    let total = collect_facets(
+        facet_rows,
+        &mut [
+            ("status", &mut facets.statuses),
+            ("method", &mut facets.methods),
+        ],
+    )?;
     Ok(GaDisposalPage {
         rows: out,
         total,

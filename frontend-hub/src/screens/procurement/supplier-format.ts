@@ -76,6 +76,35 @@ type BookEntry = {
   readonly legal_form?: string | null
 }
 
+// Query results are immutable snapshots. Share one index per snapshot across
+// cells and screens; a refetched book gets a new index, and old books can be
+// collected. Names shared by two suppliers stay ambiguous.
+const supplierIndexes = new WeakMap<
+  readonly BookEntry[],
+  {
+    references: Map<string, BookEntry>
+    names: Map<string, BookEntry | undefined>
+  }
+>()
+
+function supplierIndex(book: readonly BookEntry[]) {
+  const cached = supplierIndexes.get(book)
+  if (cached !== undefined) return cached
+  const references = new Map<string, BookEntry>()
+  const names = new Map<string, BookEntry | undefined>()
+  for (const entry of book) {
+    // Preserve the first matching row if a code happens to equal another id.
+    for (const reference of [entry.supplier_id, entry.supplier_code]) {
+      if (!references.has(reference)) references.set(reference, entry)
+    }
+    const name = entry.name.trim().toLowerCase()
+    names.set(name, names.has(name) ? undefined : entry)
+  }
+  const index = { references, names }
+  supplierIndexes.set(book, index)
+  return index
+}
+
 /// The supplier book entry a row points at: by register id or code first, and
 /// for a row that carries only a bare name (an accrual, a giro's payee), the
 /// one entry that bears that name. Two suppliers sharing a bare name are not
@@ -85,16 +114,14 @@ export function findSupplier<T extends BookEntry>(
   reference: string | null | undefined,
   name?: string | null
 ): T | undefined {
+  const index = supplierIndex(book)
   if (reference != null && reference !== "") {
-    const byRef = book.find(
-      (one) => one.supplier_id === reference || one.supplier_code === reference
-    )
+    const byRef = index.references.get(reference) as T | undefined
     if (byRef !== undefined) return byRef
   }
   const bare = (name ?? reference ?? "").trim().toLowerCase()
   if (bare === "") return undefined
-  const named = book.filter((one) => one.name.trim().toLowerCase() === bare)
-  return named.length === 1 ? named[0] : undefined
+  return index.names.get(bare) as T | undefined
 }
 
 /// A reference (and the bare name the row carried) written in full; the bare

@@ -5,15 +5,19 @@ import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
+import { Fab } from "@/components/ui/fab"
 import { Field, Input, Select, Textarea } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
+import { SHEET_ROW } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
+import { BottomSheet } from "@/components/ui/picker-sheet"
 import { Pill } from "@/components/ui/pill"
 import { MiniTable } from "@/components/ui/rows"
-import { ButtonGroup, Toolbar } from "@/components/ui/segmented"
+import { ButtonGroup } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
@@ -25,6 +29,7 @@ import {
   type FilterField,
 } from "@/lib/filters"
 import { ago, day, moment } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   deviceHistory,
   listDevices,
@@ -48,6 +53,8 @@ import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { useDebounced } from "@/lib/use-debounced"
+import { cn } from "@/lib/utils"
+import { DESK_BAR } from "@/components/ui/phone-cards"
 import { Section } from "@/screens/system/shared"
 import { saying, span } from "@/screens/system/units"
 
@@ -113,7 +120,7 @@ const columns: ColumnDef<TableSetup, RegistryDevice>[] = [
     accessorFn: (row) => row.site_name ?? row.site_id,
     header: "Site",
     size: 150,
-    meta: { filter: { kind: "option", label: "Site" } },
+    meta: { filter: { kind: "option", label: "Site" }, card: "hide" },
     cell: ({ row }) => (
       <span className="text-ink">
         {row.original.site_name ?? row.original.site_id}
@@ -125,7 +132,7 @@ const columns: ColumnDef<TableSetup, RegistryDevice>[] = [
     accessorFn: (row) => KIND_LABEL[row.kind] ?? row.kind,
     header: "Kind",
     size: 150,
-    meta: { filter: { kind: "option", label: "Kind" } },
+    meta: { filter: { kind: "option", label: "Kind" }, card: "hide" },
     cell: ({ row }) => (
       <Tag>{KIND_LABEL[row.original.kind] ?? row.original.kind}</Tag>
     ),
@@ -134,6 +141,7 @@ const columns: ColumnDef<TableSetup, RegistryDevice>[] = [
     accessorKey: "label",
     header: "Label",
     size: 200,
+    meta: { card: "hide" },
     cell: ({ row }) => (
       <span className="font-medium text-ink">{row.original.label}</span>
     ),
@@ -143,7 +151,7 @@ const columns: ColumnDef<TableSetup, RegistryDevice>[] = [
     accessorFn: (row) => STATUS_WORD[row.status],
     header: "Status",
     size: 190,
-    meta: { filter: { kind: "option", label: "Status" } },
+    meta: { filter: { kind: "option", label: "Status" }, card: "hide" },
     cell: ({ row }) => <StatusPill device={row.original} />,
   },
   {
@@ -151,6 +159,7 @@ const columns: ColumnDef<TableSetup, RegistryDevice>[] = [
     accessorFn: (row) => row.last_seen_at ?? "",
     header: "Last Seen",
     size: 130,
+    meta: { card: "hide" },
     cell: ({ row }) =>
       row.original.last_seen_at ? (
         ago(row.original.last_seen_at)
@@ -165,9 +174,57 @@ const columns: ColumnDef<TableSetup, RegistryDevice>[] = [
     accessorFn: (row) => nodeName(row),
     header: "Node",
     size: 170,
+    meta: { card: "hide" },
     cell: ({ row }) => (
       <span className="font-mono text-meta">{nodeName(row.original)}</span>
     ),
+  },
+
+  // Columns that exist only on a phone's card: the machine, what and where it
+  // is, when it was last heard, and how it stands.
+  {
+    id: "head",
+    accessorFn: (row) => row.label,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <span className="min-w-0 break-words">{row.original.label}</span>
+    ),
+  },
+  {
+    id: "what",
+    accessorFn: (row) => row.kind,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "meta" },
+    cell: ({ row }) =>
+      `${KIND_LABEL[row.original.kind] ?? row.original.kind} · ${
+        row.original.site_name ?? row.original.site_id
+      }`,
+  },
+  {
+    id: "foot",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) =>
+      row.original.last_seen_at
+        ? `Seen ${ago(row.original.last_seen_at)}`
+        : row.original.source === "EDC_TERMINAL"
+          ? nodeName(row.original)
+          : "Never seen",
+  },
+  {
+    id: "phone_status",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "status" },
+    cell: ({ row }) => <StatusPill device={row.original} />,
   },
 ]
 
@@ -181,6 +238,7 @@ const TABS: readonly { value: Tab; label: string }[] = [
 export function Devices() {
   const [tab, setTab] = useState<Tab>("devices")
   const [registering, setRegistering] = useState(false)
+  const phone = useLayout() === "phone"
 
   return (
     <PageContent>
@@ -189,13 +247,19 @@ export function Devices() {
         title="Devices"
         sub="Every till, printer, EDC and reader enrolled to a store server, and the punch stations registered at each site."
         actions={
-          tab === "readers" ? (
+          // On a phone the one thing this page makes is the round button over
+          // the bottom bar.
+          tab === "readers" && !phone ? (
             <Button variant="primary" onClick={() => setRegistering(true)}>
               Register reader
             </Button>
           ) : undefined
         }
       />
+
+      {tab === "readers" && (
+        <Fab label="Register reader" onClick={() => setRegistering(true)} />
+      )}
 
       <SubTabs
         tabs={TABS}
@@ -232,6 +296,7 @@ function DevicesTab() {
   const rows = useMemo(() => devices.data ?? [], [devices.data])
 
   const filters = useFilters(columns)
+  const phone = useLayout() === "phone"
 
   const table = useTable(
     useMemo(
@@ -244,26 +309,42 @@ function DevicesTab() {
           columnFilters: filters.columnFilters,
           globalFilter: query,
           sorting,
+          // The card's own columns are drawn on a phone and never on a desk.
+          columnVisibility: {
+            head: phone,
+            what: phone,
+            foot: phone,
+            phone_status: phone,
+          },
         },
         onSortingChange: setSorting,
         onGlobalFilterChange: setQuery,
       }),
-      [rows, filters.columns, filters.columnFilters, query, sorting]
+      [rows, filters.columns, filters.columnFilters, query, sorting, phone]
     )
   )
 
   return (
     <>
-      <Toolbar>
+      <div className={DESK_BAR}>
         <Input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           className="h-8 w-48"
         />
         <FilterPanel model={filters} table={table} />
-      </Toolbar>
+      </div>
 
-      <Card className="overflow-hidden">
+      <DockTools
+        search={{ value: query, onChange: setQuery, label: "Search devices" }}
+        filter={{
+          count: filters.filters.length,
+          panel: { model: filters, table },
+        }}
+        sort={dockSortOf(table)}
+      />
+
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(devices, {
           loading: "Loading the devices…",
           render: () =>
@@ -280,6 +361,9 @@ function DevicesTab() {
                 isSelected={(row) => row.device_id === device.value}
                 empty="No device matches that search."
                 className="max-h-[calc(100dvh-14rem)]"
+                cardSort={false}
+                cardsApart
+                cardLead
               />
             ),
         })}
@@ -344,7 +428,7 @@ function readerColumns(on: {
   rotate: (row: RfidDevice) => void
   busy: boolean
 }): ColumnDef<TableSetup, RfidDevice>[] {
-  return [
+  const desk: ColumnDef<TableSetup, RfidDevice>[] = [
     {
       accessorKey: "device_id",
       header: "Reader",
@@ -464,6 +548,65 @@ function readerColumns(on: {
       ),
     },
   ]
+  // On a phone each reader is a card, and the three things that can be done to
+  // it are the sheet its tap opens.
+  return [
+    ...desk.map((column) => ({
+      ...column,
+      meta: { ...column.meta, card: "hide" as const },
+    })),
+    {
+      id: "head",
+      accessorFn: (row) => row.label,
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "title" },
+      cell: ({ row }) => (
+        <span className="flex min-w-0 flex-col gap-0.5">
+          <span className="min-w-0 break-words">{row.original.label}</span>
+          <span className="truncate font-mono text-[0.875rem] font-normal text-mute">
+            {row.original.device_id}
+          </span>
+        </span>
+      ),
+    },
+    {
+      id: "what",
+      accessorFn: (row) => row.kind,
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "meta" },
+      cell: ({ row }) =>
+        `${RFID_KIND_LABEL[row.original.kind] ?? row.original.kind} · ${row.original.origin_id}`,
+    },
+    {
+      id: "foot",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "foot" },
+      cell: ({ row }) =>
+        row.original.last_seen_at === null ? (
+          <span className="font-medium text-warn-fg">Never seen</span>
+        ) : (
+          `Seen ${day(row.original.last_seen_at)}`
+        ),
+    },
+    {
+      id: "phone_state",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "status" },
+      cell: ({ row }) => (
+        <Pill tone={row.original.active ? "ok" : "neutral"}>
+          {row.original.active ? "Active" : "Off"}
+        </Pill>
+      ),
+    },
+  ]
 }
 
 function ReadersTab({
@@ -479,6 +622,9 @@ function ReadersTab({
     { id: "last_seen", desc: false },
   ])
   const [rotating, setRotating] = useState<RfidDevice | null>(null)
+  /// The reader whose actions are open, on a phone: its card's tap.
+  const [acting, setActing] = useState<RfidDevice | null>(null)
+  const phone = useLayout() === "phone"
 
   // `f2`, not `f`: the Devices tab already claims `f` for its own columns,
   // some named the same — "State" — as these, and a clause typed on one tab
@@ -539,11 +685,21 @@ function ReadersTab({
         data: rows,
         columns,
         getRowId: (row: RfidDevice) => row.device_id,
-        state: { sorting },
+        state: {
+          sorting,
+          // The card's own columns are drawn on a phone and never on a desk.
+          columnVisibility: {
+            head: phone,
+            what: phone,
+            foot: phone,
+            phone_state: phone,
+            act: !phone,
+          },
+        },
         manualSorting: true,
         onSortingChange: setSorting,
       }),
-      [rows, columns, sorting]
+      [rows, columns, sorting, phone]
     )
   )
 
@@ -556,16 +712,25 @@ function ReadersTab({
           {saying(failure)}
         </Banner>
       )}
-      <Toolbar>
+      <div className={DESK_BAR}>
         <Input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           className="h-8 w-48"
         />
         <FilterPanel model={{ ...filters, fields: READER_FIELDS }} />
-      </Toolbar>
+      </div>
 
-      <Card className="overflow-hidden">
+      <DockTools
+        search={{ value: query, onChange: setQuery, label: "Search readers" }}
+        filter={{
+          count: filters.filters.length,
+          panel: { model: { ...filters, fields: READER_FIELDS }, table },
+        }}
+        sort={dockSortOf(table)}
+      />
+
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(devices, {
           loading: "Loading the readers…",
           render: () =>
@@ -579,6 +744,10 @@ function ReadersTab({
               <DataTable<RfidDevice>
                 table={table}
                 className="max-h-[calc(100dvh-18rem)]"
+                onRowClick={phone ? setActing : undefined}
+                cardSort={false}
+                cardsApart
+                cardLead
               />
             ),
         })}
@@ -589,6 +758,45 @@ function ReadersTab({
         onClose={() => onRegisteringChange(false)}
       />
       <RotateReaderSheet device={rotating} onClose={() => setRotating(null)} />
+      <BottomSheet
+        open={acting !== null}
+        onOpenChange={(next) => !next && setActing(null)}
+        title={acting?.label ?? "Reader"}
+      >
+        {acting !== null && (
+          <div className="min-h-0 overflow-y-auto overscroll-contain px-2 pb-3">
+            {[
+              {
+                label:
+                  acting.kind === "HANDHELD" ? "Make fixed" : "Make handheld",
+                run: () =>
+                  actions.setKind(
+                    acting,
+                    acting.kind === "HANDHELD" ? "RFID_READER" : "HANDHELD"
+                  ),
+              },
+              { label: "Rotate key", run: () => actions.rotate(acting) },
+              {
+                label: acting.active ? "Turn off" : "Turn on",
+                run: () => actions.setActive(acting, !acting.active),
+              },
+            ].map((one) => (
+              <button
+                key={one.label}
+                type="button"
+                disabled={actions.busy}
+                onClick={() => {
+                  one.run()
+                  setActing(null)
+                }}
+                className={cn(SHEET_ROW, "disabled:opacity-50")}
+              >
+                {one.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </BottomSheet>
     </>
   )
 }

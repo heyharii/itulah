@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
+import { Fab } from "@/components/ui/fab"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Field, Input, Select } from "@/components/ui/field"
@@ -33,6 +35,7 @@ import { useCanWrite } from "@/lib/session"
 /// nobody picks, which is what cancelling it says.
 export function ClaimTypesPage() {
   const canWrite = useCanWrite()
+  const phone = useLayout() === "phone"
   const [creating, setCreating] = useState(false)
   const [openCode, setOpenCode] = useState<string | null>(null)
 
@@ -45,11 +48,13 @@ export function ClaimTypesPage() {
 
   return (
     <PageContent>
+      {canWrite && <Fab label="New type" onClick={() => setCreating(true)} />}
       <PageHeader
         crumb="People"
         title="Claim Types"
         sub="The kinds of expense a claim may be filed against. Head office names them; a place picks from them."
         actions={
+          !phone &&
           canWrite && (
             <Button variant="primary" onClick={() => setCreating(true)}>
               New type

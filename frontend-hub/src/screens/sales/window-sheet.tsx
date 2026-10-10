@@ -126,11 +126,11 @@ export function WindowSheet({
                     },
                     {
                       label: "Change given",
-                      value: `− ${money(report.cash.change_given_minor)}`,
+                      value: money(-report.cash.change_given_minor),
                     },
                     {
                       label: "Cash refunded",
-                      value: `− ${money(report.cash.cash_refunded_minor)}`,
+                      value: money(-report.cash.cash_refunded_minor),
                     },
                   ]}
                   total={{
@@ -224,7 +224,7 @@ export function WindowSheet({
                   { label: "Tax", value: money(report.sales.tax_minor) },
                   {
                     label: "Refunded",
-                    value: `− ${money(report.returns.refund_total_minor)}`,
+                    value: money(-report.returns.refund_total_minor),
                   },
                 ]}
                 total={{

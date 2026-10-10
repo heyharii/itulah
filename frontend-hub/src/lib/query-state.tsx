@@ -1,4 +1,5 @@
 import { Banner, ErrorState, LoadingState } from "@/components/ui/states"
+import { time } from "@/lib/format"
 import { problemOf } from "@/lib/problem"
 import { ApiError } from "@itulah/contract/client"
 
@@ -78,8 +79,5 @@ export function queryState<T>(
 }
 
 function clock(at: number): string {
-  return new Date(at).toLocaleTimeString("id-ID", {
-    hour: "2-digit",
-    minute: "2-digit",
-  })
+  return time(at)
 }

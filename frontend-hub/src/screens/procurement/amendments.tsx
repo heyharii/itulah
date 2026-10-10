@@ -4,20 +4,21 @@ import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { Input, Textarea } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { MiniTable, TotalsLadder } from "@/components/ui/rows"
-import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
 import { moment, money } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   decidePriceAmendment,
   listPurchaseOrders,
@@ -28,6 +29,7 @@ import {
 } from "@/lib/queries/procurement"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
+import { cn } from "@/lib/utils"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { LinkButton } from "@/screens/procurement/controls"
 import { useActor } from "@/screens/procurement/shared"
@@ -50,7 +52,7 @@ const columns: ColumnDef<TableSetup, PriceAmendment>[] = [
     accessorKey: "po_number",
     header: "PO",
     size: 130,
-    meta: { filter: { kind: "text" } },
+    meta: { card: "hide", filter: { kind: "text" } },
     cell: ({ row }) => (
       <span className="font-mono text-id text-body">
         {row.original.po_number}
@@ -61,7 +63,7 @@ const columns: ColumnDef<TableSetup, PriceAmendment>[] = [
     accessorKey: "article_name",
     header: "Article",
     size: 260,
-    meta: { filter: { kind: "text" } },
+    meta: { card: "hide", filter: { kind: "text" } },
     cell: ({ row }) => (
       <span className="flex flex-col">
         <span className="font-medium text-ink">
@@ -79,6 +81,7 @@ const columns: ColumnDef<TableSetup, PriceAmendment>[] = [
     size: 130,
     meta: {
       align: "right",
+      card: "hide",
       filter: { kind: "number", unit: "Rp" },
     },
     cell: ({ row }) => money(row.original.ordered_price_minor),
@@ -89,6 +92,7 @@ const columns: ColumnDef<TableSetup, PriceAmendment>[] = [
     size: 130,
     meta: {
       align: "right",
+      card: "hide",
       filter: { kind: "number", unit: "Rp" },
     },
     cell: ({ row }) => money(row.original.invoiced_price_minor),
@@ -99,6 +103,7 @@ const columns: ColumnDef<TableSetup, PriceAmendment>[] = [
     size: 140,
     meta: {
       align: "right",
+      card: "hide",
       filter: { kind: "number", unit: "Rp" },
     },
     // The decision metric and the default sort: the supplier billing most above
@@ -127,15 +132,98 @@ const columns: ColumnDef<TableSetup, PriceAmendment>[] = [
     accessorKey: "origin_id",
     header: "Raised at",
     size: 140,
-    meta: { filter: { kind: "option" } },
+    meta: { card: "hide", filter: { kind: "option" } },
     cell: ({ row }) => <Tag>{row.original.origin_id}</Tag>,
   },
   {
     accessorKey: "requested_at",
     header: "Asked",
     size: 150,
-    meta: { filter: { kind: "date" } },
+    meta: { card: "hide", filter: { kind: "date" } },
     cell: ({ row }) => moment(row.original.requested_at),
+  },
+  // Four columns that exist only on a card (a phone): the article over the PO
+  // it was billed on, the gap as the figure the card leads with, what was
+  // agreed and invoiced with who asked and when, and the button that opens the
+  // decision — the card's own tap opens it too.
+  {
+    id: "head",
+    accessorFn: (row) => row.article_name,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <span className="flex min-w-0 flex-col gap-1">
+        <span className="min-w-0 text-[1rem] font-semibold break-words text-ink">
+          {row.original.article_name}
+        </span>
+        <span className="font-mono text-[0.875rem] font-normal text-mute">
+          {row.original.po_number}
+        </span>
+      </span>
+    ),
+  },
+  {
+    id: "lead",
+    accessorFn: (row) => row.difference_minor,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "lead" },
+    cell: ({ row }) => {
+      const gap = row.original.difference_minor
+      return (
+        <span className="flex flex-col items-end tabular-nums">
+          <span
+            className={cn(
+              "text-[1.5rem] leading-tight font-semibold tracking-tight",
+              gap > 0 ? "text-bad-fg" : gap < 0 ? "text-ok-fg" : "text-mute"
+            )}
+          >
+            {gap > 0 ? "+" : ""}
+            {money(gap)}
+          </span>
+          <span className="text-[0.875rem] text-mute">
+            {gap > 0 ? "over agreed" : gap < 0 ? "under agreed" : "as agreed"}
+          </span>
+        </span>
+      )
+    },
+  },
+  {
+    id: "foot",
+    accessorFn: (row) => row.invoiced_price_minor,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => (
+      <span className="flex flex-col">
+        <span className="tabular-nums">
+          {money(row.original.ordered_price_minor)} →{" "}
+          <span className="text-ink">
+            {money(row.original.invoiced_price_minor)}
+          </span>
+        </span>
+        <span>
+          {row.original.origin_id} · {moment(row.original.requested_at)}
+        </span>
+      </span>
+    ),
+  },
+  {
+    id: "decide",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { align: "right", card: "status" },
+    cell: () => (
+      // The card's own tap opens the decision: the button only says so.
+      <Button variant="tint" size="card">
+        Review
+      </Button>
+    ),
   },
 ]
 
@@ -156,6 +244,7 @@ export function PriceAmendments() {
   const over = rows.filter((row) => row.difference_minor > 0).length
 
   const filters = useFilters(columns)
+  const phone = useLayout() === "phone"
 
   const table = useTable(
     useMemo(
@@ -168,11 +257,18 @@ export function PriceAmendments() {
           columnFilters: filters.columnFilters,
           globalFilter: query,
           sorting,
+          // The card's own columns are drawn on a phone and never on a desk.
+          columnVisibility: {
+            head: phone,
+            lead: phone,
+            foot: phone,
+            decide: phone,
+          },
         },
         onSortingChange: setSorting,
         onGlobalFilterChange: setQuery,
       }),
-      [rows, filters.columns, filters.columnFilters, query, sorting]
+      [rows, filters.columns, filters.columnFilters, query, sorting, phone]
     )
   )
 
@@ -182,12 +278,16 @@ export function PriceAmendments() {
         crumb="Procurement"
         title="Price Amendments"
         sub="Deliveries billed at a price the order does not carry, waiting on an answer."
+        // The search is the dock's on a phone: nothing but the title and the
+        // figures stands at the top.
         actions={
-          <Input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            className="h-8 w-48"
-          />
+          phone ? undefined : (
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              className="h-8 w-48"
+            />
+          )
         }
       />
 
@@ -202,11 +302,23 @@ export function PriceAmendments() {
         />
       </KpiStrip>
 
-      <Toolbar>
+      <div className="mb-3.5 flex flex-wrap items-center gap-[0.4375rem] max-md:hidden">
         <FilterPanel model={filters} table={table} />
-      </Toolbar>
+      </div>
+      <DockTools
+        search={{
+          value: query,
+          onChange: setQuery,
+          label: "Search Amendments",
+        }}
+        filter={{
+          count: filters.filters.length,
+          panel: { model: filters, table },
+        }}
+        sort={dockSortOf(table)}
+      />
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(amendments, {
           loading: "Reading the queue…",
           render: () =>
@@ -218,10 +330,14 @@ export function PriceAmendments() {
               </EmptyState>
             ) : (
               <DataTable<PriceAmendment>
+                refresh={[amendments]}
                 table={table}
                 onRowClick={(row) => amendment.open(row.request_id)}
                 isSelected={(row) => row.request_id === amendment.value}
                 className="max-h-[calc(100dvh-20rem)]"
+                cardSort={false}
+                cardsApart
+                cardLead
               />
             ),
         })}

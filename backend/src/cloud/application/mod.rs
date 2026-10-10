@@ -1131,6 +1131,9 @@ impl ArticlePriceQuery {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PurchaseOrderQuery {
+    /// Row-only consumers can skip the filter panel's global grouping.
+    #[serde(default)]
+    pub include_facets: Option<bool>,
     /// PO number, supplier name or supplier code.
     #[serde(default)]
     pub q: Option<String>,

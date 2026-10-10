@@ -258,10 +258,10 @@ export function BottomSheet({
               — without it the form stayed fully lit and live-looking behind
               the list, and a tap on it read as a tap on the form. */}
           {!live && (
-          <Drawer.Backdrop
-            forceRender
-            className="fixed inset-0 z-50 bg-[var(--scrim)] opacity-[calc(1-var(--drawer-swipe-progress,0))] transition-opacity duration-(--t-drawer) ease-(--ease-out) data-[ending-style]:opacity-0 data-[ending-style]:duration-(--t-exit) data-[starting-style]:opacity-0 data-[swiping]:transition-none"
-          />
+            <Drawer.Backdrop
+              forceRender
+              className="fixed inset-0 z-50 bg-[var(--scrim)] opacity-[calc(1-var(--drawer-swipe-progress,0))] transition-opacity duration-(--t-drawer) ease-(--ease-out) data-[ending-style]:opacity-0 data-[ending-style]:duration-(--t-exit) data-[starting-style]:opacity-0 data-[swiping]:transition-none"
+            />
           )}
           <Drawer.Viewport
             className={cn(

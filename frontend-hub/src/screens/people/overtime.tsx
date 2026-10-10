@@ -4,6 +4,8 @@ import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
+import { Fab } from "@/components/ui/fab"
 import { Day } from "@/components/ui/day"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -34,6 +36,12 @@ import {
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import {
+  CardButton,
+  CardFigure,
+  CardName,
+  PhoneCards,
+} from "@/components/ui/phone-cards"
 import type { OvertimeOrderView } from "@itulah/contract"
 
 /// Overtime: ordered here, agreed somewhere else.
@@ -161,6 +169,7 @@ function columnsFor(
 }
 
 export function Overtime() {
+  const phone = useLayout() === "phone"
   const order = useSheet("overtimeOrder")
   const [ordering, setOrdering] = useState(false)
   const { nameOf } = useActiveEmployees()
@@ -212,15 +221,20 @@ export function Overtime() {
             : `Ordered at ${bounded}, agreed by the person who will work it.`
         }
         actions={
-          <Button
-            variant="primary"
-            disabled={caps === null}
-            onClick={() => setOrdering(true)}
-          >
-            Order overtime
-          </Button>
+          !phone && (
+            <Button
+              variant="primary"
+              disabled={caps === null}
+              onClick={() => setOrdering(true)}
+            >
+              Order overtime
+            </Button>
+          )
         }
       />
+      {caps !== null && (
+        <Fab label="Order overtime" onClick={() => setOrdering(true)} />
+      )}
 
       {/* No caps, no orders. Said plainly rather than shown as an empty list:
           the two look identical and mean opposite things. */}
@@ -244,7 +258,7 @@ export function Overtime() {
         <FilterPanel model={filters} table={table} />
       </Toolbar>
 
-      <Card className="mb-4 overflow-hidden">
+      <Card className="mb-4 overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(queue, {
           loading: "Reading the orders…",
           render: () =>
@@ -254,6 +268,46 @@ export function Overtime() {
                 authorizes nothing, so this list emptying is the good outcome.
                 Use Order overtime to ask somebody to work extra hours.
               </EmptyState>
+            ) : phone ? (
+              <PhoneCards
+                rows={table.getRowModel().rows.map((one) => one.original)}
+                onOpen={(row) => order.open(row.id)}
+                empty={`${rows.length.toLocaleString("id-ID")} orders are here, and none of them match the filters in force.`}
+                rowId={(row) => row.id}
+                spec={{
+                  title: (row) => (
+                    <CardName
+                      name={nameOf(row.employee_id)}
+                      line={
+                        <>
+                          <span className="block">
+                            {day(row.on_date)} · {row.day_kind.toLowerCase()}
+                          </span>
+                          <span className="block">{row.unit_id}</span>
+                        </>
+                      }
+                    />
+                  ),
+                  lead: (row) => (
+                    <CardFigure
+                      value={readMinutesSpan(row.planned_minutes)}
+                      caption="ordered"
+                    />
+                  ),
+                  foot: (row) => (
+                    <Pill tone={stateTone(row.state)}>
+                      {overtimeStateLabel(row.state)}
+                    </Pill>
+                  ),
+                  action: (row) => (
+                    <CardButton
+                      label="Open"
+                      ariaLabel={`Open the order for ${nameOf(row.employee_id)}`}
+                      onClick={() => order.open(row.id)}
+                    />
+                  ),
+                }}
+              />
             ) : (
               <DataTable<OvertimeOrderView>
                 table={table}

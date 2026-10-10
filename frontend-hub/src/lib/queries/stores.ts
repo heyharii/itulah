@@ -113,7 +113,7 @@ export function openStore(
   )
 }
 
-/// Set how many till seats the store has — Kasir 1 to Kasir N (1..50, Admin
+/// Set how many till seats the store has — Till 1 to Till N (1..50, Admin
 /// only). A seat is the store's to have, decided here; a machine at the shop
 /// sits at one and never adds one. Answers the whole updated store, so the
 /// caller can put it straight into the detail cache.
@@ -163,7 +163,7 @@ export function testPrint(deviceId: string): Promise<TestPrintRequested> {
 //
 // TODO: transcribed by hand from the edge node's own `FlowNotice`/
 // `FlowNoticeList` (`backend/src/edge/flows.rs`), which is what a shop or the
-// Gudang already reads locally. There is no cloud endpoint's *generated*
+// warehouse already reads locally. There is no cloud endpoint's *generated*
 // contract for this yet — swap this for `@itulah/contract` the day one
 // exists. The Stock tab asks the hub's own copy of the same shape, filtered
 // here to the documents that name this store's site at either end, since

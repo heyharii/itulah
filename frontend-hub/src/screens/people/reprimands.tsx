@@ -2,6 +2,9 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
+import { Fab } from "@/components/ui/fab"
+import { DockChoice } from "@/components/shell/dock-tools"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -27,12 +30,18 @@ import {
 } from "@/lib/queries/people"
 import { useCanWrite } from "@/lib/session"
 import { EmployeePick } from "@/screens/people/employee-pick"
+import {
+  CardButton,
+  CardFigure,
+  CardName,
+  PhoneCards,
+} from "@/components/ui/phone-cards"
 import type { WarningLetterView } from "@itulah/contract"
 
 type Slice = "ACTIVE" | "ALL"
 
 const LEVELS = [
-  { value: "TEGURAN", label: "Teguran (on record)" },
+  { value: "TEGURAN", label: "Reprimand (on record)" },
   { value: "SP1", label: "SP 1" },
   { value: "SP2", label: "SP 2" },
   { value: "SP3", label: "SP 3" },
@@ -53,6 +62,7 @@ function LetterState({ letter }: { letter: WarningLetterView }) {
 /// (UU 13/2003 pasal 161), and what the person did is on the letter itself.
 export function Reprimands() {
   const canWrite = useCanWrite()
+  const phone = useLayout() === "phone"
   const letters = useAllWarningLetters()
   const [slice, setSlice] = useState<Slice>("ACTIVE")
   const [openId, setOpenId] = useState<string | null>(null)
@@ -69,8 +79,9 @@ export function Reprimands() {
       <PageHeader
         crumb="People"
         title="Reprimands"
-        sub="Teguran and warning letters, in force or not, and whether each was acknowledged."
+        sub="Reprimands and warning letters, in force or not, and whether each was acknowledged."
         actions={
+          !phone &&
           canWrite && (
             <Button variant="primary" onClick={() => setIssuing(true)}>
               Issue letter
@@ -79,22 +90,40 @@ export function Reprimands() {
         }
       />
 
-      <Toolbar>
-        <Segmented<Slice>
-          options={[
-            { value: "ACTIVE", label: "In force" },
-            { value: "ALL", label: "All" },
-          ]}
-          value={slice}
-          onChange={setSlice}
-        />
-        <Toolbar.Spacer />
-        <span className="text-[0.875rem] text-mute tabular-nums">
-          {count(rows.length)} {rows.length === 1 ? "letter" : "letters"}
-        </span>
-      </Toolbar>
+      {/* On a phone the slice is the chip over the bottom bar and issuing a
+          letter is the round +. */}
+      {phone ? (
+        <>
+          <DockChoice
+            value={slice}
+            onChange={(next) => setSlice(next as Slice)}
+            options={[
+              { value: "ACTIVE", label: "In force", short: "In force" },
+              { value: "ALL", label: "All", short: "All" },
+            ]}
+          />
+          {canWrite && (
+            <Fab label="Issue letter" onClick={() => setIssuing(true)} />
+          )}
+        </>
+      ) : (
+        <Toolbar>
+          <Segmented<Slice>
+            options={[
+              { value: "ACTIVE", label: "In force" },
+              { value: "ALL", label: "All" },
+            ]}
+            value={slice}
+            onChange={setSlice}
+          />
+          <Toolbar.Spacer />
+          <span className="text-[0.875rem] text-mute tabular-nums">
+            {count(rows.length)} {rows.length === 1 ? "letter" : "letters"}
+          </span>
+        </Toolbar>
+      )}
 
-      <Card className="overflow-hidden px-4 py-3">
+      <Card className="overflow-hidden px-4 py-3 max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:p-0 max-md:shadow-none">
         {letters.isPending ? (
           <LoadingState>Reading the letters…</LoadingState>
         ) : letters.isError ? (
@@ -105,6 +134,41 @@ export function Reprimands() {
               ? "No warning letter is in force. “Issue letter” in the header records one."
               : "No warning letter has been issued yet."}
           </EmptyState>
+        ) : phone ? (
+          <PhoneCards
+            rows={rows}
+            onOpen={(letter) => setOpenId(letter.id)}
+            rowId={(letter) => letter.id}
+            spec={{
+              title: (letter) => (
+                <CardName
+                  name={letter.full_name ?? letter.employee_code}
+                  line={`Issued ${day(letter.issued_on)}${
+                    letter.revoked ? "" : ` · to ${day(letter.valid_until)}`
+                  }`}
+                />
+              ),
+              lead: (letter) => (
+                <CardFigure
+                  value={LETTER_LEVEL_LABEL[letter.level] ?? letter.level}
+                  caption={
+                    letter.acknowledged_at === null
+                      ? "not acknowledged"
+                      : `acknowledged ${day(letter.acknowledged_at)}`
+                  }
+                  tone={letter.active && !letter.revoked ? undefined : "quiet"}
+                />
+              ),
+              foot: (letter) => <LetterState letter={letter} />,
+              action: (letter) => (
+                <CardButton
+                  label="Open"
+                  ariaLabel={`Open the letter to ${letter.full_name ?? letter.employee_code}`}
+                  onClick={() => setOpenId(letter.id)}
+                />
+              ),
+            }}
+          />
         ) : (
           <MiniTable
             head={[

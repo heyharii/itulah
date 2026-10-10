@@ -172,7 +172,9 @@ struct Hub {
 
 impl Hub {
     async fn open(pool: &PgPool) -> Self {
-        let _ = tracing_subscriber::fmt().with_env_filter("error").try_init();
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter("error")
+            .try_init();
         cloud::bootstrap_admin(pool, Some(ADMIN_PASSWORD), true)
             .await
             .unwrap_or_else(|error| panic!("bootstrap: {error}"));
@@ -193,18 +195,32 @@ impl Hub {
     }
 
     async fn get(&self, path: &str) -> Response {
-        send(self.app.clone(), "GET", path, read_headers(&self.cookies), None).await
+        send(
+            self.app.clone(),
+            "GET",
+            path,
+            read_headers(&self.cookies),
+            None,
+        )
+        .await
     }
 
     async fn ok(&self, path: &str, body: Value) -> Value {
         let response = self.post(path, body).await;
-        assert_eq!(response.status, StatusCode::OK, "POST {path}: {:?}", response.body);
+        assert_eq!(
+            response.status,
+            StatusCode::OK,
+            "POST {path}: {:?}",
+            response.body
+        );
         response.body
     }
 
     /// Register somebody, hire them and post them to `unit` from `from`.
     async fn staff(&self, code: &str, unit: &str, from: &str) -> String {
-        let registered = self.ok("/api/v1/employees", json!({ "employee_code": code })).await;
+        let registered = self
+            .ok("/api/v1/employees", json!({ "employee_code": code }))
+            .await;
         let id = registered["employee_id"]
             .as_str()
             .unwrap_or_else(|| panic!("employee_id: {registered:?}"))
@@ -221,7 +237,6 @@ impl Hub {
         .await;
         id
     }
-
 }
 
 /// Departments sit inside departments, never inside themselves; a level's
@@ -229,14 +244,21 @@ impl Hub {
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn the_structure_is_departments_levels_and_grades(pool: PgPool) {
     let hub = Hub::open(&pool).await;
-    hub.ok("/api/v1/org/departments", json!({ "code": "OPS", "name": "Operasional", "reason": "struktur" })).await;
+    hub.ok(
+        "/api/v1/org/departments",
+        json!({ "code": "OPS", "name": "Operasional", "reason": "struktur" }),
+    )
+    .await;
     let saved = hub
         .ok(
             "/api/v1/org/departments",
             json!({ "code": "toko", "name": "Toko", "parent_code": "OPS", "reason": "struktur" }),
         )
         .await;
-    let toko = saved.as_array().and_then(|rows| rows.iter().find(|d| d["code"] == "TOKO")).cloned();
+    let toko = saved
+        .as_array()
+        .and_then(|rows| rows.iter().find(|d| d["code"] == "TOKO"))
+        .cloned();
     assert_eq!(toko.map(|d| d["parent_code"].clone()), Some(json!("OPS")));
 
     let looped = hub
@@ -247,12 +269,28 @@ async fn the_structure_is_departments_levels_and_grades(pool: PgPool) {
         .await;
     assert_eq!(looped.status, StatusCode::BAD_REQUEST, "{:?}", looped.body);
 
-    hub.ok("/api/v1/org/levels", json!({ "code": "MGR", "name": "Manager", "rank": 2, "reason": "level" })).await;
-    hub.ok("/api/v1/org/levels", json!({ "code": "STAFF", "name": "Staff", "rank": 4, "reason": "level" })).await;
+    hub.ok(
+        "/api/v1/org/levels",
+        json!({ "code": "MGR", "name": "Manager", "rank": 2, "reason": "level" }),
+    )
+    .await;
+    hub.ok(
+        "/api/v1/org/levels",
+        json!({ "code": "STAFF", "name": "Staff", "rank": 4, "reason": "level" }),
+    )
+    .await;
     let same_rank = hub
-        .post("/api/v1/org/levels", json!({ "code": "SPV", "name": "Supervisor", "rank": 4, "reason": "level" }))
+        .post(
+            "/api/v1/org/levels",
+            json!({ "code": "SPV", "name": "Supervisor", "rank": 4, "reason": "level" }),
+        )
         .await;
-    assert_eq!(same_rank.status, StatusCode::CONFLICT, "{:?}", same_rank.body);
+    assert_eq!(
+        same_rank.status,
+        StatusCode::CONFLICT,
+        "{:?}",
+        same_rank.body
+    );
 
     let grades = hub
         .ok(
@@ -271,7 +309,12 @@ async fn the_structure_is_departments_levels_and_grades(pool: PgPool) {
             json!({ "code": "G4", "name": "Grade 4", "min_minor": 9_000_000, "max_minor": 7_000_000, "reason": "grade" }),
         )
         .await;
-    assert_eq!(upside_down.status, StatusCode::BAD_REQUEST, "{:?}", upside_down.body);
+    assert_eq!(
+        upside_down.status,
+        StatusCode::BAD_REQUEST,
+        "{:?}",
+        upside_down.body
+    );
 
     // In use: refused. Out of use: retired, and no longer offered to a placement.
     let siti = hub.staff("K0801", "store-07", "2026-01-05").await;
@@ -282,11 +325,22 @@ async fn the_structure_is_departments_levels_and_grades(pool: PgPool) {
     )
     .await;
     let busy = hub
-        .post("/api/v1/org/levels/STAFF/retirement", json!({ "reason": "tidak dipakai" }))
+        .post(
+            "/api/v1/org/levels/STAFF/retirement",
+            json!({ "reason": "tidak dipakai" }),
+        )
         .await;
     assert_eq!(busy.status, StatusCode::CONFLICT, "{:?}", busy.body);
-    let retired = hub.ok("/api/v1/org/levels/MGR/retirement", json!({ "reason": "tidak dipakai" })).await;
-    let mgr = retired.as_array().and_then(|rows| rows.iter().find(|l| l["code"] == "MGR")).cloned();
+    let retired = hub
+        .ok(
+            "/api/v1/org/levels/MGR/retirement",
+            json!({ "reason": "tidak dipakai" }),
+        )
+        .await;
+    let mgr = retired
+        .as_array()
+        .and_then(|rows| rows.iter().find(|l| l["code"] == "MGR"))
+        .cloned();
     assert_eq!(mgr.map(|l| l["retired"].clone()), Some(json!(true)));
     let on_retired = hub
         .post(
@@ -294,7 +348,12 @@ async fn the_structure_is_departments_levels_and_grades(pool: PgPool) {
             json!({ "effective_from": "2026-03-01", "level_code": "MGR", "reason": "promosi" }),
         )
         .await;
-    assert_eq!(on_retired.status, StatusCode::BAD_REQUEST, "{:?}", on_retired.body);
+    assert_eq!(
+        on_retired.status,
+        StatusCode::BAD_REQUEST,
+        "{:?}",
+        on_retired.body
+    );
 }
 
 /// A placement is dated and kept; the line of report cannot loop; the chart
@@ -302,7 +361,11 @@ async fn the_structure_is_departments_levels_and_grades(pool: PgPool) {
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn a_placement_is_dated_and_the_line_of_report_has_a_top(pool: PgPool) {
     let hub = Hub::open(&pool).await;
-    hub.ok("/api/v1/org/departments", json!({ "code": "TOKO", "name": "Toko", "reason": "struktur" })).await;
+    hub.ok(
+        "/api/v1/org/departments",
+        json!({ "code": "TOKO", "name": "Toko", "reason": "struktur" }),
+    )
+    .await;
     let boss = hub.staff("K0811", "store-07", "2026-01-05").await;
     let siti = hub.staff("K0812", "store-07", "2026-01-05").await;
     let dewi = hub.staff("K0813", "store-07", "2026-01-05").await;
@@ -342,9 +405,18 @@ async fn a_placement_is_dated_and_the_line_of_report_has_a_top(pool: PgPool) {
     assert_eq!(chart.status, StatusCode::OK, "{:?}", chart.body);
     let nodes = chart.body.as_array().cloned().unwrap_or_default();
     let node = |id: &str| nodes.iter().find(|n| n["employee_id"] == id).cloned();
-    assert_eq!(node(&siti).map(|n| n["department_code"].clone()), Some(json!("TOKO")));
-    assert_eq!(node(&boss).map(|n| n["department_code"].clone()), Some(Value::Null));
-    assert_eq!(node(&dewi).map(|n| n["unit_id"].clone()), Some(json!("store-07")));
+    assert_eq!(
+        node(&siti).map(|n| n["department_code"].clone()),
+        Some(json!("TOKO"))
+    );
+    assert_eq!(
+        node(&boss).map(|n| n["department_code"].clone()),
+        Some(Value::Null)
+    );
+    assert_eq!(
+        node(&dewi).map(|n| n["unit_id"].clone()),
+        Some(json!("store-07"))
+    );
 }
 
 /// The company's BPJS numbers are a history: a new registration is a new
@@ -415,7 +487,12 @@ async fn business_units_group_units_and_the_group_has_one_holding(pool: PgPool) 
             json!({ "code": "X", "name": "X", "units": ["nowhere"], "reason": "sbu" }),
         )
         .await;
-    assert_eq!(unknown.status, StatusCode::BAD_REQUEST, "{:?}", unknown.body);
+    assert_eq!(
+        unknown.status,
+        StatusCode::BAD_REQUEST,
+        "{:?}",
+        unknown.body
+    );
 
     hub.ok(
         "/api/v1/org/group",
@@ -458,13 +535,25 @@ async fn the_onboarding_checklist_is_head_offices_to_shape(pool: PgPool) {
             .and_then(|rows| rows.iter().find(|t| t["id"] == id))
             .cloned()
     };
-    assert_eq!(find("seragam").map(|t| t["retired"].clone()), Some(json!(true)));
+    assert_eq!(
+        find("seragam").map(|t| t["retired"].clone()),
+        Some(json!(true))
+    );
     // No uniform and no ID card comes back at separation either (0815).
-    assert_eq!(find("seragam-kembali").map(|t| t["retired"].clone()), Some(json!(true)));
-    assert_eq!(find("laptop").map(|t| t["owner"].clone()), Some(json!("IT")));
+    assert_eq!(
+        find("seragam-kembali").map(|t| t["retired"].clone()),
+        Some(json!(true))
+    );
+    assert_eq!(
+        find("laptop").map(|t| t["owner"].clone()),
+        Some(json!("IT"))
+    );
 
-    hub.ok("/api/v1/lifecycle/templates/akun/retirement", json!({ "reason": "tidak dipakai" }))
-        .await;
+    hub.ok(
+        "/api/v1/lifecycle/templates/akun/retirement",
+        json!({ "reason": "tidak dipakai" }),
+    )
+    .await;
     let wrong_kind = hub
         .post(
             "/api/v1/lifecycle/templates",
@@ -472,7 +561,12 @@ async fn the_onboarding_checklist_is_head_offices_to_shape(pool: PgPool) {
                     "position": 9, "reason": "salah" }),
         )
         .await;
-    assert_eq!(wrong_kind.status, StatusCode::CONFLICT, "{:?}", wrong_kind.body);
+    assert_eq!(
+        wrong_kind.status,
+        StatusCode::CONFLICT,
+        "{:?}",
+        wrong_kind.body
+    );
 
     let siti = hub.staff("K0821", "store-07", "2026-01-05").await;
     hub.post(
@@ -480,7 +574,9 @@ async fn the_onboarding_checklist_is_head_offices_to_shape(pool: PgPool) {
         json!({ "kind": "ONBOARDING" }),
     )
     .await;
-    let tasks = hub.get(&format!("/api/v1/employees/{siti}/lifecycle-tasks")).await;
+    let tasks = hub
+        .get(&format!("/api/v1/employees/{siti}/lifecycle-tasks"))
+        .await;
     assert_eq!(tasks.status, StatusCode::OK, "{:?}", tasks.body);
     let ids: Vec<String> = tasks
         .body
@@ -538,7 +634,14 @@ async fn a_warning_letter_is_issued_acknowledged_and_revoked(pool: PgPool) {
     )
     .await;
     let (hers, her_csrf) = sign_in(&hub.app, "siti.sp", "siti-login-pass-sp1").await;
-    let mine = send(hub.app.clone(), "GET", "/api/v1/employees/me/warning-letters", read_headers(&hers), None).await;
+    let mine = send(
+        hub.app.clone(),
+        "GET",
+        "/api/v1/employees/me/warning-letters",
+        read_headers(&hers),
+        None,
+    )
+    .await;
     assert_eq!(mine.status, StatusCode::OK, "{:?}", mine.body);
     let acked = send(
         hub.app.clone(),
@@ -554,7 +657,10 @@ async fn a_warning_letter_is_issued_acknowledged_and_revoked(pool: PgPool) {
     let active = hub.get("/api/v1/warning-letters").await;
     assert_eq!(active.body.as_array().map(Vec::len), Some(1));
     let revoked = hub
-        .ok(&format!("/api/v1/warning-letters/{id}/revocation"), json!({ "reason": "salah orang" }))
+        .ok(
+            &format!("/api/v1/warning-letters/{id}/revocation"),
+            json!({ "reason": "salah orang" }),
+        )
         .await;
     assert_eq!(revoked[0]["active"], false);
     let active = hub.get("/api/v1/warning-letters").await;
@@ -572,13 +678,24 @@ async fn the_employee_app_shows_the_modules_turned_on(pool: PgPool) {
     let all = hub.get("/api/v1/ess-modules").await;
     assert_eq!(all.body["modules"].as_array().map(Vec::len), Some(7));
     let set = hub
-        .ok("/api/v1/ess-modules", json!({ "modules": ["leave", "PAY", "ATTENDANCE"], "reason": "tahap awal" }))
+        .ok(
+            "/api/v1/ess-modules",
+            json!({ "modules": ["leave", "PAY", "ATTENDANCE"], "reason": "tahap awal" }),
+        )
         .await;
     assert_eq!(set["modules"], json!(["ATTENDANCE", "LEAVE", "PAY"]));
     let unknown = hub
-        .post("/api/v1/ess-modules", json!({ "modules": ["PAYROLL"], "reason": "salah" }))
+        .post(
+            "/api/v1/ess-modules",
+            json!({ "modules": ["PAYROLL"], "reason": "salah" }),
+        )
         .await;
-    assert_eq!(unknown.status, StatusCode::BAD_REQUEST, "{:?}", unknown.body);
+    assert_eq!(
+        unknown.status,
+        StatusCode::BAD_REQUEST,
+        "{:?}",
+        unknown.body
+    );
 
     let siti = hub.staff("K0841", "store-07", "2026-01-05").await;
     hub.ok(
@@ -586,10 +703,20 @@ async fn the_employee_app_shows_the_modules_turned_on(pool: PgPool) {
         json!({ "username": "siti.ess", "display_name": "Siti", "password": "siti-login-pass-ess", "role": "CASHIER" }),
     )
     .await;
-    hub.ok(&format!("/api/v1/employees/{siti}/account"), json!({ "username": "siti.ess", "reason": "akun" }))
-        .await;
+    hub.ok(
+        &format!("/api/v1/employees/{siti}/account"),
+        json!({ "username": "siti.ess", "reason": "akun" }),
+    )
+    .await;
     let (hers, _) = sign_in(&hub.app, "siti.ess", "siti-login-pass-ess").await;
-    let mine = send(hub.app.clone(), "GET", "/api/v1/employees/me/ess-modules", read_headers(&hers), None).await;
+    let mine = send(
+        hub.app.clone(),
+        "GET",
+        "/api/v1/employees/me/ess-modules",
+        read_headers(&hers),
+        None,
+    )
+    .await;
     assert_eq!(mine.status, StatusCode::OK, "{:?}", mine.body);
     assert_eq!(mine.body["modules"], json!(["ATTENDANCE", "LEAVE", "PAY"]));
 }
@@ -613,8 +740,11 @@ async fn an_employee_asks_for_a_detail_to_change_and_hr_decides(pool: PgPool) {
         json!({ "username": "siti.pdr", "display_name": "Siti", "password": "siti-login-pass-pdr", "role": "CASHIER" }),
     )
     .await;
-    hub.ok(&format!("/api/v1/employees/{siti}/account"), json!({ "username": "siti.pdr", "reason": "akun staf" }))
-        .await;
+    hub.ok(
+        &format!("/api/v1/employees/{siti}/account"),
+        json!({ "username": "siti.pdr", "reason": "akun staf" }),
+    )
+    .await;
     let (hers, her_csrf) = sign_in(&hub.app, "siti.pdr", "siti-login-pass-pdr").await;
     let ask = |body: Value| {
         send(
@@ -626,13 +756,26 @@ async fn an_employee_asks_for_a_detail_to_change_and_hr_decides(pool: PgPool) {
         )
     };
 
-    let phone = ask(json!({ "field": "phone", "value": "081234567890", "reason": "nomor baru" })).await;
+    let phone =
+        ask(json!({ "field": "phone", "value": "081234567890", "reason": "nomor baru" })).await;
     assert_eq!(phone.status, StatusCode::OK, "{:?}", phone.body);
     let again = ask(json!({ "field": "phone", "value": "0811", "reason": "lagi" })).await;
-    assert_eq!(again.status, StatusCode::CONFLICT, "one waiting per field: {:?}", again.body);
+    assert_eq!(
+        again.status,
+        StatusCode::CONFLICT,
+        "one waiting per field: {:?}",
+        again.body
+    );
     let nik = ask(json!({ "field": "nik", "value": "1", "reason": "x" })).await;
-    assert_eq!(nik.status, StatusCode::BAD_REQUEST, "NIK changes with HR: {:?}", nik.body);
-    let moved = ask(json!({ "field": "address", "value": "Jl. Sudirman 1, Jakarta", "reason": "pindah" })).await;
+    assert_eq!(
+        nik.status,
+        StatusCode::BAD_REQUEST,
+        "NIK changes with HR: {:?}",
+        nik.body
+    );
+    let moved =
+        ask(json!({ "field": "address", "value": "Jl. Sudirman 1, Jakarta", "reason": "pindah" }))
+            .await;
     assert_eq!(moved.status, StatusCode::OK, "{:?}", moved.body);
     assert_eq!(moved.body.as_array().map(Vec::len), Some(2));
 
@@ -642,9 +785,26 @@ async fn an_employee_asks_for_a_detail_to_change_and_hr_decides(pool: PgPool) {
             json!({ "field": "phone", "value": "0812", "reason": "x" }),
         )
         .await;
-    assert_eq!(for_her.status, StatusCode::FORBIDDEN, "HR edits directly: {:?}", for_her.body);
-    let her_queue = send(hub.app.clone(), "GET", "/api/v1/personal-data-requests", read_headers(&hers), None).await;
-    assert_eq!(her_queue.status, StatusCode::FORBIDDEN, "{:?}", her_queue.body);
+    assert_eq!(
+        for_her.status,
+        StatusCode::FORBIDDEN,
+        "HR edits directly: {:?}",
+        for_her.body
+    );
+    let her_queue = send(
+        hub.app.clone(),
+        "GET",
+        "/api/v1/personal-data-requests",
+        read_headers(&hers),
+        None,
+    )
+    .await;
+    assert_eq!(
+        her_queue.status,
+        StatusCode::FORBIDDEN,
+        "{:?}",
+        her_queue.body
+    );
 
     let queue = hub.get("/api/v1/personal-data-requests").await;
     assert_eq!(queue.status, StatusCode::OK, "{:?}", queue.body);
@@ -658,7 +818,11 @@ async fn an_employee_asks_for_a_detail_to_change_and_hr_decides(pool: PgPool) {
             .unwrap_or_default()
             .to_owned()
     };
-    let address_row = waiting.iter().find(|row| row["field"] == "address").cloned().unwrap_or_default();
+    let address_row = waiting
+        .iter()
+        .find(|row| row["field"] == "address")
+        .cloned()
+        .unwrap_or_default();
     assert_eq!(address_row["current"], "Jl. Merdeka 17, Bandung");
 
     let approved = hub
@@ -671,7 +835,10 @@ async fn an_employee_asks_for_a_detail_to_change_and_hr_decides(pool: PgPool) {
     assert_eq!(approved["decided_by"], "admin");
     let rejected = hub
         .ok(
-            &format!("/api/v1/personal-data-requests/{}/decision", id_of("address")),
+            &format!(
+                "/api/v1/personal-data-requests/{}/decision",
+                id_of("address")
+            ),
             json!({ "approve": false, "reason": "lampirkan KTP/domisili" }),
         )
         .await;
@@ -684,15 +851,37 @@ async fn an_employee_asks_for_a_detail_to_change_and_hr_decides(pool: PgPool) {
         .await;
     assert_eq!(twice.status, StatusCode::CONFLICT, "{:?}", twice.body);
 
-    let record = hub.get(&format!("/api/v1/employees/{siti}/personal-data")).await;
+    let record = hub
+        .get(&format!("/api/v1/employees/{siti}/personal-data"))
+        .await;
     assert_eq!(record.status, StatusCode::OK, "{:?}", record.body);
-    assert_eq!(record.body["phone"], "081234567890", "approved: {:?}", record.body);
-    assert_eq!(record.body["address"], "Jl. Merdeka 17, Bandung", "rejected leaves it");
-    let mine = send(hub.app.clone(), "GET", "/api/v1/employees/me/personal-data-requests", read_headers(&hers), None).await;
-    assert_eq!(mine.body[0]["decision_reason"].as_str().is_some(), true, "{:?}", mine.body);
+    assert_eq!(
+        record.body["phone"], "081234567890",
+        "approved: {:?}",
+        record.body
+    );
+    assert_eq!(
+        record.body["address"], "Jl. Merdeka 17, Bandung",
+        "rejected leaves it"
+    );
+    let mine = send(
+        hub.app.clone(),
+        "GET",
+        "/api/v1/employees/me/personal-data-requests",
+        read_headers(&hers),
+        None,
+    )
+    .await;
+    assert_eq!(
+        mine.body[0]["decision_reason"].as_str().is_some(),
+        true,
+        "{:?}",
+        mine.body
+    );
 
     // Withdrawn by her while it waits; HR's queue empties.
-    let email = ask(json!({ "field": "email", "value": "siti@contoh.id", "reason": "email baru" })).await;
+    let email =
+        ask(json!({ "field": "email", "value": "siti@contoh.id", "reason": "email baru" })).await;
     let email_id = email.body[0]["id"].as_str().unwrap_or_default().to_owned();
     let withdrawn = send(
         hub.app.clone(),
@@ -704,5 +893,10 @@ async fn an_employee_asks_for_a_detail_to_change_and_hr_decides(pool: PgPool) {
     .await;
     assert_eq!(withdrawn.status, StatusCode::OK, "{:?}", withdrawn.body);
     let left = hub.get("/api/v1/personal-data-requests").await;
-    assert_eq!(left.body.as_array().map(Vec::len), Some(0), "{:?}", left.body);
+    assert_eq!(
+        left.body.as_array().map(Vec::len),
+        Some(0),
+        "{:?}",
+        left.body
+    );
 }

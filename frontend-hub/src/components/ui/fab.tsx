@@ -1,4 +1,4 @@
-import { Plus } from "lucide-react"
+import { Plus, type LucideIcon } from "lucide-react"
 
 import { DockPortal, useDock } from "@/components/shell/dock"
 import { cn } from "@/lib/utils"
@@ -17,11 +17,15 @@ export function Fab({
   label,
   onClick,
   className,
+  icon: Icon = Plus,
 }: {
   /// What it makes: "New Order", "Add Item".
   label: string
   onClick: () => void
   className?: string
+  /// What it draws: a plus for something new, another mark for an act on what
+  /// is there ("Mark all read").
+  icon?: LucideIcon
 }) {
   const dock = useDock()
   const beside = (dock?.claimed.tabs ?? 0) > 0
@@ -38,16 +42,18 @@ export function Fab({
         title={label}
         onClick={onClick}
         className={cn(
-          "inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-full bg-cta text-[0.875rem] font-semibold text-cta-fg shadow-soft transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.96]",
-          beside ? "size-9" : "dock-wide w-full px-5",
+          // 44, the least a thumb is asked to hit (D1): beside the status it is
+          // a round 44, and alone it is a 44px bar across the row.
+          "inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-full bg-cta text-[0.875rem] font-semibold text-cta-fg shadow-soft transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.96]",
+          beside ? "size-11" : "dock-wide w-full px-5",
           className
         )}
       >
         {beside ? (
-          <Plus className="size-5" />
+          <Icon className="size-5" />
         ) : (
           <>
-            <Plus className="size-4 shrink-0" />
+            <Icon className="size-4 shrink-0" />
             <span className="truncate">{label}</span>
           </>
         )}

@@ -138,11 +138,10 @@ pub fn enqueue_fact<T: Serialize + ?Sized>(
     payload: &T,
 ) -> rusqlite::Result<Option<i64>> {
     let origin: Option<(String, i64, i64)> = tx
-        .query_row(
+        .prepare_cached(
             "SELECT origin_id, generation, next_seq FROM sync_origin WHERE enqueue_enabled = 1",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
+        )?
+        .query_row([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
         .optional()?;
     let Some((origin_id, generation, next_seq)) = origin else {
         return Ok(None);
@@ -150,76 +149,73 @@ pub fn enqueue_fact<T: Serialize + ?Sized>(
     let payload = serde_json::to_string(payload)
         .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
     let seq = next_seq + 1;
-    tx.execute("UPDATE sync_origin SET next_seq = ?1", params![seq])?;
-    tx.execute(
+    tx.prepare_cached("UPDATE sync_origin SET next_seq = ?1")?
+        .execute(params![seq])?;
+    tx.prepare_cached(
         "INSERT INTO sync_fact_log
              (origin_id, generation, seq, event_id, event_type, payload, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![
-            origin_id,
-            generation,
-            seq,
-            event_id.to_string(),
-            event_type,
-            payload,
-            now_text()
-        ],
-    )?;
+    )?
+    .execute(params![
+        origin_id,
+        generation,
+        seq,
+        event_id.to_string(),
+        event_type,
+        payload,
+        now_text()
+    ])?;
     Ok(Some(seq))
 }
 
 /// Backlog and dead-letter counts for this edge's active stream.
 pub fn backlog(connection: &Connection) -> rusqlite::Result<(i64, i64, i64)> {
     let origin: Option<(String, i64)> = connection
-        .query_row(
-            "SELECT origin_id, generation FROM sync_origin WHERE singleton=1",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
+        .prepare_cached("SELECT origin_id, generation FROM sync_origin WHERE singleton=1")?
+        .query_row([], |row| Ok((row.get(0)?, row.get(1)?)))
         .optional()?;
     let Some((origin_id, generation)) = origin else {
         return Ok((0, 0, 0));
     };
     let watermark: i64 = connection
-        .query_row(
+        .prepare_cached(
             "SELECT durable_seq FROM sync_watermark WHERE origin_id=?1 AND generation=?2",
-            params![origin_id, generation],
-            |row| row.get(0),
-        )
+        )?
+        .query_row(params![origin_id, generation], |row| row.get(0))
         .optional()?
         .unwrap_or(0);
-    let backlog: i64 = connection.query_row(
-        "SELECT count(*) FROM sync_fact_log
+    let backlog: i64 = connection
+        .prepare_cached(
+            "SELECT count(*) FROM sync_fact_log
          WHERE origin_id=?1 AND generation=?2 AND seq>?3",
-        params![origin_id, generation, watermark],
-        |row| row.get(0),
-    )?;
-    let dead: i64 = connection.query_row(
-        "SELECT count(*) FROM sync_dead_letter WHERE origin_id=?1 AND generation=?2",
-        params![origin_id, generation],
-        |row| row.get(0),
-    )?;
+        )?
+        .query_row(params![origin_id, generation, watermark], |row| row.get(0))?;
+    let dead: i64 = connection
+        .prepare_cached(
+            "SELECT count(*) FROM sync_dead_letter WHERE origin_id=?1 AND generation=?2",
+        )?
+        .query_row(params![origin_id, generation], |row| row.get(0))?;
     Ok((watermark, backlog, dead))
 }
 
 /// Delete synced facts older than the retention window. Dead letters stay.
 pub fn purge_synced(connection: &Connection, retention_days: i64) -> rusqlite::Result<usize> {
     let cutoff = Utc::now() - chrono::Duration::days(retention_days.max(0));
-    connection.execute(
-        "DELETE FROM sync_fact_log
+    connection
+        .prepare_cached(
+            "DELETE FROM sync_fact_log
          WHERE created_at < ?1
            AND seq <= COALESCE((SELECT durable_seq FROM sync_watermark
                                 WHERE origin_id = sync_fact_log.origin_id
                                   AND generation = sync_fact_log.generation), 0)",
-        params![time_text(cutoff)],
-    )
+        )?
+        .execute(params![time_text(cutoff)])
 }
 
 fn read_sender_state(connection: &Connection) -> Result<SenderState, SyncError> {
-    let row = connection
-        .query_row(
-            "SELECT consecutive_failures, breaker_open_until, last_success_at, last_error, last_error_at
-             FROM sync_sender_state",
+    let row = connection.prepare_cached("SELECT consecutive_failures, breaker_open_until, last_success_at, last_error, last_error_at
+             FROM sync_sender_state"
+    ).map_err(err)?.query_row(
             [],
             |row| {
                 Ok((
@@ -249,17 +245,17 @@ fn read_command_watermark(
     connection: &Connection,
 ) -> Result<(i64, Option<CommandBlock>), SyncError> {
     let row = connection
-        .query_row(
+        .prepare_cached(
             "SELECT applied_seq, blocked_at_seq, blocked_reason FROM sync_command_watermark",
-            [],
-            |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, Option<i64>>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                ))
-            },
         )
+        .map_err(err)?
+        .query_row([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, Option<i64>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })
         .optional()
         .map_err(err)?;
     Ok(match row {
@@ -277,7 +273,7 @@ fn read_command_watermark(
 fn record_command_block(connection: &Connection, seq: i64, reason: &str) -> Result<(), SyncError> {
     let bounded: String = reason.chars().take(500).collect();
     connection
-        .execute(
+        .prepare_cached(
             "INSERT INTO sync_command_watermark
                  (singleton, applied_seq, blocked_at_seq, blocked_reason, blocked_since, updated_at)
              VALUES (1, 0, ?1, ?2, ?3, ?3)
@@ -289,8 +285,9 @@ fn record_command_block(connection: &Connection, seq: i64, reason: &str) -> Resu
                          THEN COALESCE(sync_command_watermark.blocked_since, ?3)
                      ELSE ?3 END,
                  updated_at = ?3",
-            params![seq, bounded, now_text()],
         )
+        .map_err(err)?
+        .execute(params![seq, bounded, now_text()])
         .map_err(err)?;
     Ok(())
 }
@@ -309,11 +306,9 @@ fn apply_activation(
     // A version already resident is the same immutable version, so a replay
     // is a no-op. That makes the command idempotent without a second key.
     let resident: Option<i64> = tx
-        .query_row(
-            "SELECT version FROM commercial_publication WHERE id = ?1",
-            params![publication_id],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT version FROM commercial_publication WHERE id = ?1")
+        .map_err(err)?
+        .query_row(params![publication_id], |row| row.get(0))
         .optional()
         .map_err(err)?;
     if resident.is_some() {
@@ -335,11 +330,9 @@ fn apply_activation(
     // arriving after a new one is ordinary, and blocking the command stream
     // over it would stop every price change behind it.
     let highest: Option<i64> = tx
-        .query_row(
-            "SELECT MAX(version) FROM commercial_publication",
-            [],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT MAX(version) FROM commercial_publication")
+        .map_err(err)?
+        .query_row([], |row| row.get(0))
         .optional()
         .map_err(err)?
         .flatten();
@@ -353,53 +346,56 @@ fn apply_activation(
             return Ok(());
         }
     }
-    tx.execute(
+    tx.prepare_cached(
         "INSERT INTO commercial_publication
              (id, version, name, effective_from, effective_to, activated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![
-            publication_id,
-            payload.version,
-            payload.name,
-            time_text(payload.effective_from),
-            payload.effective_to.map(time_text),
-            now_text()
-        ],
     )
+    .map_err(err)?
+    .execute(params![
+        publication_id,
+        payload.version,
+        payload.name,
+        time_text(payload.effective_from),
+        payload.effective_to.map(time_text),
+        now_text()
+    ])
     .map_err(err)?;
     for rule in &payload.tax_rules {
-        tx.execute(
+        tx.prepare_cached(
             "INSERT INTO commercial_tax_rule
                  (publication_id, tax_category, rate_bps, tax_inclusive)
              VALUES (?1, ?2, ?3, ?4)",
-            params![
-                publication_id,
-                rule.tax_category,
-                rule.rate_bps,
-                i64::from(rule.tax_inclusive)
-            ],
         )
+        .map_err(err)?
+        .execute(params![
+            publication_id,
+            rule.tax_category,
+            rule.rate_bps,
+            i64::from(rule.tax_inclusive)
+        ])
         .map_err(err)?;
     }
     for rule in &payload.price_rules {
-        tx.execute(
+        tx.prepare_cached(
             "INSERT INTO commercial_price_rule
                  (publication_id, sku_id, sku_code, site_id, site_ids_json,
                   channel, sellable, currency, unit_price_minor, tax_category)
              VALUES (?1, ?2, ?3, ?4, ?10, ?5, ?6, ?7, ?8, ?9)",
-            params![
-                publication_id,
-                rule.sku_id.to_string(),
-                rule.sku_code.trim(),
-                rule.site_id,
-                rule.channel,
-                i64::from(rule.sellable),
-                rule.currency,
-                rule.unit_price_minor,
-                rule.tax_category,
-                site_ids_document(rule.site_ids.as_deref())?,
-            ],
         )
+        .map_err(err)?
+        .execute(params![
+            publication_id,
+            rule.sku_id.to_string(),
+            rule.sku_code.trim(),
+            rule.site_id,
+            rule.channel,
+            i64::from(rule.sellable),
+            rule.currency,
+            rule.unit_price_minor,
+            rule.tax_category,
+            site_ids_document(rule.site_ids.as_deref())?,
+        ])
         .map_err(err)?;
     }
     // OR REPLACE, and the four promotion tables below are the same.
@@ -423,73 +419,75 @@ fn apply_activation(
     // anti-rollback check beside it. Both are needed: replacing by id is only
     // "the newest book wins" if nothing older can land afterwards.
     for markdown in &payload.markdowns {
-        tx.execute(
+        tx.prepare_cached(
             "INSERT OR REPLACE INTO commercial_markdown
                  (markdown_id, publication_id, sku_code, article_code, site_id,
                   site_ids_json, replacement_unit_price_minor, priority,
                   effective_from, effective_to, campaign_id,
                   iso_weekdays_json, from_minute, to_minute)
              VALUES (?1, ?2, ?3, ?4, ?5, ?10, ?6, ?7, ?8, ?9, ?11, ?12, ?13, ?14)",
-            params![
-                markdown.markdown_id,
-                publication_id,
-                markdown.sku_code,
-                markdown.article_code,
-                markdown.site_id,
-                markdown.replacement_unit_price_minor,
-                markdown.priority,
-                time_text(markdown.effective_from),
-                markdown.effective_to.map(time_text),
-                site_ids_document(markdown.site_ids.as_deref())?,
-                // The campaign it is part of. An older centre sends none and
-                // the drop stands on its own, which is what every clearance
-                // did before a campaign could hold one.
-                markdown.campaign_id.as_deref(),
-                // When in the week and in the day it runs, in the shop's own
-                // time. Absent from an older centre, and absent means all day.
-                (!markdown.iso_weekdays.is_empty())
-                    .then(|| serde_json::to_string(&markdown.iso_weekdays))
-                    .transpose()
-                    .map_err(err)?,
-                markdown.from_minute,
-                markdown.to_minute,
-            ],
         )
+        .map_err(err)?
+        .execute(params![
+            markdown.markdown_id,
+            publication_id,
+            markdown.sku_code,
+            markdown.article_code,
+            markdown.site_id,
+            markdown.replacement_unit_price_minor,
+            markdown.priority,
+            time_text(markdown.effective_from),
+            markdown.effective_to.map(time_text),
+            site_ids_document(markdown.site_ids.as_deref())?,
+            // The campaign it is part of. An older centre sends none and
+            // the drop stands on its own, which is what every clearance
+            // did before a campaign could hold one.
+            markdown.campaign_id.as_deref(),
+            // When in the week and in the day it runs, in the shop's own
+            // time. Absent from an older centre, and absent means all day.
+            (!markdown.iso_weekdays.is_empty())
+                .then(|| serde_json::to_string(&markdown.iso_weekdays))
+                .transpose()
+                .map_err(err)?,
+            markdown.from_minute,
+            markdown.to_minute,
+        ])
         .map_err(err)?;
     }
     // Campaigns land before the rules that name them would be read, so a shop
     // never holds an offer whose envelope is missing.
     for campaign in &payload.campaigns {
-        tx.execute(
+        tx.prepare_cached(
             "INSERT OR REPLACE INTO commercial_campaign
                  (campaign_id, publication_id, name, status, valid_from, valid_to,
                   budget_minor, max_uses, image_url, headline, terms, site_ids_json)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-            params![
-                campaign.campaign_id,
-                publication_id,
-                campaign.name,
-                campaign.status,
-                campaign.valid_from.map(time_text),
-                campaign.valid_to.map(time_text),
-                campaign.budget_minor,
-                campaign.max_uses,
-                // The only part of a price book a SHOPPER reads. Carried down
-                // with the rest rather than fetched: a shop with the line down
-                // still has a customer in front of it asking what the poster
-                // means.
-                campaign.image_url.as_deref(),
-                campaign.headline.as_deref(),
-                campaign.terms.as_deref(),
-                // Null for "everywhere" rather than "[]", so the column reads
-                // exactly as one written before this field existed.
-                if campaign.site_ids.is_empty() {
-                    None
-                } else {
-                    Some(serde_json::to_string(&campaign.site_ids).unwrap_or_default())
-                },
-            ],
         )
+        .map_err(err)?
+        .execute(params![
+            campaign.campaign_id,
+            publication_id,
+            campaign.name,
+            campaign.status,
+            campaign.valid_from.map(time_text),
+            campaign.valid_to.map(time_text),
+            campaign.budget_minor,
+            campaign.max_uses,
+            // The only part of a price book a SHOPPER reads. Carried down
+            // with the rest rather than fetched: a shop with the line down
+            // still has a customer in front of it asking what the poster
+            // means.
+            campaign.image_url.as_deref(),
+            campaign.headline.as_deref(),
+            campaign.terms.as_deref(),
+            // Null for "everywhere" rather than "[]", so the column reads
+            // exactly as one written before this field existed.
+            if campaign.site_ids.is_empty() {
+                None
+            } else {
+                Some(serde_json::to_string(&campaign.site_ids).unwrap_or_default())
+            },
+        ])
         .map_err(err)?;
     }
     // Promotions are stored as the centre sent them. See the payload type for
@@ -512,38 +510,40 @@ fn apply_activation(
             .get("priority")
             .and_then(serde_json::Value::as_i64)
             .unwrap_or(0);
-        tx.execute(
+        tx.prepare_cached(
             "INSERT OR REPLACE INTO commercial_rule
                  (rule_id, publication_id, name, definition_json, status, priority)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                rule_id,
-                publication_id,
-                name,
-                serde_json::to_string(rule).map_err(err)?,
-                status,
-                priority
-            ],
         )
+        .map_err(err)?
+        .execute(params![
+            rule_id,
+            publication_id,
+            name,
+            serde_json::to_string(rule).map_err(err)?,
+            status,
+            priority
+        ])
         .map_err(err)?;
     }
     for coupon in &payload.coupons {
-        tx.execute(
+        tx.prepare_cached(
             "INSERT OR REPLACE INTO commercial_coupon
                  (code, publication_id, rule_id, active, customer_id,
                   valid_from, valid_to, max_uses)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![
-                coupon.code,
-                publication_id,
-                coupon.rule_id,
-                i64::from(coupon.active),
-                coupon.customer_id,
-                coupon.valid_from.map(time_text),
-                coupon.valid_to.map(time_text),
-                coupon.max_uses,
-            ],
         )
+        .map_err(err)?
+        .execute(params![
+            coupon.code,
+            publication_id,
+            coupon.rule_id,
+            i64::from(coupon.active),
+            coupon.customer_id,
+            coupon.valid_from.map(time_text),
+            coupon.valid_to.map(time_text),
+            coupon.max_uses,
+        ])
         .map_err(err)?;
     }
 
@@ -583,20 +583,23 @@ fn apply_commercial_usage(
     tx: &Transaction<'_>,
     payload: &crate::cloud::domain::CommercialUsagePayload,
 ) -> Result<(), SyncError> {
-    tx.execute("DELETE FROM commercial_usage", [])
+    tx.prepare_cached("DELETE FROM commercial_usage")
+        .map_err(err)?
+        .execute([])
         .map_err(err)?;
     for count in &payload.counts {
-        tx.execute(
+        tx.prepare_cached(
             "INSERT INTO commercial_usage (kind, key, uses, spent_minor, as_of)
              VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![
-                count.kind,
-                count.key.trim(),
-                count.uses,
-                count.spent_minor,
-                time_text(payload.counted_at)
-            ],
         )
+        .map_err(err)?
+        .execute(params![
+            count.kind,
+            count.key.trim(),
+            count.uses,
+            count.spent_minor,
+            time_text(payload.counted_at)
+        ])
         .map_err(err)?;
     }
     settle_local_usage(tx, payload)?;
@@ -613,14 +616,14 @@ fn hold_allowances(
     tx: &Transaction<'_>,
     payload: &crate::cloud::domain::CommercialUsagePayload,
 ) -> Result<(), SyncError> {
-    tx.execute("DELETE FROM commercial_usage_allowance", [])
+    tx.prepare_cached("DELETE FROM commercial_usage_allowance")
+        .map_err(err)?
+        .execute([])
         .map_err(err)?;
     let origin_id: Option<String> = tx
-        .query_row(
-            "SELECT origin_id FROM sync_origin WHERE singleton = 1",
-            [],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT origin_id FROM sync_origin WHERE singleton = 1")
+        .map_err(err)?
+        .query_row([], |row| row.get(0))
         .optional()
         .map_err(err)?;
     let Some(origin_id) = origin_id else {
@@ -631,7 +634,7 @@ fn hold_allowances(
         .iter()
         .filter(|allowance| allowance.origin_id.trim() == origin_id)
     {
-        tx.execute(
+        tx.prepare_cached(
             "INSERT INTO commercial_usage_allowance
                  (kind, key, budget_minor, max_uses, own_uses, own_spent_minor, as_of)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
@@ -641,16 +644,17 @@ fn hold_allowances(
                  own_uses = excluded.own_uses,
                  own_spent_minor = excluded.own_spent_minor,
                  as_of = excluded.as_of",
-            params![
-                allowance.kind,
-                allowance.key.trim(),
-                allowance.budget_minor,
-                allowance.max_uses,
-                allowance.own_uses,
-                allowance.own_spent_minor,
-                time_text(payload.counted_at)
-            ],
         )
+        .map_err(err)?
+        .execute(params![
+            allowance.kind,
+            allowance.key.trim(),
+            allowance.budget_minor,
+            allowance.max_uses,
+            allowance.own_uses,
+            allowance.own_spent_minor,
+            time_text(payload.counted_at)
+        ])
         .map_err(err)?;
     }
     Ok(())
@@ -685,11 +689,9 @@ fn settle_local_usage(
     payload: &crate::cloud::domain::CommercialUsagePayload,
 ) -> Result<(), SyncError> {
     let origin_id: Option<String> = tx
-        .query_row(
-            "SELECT origin_id FROM sync_origin WHERE singleton = 1",
-            [],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT origin_id FROM sync_origin WHERE singleton = 1")
+        .map_err(err)?
+        .query_row([], |row| row.get(0))
         .optional()
         .map_err(err)?;
     // No stream, so nothing this till sold can have reached the centre.
@@ -723,12 +725,12 @@ fn settle_local_usage(
             (Some(generation), Some(seq)) => {
                 if payload.applied_through.is_empty() {
                     let durable: i64 = tx
-                        .query_row(
+                        .prepare_cached(
                             "SELECT durable_seq FROM sync_watermark
                               WHERE origin_id = ?1 AND generation = ?2",
-                            params![&origin_id, generation],
-                            |row| row.get(0),
                         )
+                        .map_err(err)?
+                        .query_row(params![&origin_id, generation], |row| row.get(0))
                         .optional()
                         .map_err(err)?
                         .unwrap_or(0);
@@ -741,10 +743,11 @@ fn settle_local_usage(
             _ => true,
         };
         if counted {
-            tx.execute(
+            tx.prepare_cached(
                 "DELETE FROM commercial_usage_local WHERE event_id = ?1 AND reported = 1",
-                params![event_id],
             )
+            .map_err(err)?
+            .execute(params![event_id])
             .map_err(err)?;
         }
     }
@@ -768,7 +771,7 @@ fn apply_commercial_campaign(
     payload: &crate::cloud::domain::CampaignSwitchPayload,
 ) -> Result<(), SyncError> {
     for campaign in &payload.campaigns {
-        tx.execute(
+        tx.prepare_cached(
             // COALESCE on everything but the status: a switch that does not
             // mention the poster leaves the poster alone, so an older centre's
             // message cannot blank a banner it has never heard of.
@@ -780,16 +783,17 @@ fn apply_commercial_campaign(
                     headline=COALESCE(?6, headline),
                     terms=COALESCE(?7, terms)
               WHERE campaign_id=?1",
-            params![
-                campaign.campaign_id.trim(),
-                campaign.status.trim().to_ascii_uppercase(),
-                campaign.valid_from.map(time_text),
-                campaign.valid_to.map(time_text),
-                campaign.image_url.as_deref(),
-                campaign.headline.as_deref(),
-                campaign.terms.as_deref(),
-            ],
         )
+        .map_err(err)?
+        .execute(params![
+            campaign.campaign_id.trim(),
+            campaign.status.trim().to_ascii_uppercase(),
+            campaign.valid_from.map(time_text),
+            campaign.valid_to.map(time_text),
+            campaign.image_url.as_deref(),
+            campaign.headline.as_deref(),
+            campaign.terms.as_deref(),
+        ])
         .map_err(err)?;
     }
     Ok(())
@@ -810,15 +814,20 @@ fn apply_rule_eligibility(
     tx: &Transaction<'_>,
     payload: &crate::cloud::domain::RuleEligibilityPayload,
 ) -> Result<(), SyncError> {
-    tx.execute("DELETE FROM commercial_rule_eligibility_sku", [])
+    tx.prepare_cached("DELETE FROM commercial_rule_eligibility_sku")
+        .map_err(err)?
+        .execute([])
         .map_err(err)?;
-    tx.execute("DELETE FROM commercial_rule_eligibility", [])
+    tx.prepare_cached("DELETE FROM commercial_rule_eligibility")
+        .map_err(err)?
+        .execute([])
         .map_err(err)?;
     for rule in &payload.rules {
-        tx.execute(
+        tx.prepare_cached(
             "INSERT INTO commercial_rule_eligibility (rule_id, resolved_at) VALUES (?1, ?2)",
-            params![rule.rule_id.trim(), time_text(rule.resolved_at)],
         )
+        .map_err(err)?
+        .execute(params![rule.rule_id.trim(), time_text(rule.resolved_at)])
         .map_err(err)?;
         for (role, codes) in [
             ("APPLIES_TO", Some(&rule.applies_to)),
@@ -826,12 +835,13 @@ fn apply_rule_eligibility(
         ] {
             let Some(codes) = codes else { continue };
             for sku_code in codes {
-                tx.execute(
+                tx.prepare_cached(
                     "INSERT OR IGNORE INTO commercial_rule_eligibility_sku
                          (rule_id, sku_code, role)
                      VALUES (?1, ?2, ?3)",
-                    params![rule.rule_id.trim(), sku_code.trim(), role],
                 )
+                .map_err(err)?
+                .execute(params![rule.rule_id.trim(), sku_code.trim(), role])
                 .map_err(err)?;
             }
         }
@@ -854,7 +864,9 @@ fn apply_catalog_chunk(tx: &Transaction<'_>, chunk: &CatalogChunkPayload) -> Res
     // catalogue backwards; the generation is the fleet's ordering, and this
     // edge honours only forward moves.
     let resident: Option<i64> = tx
-        .query_row("SELECT generation FROM catalog_state", [], |row| row.get(0))
+        .prepare_cached("SELECT generation FROM catalog_state")
+        .map_err(err)?
+        .query_row([], |row| row.get(0))
         .optional()
         .map_err(err)?;
     if let Some(resident) = resident {
@@ -873,27 +885,26 @@ fn apply_catalog_chunk(tx: &Transaction<'_>, chunk: &CatalogChunkPayload) -> Res
             return Ok(()); // already honoured; a replay
         }
     }
-    tx.execute(
+    tx.prepare_cached(
         "INSERT OR REPLACE INTO catalog_staging
              (snapshot_id, generation, chunk_index, chunk_count, items_json, received_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![
-            chunk.snapshot_id.to_string(),
-            chunk.generation,
-            chunk.chunk_index,
-            chunk.chunk_count,
-            serde_json::to_string(&chunk.items).unwrap_or_else(|_| "[]".into()),
-            now_text()
-        ],
     )
+    .map_err(err)?
+    .execute(params![
+        chunk.snapshot_id.to_string(),
+        chunk.generation,
+        chunk.chunk_index,
+        chunk.chunk_count,
+        serde_json::to_string(&chunk.items).unwrap_or_else(|_| "[]".into()),
+        now_text()
+    ])
     .map_err(err)?;
 
     let staged: i64 = tx
-        .query_row(
-            "SELECT count(*) FROM catalog_staging WHERE snapshot_id = ?1",
-            params![chunk.snapshot_id.to_string()],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT count(*) FROM catalog_staging WHERE snapshot_id = ?1")
+        .map_err(err)?
+        .query_row(params![chunk.snapshot_id.to_string()], |row| row.get(0))
         .map_err(err)?;
     if staged < i64::from(chunk.chunk_count) {
         return Ok(()); // still arriving
@@ -926,11 +937,10 @@ fn apply_catalog_chunk(tx: &Transaction<'_>, chunk: &CatalogChunkPayload) -> Res
         // Discard the whole staged run: a mismatch means the pieces we hold
         // are not the catalogue the centre published, and keeping them would
         // let a later chunk complete a set nobody authored.
-        tx.execute(
-            "DELETE FROM catalog_staging WHERE snapshot_id = ?1",
-            params![chunk.snapshot_id.to_string()],
-        )
-        .map_err(err)?;
+        tx.prepare_cached("DELETE FROM catalog_staging WHERE snapshot_id = ?1")
+            .map_err(err)?
+            .execute(params![chunk.snapshot_id.to_string()])
+            .map_err(err)?;
         return Err(err(format!(
             "catalogue content hash mismatch: expected {}, assembled {actual}",
             chunk.content_hash
@@ -939,70 +949,72 @@ fn apply_catalog_chunk(tx: &Transaction<'_>, chunk: &CatalogChunkPayload) -> Res
 
     // The swap. Whole-table replace, in the caller's transaction, so the till
     // never observes a partial catalogue.
-    tx.execute("DELETE FROM catalog_item", []).map_err(err)?;
+    tx.prepare_cached("DELETE FROM catalog_item")
+        .map_err(err)?
+        .execute([])
+        .map_err(err)?;
     for item in &items {
-        tx.execute(
+        tx.prepare_cached(
             "INSERT INTO catalog_item
                  (sku_code, name, uom, barcode, tax_category, active, generation,
                   updated_at, base_price_minor, article_code, division_code, tags_json,
                   image_url)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-            params![
-                item.sku_code,
-                item.name,
-                item.uom,
-                item.barcode,
-                item.tax_category,
-                i64::from(item.active),
-                chunk.generation,
-                now_text(),
-                item.base_price_minor,
-                // What the product is, for the markdowns and promotions that
-                // name a range rather than a product. An older centre sends
-                // none of these; the column is then NULL and a range-wide offer
-                // simply does not match, which is what happened everywhere
-                // before this was carried at all.
-                item.article_code,
-                item.division_code,
-                serde_json::to_string(&item.tags).unwrap_or_else(|_| "[]".into()),
-                // The one place a shop can get a photograph. See migration 0025:
-                // the DC's tagging jobs and order lines are not here.
-                item.image_url,
-            ],
         )
+        .map_err(err)?
+        .execute(params![
+            item.sku_code,
+            item.name,
+            item.uom,
+            item.barcode,
+            item.tax_category,
+            i64::from(item.active),
+            chunk.generation,
+            now_text(),
+            item.base_price_minor,
+            // What the product is, for the markdowns and promotions that
+            // name a range rather than a product. An older centre sends
+            // none of these; the column is then NULL and a range-wide offer
+            // simply does not match, which is what happened everywhere
+            // before this was carried at all.
+            item.article_code,
+            item.division_code,
+            serde_json::to_string(&item.tags).unwrap_or_else(|_| "[]".into()),
+            // The one place a shop can get a photograph. See migration 0025:
+            // the DC's tagging jobs and order lines are not here.
+            item.image_url,
+        ])
         .map_err(err)?;
     }
-    tx.execute(
+    tx.prepare_cached(
         "INSERT INTO catalog_state
              (singleton, snapshot_id, generation, item_count, content_hash, activated_at)
          VALUES (1, ?1, ?2, ?3, ?4, ?5)
          ON CONFLICT(singleton) DO UPDATE SET
              snapshot_id = ?1, generation = ?2, item_count = ?3,
              content_hash = ?4, activated_at = ?5",
-        params![
-            chunk.snapshot_id.to_string(),
-            chunk.generation,
-            items.len() as i64,
-            chunk.content_hash,
-            now_text()
-        ],
     )
+    .map_err(err)?
+    .execute(params![
+        chunk.snapshot_id.to_string(),
+        chunk.generation,
+        items.len() as i64,
+        chunk.content_hash,
+        now_text()
+    ])
     .map_err(err)?;
-    tx.execute(
-        "DELETE FROM catalog_staging WHERE snapshot_id = ?1",
-        params![chunk.snapshot_id.to_string()],
-    )
-    .map_err(err)?;
+    tx.prepare_cached("DELETE FROM catalog_staging WHERE snapshot_id = ?1")
+        .map_err(err)?
+        .execute(params![chunk.snapshot_id.to_string()])
+        .map_err(err)?;
     Ok(())
 }
 
 fn command_node(tx: &Transaction<'_>) -> Result<NodeContext, SyncError> {
     let (node_id, role, site_id): (String, String, String) = tx
-        .query_row(
-            "SELECT node_id,role,site_id FROM node_metadata WHERE singleton=1",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
+        .prepare_cached("SELECT node_id,role,site_id FROM node_metadata WHERE singleton=1")
+        .map_err(err)?
+        .query_row([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
         .map_err(err)?;
     let role = EdgeRole::from_str(&role).map_err(err)?;
     let site_id = SiteId::new(site_id).map_err(err)?;
@@ -1066,22 +1078,21 @@ fn apply_allotment_activation(
             _ => shelf.clone(),
         };
         let physical: i64 = tx
-            .query_row(
+            .prepare_cached(
                 "SELECT COALESCE(SUM(projection.quantity),0)
                  FROM inventory_projection projection
                  JOIN inventory_subject subject ON subject.id=projection.subject_id
                  WHERE projection.place_id IN (?1, ?3) AND subject.sku_code=?2",
-                params![shelf, sku_code, pick_area],
-                |row| row.get(0),
             )
+            .map_err(err)?
+            .query_row(params![shelf, sku_code, pick_area], |row| row.get(0))
             .map_err(err)?;
-        let reserved: i64 = tx
-            .query_row(
-                "SELECT COALESCE(SUM(line.accepted_quantity-line.picked_quantity-line.cancelled_quantity),0)
+        let reserved: i64 = tx.prepare_cached("SELECT COALESCE(SUM(line.accepted_quantity-line.picked_quantity-line.cancelled_quantity),0)
                  FROM dc_allotment_work_line line
                  JOIN dc_allotment_work work ON work.allotment_id=line.allotment_id
                  WHERE work.application_status='ACCEPTED'
-                   AND line.source_pool_id=?1 AND line.sku_code=?2",
+                   AND line.source_pool_id=?1 AND line.sku_code=?2"
+    ).map_err(err)?.query_row(
                 params![pool_id, sku_code],
                 |row| row.get(0),
             )
@@ -1156,37 +1167,38 @@ fn apply_allotment_activation(
     } else {
         "REJECTED"
     };
-    tx.execute(
+    tx.prepare_cached(
         "INSERT INTO dc_allotment_work
              (allotment_id,command_id,allotment_number,allotment_type,source_site_id,
               application_status,fulfillment_status,application_result_id,
               application_fact_seq,rejection_code,rejection_reason,created_by,notes,
               created_at,applied_at,updated_at)
          VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?15)",
-        params![
-            payload.allotment_id.to_string(),
-            command_id.to_string(),
-            payload.allotment_number,
-            // This table's CHECK knows the words before 0611; a head office
-            // that sends the new ones is filed under the old.
-            match payload.allotment_type.as_str() {
-                "TO_SITE" => "TO_STORE",
-                "RETURN_TO_WAREHOUSE" => "RETURN_TO_DC",
-                other => other,
-            },
-            payload.source_site_id,
-            application_status,
-            fulfillment_status,
-            result_id.to_string(),
-            application_fact_seq,
-            result.rejection_code,
-            result.reason,
-            payload.created_by,
-            payload.notes,
-            time_text(payload.created_at),
-            time_text(applied_at),
-        ],
     )
+    .map_err(err)?
+    .execute(params![
+        payload.allotment_id.to_string(),
+        command_id.to_string(),
+        payload.allotment_number,
+        // This table's CHECK knows the words before 0611; a head office
+        // that sends the new ones is filed under the old.
+        match payload.allotment_type.as_str() {
+            "TO_SITE" => "TO_STORE",
+            "RETURN_TO_WAREHOUSE" => "RETURN_TO_DC",
+            other => other,
+        },
+        payload.source_site_id,
+        application_status,
+        fulfillment_status,
+        result_id.to_string(),
+        application_fact_seq,
+        result.rejection_code,
+        result.reason,
+        payload.created_by,
+        payload.notes,
+        time_text(payload.created_at),
+        time_text(applied_at),
+    ])
     .map_err(err)?;
     for line in &payload.lines {
         let accepted_quantity = if decision == ApplicationDecision::Accepted {
@@ -1194,24 +1206,25 @@ fn apply_allotment_activation(
         } else {
             0
         };
-        tx.execute(
+        tx.prepare_cached(
             "INSERT INTO dc_allotment_work_line
                  (allotment_line_id,allotment_id,source_pool_id,destination_type,
                   destination_id,sku_id,sku_code,planned_quantity,accepted_quantity,updated_at)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
-            params![
-                line.allotment_line_id.to_string(),
-                payload.allotment_id.to_string(),
-                line.source_pool_id,
-                line.destination_type,
-                line.destination_id,
-                line.sku_id.to_string(),
-                line.sku_code,
-                line.quantity,
-                accepted_quantity,
-                time_text(applied_at),
-            ],
         )
+        .map_err(err)?
+        .execute(params![
+            line.allotment_line_id.to_string(),
+            payload.allotment_id.to_string(),
+            line.source_pool_id,
+            line.destination_type,
+            line.destination_id,
+            line.sku_id.to_string(),
+            line.sku_code,
+            line.quantity,
+            accepted_quantity,
+            time_text(applied_at),
+        ])
         .map_err(err)?;
     }
 
@@ -1238,13 +1251,15 @@ fn picked_waiting_reserve(
     allotment_line_id: &str,
 ) -> Result<i64, SyncError> {
     let line: Option<(String, String, i64)> = tx
-        .query_row(
+        .prepare_cached(
             "SELECT destination_id, sku_code,
                     accepted_quantity - packed_quantity - cancelled_quantity
                FROM dc_allotment_work_line WHERE allotment_line_id = ?1",
-            params![allotment_line_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
+        .map_err(err)?
+        .query_row(params![allotment_line_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
         .optional()
         .map_err(err)?;
     let Some((destination_id, sku_code, open_here)) = line else {
@@ -1268,7 +1283,7 @@ fn picked_waiting_reserve(
         return Ok(0);
     }
     let open_elsewhere: i64 = tx
-        .query_row(
+        .prepare_cached(
             "SELECT COALESCE(SUM(line.accepted_quantity - line.packed_quantity
                                  - line.cancelled_quantity), 0)
                FROM dc_allotment_work_line line
@@ -1277,6 +1292,9 @@ fn picked_waiting_reserve(
                 AND work.fulfillment_status IN ('OPEN','IN_PROGRESS')
                 AND line.destination_id = ?1 AND line.sku_code = ?2
                 AND line.allotment_line_id <> ?3",
+        )
+        .map_err(err)?
+        .query_row(
             params![destination_id, sku_code, allotment_line_id],
             |row| row.get(0),
         )
@@ -1308,20 +1326,21 @@ fn apply_allotment_close_short(
             &line.allotment_line_id.to_string(),
         )?;
         let updated = tx
-            .execute(
+            .prepare_cached(
                 "UPDATE dc_allotment_work_line
                     SET cancelled_quantity=cancelled_quantity+?3,updated_at=?4
                   WHERE allotment_line_id=?1 AND allotment_id=?2
                     AND accepted_quantity-packed_quantity-cancelled_quantity-?5>=?3
                     AND accepted_quantity-picked_quantity-cancelled_quantity-?5>=?3",
-                params![
-                    line.allotment_line_id.to_string(),
-                    payload.allotment_id.to_string(),
-                    line.quantity,
-                    applied_at,
-                    reserved
-                ],
             )
+            .map_err(err)?
+            .execute(params![
+                line.allotment_line_id.to_string(),
+                payload.allotment_id.to_string(),
+                line.quantity,
+                applied_at,
+                reserved
+            ])
             .map_err(err)?;
         if updated != 1 {
             return Err(err(format!(
@@ -1331,23 +1350,30 @@ fn apply_allotment_close_short(
         }
     }
     let (accepted, packed, dispatched, cancelled): (i64, i64, i64, i64) = tx
-        .query_row(
+        .prepare_cached(
             "SELECT COALESCE(SUM(accepted_quantity),0),
                     COALESCE(SUM(packed_quantity),0),
                     COALESCE(SUM(dispatched_quantity),0),
                     COALESCE(SUM(cancelled_quantity),0)
              FROM dc_allotment_work_line WHERE allotment_id=?1",
-            [payload.allotment_id.to_string()],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
+        .map_err(err)?
+        .query_row([payload.allotment_id.to_string()], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
         .map_err(err)?;
     let status =
         derive_allotment_status(accepted, packed, dispatched, cancelled, false).map_err(err)?;
-    tx.execute(
+    tx.prepare_cached(
         "UPDATE dc_allotment_work SET fulfillment_status=?2,updated_at=?3
          WHERE allotment_id=?1 AND application_status='ACCEPTED'",
-        params![payload.allotment_id.to_string(), status.as_str(), applied_at],
     )
+    .map_err(err)?
+    .execute(params![
+        payload.allotment_id.to_string(),
+        status.as_str(),
+        applied_at
+    ])
     .map_err(err)?;
     Ok(())
 }
@@ -1359,10 +1385,13 @@ fn apply_allotment_cancellation(
 ) -> Result<(), SyncError> {
     let node = require_work_owner(tx, &payload.source_site_id)?;
     let (application_status, fulfillment_status): (String, String) = tx
-        .query_row(
+        .prepare_cached(
             "SELECT application_status,fulfillment_status
              FROM dc_allotment_work
              WHERE allotment_id=?1 AND source_site_id=?2",
+        )
+        .map_err(err)?
+        .query_row(
             params![payload.allotment_id.to_string(), payload.source_site_id],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
@@ -1381,11 +1410,9 @@ fn apply_allotment_cancellation(
         )));
     }
     if tx
-        .query_row(
-            "SELECT 1 FROM dc_allotment_cancellation WHERE allotment_id=?1",
-            [payload.allotment_id.to_string()],
-            |_| Ok(()),
-        )
+        .prepare_cached("SELECT 1 FROM dc_allotment_cancellation WHERE allotment_id=?1")
+        .map_err(err)?
+        .query_row([payload.allotment_id.to_string()], |_| Ok(()))
         .optional()
         .map_err(err)?
         .is_some()
@@ -1509,17 +1536,18 @@ fn apply_allotment_cancellation(
 
     for line in &result.lines {
         let updated = tx
-            .execute(
+            .prepare_cached(
                 "UPDATE dc_allotment_work_line
                  SET cancelled_quantity=cancelled_quantity+?2,updated_at=?3
                  WHERE allotment_line_id=?1
                    AND accepted_quantity-picked_quantity-cancelled_quantity>=?2",
-                params![
-                    line.allotment_line_id.to_string(),
-                    line.cancelled_quantity,
-                    time_text(applied_at)
-                ],
             )
+            .map_err(err)?
+            .execute(params![
+                line.allotment_line_id.to_string(),
+                line.cancelled_quantity,
+                time_text(applied_at)
+            ])
             .map_err(err)?;
         if updated != 1 {
             return Err(err(format!(
@@ -1529,28 +1557,31 @@ fn apply_allotment_cancellation(
         }
     }
     let (accepted, packed, dispatched, cancelled): (i64, i64, i64, i64) = tx
-        .query_row(
+        .prepare_cached(
             "SELECT COALESCE(SUM(accepted_quantity),0),
                     COALESCE(SUM(packed_quantity),0),
                     COALESCE(SUM(dispatched_quantity),0),
                     COALESCE(SUM(cancelled_quantity),0)
              FROM dc_allotment_work_line WHERE allotment_id=?1",
-            [payload.allotment_id.to_string()],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
+        .map_err(err)?
+        .query_row([payload.allotment_id.to_string()], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
         .map_err(err)?;
     let status =
         derive_allotment_status(accepted, packed, dispatched, cancelled, false).map_err(err)?;
     if tx
-        .execute(
+        .prepare_cached(
             "UPDATE dc_allotment_work SET fulfillment_status=?2,updated_at=?3
              WHERE allotment_id=?1 AND application_status='ACCEPTED'",
-            params![
-                payload.allotment_id.to_string(),
-                status.as_str(),
-                time_text(applied_at)
-            ],
         )
+        .map_err(err)?
+        .execute(params![
+            payload.allotment_id.to_string(),
+            status.as_str(),
+            time_text(applied_at)
+        ])
         .map_err(err)?
         != 1
     {
@@ -1565,26 +1596,27 @@ fn apply_allotment_cancellation(
         CancellationOutcome::PartiallyApplied => "PARTIALLY_APPLIED",
         CancellationOutcome::Rejected => "REJECTED",
     };
-    tx.execute(
+    tx.prepare_cached(
         "INSERT INTO dc_allotment_cancellation
              (cancellation_id,command_id,allotment_id,outcome,result_id,requested_by,
               reason,requested_at,result_reason,lines_json,result_fact_seq,applied_at)
          VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
-        params![
-            payload.cancellation_id.to_string(),
-            command_id.to_string(),
-            payload.allotment_id.to_string(),
-            outcome_text,
-            result_id.to_string(),
-            payload.requested_by,
-            payload.reason,
-            time_text(payload.requested_at),
-            result.reason,
-            serde_json::to_string(&result.lines).map_err(err)?,
-            result_fact_seq,
-            time_text(applied_at),
-        ],
     )
+    .map_err(err)?
+    .execute(params![
+        payload.cancellation_id.to_string(),
+        command_id.to_string(),
+        payload.allotment_id.to_string(),
+        outcome_text,
+        result_id.to_string(),
+        payload.requested_by,
+        payload.reason,
+        time_text(payload.requested_at),
+        result.reason,
+        serde_json::to_string(&result.lines).map_err(err)?,
+        result_fact_seq,
+        time_text(applied_at),
+    ])
     .map_err(err)?;
 
     // The result fact is current-state authority; this later snapshot is only
@@ -1607,25 +1639,26 @@ fn apply_official_count_activation(
             payload.pool_id, node.site_id
         )));
     }
-    tx.execute(
+    tx.prepare_cached(
         "INSERT INTO dc_official_count_work
              (count_id,command_id,site_id,pool_id,kind,status,reason,created_by,
               created_at,activated_at,scope_json,applied_at)
          VALUES (?1,?2,?3,?4,?5,'ACTIVE',?6,?7,?8,?9,?10,?11)",
-        params![
-            payload.count_id.to_string(),
-            command_id.to_string(),
-            payload.site_id,
-            payload.pool_id,
-            payload.kind,
-            payload.reason,
-            payload.created_by,
-            time_text(payload.created_at),
-            time_text(payload.activated_at),
-            serde_json::to_string(&payload.scope).map_err(err)?,
-            now_text(),
-        ],
     )
+    .map_err(err)?
+    .execute(params![
+        payload.count_id.to_string(),
+        command_id.to_string(),
+        payload.site_id,
+        payload.pool_id,
+        payload.kind,
+        payload.reason,
+        payload.created_by,
+        time_text(payload.created_at),
+        time_text(payload.activated_at),
+        serde_json::to_string(&payload.scope).map_err(err)?,
+        now_text(),
+    ])
     .map_err(err)?;
     let place_id = format!("{}:on_hand", payload.pool_id);
     let mut statement = tx
@@ -1658,18 +1691,19 @@ fn apply_official_count_activation(
         .collect::<Vec<_>>();
     drop(statement);
     for (subject_id, epc, sku_code, quantity) in expected {
-        tx.execute(
+        tx.prepare_cached(
             "INSERT INTO dc_official_count_expected
                  (count_id,subject_id,epc,sku_code,expected_quantity)
              VALUES (?1,?2,?3,?4,?5)",
-            params![
-                payload.count_id.to_string(),
-                subject_id,
-                epc,
-                sku_code,
-                quantity,
-            ],
         )
+        .map_err(err)?
+        .execute(params![
+            payload.count_id.to_string(),
+            subject_id,
+            epc,
+            sku_code,
+            quantity,
+        ])
         .map_err(err)?;
     }
     Ok(())
@@ -1689,20 +1723,20 @@ fn apply_official_count_adjustment(
         )));
     }
     let work: (String, String, String, Option<String>, Option<String>) = tx
-        .query_row(
+        .prepare_cached(
             "SELECT site_id,pool_id,status,result_id,adjustment_id
              FROM dc_official_count_work WHERE count_id=?1",
-            [payload.count_id.to_string()],
-            |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                ))
-            },
         )
+        .map_err(err)?
+        .query_row([payload.count_id.to_string()], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        })
         .optional()
         .map_err(err)?
         .ok_or_else(|| {
@@ -1793,11 +1827,9 @@ fn apply_official_count_adjustment(
     let mut rejection_reason = None;
     for line in &local_lines {
         let subject: Option<(String, String)> = tx
-            .query_row(
-                "SELECT id,sku_code FROM inventory_subject WHERE epc=?1",
-                [line.epc.as_str()],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
+            .prepare_cached("SELECT id,sku_code FROM inventory_subject WHERE epc=?1")
+            .map_err(err)?
+            .query_row([line.epc.as_str()], |row| Ok((row.get(0)?, row.get(1)?)))
             .optional()
             .map_err(err)?;
         let Some((subject_id, sku_code)) = subject else {
@@ -1816,12 +1848,14 @@ fn apply_official_count_adjustment(
             .map_err(|error| err(format!("invalid local subject id: {error}")))?;
         if line.adjustment_quantity < 0 {
             let balance: i64 = tx
-                .query_row(
+                .prepare_cached(
                     "SELECT COALESCE(SUM(quantity),0) FROM inventory_projection
                      WHERE subject_id=?1 AND place_id=?2",
-                    params![subject_id.to_string(), normal_place.id()],
-                    |row| row.get(0),
                 )
+                .map_err(err)?
+                .query_row(params![subject_id.to_string(), normal_place.id()], |row| {
+                    row.get(0)
+                })
                 .map_err(err)?;
             if balance != line.expected_quantity {
                 rejection_reason = Some(format!(
@@ -1841,20 +1875,21 @@ fn apply_official_count_adjustment(
                 to: missing_place.clone(),
             });
         } else {
-            let positioned: i64 = tx
-                .query_row(
-                    "SELECT COALESCE(SUM(quantity),0) FROM inventory_projection WHERE subject_id=?1",
+            let positioned: i64 = tx.prepare_cached("SELECT COALESCE(SUM(quantity),0) FROM inventory_projection WHERE subject_id=?1"
+    ).map_err(err)?.query_row(
                     [subject_id.to_string()],
                     |row| row.get(0),
                 )
                 .map_err(err)?;
             let missing_here: i64 = tx
-                .query_row(
+                .prepare_cached(
                     "SELECT COALESCE(SUM(quantity),0) FROM inventory_projection
                      WHERE subject_id=?1 AND place_id=?2",
-                    params![subject_id.to_string(), missing_place.id()],
-                    |row| row.get(0),
                 )
+                .map_err(err)?
+                .query_row(params![subject_id.to_string(), missing_place.id()], |row| {
+                    row.get(0)
+                })
                 .map_err(err)?;
             if missing_here > 0 && positioned == missing_here && line.expected_quantity == 0 {
                 found_lines.push(MovementLine {
@@ -1923,7 +1958,10 @@ fn apply_official_count_adjustment(
                 cause: MovementCause::Found,
                 reference_type: Some("OFFICIAL_COUNT".into()),
                 reference_id: Some(payload.count_id.to_string()),
-                reason: format!("Approved Official Count {} found what was missing", payload.count_id),
+                reason: format!(
+                    "Approved Official Count {} found what was missing",
+                    payload.count_id
+                ),
                 actor_id: payload.approved_by.clone(),
                 occurred_at: applied_at,
             };
@@ -1987,50 +2025,52 @@ fn apply_official_count_adjustment(
     )
     .map_err(err)?
     .ok_or_else(|| err("edge count adjustment fact capture is disabled"))?;
-    tx.execute(
+    tx.prepare_cached(
         "INSERT INTO dc_official_count_adjustment
              (adjustment_id,command_id,count_id,result_id,status,lines_json,
               movement_group_ids_json,actor_id,reason,applied_at,completion_id,fact_seq)
          VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
-        params![
-            payload.adjustment_id.to_string(),
-            command_id.to_string(),
-            payload.count_id.to_string(),
-            payload.result_id.to_string(),
-            match status {
-                AdjustmentResultStatus::Applied => "APPLIED",
-                AdjustmentResultStatus::Rejected => "REJECTED",
-            },
-            serde_json::to_string(&payload.lines).map_err(err)?,
-            serde_json::to_string(&movement_group_ids).map_err(err)?,
-            payload.approved_by,
-            rejection_reason,
-            time_text(applied_at),
-            completion.completion_id.to_string(),
-            fact_seq,
-        ],
     )
+    .map_err(err)?
+    .execute(params![
+        payload.adjustment_id.to_string(),
+        command_id.to_string(),
+        payload.count_id.to_string(),
+        payload.result_id.to_string(),
+        match status {
+            AdjustmentResultStatus::Applied => "APPLIED",
+            AdjustmentResultStatus::Rejected => "REJECTED",
+        },
+        serde_json::to_string(&payload.lines).map_err(err)?,
+        serde_json::to_string(&movement_group_ids).map_err(err)?,
+        payload.approved_by,
+        rejection_reason,
+        time_text(applied_at),
+        completion.completion_id.to_string(),
+        fact_seq,
+    ])
     .map_err(err)?;
-    tx.execute(
+    tx.prepare_cached(
         "UPDATE dc_official_count_work
          SET status=CASE WHEN ?5='APPLIED' THEN 'CLOSED' ELSE status END,
              adjustment_id=?2,adjustment_command_id=?3,
              adjustment_completion_id=?4,adjustment_fact_seq=?6,
              closed_at=CASE WHEN ?5='APPLIED' THEN ?7 ELSE closed_at END
          WHERE count_id=?1 AND status='SUBMITTED' AND adjustment_id IS NULL",
-        params![
-            payload.count_id.to_string(),
-            payload.adjustment_id.to_string(),
-            command_id.to_string(),
-            completion.completion_id.to_string(),
-            match status {
-                AdjustmentResultStatus::Applied => "APPLIED",
-                AdjustmentResultStatus::Rejected => "REJECTED",
-            },
-            fact_seq,
-            time_text(applied_at),
-        ],
     )
+    .map_err(err)?
+    .execute(params![
+        payload.count_id.to_string(),
+        payload.adjustment_id.to_string(),
+        command_id.to_string(),
+        completion.completion_id.to_string(),
+        match status {
+            AdjustmentResultStatus::Applied => "APPLIED",
+            AdjustmentResultStatus::Rejected => "REJECTED",
+        },
+        fact_seq,
+        time_text(applied_at),
+    ])
     .map_err(err)?;
     SqliteEdge::enqueue_pool_snapshot(tx, &node, Uuid::new_v4()).map_err(err)?;
     Ok(())
@@ -2064,11 +2104,9 @@ fn apply_auth_policy(tx: &Transaction<'_>, snapshot: &AuthPolicySnapshot) -> Res
         }
     }
     let resident: Option<(i64, String)> = tx
-        .query_row(
-            "SELECT version,content_hash FROM edge_auth_policy_state WHERE singleton=1",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
+        .prepare_cached("SELECT version,content_hash FROM edge_auth_policy_state WHERE singleton=1")
+        .map_err(err)?
+        .query_row([], |row| Ok((row.get(0)?, row.get(1)?)))
         .optional()
         .map_err(err)?;
     if let Some((version, content_hash)) = resident {
@@ -2098,12 +2136,14 @@ fn apply_auth_policy(tx: &Transaction<'_>, snapshot: &AuthPolicySnapshot) -> Res
         // The local account is the one that must keep working with the line
         // down, so it keeps the name and the cloud's namesake is left out.
         let local_namesake: bool = tx
-            .query_row(
+            .prepare_cached(
                 "SELECT EXISTS(SELECT 1 FROM edge_user
                                 WHERE username=?1 AND source='LOCAL' AND id<>?2)",
-                params![user.username, user.user_id.to_string()],
-                |row| row.get(0),
             )
+            .map_err(err)?
+            .query_row(params![user.username, user.user_id.to_string()], |row| {
+                row.get(0)
+            })
             .map_err(err)?;
         if local_namesake {
             tracing::warn!(
@@ -2113,7 +2153,7 @@ fn apply_auth_policy(tx: &Transaction<'_>, snapshot: &AuthPolicySnapshot) -> Res
             );
             continue;
         }
-        tx.execute(
+        tx.prepare_cached(
             "INSERT INTO edge_user
                  (id,username,display_name,password_hash,role,active,auth_version,source,
                   policy_version,valid_until,created_at,updated_at)
@@ -2136,26 +2176,26 @@ fn apply_auth_policy(tx: &Transaction<'_>, snapshot: &AuthPolicySnapshot) -> Res
                      WHEN edge_user.password_hash<>excluded.password_hash
                        OR edge_user.auth_version<>excluded.auth_version THEN NULL
                      ELSE edge_user.login_blocked_until END",
-            params![
-                user.user_id.to_string(),
-                user.username,
-                user.display_name,
-                user.credential_hash,
-                user.role,
-                i64::from(user.active),
-                user.auth_version,
-                snapshot.version,
-                time_text(user.valid_until),
-                now_text(),
-            ],
         )
+        .map_err(err)?
+        .execute(params![
+            user.user_id.to_string(),
+            user.username,
+            user.display_name,
+            user.credential_hash,
+            user.role,
+            i64::from(user.active),
+            user.auth_version,
+            snapshot.version,
+            time_text(user.valid_until),
+            now_text(),
+        ])
         .map_err(err)?;
     }
-    tx.execute(
-        "DELETE FROM edge_user WHERE source='CLOUD' AND policy_version<>?1",
-        params![snapshot.version],
-    )
-    .map_err(err)?;
+    tx.prepare_cached("DELETE FROM edge_user WHERE source='CLOUD' AND policy_version<>?1")
+        .map_err(err)?
+        .execute(params![snapshot.version])
+        .map_err(err)?;
 
     for device in &snapshot.devices {
         // Carried or fixed, as head office registered the key (postgres 0623).
@@ -2168,15 +2208,15 @@ fn apply_auth_policy(tx: &Transaction<'_>, snapshot: &AuthPolicySnapshot) -> Res
             .filter(|kind| crate::sync::device::is_rfid_kind(kind))
             .unwrap_or(crate::sync::device::KIND_RFID_READER);
         let key_changed = tx
-            .query_row(
-                "SELECT auth_key_sha256<>?2 FROM edge_rfid_device WHERE device_id=?1",
-                params![device.device_id, device.auth_key_sha256],
-                |row| row.get::<_, bool>(0),
-            )
+            .prepare_cached("SELECT auth_key_sha256<>?2 FROM edge_rfid_device WHERE device_id=?1")
+            .map_err(err)?
+            .query_row(params![device.device_id, device.auth_key_sha256], |row| {
+                row.get::<_, bool>(0)
+            })
             .optional()
             .map_err(err)?
             .unwrap_or(false);
-        tx.execute(
+        tx.prepare_cached(
             "INSERT INTO edge_rfid_device
                  (device_id,label,auth_key_sha256,active,valid_until,updated_at,policy_version,
                   kind)
@@ -2192,46 +2232,43 @@ fn apply_auth_policy(tx: &Transaction<'_>, snapshot: &AuthPolicySnapshot) -> Res
                  last_request_digest=CASE
                      WHEN edge_rfid_device.auth_key_sha256<>excluded.auth_key_sha256 THEN NULL
                      ELSE edge_rfid_device.last_request_digest END",
-            params![
-                device.device_id,
-                device.label,
-                device.auth_key_sha256,
-                i64::from(device.active),
-                time_text(device.valid_until),
-                now_text(),
-                snapshot.version,
-                kind,
-            ],
         )
+        .map_err(err)?
+        .execute(params![
+            device.device_id,
+            device.label,
+            device.auth_key_sha256,
+            i64::from(device.active),
+            time_text(device.valid_until),
+            now_text(),
+            snapshot.version,
+            kind,
+        ])
         .map_err(err)?;
         if key_changed {
             // A rotated key starts a fresh monotonic sequence epoch. Old
             // receipts remain represented by immutable sightings/sync facts,
             // but cannot reserve sequence numbers for the new credential.
-            tx.execute(
-                "DELETE FROM edge_rfid_batch_receipt WHERE device_id=?1",
-                params![device.device_id],
-            )
-            .map_err(err)?;
+            tx.prepare_cached("DELETE FROM edge_rfid_batch_receipt WHERE device_id=?1")
+                .map_err(err)?
+                .execute(params![device.device_id])
+                .map_err(err)?;
         }
-        tx.execute(
-            "DELETE FROM edge_rfid_device_pool WHERE device_id=?1",
-            params![device.device_id],
-        )
-        .map_err(err)?;
-        for pool_id in &device.pools {
-            tx.execute(
-                "INSERT INTO edge_rfid_device_pool(device_id,pool_id) VALUES(?1,?2)",
-                params![device.device_id, pool_id],
-            )
+        tx.prepare_cached("DELETE FROM edge_rfid_device_pool WHERE device_id=?1")
+            .map_err(err)?
+            .execute(params![device.device_id])
             .map_err(err)?;
+        for pool_id in &device.pools {
+            tx.prepare_cached("INSERT INTO edge_rfid_device_pool(device_id,pool_id) VALUES(?1,?2)")
+                .map_err(err)?
+                .execute(params![device.device_id, pool_id])
+                .map_err(err)?;
         }
     }
-    tx.execute(
-        "DELETE FROM edge_rfid_device WHERE policy_version<>?1",
-        params![snapshot.version],
-    )
-    .map_err(err)?;
+    tx.prepare_cached("DELETE FROM edge_rfid_device WHERE policy_version<>?1")
+        .map_err(err)?
+        .execute(params![snapshot.version])
+        .map_err(err)?;
     // What head office says about this node's site and the others (0049).
     // Only when it said something: a policy from an older centre carries
     // neither, and must not wipe what a newer one sent.
@@ -2245,7 +2282,7 @@ fn apply_auth_policy(tx: &Transaction<'_>, snapshot: &AuthPolicySnapshot) -> Res
         )
         .map_err(err)?;
     }
-    tx.execute(
+    tx.prepare_cached(
         "INSERT INTO edge_auth_policy_state
              (singleton,snapshot_id,version,origin_id,site_id,node_role,issued_at,
               valid_until,content_hash,activated_at)
@@ -2256,23 +2293,24 @@ fn apply_auth_policy(tx: &Transaction<'_>, snapshot: &AuthPolicySnapshot) -> Res
              node_role=excluded.node_role,issued_at=excluded.issued_at,
              valid_until=excluded.valid_until,content_hash=excluded.content_hash,
              activated_at=excluded.activated_at",
-        params![
-            snapshot.snapshot_id.to_string(),
-            snapshot.version,
-            snapshot.origin_id,
-            snapshot.site_id,
-            snapshot.node_role,
-            time_text(snapshot.issued_at),
-            time_text(snapshot.valid_until),
-            snapshot.content_hash,
-            now_text(),
-        ],
     )
+    .map_err(err)?
+    .execute(params![
+        snapshot.snapshot_id.to_string(),
+        snapshot.version,
+        snapshot.origin_id,
+        snapshot.site_id,
+        snapshot.node_role,
+        time_text(snapshot.issued_at),
+        time_text(snapshot.valid_until),
+        snapshot.content_hash,
+        now_text(),
+    ])
     .map_err(err)?;
     // The policy command is already authenticated by Cloud's signed command
     // lane. Keep its SSO verifier alongside the exact policy version so a key
     // rotation takes effect atomically with the user leases it governs.
-    tx.execute(
+    tx.prepare_cached(
         "INSERT INTO edge_sso_trust
              (singleton,origin_id,node_role,policy_version,public_key_hex,valid_until,updated_at)
          VALUES(1,?1,?2,?3,?4,?5,?6)
@@ -2280,15 +2318,16 @@ fn apply_auth_policy(tx: &Transaction<'_>, snapshot: &AuthPolicySnapshot) -> Res
              origin_id=excluded.origin_id,node_role=excluded.node_role,
              policy_version=excluded.policy_version,public_key_hex=excluded.public_key_hex,
              valid_until=excluded.valid_until,updated_at=excluded.updated_at",
-        params![
-            snapshot.origin_id,
-            snapshot.node_role,
-            snapshot.version,
-            snapshot.sso_public_key,
-            time_text(snapshot.valid_until),
-            now_text(),
-        ],
     )
+    .map_err(err)?
+    .execute(params![
+        snapshot.origin_id,
+        snapshot.node_role,
+        snapshot.version,
+        snapshot.sso_public_key,
+        time_text(snapshot.valid_until),
+        now_text(),
+    ])
     .map_err(err)?;
     Ok(())
 }
@@ -2305,11 +2344,9 @@ fn apply_auth_policy(tx: &Transaction<'_>, snapshot: &AuthPolicySnapshot) -> Res
 /// be the one that survives a restart, not one passed down a call chain.
 fn resident_node(tx: &Transaction<'_>) -> Result<NodeContext, SyncError> {
     let (node_id, role, site_id): (String, String, String) = tx
-        .query_row(
-            "SELECT node_id, role, site_id FROM node_metadata WHERE singleton = 1",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
+        .prepare_cached("SELECT node_id, role, site_id FROM node_metadata WHERE singleton = 1")
+        .map_err(err)?
+        .query_row([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
         .map_err(|error| err(format!("this node has no identity recorded: {error}")))?;
     let role = match role.as_str() {
         "DC" => EdgeRole::Dc,
@@ -2351,11 +2388,9 @@ fn apply_tagging_job(
 
     // A resend after a lost response is a no-op, not a duplicate.
     let resident: Option<String> = tx
-        .query_row(
-            "SELECT job_id FROM tagging_job WHERE job_id = ?1",
-            params![job.job_id.to_string()],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT job_id FROM tagging_job WHERE job_id = ?1")
+        .map_err(err)?
+        .query_row(params![job.job_id.to_string()], |row| row.get(0))
         .optional()
         .map_err(err)?;
     if resident.is_some() {
@@ -2371,14 +2406,14 @@ fn apply_tagging_job(
     // answer coming back down still points at the exact pile it was asked
     // about.
     let subject_id: String = tx
-        .query_row(
+        .prepare_cached(
             "SELECT m.subject_id
              FROM receiving_count c
              JOIN movement m ON m.movement_group_id = c.movement_group_id
              WHERE c.receipt_line_id = ?1 AND c.status = 'ACCEPTED'",
-            params![job.receipt_line_id.to_string()],
-            |row| row.get(0),
         )
+        .map_err(err)?
+        .query_row(params![job.receipt_line_id.to_string()], |row| row.get(0))
         .optional()
         .map_err(err)?
         .ok_or_else(|| {
@@ -2399,11 +2434,11 @@ fn apply_tagging_job(
     // matched. Refusing it would stop every command queued behind this one.
     let unidentified_pool = format!("{}.pending.unidentified:on_hand", node.site_id);
     let on_hand: i64 = tx
-        .query_row(
+        .prepare_cached(
             "SELECT quantity FROM inventory_projection WHERE subject_id = ?1 AND place_id = ?2",
-            params![subject_id, unidentified_pool],
-            |row| row.get(0),
         )
+        .map_err(err)?
+        .query_row(params![subject_id, unidentified_pool], |row| row.get(0))
         .optional()
         .map_err(err)?
         .unwrap_or(0);
@@ -2415,33 +2450,32 @@ fn apply_tagging_job(
     }
 
     let article_code: Option<String> = tx
-        .query_row(
-            "SELECT article_code FROM inventory_subject WHERE id = ?1",
-            params![subject_id],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT article_code FROM inventory_subject WHERE id = ?1")
+        .map_err(err)?
+        .query_row(params![subject_id], |row| row.get(0))
         .optional()
         .map_err(err)?
         .flatten();
 
     let received_at = now_text();
-    tx.execute(
+    tx.prepare_cached(
         "INSERT INTO tagging_job
              (job_id, session_id, article_code, article_name, image_url, total_quantity,
               issued_at, received_at, receipt_line_id)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-        params![
-            job.job_id.to_string(),
-            job.session_id.to_string(),
-            job.article_code,
-            job.article_name,
-            job.image_url,
-            job.total_quantity,
-            job.issued_at.to_rfc3339_opts(SecondsFormat::Micros, true),
-            received_at,
-            job.receipt_line_id.to_string()
-        ],
     )
+    .map_err(err)?
+    .execute(params![
+        job.job_id.to_string(),
+        job.session_id.to_string(),
+        job.article_code,
+        job.article_name,
+        job.image_url,
+        job.total_quantity,
+        job.issued_at.to_rfc3339_opts(SecondsFormat::Micros, true),
+        received_at,
+        job.receipt_line_id.to_string()
+    ])
     .map_err(err)?;
 
     // --- The transformation ------------------------------------------------
@@ -2476,25 +2510,26 @@ fn apply_tagging_job(
         // No lot behind the line: its units are the goods (below). A job
         // stored by an older build names the lot it parked in Untagged here,
         // and confirming it still moves that lot (`confirm_tagging`).
-        tx.execute(
+        tx.prepare_cached(
             "INSERT INTO tagging_job_line
                  (job_id, sku_code, colour_digit, colour_label, size_code, size_label,
                   quantity, qr_payload, barcode_payload, base_price_minor, subject_id)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
-            params![
-                job.job_id.to_string(),
-                line.sku_code,
-                line.colour_digit,
-                line.colour_label,
-                line.size_code,
-                line.size_label,
-                line.quantity,
-                line.qr_payload,
-                line.barcode_payload,
-                line.base_price_minor,
-                Option::<String>::None
-            ],
         )
+        .map_err(err)?
+        .execute(params![
+            job.job_id.to_string(),
+            line.sku_code,
+            line.colour_digit,
+            line.colour_label,
+            line.size_code,
+            line.size_label,
+            line.quantity,
+            line.qr_payload,
+            line.barcode_payload,
+            line.base_price_minor,
+            Option::<String>::None
+        ])
         .map_err(err)?;
 
         // The labels, stored exactly as they arrived. Nothing here computes
@@ -2506,35 +2541,37 @@ fn apply_tagging_job(
         // packs and a store counts in.
         for epc in &line.epcs {
             let unit_subject = Uuid::new_v4();
-            tx.execute(
+            tx.prepare_cached(
                 "INSERT INTO inventory_subject
                      (id, subject_type, article_code, epc, sku_code, quantity, unit_price_minor,
                       created_at)
                  VALUES (?1, 'UNIT', ?2, ?3, ?4, 1, ?5, ?6)",
-                params![
-                    unit_subject.to_string(),
-                    article_code,
-                    epc,
-                    line.sku_code,
-                    line.base_price_minor,
-                    received_at
-                ],
             )
+            .map_err(err)?
+            .execute(params![
+                unit_subject.to_string(),
+                article_code,
+                epc,
+                line.sku_code,
+                line.base_price_minor,
+                received_at
+            ])
             .map_err(|error| {
                 err(format!(
                     "EPC {epc} is already held by this DC as another unit: {error}"
                 ))
             })?;
-            tx.execute(
+            tx.prepare_cached(
                 "INSERT INTO tagging_job_epc (epc, job_id, sku_code, subject_id)
                  VALUES (?1, ?2, ?3, ?4)",
-                params![
-                    epc,
-                    job.job_id.to_string(),
-                    line.sku_code,
-                    unit_subject.to_string()
-                ],
             )
+            .map_err(err)?
+            .execute(params![
+                epc,
+                job.job_id.to_string(),
+                line.sku_code,
+                unit_subject.to_string()
+            ])
             .map_err(|error| {
                 err(format!(
                     "EPC {epc} is already held by this DC under another job: {error}"
@@ -2580,11 +2617,13 @@ fn apply_tagging_job(
     .map_err(err)?;
     // The movement that made the goods stock, kept on the job: marking the
     // labels printed answers with it, and moves nothing again.
-    tx.execute(
-        "UPDATE tagging_job SET movement_group_id = ?2 WHERE job_id = ?1",
-        params![job.job_id.to_string(), movement_group_id.to_string()],
-    )
-    .map_err(err)?;
+    tx.prepare_cached("UPDATE tagging_job SET movement_group_id = ?2 WHERE job_id = ?1")
+        .map_err(err)?
+        .execute(params![
+            job.job_id.to_string(),
+            movement_group_id.to_string()
+        ])
+        .map_err(err)?;
 
     Ok(())
 }
@@ -2619,11 +2658,9 @@ fn apply_in_transit_release(
         return Ok(());
     }
     let already: Option<String> = tx
-        .query_row(
-            "SELECT outcome FROM in_transit_release WHERE release_id=?1",
-            [payload.release_id.to_string()],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT outcome FROM in_transit_release WHERE release_id=?1")
+        .map_err(err)?
+        .query_row([payload.release_id.to_string()], |row| row.get(0))
         .optional()
         .map_err(err)?;
     if already.is_some() {
@@ -2631,32 +2668,31 @@ fn apply_in_transit_release(
     }
     let released_at = now_text();
     let record = |outcome: &str, movement_group_id: Option<String>| {
-        tx.execute(
+        tx.prepare_cached(
             "INSERT INTO in_transit_release
                  (release_id,command_id,koli_id,epc,destination_site_id,outcome,
                   movement_group_id,released_at)
              VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
-            params![
-                payload.release_id.to_string(),
-                command_id.to_string(),
-                payload.koli_id.to_string(),
-                payload.epc,
-                payload.destination_store_id,
-                outcome,
-                movement_group_id,
-                released_at
-            ],
         )
+        .map_err(err)?
+        .execute(params![
+            payload.release_id.to_string(),
+            command_id.to_string(),
+            payload.koli_id.to_string(),
+            payload.epc,
+            payload.destination_store_id,
+            outcome,
+            movement_group_id,
+            released_at
+        ])
         .map(|_| ())
         .map_err(err)
     };
 
     let subject: Option<String> = tx
-        .query_row(
-            "SELECT id FROM inventory_subject WHERE epc=?1",
-            [&payload.epc],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT id FROM inventory_subject WHERE epc=?1")
+        .map_err(err)?
+        .query_row([&payload.epc], |row| row.get::<_, String>(0))
         .optional()
         .map_err(err)?;
     let Some(subject) = subject else {
@@ -2682,13 +2718,18 @@ fn apply_in_transit_release(
         state: InventoryState::Normal,
     })
     .find(|place| {
-        tx.query_row(
+        tx.prepare_cached(
             "SELECT quantity FROM inventory_projection WHERE subject_id=?1 AND place_id=?2",
-            params![subject_id.0.to_string(), place.id()],
-            |row| row.get::<_, i64>(0),
         )
-        .optional()
         .ok()
+        .and_then(|mut statement| {
+            statement
+                .query_row(params![subject_id.0.to_string(), place.id()], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .optional()
+                .ok()
+        })
         .flatten()
         .is_some_and(|quantity| quantity >= 1)
     });
@@ -2704,9 +2745,9 @@ fn apply_in_transit_release(
                         pool: pool.clone(),
                         state: InventoryState::Missing,
                     };
-                    let held = tx
-                        .query_row(
-                            "SELECT quantity FROM inventory_projection WHERE subject_id=?1 AND place_id=?2",
+                    let held = tx.prepare_cached("SELECT quantity FROM inventory_projection WHERE subject_id=?1 AND place_id=?2")
+                    .ok()?
+                    .query_row(
                             params![subject_id.0.to_string(), place.id()],
                             |row| row.get::<_, i64>(0),
                         )
@@ -2773,7 +2814,10 @@ fn apply_in_transit_release(
         reason: format!(
             "Counted in at {} ({}); custody passed",
             payload.destination_store_id,
-            payload.shipment_reference.as_deref().unwrap_or("no surat jalan")
+            payload
+                .shipment_reference
+                .as_deref()
+                .unwrap_or("no surat jalan")
         ),
         actor_id: "system:in-transit-release".into(),
         occurred_at: Utc::now(),
@@ -2824,11 +2868,9 @@ fn apply_in_transit_short(
         return Ok(());
     }
     let subject: Option<String> = tx
-        .query_row(
-            "SELECT id FROM inventory_subject WHERE epc=?1",
-            [&payload.epc],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT id FROM inventory_subject WHERE epc=?1")
+        .map_err(err)?
+        .query_row([&payload.epc], |row| row.get::<_, String>(0))
         .optional()
         .map_err(err)?;
     let Some(subject) = subject else {
@@ -2842,13 +2884,18 @@ fn apply_in_transit_short(
                 pool: pool.clone(),
                 state: InventoryState::Normal,
             };
-            tx.query_row(
+            tx.prepare_cached(
                 "SELECT quantity FROM inventory_projection WHERE subject_id=?1 AND place_id=?2",
-                params![subject_id.0.to_string(), place.id()],
-                |row| row.get::<_, i64>(0),
             )
-            .optional()
             .ok()
+            .and_then(|mut statement| {
+                statement
+                    .query_row(params![subject_id.0.to_string(), place.id()], |row| {
+                        row.get::<_, i64>(0)
+                    })
+                    .optional()
+                    .ok()
+            })
             .flatten()
             .is_some_and(|quantity| quantity >= 1)
         });
@@ -2904,11 +2951,9 @@ fn apply_purchase_order(
     // identity that decides whether an order belongs here must be the one
     // that survives a restart, not one passed down a call chain.
     let (role, site_id): (String, String) = tx
-        .query_row(
-            "SELECT role, site_id FROM node_metadata WHERE singleton = 1",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
+        .prepare_cached("SELECT role, site_id FROM node_metadata WHERE singleton = 1")
+        .map_err(err)?
+        .query_row([], |row| Ok((row.get(0)?, row.get(1)?)))
         .map_err(|error| err(format!("this node has no identity recorded: {error}")))?;
     if role != "DC" {
         return Err(err(format!(
@@ -2925,55 +2970,63 @@ fn apply_purchase_order(
     // Re-activation of an order already held is a no-op, not a duplicate: the
     // centre may resend after a lost response.
     let resident: Option<String> = tx
-        .query_row(
-            "SELECT po_number FROM purchase_order WHERE purchase_order_id = ?1",
-            params![order.purchase_order_id.to_string()],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT po_number FROM purchase_order WHERE purchase_order_id = ?1")
+        .map_err(err)?
+        .query_row(params![order.purchase_order_id.to_string()], |row| {
+            row.get(0)
+        })
         .optional()
         .map_err(err)?;
     if resident.is_some() {
         return Ok(());
     }
-    tx.execute(
+    tx.prepare_cached(
         "INSERT INTO purchase_order
              (purchase_order_id, po_number, supplier_id, supplier_name,
               destination_site_id, activated_at, created_by)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![
-            order.purchase_order_id.to_string(),
-            order.po_number,
-            order.supplier_id,
-            order.supplier_name,
-            order.destination_site_id,
-            now_text(),
-            order.created_by
-        ],
     )
+    .map_err(err)?
+    .execute(params![
+        order.purchase_order_id.to_string(),
+        order.po_number,
+        order.supplier_id,
+        order.supplier_name,
+        order.destination_site_id,
+        now_text(),
+        order.created_by
+    ])
     .map_err(err)?;
     for line in &order.lines {
-        tx.execute(
+        tx.prepare_cached(
             "INSERT INTO purchase_order_line
                  (po_line_id, purchase_order_id, line_number, article_code, article_name,
                   image_url, ordered_quantity, unit_price_minor, promised_date,
                   order_unit_code, order_unit_quantity, unit_factor, count_units)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-            params![
-                line.po_line_id.to_string(),
-                order.purchase_order_id.to_string(),
-                line.line_number,
-                line.article_code,
-                line.article_name,
-                line.image_url,
-                line.ordered_quantity,
-                line.unit_price_minor,
-                line.promised_date,
-                line.units.as_ref().and_then(|units| units.order_unit_code.clone()),
-                line.units.as_ref().and_then(|units| units.order_unit_quantity.clone()),
-                line.units.as_ref().and_then(|units| units.unit_factor.clone()),
-                count_units_json(line)?
-            ],
         )
+        .map_err(err)?
+        .execute(params![
+            line.po_line_id.to_string(),
+            order.purchase_order_id.to_string(),
+            line.line_number,
+            line.article_code,
+            line.article_name,
+            line.image_url,
+            line.ordered_quantity,
+            line.unit_price_minor,
+            line.promised_date,
+            line.units
+                .as_ref()
+                .and_then(|units| units.order_unit_code.clone()),
+            line.units
+                .as_ref()
+                .and_then(|units| units.order_unit_quantity.clone()),
+            line.units
+                .as_ref()
+                .and_then(|units| units.unit_factor.clone()),
+            count_units_json(line)?
+        ])
         .map_err(err)?;
     }
     Ok(())
@@ -3008,11 +3061,11 @@ fn apply_purchase_order_revision(
     order: &PurchaseOrderPayload,
 ) -> Result<(), SyncError> {
     let resident: Option<String> = tx
-        .query_row(
-            "SELECT po_number FROM purchase_order WHERE purchase_order_id = ?1",
-            params![order.purchase_order_id.to_string()],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT po_number FROM purchase_order WHERE purchase_order_id = ?1")
+        .map_err(err)?
+        .query_row(params![order.purchase_order_id.to_string()], |row| {
+            row.get(0)
+        })
         .optional()
         .map_err(err)?;
     // Never activated here — a lost activation, or a node restored from an
@@ -3021,24 +3074,26 @@ fn apply_purchase_order_revision(
         return apply_purchase_order(tx, order);
     }
     let id = order.purchase_order_id.to_string();
-    tx.execute(
+    tx.prepare_cached(
         "UPDATE purchase_order
             SET supplier_name = ?2, created_by = COALESCE(?3, created_by)
           WHERE purchase_order_id = ?1",
-        params![id, order.supplier_name, order.created_by],
     )
+    .map_err(err)?
+    .execute(params![id, order.supplier_name, order.created_by])
     .map_err(err)?;
     // Out of the way of the new numbering first: `(purchase_order_id,
     // line_number)` is unique, and the revision may hand a number to a line
     // that held a different one.
-    tx.execute(
+    tx.prepare_cached(
         "UPDATE purchase_order_line SET line_number = -line_number
           WHERE purchase_order_id = ?1 AND line_number > 0",
-        params![id],
     )
+    .map_err(err)?
+    .execute(params![id])
     .map_err(err)?;
     for line in &order.lines {
-        tx.execute(
+        tx.prepare_cached(
             "INSERT INTO purchase_order_line
                  (po_line_id, purchase_order_id, line_number, article_code, article_name,
                   image_url, ordered_quantity, unit_price_minor, promised_date,
@@ -3056,34 +3111,42 @@ fn apply_purchase_order_revision(
                  order_unit_quantity = excluded.order_unit_quantity,
                  unit_factor = excluded.unit_factor,
                  count_units = COALESCE(excluded.count_units, purchase_order_line.count_units)",
-            params![
-                line.po_line_id.to_string(),
-                id,
-                line.line_number,
-                line.article_code,
-                line.article_name,
-                line.image_url,
-                line.ordered_quantity,
-                line.unit_price_minor,
-                line.promised_date,
-                line.units.as_ref().and_then(|units| units.order_unit_code.clone()),
-                line.units.as_ref().and_then(|units| units.order_unit_quantity.clone()),
-                line.units.as_ref().and_then(|units| units.unit_factor.clone()),
-                count_units_json(line)?
-            ],
         )
+        .map_err(err)?
+        .execute(params![
+            line.po_line_id.to_string(),
+            id,
+            line.line_number,
+            line.article_code,
+            line.article_name,
+            line.image_url,
+            line.ordered_quantity,
+            line.unit_price_minor,
+            line.promised_date,
+            line.units
+                .as_ref()
+                .and_then(|units| units.order_unit_code.clone()),
+            line.units
+                .as_ref()
+                .and_then(|units| units.order_unit_quantity.clone()),
+            line.units
+                .as_ref()
+                .and_then(|units| units.unit_factor.clone()),
+            count_units_json(line)?
+        ])
         .map_err(err)?;
     }
     // What the order no longer lists, unless the bay has already counted it.
-    tx.execute(
+    tx.prepare_cached(
         "DELETE FROM purchase_order_line
           WHERE purchase_order_id = ?1 AND line_number < 0
             AND NOT EXISTS (SELECT 1 FROM receiving_count c
                              WHERE c.po_line_id = purchase_order_line.po_line_id)
             AND NOT EXISTS (SELECT 1 FROM purchase_price_amendment a
                              WHERE a.po_line_id = purchase_order_line.po_line_id)",
-        params![id],
     )
+    .map_err(err)?
+    .execute(params![id])
     .map_err(err)?;
     let mut kept = tx
         .prepare(
@@ -3097,14 +3160,18 @@ fn apply_purchase_order_revision(
         .map_err(err)?
         .collect::<Result<_, _>>()
         .map_err(err)?;
-    let mut next = order.lines.iter().map(|line| line.line_number).max().unwrap_or(0);
+    let mut next = order
+        .lines
+        .iter()
+        .map(|line| line.line_number)
+        .max()
+        .unwrap_or(0);
     for po_line_id in kept {
         next += 1;
-        tx.execute(
-            "UPDATE purchase_order_line SET line_number = ?2 WHERE po_line_id = ?1",
-            params![po_line_id, next],
-        )
-        .map_err(err)?;
+        tx.prepare_cached("UPDATE purchase_order_line SET line_number = ?2 WHERE po_line_id = ?1")
+            .map_err(err)?
+            .execute(params![po_line_id, next])
+            .map_err(err)?;
     }
     Ok(())
 }
@@ -3121,11 +3188,11 @@ fn apply_price_amendment_decision(
     decision: &crate::cloud::domain::PriceAmendmentDecisionPayload,
 ) -> Result<(), SyncError> {
     let pending: Option<String> = tx
-        .query_row(
-            "SELECT status FROM purchase_price_amendment WHERE request_id = ?1",
-            params![decision.causation_request_id.to_string()],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT status FROM purchase_price_amendment WHERE request_id = ?1")
+        .map_err(err)?
+        .query_row(params![decision.causation_request_id.to_string()], |row| {
+            row.get(0)
+        })
         .optional()
         .map_err(err)?;
     let Some(status) = pending else {
@@ -3145,21 +3212,22 @@ fn apply_price_amendment_decision(
         crate::cloud::domain::PriceAmendmentOutcome::Approved => "APPROVED",
         crate::cloud::domain::PriceAmendmentOutcome::Rejected => "REJECTED",
     };
-    tx.execute(
+    tx.prepare_cached(
         "UPDATE purchase_price_amendment
          SET status=?2, approved_price_minor=?3, decided_by=?4, decided_at=?5, decision_note=?6,
              scope=?7
          WHERE request_id=?1",
-        params![
-            decision.causation_request_id.to_string(),
-            outcome,
-            decision.approved_price_minor,
-            decision.decided_by,
-            time_text(decision.decided_at),
-            decision.decision_note,
-            decision.scope
-        ],
     )
+    .map_err(err)?
+    .execute(params![
+        decision.causation_request_id.to_string(),
+        outcome,
+        decision.approved_price_minor,
+        decision.decided_by,
+        time_text(decision.decided_at),
+        decision.decision_note,
+        decision.scope
+    ])
     .map_err(err)?;
     // An approval that reaches the rest of the order changes what the next
     // lorry is expected to cost, so this node's copy of the order has to move
@@ -3170,10 +3238,11 @@ fn apply_price_amendment_decision(
     // that acceptance already carries the price it was accepted at.
     if decision.scope.as_deref() == Some("REMAINING") {
         if let Some(price) = decision.approved_price_minor {
-            tx.execute(
+            tx.prepare_cached(
                 "UPDATE purchase_order_line SET unit_price_minor = ?2 WHERE po_line_id = ?1",
-                params![decision.po_line_id.to_string(), price],
             )
+            .map_err(err)?
+            .execute(params![decision.po_line_id.to_string(), price])
             .map_err(err)?;
         }
     }
@@ -3191,41 +3260,43 @@ fn apply_purchase_return(
     raised: &crate::cloud::domain::PurchaseReturnPayload,
 ) -> Result<(), SyncError> {
     let inserted = tx
-        .execute(
+        .prepare_cached(
             "INSERT OR IGNORE INTO purchase_return
                  (return_id, return_number, purchase_order_id, po_number, supplier_id,
                   supplier_name, note, raised_by, received_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            params![
-                raised.return_id.to_string(),
-                raised.return_number,
-                raised.purchase_order_id.to_string(),
-                raised.po_number,
-                raised.supplier_id,
-                raised.supplier_name,
-                raised.note,
-                raised.raised_by,
-                now_text()
-            ],
         )
+        .map_err(err)?
+        .execute(params![
+            raised.return_id.to_string(),
+            raised.return_number,
+            raised.purchase_order_id.to_string(),
+            raised.po_number,
+            raised.supplier_id,
+            raised.supplier_name,
+            raised.note,
+            raised.raised_by,
+            now_text()
+        ])
         .map_err(err)?;
     if inserted == 0 {
         return Ok(());
     }
     for line in &raised.lines {
-        tx.execute(
+        tx.prepare_cached(
             "INSERT INTO purchase_return_line
                  (return_id, receipt_line_id, po_line_id, article_code, article_name, quantity)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                raised.return_id.to_string(),
-                line.receipt_line_id.to_string(),
-                line.po_line_id.to_string(),
-                line.article_code,
-                line.article_name,
-                line.quantity
-            ],
         )
+        .map_err(err)?
+        .execute(params![
+            raised.return_id.to_string(),
+            line.receipt_line_id.to_string(),
+            line.po_line_id.to_string(),
+            line.article_code,
+            line.article_name,
+            line.quantity
+        ])
         .map_err(err)?;
     }
     Ok(())
@@ -3265,8 +3336,8 @@ fn apply_command_effect(tx: &Transaction<'_>, command: &PushedCommand) -> Result
             apply_purchase_order_revision(tx, &order)
         }
         crate::cloud::domain::COMMAND_PURCHASE_RETURN_RAISE => {
-            let raised = crate::cloud::domain::parse_purchase_return(&command.payload)
-                .map_err(err)?;
+            let raised =
+                crate::cloud::domain::parse_purchase_return(&command.payload).map_err(err)?;
             apply_purchase_return(tx, &raised)
         }
         crate::cloud::domain::COMMAND_PURCHASE_ORDER_CANCEL => {
@@ -3275,24 +3346,24 @@ fn apply_command_effect(tx: &Transaction<'_>, command: &PushedCommand) -> Result
                     .map_err(err)?;
             // Idempotent, and quiet about an order this node never held: a
             // cancellation that overtook its activation leaves nothing to do.
-            tx.execute(
+            tx.prepare_cached(
                 "UPDATE purchase_order
                     SET cancelled_at = COALESCE(cancelled_at, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
                   WHERE purchase_order_id = ?1",
-                params![cancellation.purchase_order_id.to_string()],
             )
+            .map_err(err)?
+            .execute(params![cancellation.purchase_order_id.to_string()])
             .map_err(err)?;
             Ok(())
         }
         crate::cloud::domain::COMMAND_PURCHASE_ORDER_LINE_CLOSE => {
-            let closure =
-                crate::cloud::domain::parse_purchase_order_line_closure(&command.payload)
-                    .map_err(err)?;
+            let closure = crate::cloud::domain::parse_purchase_order_line_closure(&command.payload)
+                .map_err(err)?;
             // Idempotent, and quiet about a line this node never held.
-            tx.execute(
-                "UPDATE purchase_order_line
+            tx.prepare_cached("UPDATE purchase_order_line
                     SET closed_short_at = COALESCE(closed_short_at, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-                  WHERE po_line_id = ?1",
+                  WHERE po_line_id = ?1"
+    ).map_err(err)?.execute(
                 params![closure.po_line_id.to_string()],
             )
             .map_err(err)?;
@@ -3324,7 +3395,8 @@ fn apply_command_effect(tx: &Transaction<'_>, command: &PushedCommand) -> Result
         crate::cloud::domain::COMMAND_PAYMENT_METHODS_REPLACE => {
             // The shop's whole list, replaced; the tills read it back from
             // `/api/v1/store/payment-methods`.
-            let book = crate::cloud::domain::parse_payment_method_book(&command.payload).map_err(err)?;
+            let book =
+                crate::cloud::domain::parse_payment_method_book(&command.payload).map_err(err)?;
             crate::edge::payment_methods::replace_book(tx, &book)
                 .map_err(|error| err(error.to_string()))
         }
@@ -3337,8 +3409,8 @@ fn apply_command_effect(tx: &Transaction<'_>, command: &PushedCommand) -> Result
             apply_allotment_cancellation(tx, command.command_id, &payload)
         }
         crate::sync::workflow::INVENTORY_ALLOTMENT_CLOSE_SHORT_V1 => {
-            let payload =
-                crate::sync::workflow::parse_allotment_close_short(&command.payload).map_err(err)?;
+            let payload = crate::sync::workflow::parse_allotment_close_short(&command.payload)
+                .map_err(err)?;
             apply_allotment_close_short(tx, &payload)
         }
         INVENTORY_OFFICIAL_COUNT_ACTIVATE_V1 => {
@@ -3353,9 +3425,8 @@ fn apply_command_effect(tx: &Transaction<'_>, command: &PushedCommand) -> Result
         // this one on, so a misdirected copy is ignored rather than blocking —
         // see `edge::inbound::apply_announcement`.
         crate::sync::workflow::INVENTORY_STORE_INBOUND_ANNOUNCE_V1 => {
-            let payload =
-                crate::sync::workflow::parse_store_inbound_announcement(&command.payload)
-                    .map_err(err)?;
+            let payload = crate::sync::workflow::parse_store_inbound_announcement(&command.payload)
+                .map_err(err)?;
             crate::edge::inbound::apply_announcement(tx, command.command_id, &payload)
                 .map_err(|error| err(error.to_string()))
         }
@@ -3363,16 +3434,16 @@ fn apply_command_effect(tx: &Transaction<'_>, command: &PushedCommand) -> Result
         // Only ever sent to a node whose heartbeat carries the goods-route
         // capability, so an older build never receives it.
         crate::sync::transfer::INVENTORY_IN_TRANSIT_RELEASE_V1 => {
-            let payload = crate::sync::transfer::parse_in_transit_release(&command.payload)
-                .map_err(err)?;
+            let payload =
+                crate::sync::transfer::parse_in_transit_release(&command.payload).map_err(err)?;
             apply_in_transit_release(tx, command.command_id, &payload)
         }
         // A piece the destination did not find at its door: Missing here.
         // Only ever sent to a node whose heartbeat carries the transit-short
         // capability.
         crate::sync::transfer::INVENTORY_IN_TRANSIT_SHORT_V1 => {
-            let payload = crate::sync::transfer::parse_in_transit_short(&command.payload)
-                .map_err(err)?;
+            let payload =
+                crate::sync::transfer::parse_in_transit_short(&command.payload).map_err(err)?;
             apply_in_transit_short(tx, &payload)
         }
         // What a goods flow touching this site did — kept for this node's
@@ -3435,8 +3506,14 @@ fn apply_command_effect(tx: &Transaction<'_>, command: &PushedCommand) -> Result
         kind if crate::sync::node_ops::is_node_op(kind) => {
             let payload = crate::sync::node_ops::parse(&command.payload).map_err(err)?;
             if let Some(action_id) = payload.action_id {
-                crate::edge::ops::record_received(tx, action_id, kind, &payload.reason, payload.force)
-                    .map_err(err)?;
+                crate::edge::ops::record_received(
+                    tx,
+                    action_id,
+                    kind,
+                    &payload.reason,
+                    payload.force,
+                )
+                .map_err(err)?;
             }
             crate::edge::ops::enqueue(kind, payload);
             Ok(())
@@ -3528,39 +3605,39 @@ impl GenerationStore for SqliteSyncStore {
     async fn local_stream(&self) -> Result<Option<HandshakeRequest>, SyncError> {
         self.with_connection(|connection| {
             let origin: Option<(String, i64, i64)> = connection
-                .query_row(
+                .prepare_cached(
                     "SELECT origin_id, generation, next_seq FROM sync_origin WHERE singleton=1",
-                    [],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )
+                .map_err(err)?
+                .query_row([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
                 .optional()
                 .map_err(err)?;
             let Some((origin_id, generation, next_seq)) = origin else {
                 return Ok(None);
             };
             let durable_through: i64 = connection
-                .query_row(
+                .prepare_cached(
                     "SELECT durable_seq FROM sync_watermark
                      WHERE origin_id = ?1 AND generation = ?2",
-                    params![&origin_id, generation],
-                    |row| row.get(0),
                 )
+                .map_err(err)?
+                .query_row(params![&origin_id, generation], |row| row.get(0))
                 .optional()
                 .map_err(err)?
                 .unwrap_or(0);
             let witness = connection
-                .query_row(
+                .prepare_cached(
                     "SELECT seq, event_id FROM sync_fact_log
                      WHERE origin_id = ?1 AND generation = ?2 AND seq > ?3
                      ORDER BY seq LIMIT 1",
-                    params![&origin_id, generation, durable_through],
-                    |row| {
-                        Ok(StreamWitness {
-                            seq: row.get(0)?,
-                            event_id: row.get(1)?,
-                        })
-                    },
                 )
+                .map_err(err)?
+                .query_row(params![&origin_id, generation, durable_through], |row| {
+                    Ok(StreamWitness {
+                        seq: row.get(0)?,
+                        event_id: row.get(1)?,
+                    })
+                })
                 .optional()
                 .map_err(err)?;
             Ok(Some(HandshakeRequest {
@@ -3576,11 +3653,9 @@ impl GenerationStore for SqliteSyncStore {
     async fn handshake_settled(&self) -> Result<bool, SyncError> {
         self.with_connection(|connection| {
             Ok(connection
-                .query_row(
-                    "SELECT handshake_settled FROM sync_origin WHERE singleton=1",
-                    [],
-                    |row| row.get::<_, i64>(0),
-                )
+                .prepare_cached("SELECT handshake_settled FROM sync_origin WHERE singleton=1")
+                .map_err(err)?
+                .query_row([], |row| row.get::<_, i64>(0))
                 .optional()
                 .map_err(err)?
                 .unwrap_or(0)
@@ -3607,9 +3682,8 @@ impl GenerationStore for SqliteSyncStore {
     async fn adopt_generation(&self, generation: i64, note: &str) -> Result<(), SyncError> {
         self.with_connection(|connection| {
             let tx = connection.transaction().map_err(err)?;
-            let current: Option<(String, i64)> = tx
-                .query_row(
-                    "SELECT origin_id, generation FROM sync_origin WHERE singleton=1",
+            let current: Option<(String, i64)> = tx.prepare_cached("SELECT origin_id, generation FROM sync_origin WHERE singleton=1"
+    ).map_err(err)?.query_row(
                     [],
                     |row| Ok((row.get(0)?, row.get(1)?)),
                 )
@@ -3624,9 +3698,8 @@ impl GenerationStore for SqliteSyncStore {
                 )));
             }
             if generation > from {
-                let occupied: i64 = tx
-                    .query_row(
-                        "SELECT COUNT(*) FROM sync_fact_log WHERE origin_id=?1 AND generation=?2",
+                let occupied: i64 = tx.prepare_cached("SELECT COUNT(*) FROM sync_fact_log WHERE origin_id=?1 AND generation=?2"
+    ).map_err(err)?.query_row(
                         params![&origin_id, generation],
                         |row| row.get(0),
                     )
@@ -3637,46 +3710,44 @@ impl GenerationStore for SqliteSyncStore {
                          refusing to write a second stream into it"
                     )));
                 }
-                let acknowledged: i64 = tx
-                    .query_row(
-                        "SELECT durable_seq FROM sync_watermark WHERE origin_id=?1 AND generation=?2",
+                let acknowledged: i64 = tx.prepare_cached("SELECT durable_seq FROM sync_watermark WHERE origin_id=?1 AND generation=?2"
+    ).map_err(err)?.query_row(
                         params![&origin_id, from],
                         |row| row.get(0),
                     )
                     .optional()
                     .map_err(err)?
                     .unwrap_or(0);
-                tx.execute(
-                    "UPDATE sync_fact_log SET generation = ?1, seq = seq - ?2
-                     WHERE origin_id = ?3 AND generation = ?4 AND seq > ?2",
+                tx.prepare_cached("UPDATE sync_fact_log SET generation = ?1, seq = seq - ?2
+                     WHERE origin_id = ?3 AND generation = ?4 AND seq > ?2"
+    ).map_err(err)?.execute(
                     params![generation, acknowledged, &origin_id, from],
                 )
                 .map_err(err)?;
-                let next_seq: i64 = tx
-                    .query_row(
-                        "SELECT COALESCE(MAX(seq), 0) FROM sync_fact_log
-                         WHERE origin_id=?1 AND generation=?2",
+                let next_seq: i64 = tx.prepare_cached("SELECT COALESCE(MAX(seq), 0) FROM sync_fact_log
+                         WHERE origin_id=?1 AND generation=?2"
+    ).map_err(err)?.query_row(
                         params![&origin_id, generation],
                         |row| row.get(0),
                     )
                     .map_err(err)?;
-                tx.execute(
-                    "INSERT INTO sync_watermark (origin_id, generation, durable_seq, updated_at)
+                tx.prepare_cached("INSERT INTO sync_watermark (origin_id, generation, durable_seq, updated_at)
                      VALUES (?1, ?2, 0, ?3)
-                     ON CONFLICT(origin_id, generation) DO NOTHING",
+                     ON CONFLICT(origin_id, generation) DO NOTHING"
+    ).map_err(err)?.execute(
                     params![&origin_id, generation, now_text()],
                 )
                 .map_err(err)?;
-                tx.execute(
-                    "UPDATE sync_origin SET generation = ?1, next_seq = ?2 WHERE singleton=1",
+                tx.prepare_cached("UPDATE sync_origin SET generation = ?1, next_seq = ?2 WHERE singleton=1"
+    ).map_err(err)?.execute(
                     params![generation, next_seq],
                 )
                 .map_err(err)?;
             }
-            tx.execute(
-                "UPDATE sync_origin
+            tx.prepare_cached("UPDATE sync_origin
                  SET handshake_settled = 1, handshake_at = ?1, handshake_note = ?2
-                 WHERE singleton=1",
+                 WHERE singleton=1"
+    ).map_err(err)?.execute(
                 params![now_text(), note],
             )
             .map_err(err)?;
@@ -3687,12 +3758,13 @@ impl GenerationStore for SqliteSyncStore {
     async fn reopen_handshake(&self, reason: &str) -> Result<(), SyncError> {
         self.with_connection(|connection| {
             connection
-                .execute(
+                .prepare_cached(
                     "UPDATE sync_origin
                      SET handshake_settled = 0, handshake_note = ?1
                      WHERE singleton=1",
-                    params![reason],
                 )
+                .map_err(err)?
+                .execute(params![reason])
                 .map_err(err)?;
             Ok(())
         })
@@ -3704,9 +3776,9 @@ impl SyncStore for SqliteSyncStore {
     async fn origin_identity(&self) -> Result<Option<(String, i64)>, SyncError> {
         self.with_connection(|connection| {
             connection
-                .query_row("SELECT origin_id, generation FROM sync_origin", [], |row| {
-                    Ok((row.get(0)?, row.get(1)?))
-                })
+                .prepare_cached("SELECT origin_id, generation FROM sync_origin")
+                .map_err(err)?
+                .query_row([], |row| Ok((row.get(0)?, row.get(1)?)))
                 .optional()
                 .map_err(err)
         })
@@ -3719,12 +3791,12 @@ impl SyncStore for SqliteSyncStore {
     async fn watermark(&self, origin_id: &str, generation: i64) -> Result<i64, SyncError> {
         self.with_connection(|connection| {
             Ok(connection
-                .query_row(
+                .prepare_cached(
                     "SELECT durable_seq FROM sync_watermark
                      WHERE origin_id = ?1 AND generation = ?2",
-                    params![origin_id, generation],
-                    |row| row.get(0),
                 )
+                .map_err(err)?
+                .query_row(params![origin_id, generation], |row| row.get(0))
                 .optional()
                 .map_err(err)?
                 .unwrap_or(0))
@@ -3786,22 +3858,22 @@ impl SyncStore for SqliteSyncStore {
             // Dead letters are copied BEFORE the advance, so a crash between
             // the two cannot lose the evidence.
             for reject in dead_letters {
-                tx.execute(
-                    "INSERT OR IGNORE INTO sync_dead_letter
+                tx.prepare_cached("INSERT OR IGNORE INTO sync_dead_letter
                          (origin_id, generation, seq, event_id, event_type, payload, reason, rejected_at)
                      SELECT origin_id, generation, seq, event_id, event_type, payload, ?4, ?5
                      FROM sync_fact_log
-                     WHERE origin_id = ?1 AND generation = ?2 AND seq = ?3",
+                     WHERE origin_id = ?1 AND generation = ?2 AND seq = ?3"
+    ).map_err(err)?.execute(
                     params![origin_id, generation, reject.seq, reject.reason, now_text()],
                 )
                 .map_err(err)?;
             }
-            tx.execute(
-                "INSERT INTO sync_watermark (origin_id, generation, durable_seq, updated_at)
+            tx.prepare_cached("INSERT INTO sync_watermark (origin_id, generation, durable_seq, updated_at)
                  VALUES (?1, ?2, ?3, ?4)
                  ON CONFLICT(origin_id, generation) DO UPDATE SET
                      durable_seq = MAX(sync_watermark.durable_seq, excluded.durable_seq),
-                     updated_at = excluded.updated_at",
+                     updated_at = excluded.updated_at"
+    ).map_err(err)?.execute(
                 params![origin_id, generation, advance_to, now_text()],
             )
             .map_err(err)?;
@@ -3813,7 +3885,7 @@ impl SyncStore for SqliteSyncStore {
         self.with_connection(|connection| {
             let now = now_text();
             connection
-                .execute(
+                .prepare_cached(
                     "INSERT INTO sync_sender_state
                          (singleton, consecutive_failures, breaker_open_until, last_success_at,
                           last_cycle_at, updated_at)
@@ -3821,8 +3893,9 @@ impl SyncStore for SqliteSyncStore {
                      ON CONFLICT(singleton) DO UPDATE SET
                          consecutive_failures = 0, breaker_open_until = NULL,
                          last_success_at = ?1, last_cycle_at = ?1, updated_at = ?1",
-                    params![now],
                 )
+                .map_err(err)?
+                .execute(params![now])
                 .map_err(err)?;
             Ok(())
         })
@@ -3832,7 +3905,7 @@ impl SyncStore for SqliteSyncStore {
         self.with_connection(|connection| {
             let now = now_text();
             connection
-                .execute(
+                .prepare_cached(
                     "INSERT INTO sync_sender_state
                          (singleton, consecutive_failures, breaker_open_until, last_success_at,
                           last_cycle_at, updated_at)
@@ -3840,8 +3913,9 @@ impl SyncStore for SqliteSyncStore {
                      ON CONFLICT(singleton) DO UPDATE SET
                          consecutive_failures = 0, breaker_open_until = NULL,
                          last_success_at = ?1, last_cycle_at = ?1, updated_at = ?1",
-                    params![now],
                 )
+                .map_err(err)?
+                .execute(params![now])
                 .map_err(err)?;
             Ok(())
         })
@@ -3855,7 +3929,7 @@ impl SyncStore for SqliteSyncStore {
         self.with_connection(|connection| {
             let tx = connection.transaction().map_err(err)?;
             let now = now_text();
-            tx.execute(
+            tx.prepare_cached(
                 "INSERT INTO sync_sender_state
                      (singleton, consecutive_failures, last_error, last_error_at,
                       last_cycle_at, updated_at)
@@ -3864,22 +3938,22 @@ impl SyncStore for SqliteSyncStore {
                      consecutive_failures = sync_sender_state.consecutive_failures + 1,
                      last_error = ?1, last_error_at = ?2,
                      last_cycle_at = ?2, updated_at = ?2",
-                params![error_text, now],
             )
+            .map_err(err)?
+            .execute(params![error_text, now])
             .map_err(err)?;
             let failures: i64 = tx
-                .query_row(
-                    "SELECT consecutive_failures FROM sync_sender_state",
-                    [],
-                    |row| row.get(0),
-                )
+                .prepare_cached("SELECT consecutive_failures FROM sync_sender_state")
+                .map_err(err)?
+                .query_row([], |row| row.get(0))
                 .map_err(err)?;
             if let Some(cooldown) = cooldown_after_failure(policy, failures.max(0) as u32) {
                 let until = Utc::now() + chrono::Duration::seconds(cooldown);
-                tx.execute(
+                tx.prepare_cached(
                     "UPDATE sync_sender_state SET breaker_open_until = ?1, updated_at = ?2",
-                    params![time_text(until), now_text()],
                 )
+                .map_err(err)?
+                .execute(params![time_text(until), now_text()])
                 .map_err(err)?;
             }
             let state = read_sender_state(&tx)?;
@@ -3914,11 +3988,11 @@ impl SyncStore for SqliteSyncStore {
                         CommandDisposition::Apply => ("APPLIED", None),
                     };
                 let tx = connection.transaction().map_err(err)?;
-                tx.execute(
-                    "INSERT OR IGNORE INTO sync_command_inbox
+                tx.prepare_cached("INSERT OR IGNORE INTO sync_command_inbox
                          (seq, command_id, command_type, payload, received_at, settled_at,
                           outcome, reason)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6, ?7)",
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6, ?7)"
+    ).map_err(err)?.execute(
                     params![
                         command.seq,
                         command.command_id.to_string(),
@@ -3953,13 +4027,13 @@ impl SyncStore for SqliteSyncStore {
                         break;
                     }
                 }
-                tx.execute(
-                    "INSERT INTO sync_command_watermark
+                tx.prepare_cached("INSERT INTO sync_command_watermark
                          (singleton, applied_seq, blocked_at_seq, blocked_reason, blocked_since, updated_at)
                      VALUES (1, ?1, NULL, NULL, NULL, ?2)
                      ON CONFLICT(singleton) DO UPDATE SET
                          applied_seq = ?1, blocked_at_seq = NULL, blocked_reason = NULL,
-                         blocked_since = NULL, updated_at = ?2",
+                         blocked_since = NULL, updated_at = ?2"
+    ).map_err(err)?.execute(
                     params![command.seq, now_text()],
                 )
                 .map_err(err)?;
@@ -4185,11 +4259,12 @@ impl EdgeSyncHandle {
             .ok()
             .and_then(|connection| {
                 connection
-                    .execute(
+                    .prepare_cached(
                         "UPDATE sync_sender_state SET breaker_open_until = NULL
                           WHERE breaker_open_until IS NOT NULL",
-                        [],
                     )
+                    .ok()?
+                    .execute([])
                     .ok()
             })
             .unwrap_or(0)
@@ -4214,22 +4289,22 @@ impl EdgeSyncHandle {
             .lock()
             .map_err(|_| crate::edge::EdgeError::Persistence("edge sync store poisoned".into()))?;
         let origin: Option<(String, i64, i64, i64, Option<String>, Option<String>)> = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT origin_id, generation, next_seq,
                         handshake_settled, handshake_at, handshake_note
                  FROM sync_origin WHERE singleton=1",
-                [],
-                |row| {
-                    Ok((
-                        row.get(0)?,
-                        row.get(1)?,
-                        row.get(2)?,
-                        row.get(3)?,
-                        row.get(4)?,
-                        row.get(5)?,
-                    ))
-                },
             )
+            .map_err(|error| crate::edge::EdgeError::Persistence(error.to_string()))?
+            .query_row([], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            })
             .optional()
             .map_err(persistence)?;
         let (watermark, pending, dead) = backlog(&connection).map_err(persistence)?;
@@ -4643,35 +4718,33 @@ mod tests {
                 .unwrap_or_else(|error| panic!("commit policy: {error}"));
         }
         let role: String = connection
-            .query_row(
-                "SELECT role FROM edge_user WHERE id=?1",
-                params![user_id.to_string()],
-                |row| row.get(0),
-            )
+            .prepare_cached("SELECT role FROM edge_user WHERE id=?1")
+            .map_err(err)?
+            .query_row(params![user_id.to_string()], |row| row.get(0))
             .unwrap_or_else(|error| panic!("user: {error}"));
         assert_eq!(role, "CASHIER");
         let (trusted_key, trusted_version): (Option<String>, i64) = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT public_key_hex,policy_version FROM edge_sso_trust WHERE singleton=1",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
             )
+            .map_err(err)?
+            .query_row([], |row| Ok((row.get(0)?, row.get(1)?)))
             .unwrap_or_else(|error| panic!("SSO trust: {error}"));
         assert_eq!(trusted_key, snapshot.sso_public_key);
         assert_eq!(trusted_version, 1);
         connection
-            .execute(
-                "UPDATE edge_rfid_device SET last_sequence=7 WHERE device_id='RFID-07'",
-                [],
-            )
+            .prepare_cached("UPDATE edge_rfid_device SET last_sequence=7 WHERE device_id='RFID-07'")
+            .map_err(err)?
+            .execute([])
             .unwrap_or_else(|error| panic!("sequence: {error}"));
         connection
-            .execute(
+            .prepare_cached(
                 "INSERT INTO edge_rfid_batch_receipt
                      (idempotency_key,device_id,sequence,request_digest,response_json,created_at)
                  VALUES('old-key-receipt','RFID-07',7,?1,'{}',?2)",
-                params!["d".repeat(64), now_text()],
             )
+            .map_err(err)?
+            .execute(params!["d".repeat(64), now_text()])
             .unwrap_or_else(|error| panic!("receipt: {error}"));
 
         snapshot.version = 2;
@@ -4691,22 +4764,18 @@ mod tests {
                 .unwrap_or_else(|error| panic!("commit renewal: {error}"));
         }
         let sequence: i64 = connection
-            .query_row(
-                "SELECT last_sequence FROM edge_rfid_device WHERE device_id='RFID-07'",
-                [],
-                |row| row.get(0),
-            )
+            .prepare_cached("SELECT last_sequence FROM edge_rfid_device WHERE device_id='RFID-07'")
+            .map_err(err)?
+            .query_row([], |row| row.get(0))
             .unwrap_or_else(|error| panic!("reader sequence: {error}"));
         assert_eq!(
             sequence, 7,
             "lease renewal must not reopen replayed sequences"
         );
         let version: i64 = connection
-            .query_row(
-                "SELECT version FROM edge_auth_policy_state WHERE singleton=1",
-                [],
-                |row| row.get(0),
-            )
+            .prepare_cached("SELECT version FROM edge_auth_policy_state WHERE singleton=1")
+            .map_err(err)?
+            .query_row([], |row| row.get(0))
             .unwrap_or_else(|error| panic!("policy version: {error}"));
         assert_eq!(version, 2);
 
@@ -4720,11 +4789,9 @@ mod tests {
                 .unwrap_or_else(|error| panic!("commit ignored rollback: {error}"));
         }
         let version: i64 = connection
-            .query_row(
-                "SELECT version FROM edge_auth_policy_state WHERE singleton=1",
-                [],
-                |row| row.get(0),
-            )
+            .prepare_cached("SELECT version FROM edge_auth_policy_state WHERE singleton=1")
+            .map_err(err)?
+            .query_row([], |row| row.get(0))
             .unwrap_or_else(|error| panic!("policy after rollback: {error}"));
         assert_eq!(version, 2, "older auth snapshots must not roll policy back");
 
@@ -4742,14 +4809,14 @@ mod tests {
                 .unwrap_or_else(|error| panic!("commit rotation: {error}"));
         }
         let (sequence, receipts): (i64, i64) = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT d.last_sequence,
                         (SELECT count(*) FROM edge_rfid_batch_receipt r
                          WHERE r.device_id=d.device_id)
                  FROM edge_rfid_device d WHERE d.device_id='RFID-07'",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
             )
+            .map_err(err)?
+            .query_row([], |row| Ok((row.get(0)?, row.get(1)?)))
             .unwrap_or_else(|error| panic!("rotated device state: {error}"));
         assert_eq!((sequence, receipts), (0, 0));
     }
@@ -4858,7 +4925,6 @@ mod tests {
 /// must arrive before its lines" — and a rule like that is one more way for a
 /// stream to block. This way each line stands alone and the centre upserts.
 #[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)]
 pub fn record_accepted_receipt_line(
     tx: &Transaction<'_>,
     receipt_line_id: Uuid,
@@ -4888,14 +4954,16 @@ pub fn record_accepted_receipt_line(
         return Err(err("a receipt of nothing is not a receipt"));
     }
     let (article_code, receipt_id): (String, String) = tx
-        .query_row(
+        .prepare_cached(
             "SELECT l.article_code, c.receipt_id
              FROM receiving_count c
              JOIN purchase_order_line l ON l.po_line_id = c.po_line_id
              WHERE c.count_id = ?1",
-            params![count_id.to_string()],
-            |row| Ok((row.get(0)?, row.get(1)?)),
         )
+        .map_err(err)?
+        .query_row(params![count_id.to_string()], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
         .optional()
         .map_err(err)?
         .ok_or_else(|| {
@@ -4911,20 +4979,20 @@ pub fn record_accepted_receipt_line(
         String,
         String,
     ) = tx
-        .query_row(
+        .prepare_cached(
             "SELECT receipt_number, supplier_id, arrived_at, opened_by, opened_at
              FROM goods_receipt WHERE receipt_id = ?1",
-            params![receipt_id],
-            |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                ))
-            },
         )
+        .map_err(err)?
+        .query_row(params![receipt_id], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        })
         .optional()
         .map_err(err)?
         .ok_or_else(|| {
@@ -4978,12 +5046,14 @@ pub fn record_rejected_delivery(
     rejected_at: DateTime<Utc>,
 ) -> Result<(), SyncError> {
     let (receipt_number, arrived_at, opened_by, opened_at): (String, String, String, String) = tx
-        .query_row(
+        .prepare_cached(
             "SELECT receipt_number, arrived_at, opened_by, opened_at
              FROM goods_receipt WHERE receipt_id = ?1",
-            params![receipt_id.to_string()],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
+        .map_err(err)?
+        .query_row(params![receipt_id.to_string()], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
         .map_err(err)?;
     enqueue_fact(
         tx,

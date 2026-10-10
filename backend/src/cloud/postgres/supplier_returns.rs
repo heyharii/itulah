@@ -170,7 +170,9 @@ pub async fn raise_supplier_return(
         return Err(AppError::Validation("supplier_id is required".into()));
     }
     if request.lines.is_empty() {
-        return Err(AppError::Validation("a return needs at least one line".into()));
+        return Err(AppError::Validation(
+            "a return needs at least one line".into(),
+        ));
     }
     let source_pool_id = request.source_pool_id.trim().to_ascii_lowercase();
     let site_id: String = sqlx::query("SELECT site_id FROM operational_pool WHERE id = $1")
@@ -296,12 +298,13 @@ pub async fn raise_supplier_return(
 
 /// Every supplier return, open ones first.
 pub async fn list_supplier_returns(pool: &PgPool) -> Result<SupplierReturnList, AppError> {
-    let ids: Vec<Uuid> = sqlx::query("SELECT allotment_id FROM supplier_return ORDER BY raised_at DESC")
-        .fetch_all(pool)
-        .await?
-        .iter()
-        .map(|row| row.get("allotment_id"))
-        .collect();
+    let ids: Vec<Uuid> =
+        sqlx::query("SELECT allotment_id FROM supplier_return ORDER BY raised_at DESC")
+            .fetch_all(pool)
+            .await?
+            .iter()
+            .map(|row| row.get("allotment_id"))
+            .collect();
     let mut items = Vec::with_capacity(ids.len());
     for id in ids {
         items.push(one(pool, id).await?);
@@ -332,10 +335,16 @@ pub async fn settle_supplier_return(
     let (quantity, amount) = if kind == "REPLACEMENT" {
         let pieces = request.quantity.unwrap_or(0);
         if pieces <= 0 {
-            return Err(AppError::Validation("a replacement needs the pieces counted".into()));
+            return Err(AppError::Validation(
+                "a replacement needs the pieces counted".into(),
+            ));
         }
         // Valued at what the returned goods cost, on average across the return.
-        let unit = if current.quantity > 0 { current.value_minor / current.quantity } else { 0 };
+        let unit = if current.quantity > 0 {
+            current.value_minor / current.quantity
+        } else {
+            0
+        };
         (Some(pieces), (pieces * unit).min(current.owed_minor))
     } else {
         let amount = request.amount_minor.unwrap_or(0);
@@ -484,13 +493,21 @@ async fn one(pool: &PgPool, allotment_id: Uuid) -> Result<SupplierReturnView, Ap
         quantity,
         value_minor: value,
         settled_minor: settled,
-        owed_minor: if closed_short.is_some() { 0 } else { (value - settled).max(0) },
+        owed_minor: if closed_short.is_some() {
+            0
+        } else {
+            (value - settled).max(0)
+        },
         note: head.get("note"),
         raised_by: head.get("raised_by"),
         raised_at: head.get("raised_at"),
         // The allotment's last change once the Gudang is done with it — the
         // hand-over is the last thing the Gudang does.
-        handed_over_at: if handed_over { Some(head.get("updated_at")) } else { None },
+        handed_over_at: if handed_over {
+            Some(head.get("updated_at"))
+        } else {
+            None
+        },
         closed_short_reason: head.get("closed_short_reason"),
         letter_id: head.get("letter_id"),
         letter_number: head.get("letter_number"),

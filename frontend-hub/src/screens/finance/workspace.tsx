@@ -1,4 +1,4 @@
-import { useQueries, useQuery } from "@tanstack/react-query"
+import { useQueries } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { useMemo } from "react"
 import {
@@ -13,19 +13,12 @@ import {
 
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { Kpi } from "@/components/ui/kpi"
-import { dateText, money } from "@/lib/format"
-import {
-  financeKeys,
-  moneyOverview,
-  payablesAging,
-} from "@/lib/queries/finance"
-import {
-  balanceSheet,
-  domainKeys,
-  profitAndLoss,
-} from "@/lib/queries/finance-domains"
+import { dateText, money, compactFormat } from "@/lib/format"
+import { financeKeys, moneyOverview } from "@/lib/queries/finance"
+import { domainKeys, profitAndLoss } from "@/lib/queries/finance-domains"
 import { cn } from "@/lib/utils"
 import { monthLabel } from "@/screens/finance/chart"
+import { AGEING_BUCKETS, usePayables } from "@/screens/finance/measures"
 
 import type { AgingBuckets } from "@itulah/contract"
 
@@ -152,8 +145,9 @@ export function useBankBalance(months: readonly MonthBucket[]) {
 /// Bills and Payment cards, whose names read as the opposite of what they held.
 ///
 /// - **Money in the bank** — the bank accounts today, in the books.
-/// - **Owed to suppliers** — posted supplier bills not yet paid, from the
-///   payables ageing, so it is the same figure as the ageing bar below it.
+/// - **Total payables** — what is owed to suppliers, from the payables
+///   ageing (`measures.ts`), so it is the same figure as the ageing bar below
+///   it and as every other screen that says "payables".
 /// - **Cash flow, this month** — the bank balance today less the last
 ///   month-end's: what moved through the accounts, not profit.
 /// - **Expenses, this month** — the month to date, from the profit and loss.
@@ -161,7 +155,7 @@ export function useNumberCards() {
   const months = useLastMonths(2)
   const bank = useBankBalance(months)
   const pnl = useMonthlyPnl(months)
-  const ageing = usePayablesAgeing()
+  const ageing = usePayables()
 
   const [before, now] = bank.rows
   return [
@@ -169,10 +163,10 @@ export function useNumberCards() {
       label: "Money in the bank",
       value: now?.balance,
       change: null,
-      pending: bank.pending,
+      pending: bank.pending || bank.failed,
     },
     {
-      label: "Owed to suppliers",
+      label: "Total payables",
       value: ageing.data?.total.total_minor,
       change: null,
       pending: ageing.isPending,
@@ -181,33 +175,15 @@ export function useNumberCards() {
       label: "Cash flow this month",
       value: now && before ? now.balance - before.balance : undefined,
       change: null,
-      pending: bank.pending,
+      pending: bank.pending || bank.failed,
     },
     {
       label: "Expenses this month",
       value: pnl.rows[pnl.rows.length - 1]?.expense,
       change: null,
-      pending: pnl.pending,
+      pending: pnl.pending || pnl.failed,
     },
   ] as const
-}
-
-/// Everything the company owes, today, from the balance sheet — suppliers
-/// and everyone else (tax, payroll, deposits). The supplier part is the
-/// payables ageing.
-export function useTotalLiabilities() {
-  return useQuery({
-    queryKey: domainKeys.balanceSheet(iso(new Date())),
-    queryFn: ({ signal }) => balanceSheet(signal, { as_of: iso(new Date()) }),
-  })
-}
-
-/// ERPNext's "Accounts Payable Ageing" chart, from the server's ageing.
-export function usePayablesAgeing() {
-  return useQuery({
-    queryKey: financeKeys.payablesAging(null, null),
-    queryFn: ({ signal }) => payablesAging({}, signal),
-  })
 }
 
 // ── pieces ───────────────────────────────────────────────────────────────
@@ -227,7 +203,9 @@ export function NumberCards({
         <Kpi
           key={card.label}
           label={card.label}
-          value={card.pending ? "—" : money(card.value ?? 0)}
+          value={
+            card.pending || card.value === undefined ? "—" : money(card.value)
+          }
           delta={
             card.change === null
               ? undefined
@@ -355,10 +333,7 @@ const PNL_SERIES = [
   { key: "net", label: "Net Profit/Loss", stroke: "var(--ink)", dash: "4 3" },
 ] as const
 
-const compact = new Intl.NumberFormat("id-ID", {
-  notation: "compact",
-  maximumFractionDigits: 1,
-})
+const compact = compactFormat()
 
 export function ProfitAndLossChart({ rows }: { rows: readonly PnlMonth[] }) {
   return (
@@ -479,25 +454,21 @@ export function Legend({
 /// ERPNext's ageing chart, which its report draws as a "percentage" bar:
 /// one row split by how late the money is. Age is ordered, so the buckets
 /// are one hue getting darker — not due is the neutral before it starts.
-const AGE_BUCKETS = [
-  { key: "not_due_minor", label: "Not due", colour: "var(--hairline-2)" },
-  {
-    key: "days_1_30_minor",
-    label: "1–30 days",
-    colour: "color-mix(in oklab, var(--accent) 35%, var(--canvas))",
-  },
-  {
-    key: "days_31_60_minor",
-    label: "31–60 days",
-    colour: "color-mix(in oklab, var(--accent) 58%, var(--canvas))",
-  },
-  {
-    key: "days_61_90_minor",
-    label: "61–90 days",
-    colour: "color-mix(in oklab, var(--accent) 80%, var(--canvas))",
-  },
-  { key: "days_over_90_minor", label: "90+ days", colour: "var(--accent)" },
+const AGE_COLOURS = [
+  "var(--hairline-2)",
+  "color-mix(in oklab, var(--accent) 35%, var(--canvas))",
+  "color-mix(in oklab, var(--accent) 58%, var(--canvas))",
+  "color-mix(in oklab, var(--accent) 80%, var(--canvas))",
+  "var(--accent)",
 ] as const
+
+/// The words come from `measures.ts`, so this bar, the Overview's columns and
+/// the Accounts Payable table cannot name a bucket three ways.
+const AGE_BUCKETS = AGEING_BUCKETS.map((bucket, index) => ({
+  key: bucket.key,
+  label: bucket.label,
+  colour: AGE_COLOURS[index],
+}))
 
 export function AgeingBar({ buckets }: { buckets: AgingBuckets }) {
   const total = buckets.total_minor

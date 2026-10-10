@@ -17,22 +17,22 @@ import { cn } from "@/lib/utils"
 /// frame around them.
 export function SignInDoor({ children }: { children: ReactNode }) {
   return (
-    <div className="flex h-full flex-col overflow-y-auto bg-rail md:flex-row md:overflow-hidden">
-      <aside className="relative isolate flex shrink-0 flex-col overflow-hidden px-6 pt-[max(1.75rem,env(safe-area-inset-top))] pb-12 md:w-[clamp(22rem,38vw,34rem)] md:px-12 md:py-12">
+    <div className="flex h-full flex-col overflow-y-auto bg-rail max-md:bg-canvas md:flex-row md:overflow-hidden">
+      <aside className="relative isolate flex shrink-0 flex-col overflow-hidden px-6 pt-[max(1.75rem,env(safe-area-inset-top))] pb-12 max-md:items-center max-md:pt-[max(3.5rem,env(safe-area-inset-top))] max-md:pb-6 md:w-[clamp(22rem,38vw,34rem)] md:px-12 md:py-12">
         <Backdrop />
-        <BrandMark className="door-in size-10" />
-        <div className="mt-10 md:mt-auto">
+        <BrandMark className="door-in size-10 max-md:size-16" />
+        <div className="mt-10 max-md:mt-5 md:mt-auto">
           {/* The product's name, not the company's: people sign in to
               Central (owner, 2026-09-28). The blue dot after it is the one
               in the icon — C, then the dot. */}
           <p
-            className="door-rise text-[2.25rem] leading-none font-bold tracking-[-0.045em] text-rail-ink md:text-[3rem]"
+            className="door-rise text-[2.25rem] leading-none font-bold tracking-[-0.045em] text-rail-ink max-md:text-center max-md:text-ink md:text-[3rem]"
             style={{ "--i": 0 } as React.CSSProperties}
           >
             Central<span className="text-accent">.</span>
           </p>
           <p
-            className="door-rise mt-3 max-w-[20rem] text-[0.9375rem] leading-6 text-rail-text"
+            className="door-rise mt-3 max-w-[20rem] text-[0.9375rem] leading-6 text-rail-text max-md:hidden"
             style={{ "--i": 1 } as React.CSSProperties}
           >
             The stores, the stock, the buying and the money, in one place.
@@ -41,7 +41,7 @@ export function SignInDoor({ children }: { children: ReactNode }) {
         <ServerStatus tone="dark" className="mt-12 hidden md:flex" />
       </aside>
 
-      <main className="relative -mt-6 flex min-h-[32rem] flex-1 flex-col rounded-t-[1.5rem] bg-canvas md:mt-0 md:min-h-0 md:rounded-none">
+      <main className="relative flex flex-1 flex-col bg-canvas md:min-h-0">
         {children}
         <ServerStatus
           tone="light"
@@ -56,7 +56,7 @@ export function SignInDoor({ children }: { children: ReactNode }) {
 /// the icon's dot glowing low in the far one, and grain over both.
 function Backdrop() {
   return (
-    <div aria-hidden className="door-in absolute inset-0 -z-10">
+    <div aria-hidden className="door-in absolute inset-0 -z-10 max-md:hidden">
       <div className="absolute inset-0 bg-[radial-gradient(56rem_36rem_at_0%_0%,rgb(255_255_255/7%),transparent_62%)]" />
       {/* On a phone the charcoal is a band a few hundred pixels tall, and a
           glow sized for the desk's half-screen would tint all of it navy — so

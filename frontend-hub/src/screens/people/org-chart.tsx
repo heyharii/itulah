@@ -2,9 +2,11 @@ import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockChoice } from "@/components/shell/dock-tools"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Fab } from "@/components/ui/fab"
 import { Field } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { PickOne } from "@/components/ui/pick"
@@ -12,6 +14,7 @@ import { Pill } from "@/components/ui/pill"
 import { Sheet } from "@/components/ui/sheet"
 import { EmptyState } from "@/components/ui/states"
 import { departments, orgChart, orgKeys } from "@/lib/queries/people"
+import { useLayout } from "@/lib/layout"
 import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
 import { cn } from "@/lib/utils"
@@ -38,6 +41,7 @@ export function OrgChart() {
   const [department, setDepartment] = useState<string | null>(null)
   const [placing, setPlacing] = useState(false)
   const canWrite = useCanWrite()
+  const phone = useLayout() === "phone"
 
   return (
     <PageContent>
@@ -45,26 +49,51 @@ export function OrgChart() {
         crumb="People"
         title="Org Chart"
         sub="Who reports to whom, by department and level."
+        // On a phone the department is the chip over the bottom bar and
+        // placing somebody is its round +.
         actions={
-          <>
-            <Field label="Department">
-              <PickOne
-                label="Department"
-                choices={(depts.data ?? [])
-                  .filter((one) => !one.retired)
-                  .map((one) => ({ value: one.code, label: one.name }))}
-                value={department}
-                onChange={setDepartment}
-              />
-            </Field>
-            {canWrite && (
-              <Button variant="primary" onClick={() => setPlacing(true)}>
-                Place someone
-              </Button>
-            )}
-          </>
+          phone ? undefined : (
+            <>
+              <Field label="Department">
+                <PickOne
+                  label="Department"
+                  choices={(depts.data ?? [])
+                    .filter((one) => !one.retired)
+                    .map((one) => ({ value: one.code, label: one.name }))}
+                  value={department}
+                  onChange={setDepartment}
+                />
+              </Field>
+              {canWrite && (
+                <Button variant="primary" onClick={() => setPlacing(true)}>
+                  Place someone
+                </Button>
+              )}
+            </>
+          )
         }
       />
+      {phone && (
+        <>
+          <DockChoice
+            value={department ?? ""}
+            onChange={(next) => setDepartment(next === "" ? null : next)}
+            options={[
+              { value: "", label: "All departments", short: "All departments" },
+              ...(depts.data ?? [])
+                .filter((one) => !one.retired)
+                .map((one) => ({
+                  value: one.code,
+                  label: one.name,
+                  short: one.name,
+                })),
+            ]}
+          />
+          {canWrite && (
+            <Fab label="Place someone" onClick={() => setPlacing(true)} />
+          )}
+        </>
+      )}
       <Card className="overflow-hidden p-4">
         {queryState(chart, {
           loading: "Drawing the chart…",

@@ -172,7 +172,9 @@ struct Hub {
 
 impl Hub {
     async fn open(pool: &PgPool) -> Self {
-        let _ = tracing_subscriber::fmt().with_env_filter("error").try_init();
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter("error")
+            .try_init();
         cloud::bootstrap_admin(pool, Some(ADMIN_PASSWORD), true)
             .await
             .unwrap_or_else(|error| panic!("bootstrap: {error}"));
@@ -193,18 +195,32 @@ impl Hub {
     }
 
     async fn get(&self, path: &str) -> Response {
-        send(self.app.clone(), "GET", path, read_headers(&self.cookies), None).await
+        send(
+            self.app.clone(),
+            "GET",
+            path,
+            read_headers(&self.cookies),
+            None,
+        )
+        .await
     }
 
     async fn ok(&self, path: &str, body: Value) -> Value {
         let response = self.post(path, body).await;
-        assert_eq!(response.status, StatusCode::OK, "POST {path}: {:?}", response.body);
+        assert_eq!(
+            response.status,
+            StatusCode::OK,
+            "POST {path}: {:?}",
+            response.body
+        );
         response.body
     }
 
     /// Register somebody, hire them and post them to `unit` from `from`.
     async fn staff(&self, code: &str, unit: &str, from: &str) -> String {
-        let registered = self.ok("/api/v1/employees", json!({ "employee_code": code })).await;
+        let registered = self
+            .ok("/api/v1/employees", json!({ "employee_code": code }))
+            .await;
         let id = registered["employee_id"]
             .as_str()
             .unwrap_or_else(|| panic!("employee_id: {registered:?}"))
@@ -262,7 +278,9 @@ impl Hub {
             )
             .await;
         let run_id = opened["id"].as_str().unwrap_or_default().to_owned();
-        let slips = self.get(&format!("/api/v1/payroll/runs/{run_id}/slips")).await;
+        let slips = self
+            .get(&format!("/api/v1/payroll/runs/{run_id}/slips"))
+            .await;
         assert_eq!(slips.status, StatusCode::OK, "{:?}", slips.body);
         let list = slips.body.as_array().cloned().unwrap_or_default();
         (run_id, list)
@@ -283,8 +301,11 @@ async fn login_for(hub: &Hub, employee: &str, username: &str) -> (String, String
                 "role": "CASHIER" }),
     )
     .await;
-    hub.ok(&format!("/api/v1/employees/{employee}/account"), json!({ "username": username, "reason": "akun" }))
-        .await;
+    hub.ok(
+        &format!("/api/v1/employees/{employee}/account"),
+        json!({ "username": username, "reason": "akun" }),
+    )
+    .await;
     sign_in(&hub.app, username, "benefit-pass-1234").await
 }
 
@@ -296,10 +317,22 @@ async fn a_benefit_balance_is_filled_shown_spent_and_given_back(pool: PgPool) {
     let (hers, her_csrf) = login_for(&hub, &siti, "siti.benefit").await;
     let (his, his_csrf) = login_for(&hub, &budi, "budi.benefit").await;
     let as_her = |path: &'static str| {
-        send(hub.app.clone(), "POST", path, write_headers(&hers, &her_csrf), Some(json!({})))
+        send(
+            hub.app.clone(),
+            "POST",
+            path,
+            write_headers(&hers, &her_csrf),
+            Some(json!({})),
+        )
     };
     let till = |path: &'static str, body: Value| {
-        send(hub.app.clone(), "POST", path, write_headers(&his, &his_csrf), Some(body))
+        send(
+            hub.app.clone(),
+            "POST",
+            path,
+            write_headers(&his, &his_csrf),
+            Some(body),
+        )
     };
 
     // Off until head office turns it on.
@@ -338,7 +371,14 @@ async fn a_benefit_balance_is_filled_shown_spent_and_given_back(pool: PgPool) {
         )
         .await;
     assert_eq!(too_much.status, StatusCode::CONFLICT, "{:?}", too_much.body);
-    let mine = send(hub.app.clone(), "GET", "/api/v1/employees/me/benefit", read_headers(&hers), None).await;
+    let mine = send(
+        hub.app.clone(),
+        "GET",
+        "/api/v1/employees/me/benefit",
+        read_headers(&hers),
+        None,
+    )
+    .await;
     assert_eq!(mine.status, StatusCode::OK, "{:?}", mine.body);
     assert_eq!(mine.body["balance_minor"], 250_000);
     assert_eq!(mine.body["entries"].as_array().map(Vec::len), Some(2));
@@ -356,7 +396,12 @@ async fn a_benefit_balance_is_filled_shown_spent_and_given_back(pool: PgPool) {
                 "basket_has_promotion": true }),
     )
     .await;
-    assert_eq!(promo.status, StatusCode::CONFLICT, "no combining with a promotion: {:?}", promo.body);
+    assert_eq!(
+        promo.status,
+        StatusCode::CONFLICT,
+        "no combining with a promotion: {:?}",
+        promo.body
+    );
     let over = till(
         "/api/v1/benefit/spends",
         json!({ "code": code, "sale_ref": "S-1", "unit_id": "store-07", "amount_minor": 260_000 }),
@@ -375,7 +420,12 @@ async fn a_benefit_balance_is_filled_shown_spent_and_given_back(pool: PgPool) {
         json!({ "code": code, "sale_ref": "S-2", "unit_id": "store-07", "amount_minor": 1_000 }),
     )
     .await;
-    assert_eq!(reused.status, StatusCode::NOT_FOUND, "a code is used once: {:?}", reused.body);
+    assert_eq!(
+        reused.status,
+        StatusCode::NOT_FOUND,
+        "a code is used once: {:?}",
+        reused.body
+    );
     let fresh = as_her("/api/v1/employees/me/benefit-code").await;
     let fresh = fresh.body["code"].as_str().unwrap_or_default().to_owned();
     let twice = till(
@@ -383,7 +433,12 @@ async fn a_benefit_balance_is_filled_shown_spent_and_given_back(pool: PgPool) {
         json!({ "code": fresh, "sale_ref": "S-1", "unit_id": "store-07", "amount_minor": 1_000 }),
     )
     .await;
-    assert_eq!(twice.status, StatusCode::CONFLICT, "one spend per sale: {:?}", twice.body);
+    assert_eq!(
+        twice.status,
+        StatusCode::CONFLICT,
+        "one spend per sale: {:?}",
+        twice.body
+    );
 
     // Nobody rings up their own balance.
     let his_code = send(
@@ -394,7 +449,10 @@ async fn a_benefit_balance_is_filled_shown_spent_and_given_back(pool: PgPool) {
         Some(json!({})),
     )
     .await;
-    let his_code = his_code.body["code"].as_str().unwrap_or_default().to_owned();
+    let his_code = his_code.body["code"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
     let own = till(
         "/api/v1/benefit/spends",
         json!({ "code": his_code, "sale_ref": "S-3", "unit_id": "store-07", "amount_minor": 1_000 }),
@@ -425,6 +483,18 @@ async fn a_benefit_balance_is_filled_shown_spent_and_given_back(pool: PgPool) {
         .cloned()
         .unwrap_or_default();
     assert_eq!(row["balance_minor"], 170_000);
-    let hr_reads_her = send(hub.app.clone(), "GET", &format!("/api/v1/employees/{budi}/benefit"), read_headers(&hers), None).await;
-    assert_eq!(hr_reads_her.status, StatusCode::FORBIDDEN, "a colleague's balance is HR's: {:?}", hr_reads_her.body);
+    let hr_reads_her = send(
+        hub.app.clone(),
+        "GET",
+        &format!("/api/v1/employees/{budi}/benefit"),
+        read_headers(&hers),
+        None,
+    )
+    .await;
+    assert_eq!(
+        hr_reads_her.status,
+        StatusCode::FORBIDDEN,
+        "a colleague's balance is HR's: {:?}",
+        hr_reads_her.body
+    );
 }

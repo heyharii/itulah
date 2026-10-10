@@ -9,7 +9,10 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
+import { Button } from "@/components/ui/button"
+import { DockTools } from "@/components/shell/dock-tools"
 import { count, label } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { queryState } from "@/lib/query-state"
 import { cn } from "@/lib/utils"
 import { usePostingReadiness } from "@/screens/finance/badges"
@@ -17,6 +20,7 @@ import {
   encodeLinkSource,
   sourceTypeLabel,
 } from "@/screens/finance/master-data"
+import { PhoneCard, PhoneList } from "@/components/ui/phone-cards"
 import type { ReadinessRow } from "@itulah/contract"
 
 /// "If this happened now in this unit's books, would it post?" — for every
@@ -40,6 +44,7 @@ import type { ReadinessRow } from "@itulah/contract"
 /// Fixing a gap happens on Account links, so a row opens that role's sheet
 /// there rather than growing a second editor here.
 export function PostingReadinessScreen() {
+  const phone = useLayout() === "phone"
   const navigate = useNavigate()
   const readiness = usePostingReadiness()
   const [onlyGaps, setOnlyGaps] = useState(true)
@@ -85,27 +90,58 @@ export function PostingReadinessScreen() {
         crumb="Finance"
         title="Posting Readiness"
         sub="Every role the posting rules use, against every unit: the account a posting would land on now, or a gap where it would be refused."
+        // Search and which rows are in the dock on a phone.
         actions={
-          <Input
-            value={needle}
-            onChange={(event) => setNeedle(event.target.value)}
-            className="h-8 w-56"
-          />
+          phone ? undefined : (
+            <Input
+              value={needle}
+              onChange={(event) => setNeedle(event.target.value)}
+              className="h-8 w-56"
+            />
+          )
         }
       />
 
-      <Toolbar>
-        <Checkbox
-          label="Only rows with gaps"
-          checked={onlyGaps}
-          onChange={(next) => setOnlyGaps(next)}
+      {phone ? (
+        <DockTools
+          search={{
+            value: needle,
+            onChange: setNeedle,
+            label: "Search roles and sources",
+          }}
+          status={{
+            value: onlyGaps ? "gaps" : "all",
+            options: [
+              {
+                value: "gaps",
+                label: "Gaps only",
+                count: (readiness.data?.rows ?? []).filter(
+                  (row) => row.gaps > 0
+                ).length,
+              },
+              {
+                value: "all",
+                label: "Every row",
+                count: readiness.data?.rows.length ?? 0,
+              },
+            ],
+            onChange: (next) => setOnlyGaps(next === "gaps"),
+          }}
         />
-        <Toolbar.Spacer />
-        <span className="text-[0.875rem] text-mute">
-          {count(rows.length)} of {count(readiness.data?.rows.length ?? 0)}{" "}
-          role-and-source rows · open one to fix it on Account links
-        </span>
-      </Toolbar>
+      ) : (
+        <Toolbar>
+          <Checkbox
+            label="Only rows with gaps"
+            checked={onlyGaps}
+            onChange={(next) => setOnlyGaps(next)}
+          />
+          <Toolbar.Spacer />
+          <span className="text-[0.875rem] text-mute">
+            {count(rows.length)} of {count(readiness.data?.rows.length ?? 0)}{" "}
+            role-and-source rows · open one to fix it on Account links
+          </span>
+        </Toolbar>
+      )}
 
       {readiness.data && (
         <KpiStrip className="md:grid-cols-3 xl:grid-cols-3">
@@ -115,7 +151,7 @@ export function PostingReadinessScreen() {
         </KpiStrip>
       )}
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(readiness, {
           loading: "Asking every unit…",
           render: (data) =>
@@ -125,6 +161,61 @@ export function PostingReadinessScreen() {
                   ? "Every role reaches an account in every unit. Everything the rules post can post."
                   : "No row matches the search."}
               </EmptyState>
+            ) : phone ? (
+              <PhoneList>
+                {rows.map((row) => {
+                  // The units where this posting would be refused, by the
+                  // client's own code.
+                  const missing = data.locations.filter((location) => {
+                    const cell = row.cells.find(
+                      (one) => one.unit_id === location.unit_id
+                    )
+                    return cell === undefined || cell.account_code === null
+                  })
+                  return (
+                    <PhoneCard
+                      key={`${row.role}\t${row.source_type}\t${row.source_id}`}
+                      title={row.label ?? label(row.role)}
+                      line={
+                        <>
+                          <div className="font-mono">{row.role}</div>
+                          {(row.source_type !== "COMPANY" ||
+                            row.source_id !== "") && (
+                            <div>
+                              {row.source_type !== "COMPANY" &&
+                                `${sourceTypeLabel(row.source_type)} `}
+                              {row.source_id}
+                            </div>
+                          )}
+                        </>
+                      }
+                      lead={row.gaps > 0 ? count(row.gaps) : "None"}
+                      caption={row.gaps === 1 ? "gap" : "gaps"}
+                      tone={row.gaps > 0 ? "bad" : "quiet"}
+                      foot={
+                        missing.length === 0
+                          ? "Reaches every unit"
+                          : `Missing in ${missing
+                              .slice(0, 3)
+                              .map((location) => location.code)
+                              .join(
+                                ", "
+                              )}${missing.length > 3 ? ` +${count(missing.length - 3)}` : ""}`
+                      }
+                      action={
+                        <Button
+                          size="card"
+                          variant="tint"
+                          onClick={() => open(row)}
+                        >
+                          {row.gaps > 0 ? "Fix" : "Open"}
+                        </Button>
+                      }
+                      onOpen={() => open(row)}
+                    />
+                  )
+                })}
+              </PhoneList>
             ) : (
               <div className="max-h-[calc(100dvh-20rem)] overflow-auto">
                 <table className="w-max min-w-full border-collapse text-[0.875rem]">

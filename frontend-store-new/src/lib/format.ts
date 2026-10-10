@@ -14,28 +14,77 @@ export function count(value: number | null | undefined): string {
   return plain.format(value)
 }
 
-/// A time somebody at a counter reads: the day and the minute, because on this
-/// surface almost everything did happen at a minute that matters — which
-/// receipt, which movement, how long ago.
+/// A date in English month names, day first ("06 Oct 2026") — the hub's
+/// `dateText`. The app is English (owner, 2026-10-06): Indonesian month names —
+/// "Okt", "Agu", "Mei", "Des" — read as a mistake beside it; amounts keep the
+/// rupiah's own grouping. `en-GB` spells September "Sept", trimmed to "Sep".
+export function dateText(
+  date: Date,
+  options: Intl.DateTimeFormatOptions,
+): string {
+  return new Intl.DateTimeFormat("en-GB", options)
+    .format(date)
+    .replace(/\bSept\b/, "Sep")
+}
+
+/// A time somebody at a counter reads: the day, the year and the minute —
+/// "06 Oct 2026, 14:28" — because on this surface almost everything did happen
+/// at a minute that matters: which receipt, which movement.
 export function moment(iso: string | null | undefined): string {
   if (!iso) return "—"
   const parsed = new Date(iso)
   if (Number.isNaN(parsed.getTime())) return "—"
-  return parsed.toLocaleString("id-ID", {
+  return dateText(parsed, {
     day: "2-digit",
     month: "short",
+    year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
   })
 }
 
-/// A date, with no time: where the day is all that matters, such as when a
-/// delivery left and when it arrived.
+/// A date, with no time: "06 Oct 2026" — where the day is all that matters,
+/// such as when a delivery left and when it arrived.
 export function day(iso: string | null | undefined): string {
   if (!iso) return "—"
   const parsed = new Date(iso)
   if (Number.isNaN(parsed.getTime())) return "—"
-  return parsed.toLocaleDateString("id-ID", { day: "2-digit", month: "short" })
+  return dateText(parsed, { day: "2-digit", month: "short", year: "numeric" })
+}
+
+const COMPACT_STEPS = [
+  [1e3, "K"],
+  [1e6, "M"],
+  [1e9, "B"],
+  [1e12, "T"],
+] as const
+
+/// Large figures for a chart axis or a tight cell: K (thousand), M (million),
+/// B (billion), T (trillion), with the rupiah's own decimal comma — the hub's
+/// `compactFormat`. `id-ID`'s built-in compact notation says rb / jt / M, and
+/// its M is a billion, so the suffixes are written out here instead.
+export function compactFormat(maxFractionDigits = 1): {
+  format: (value: number) => string
+} {
+  const grouped = new Intl.NumberFormat("id-ID", {
+    maximumFractionDigits: maxFractionDigits,
+  })
+  const scale = 10 ** maxFractionDigits
+  return {
+    format(value: number): string {
+      const size = Math.abs(value)
+      let at = -1
+      COMPACT_STEPS.forEach(([step], index) => {
+        if (size >= step) at = index
+      })
+      if (at < 0) return grouped.format(value)
+      // 999,950 rounds to "1.000 K"; say "1 M" instead.
+      const rounded = Math.round((size / COMPACT_STEPS[at][0]) * scale) / scale
+      if (rounded >= 1000 && at < COMPACT_STEPS.length - 1) at += 1
+      const [step, suffix] = COMPACT_STEPS[at]
+      return `${grouped.format(value / step)} ${suffix}`
+    },
+  }
 }
 
 /// The retail status taxonomy, one mapping for the whole app.
@@ -96,4 +145,15 @@ export function label(status: string | null | undefined): string {
   if (!status) return "—"
   const words = status.toLowerCase().replace(/[_-]+/g, " ").trim()
   return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
+/// The letter an avatar shows for a name: the first LETTER, not the first
+/// character — "👨‍💼 Budi" is a B, where `charAt(0)` hands back half of an emoji
+/// and the avatar draws a replacement mark. A name with no letter at all falls
+/// back to its first whole character, and an empty one to "?".
+export function initialOf(name: string | null | undefined): string {
+  const trimmed = (name ?? "").trim()
+  if (trimmed === "") return "?"
+  const letter = trimmed.match(/\p{L}/u)?.[0]
+  return (letter ?? Array.from(trimmed)[0] ?? "?").toLocaleUpperCase()
 }

@@ -98,12 +98,13 @@ pub async fn delete_push_subscription(
     username: &str,
     endpoint: &str,
 ) -> Result<bool, AppError> {
-    let deleted = sqlx::query("DELETE FROM push_subscription WHERE endpoint = $1 AND username = $2")
-        .bind(endpoint)
-        .bind(username)
-        .execute(pool)
-        .await?
-        .rows_affected();
+    let deleted =
+        sqlx::query("DELETE FROM push_subscription WHERE endpoint = $1 AND username = $2")
+            .bind(endpoint)
+            .bind(username)
+            .execute(pool)
+            .await?
+            .rows_affected();
     Ok(deleted > 0)
 }
 

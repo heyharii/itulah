@@ -1,13 +1,16 @@
+import { useId } from "react"
+
 import { findColour } from "@/lib/colour-parse"
 
 /// A drawn garment, for the product that has no photograph yet.
 ///
-/// A silhouette chosen from the name and filled with the colour the name asks
-/// for. When the name says nothing the silhouette's kind comes from the
-/// division instead — a woman's article is a blouse, a shoe division's is a
-/// shoe — and an article with neither gets a coat hanger. It is a placeholder
-/// and reads as one: no stitching, no model, so nobody mistakes it for the
-/// product's picture.
+/// A silhouette chosen from the name and filled with the colourway's colour —
+/// the colour master's hex, handed in as `colours` — or, before a colourway
+/// is chosen, the colour the name asks for. When the name says nothing the
+/// silhouette's kind comes from the division instead — a woman's article is a
+/// blouse, a shoe division's is a shoe — and an article with neither gets a
+/// coat hanger. It is a placeholder and reads as one: no stitching, no model,
+/// so nobody mistakes it for the product's picture.
 ///
 /// The catalogue is H&M-style English with Indonesian ones mixed in ("Skinny
 /// Ankle Denim", "Cora T-shirt", "Kemeja Flanel"), and the kind can be any
@@ -150,7 +153,9 @@ const KINDS: readonly (readonly [RegExp, Kind])[] = [
   [word("boots?|bot|booties"), "boot"],
   [word("sneakers?|trainers?|kets"), "shoe"],
   [word("sandals?|espadrilles?|slides?|flip[- ]?flops?|slippers?|sendal|selop"), "sandal"],
-  [word("shoes?|sepatu|loafers?|derby|oxford|brogues?|flatshoe|pantofel|slip[- ]?on"), "shoe"],
+  // No bare "oxford": "Kemeja Oxford" is the cloth, a shirt. Oxford shoes
+  // still say "shoes".
+  [word("shoes?|sepatu|loafers?|derby|brogues?|flatshoe|pantofel|slip[- ]?on"), "shoe"],
   // Bags
   [word("backpack|ransel|rucksack"), "backpack"],
   [word("shopper|tote|weekend"), "tote"],
@@ -244,27 +249,68 @@ export function garmentKind(name: string): Kind | null {
   return KINDS.find(([re]) => re.test(name))?.[1] ?? null
 }
 
+/// How light a hex is to the eye, 0–1 (WCAG relative luminance).
+function lightness(hex: string): number {
+  const [r, g, b] = [1, 3, 5].map((at) => {
+    const one = parseInt(hex.slice(at, at + 2), 16) / 255
+    return one <= 0.03928 ? one / 12.92 : ((one + 0.055) / 1.055) ** 2.4
+  })
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
 export function Garment({
   name,
   division,
+  colours,
 }: {
   name: string
   division?: string | null
+  /// The colourway's paint, from `colourwayFill` — the colour master's hex,
+  /// or what its label reads as. Two or three draw the garment split on the
+  /// diagonal ("Hitam/Putih"). Empty or absent, the name is read for a
+  /// colour instead, and with none there, grey.
+  colours?: readonly string[]
 }) {
+  const split = useId()
   const kind: Kind =
     garmentKind(name) ??
     DIVISION_KINDS[(division ?? "").toUpperCase()] ??
     "hanger"
-  const fill = findColour(name)?.hex ?? "#C9CCD1"
+  const paint =
+    colours !== undefined && colours.length > 0
+      ? colours.slice(0, 3)
+      : [findColour(name)?.hex ?? "#C9CCD1"]
+  // White, cream and mint vanish into the grey well behind them, so the
+  // outline is what draws those — heavier there, quiet everywhere else.
+  const pale = Math.max(...paint.map(lightness)) > 0.7
   return (
     <svg viewBox="0 0 100 100" aria-hidden className="size-full p-[6%]">
+      {paint.length > 1 && (
+        <defs>
+          <linearGradient id={split} x1="0" y1="0" x2="1" y2="1">
+            {paint.flatMap((hex, at) => [
+              <stop
+                key={`${at}a`}
+                offset={at / paint.length}
+                stopColor={hex}
+              />,
+              <stop
+                key={`${at}b`}
+                offset={(at + 1) / paint.length}
+                stopColor={hex}
+              />,
+            ])}
+          </linearGradient>
+        </defs>
+      )}
       <path
         d={SHAPES[kind]}
-        fill={fill}
+        style={{ fill: paint.length > 1 ? `url("#${split}")` : paint[0] }}
         fillRule={HOLLOW.has(kind) ? "evenodd" : "nonzero"}
-        stroke="rgb(0 0 0 / .25)"
+        stroke={pale ? "rgb(0 0 0 / .42)" : "rgb(0 0 0 / .25)"}
         strokeWidth="1.2"
         strokeLinejoin="round"
+        className="transition-[fill] duration-150 ease-out"
       />
     </svg>
   )

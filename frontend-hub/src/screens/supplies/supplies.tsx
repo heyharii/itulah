@@ -10,6 +10,7 @@ import { useMemo, useState } from "react"
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Fab } from "@/components/ui/fab"
 import { Field, Input } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
@@ -22,7 +23,8 @@ import {
   LoadMore,
   type Pageable,
 } from "@/components/ui/states"
-import { count, day, money } from "@/lib/format"
+import { count, day, money, moneyCompact } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   gaKeys,
   gaSupply,
@@ -34,6 +36,11 @@ import { useSheet } from "@/lib/sheets"
 import { useUnits } from "@/lib/queries/units"
 import { FinanceMark } from "@/screens/contracts/parts"
 import { BillRequestForm } from "@/screens/ga/bill-request"
+import {
+  CardFigure,
+  type CardSpec,
+  PhoneCards,
+} from "@/components/ui/phone-cards"
 import { SupplyComposer } from "@/screens/supplies/composer"
 import type { GaMaintenanceFacet, GaSupplyRequestRow } from "@itulah/contract"
 
@@ -81,6 +88,7 @@ const PAGE = 100
 export function Supplies() {
   const open = useSheet("supply")
   const [adding, setAdding] = useState(false)
+  const phone = useLayout() === "phone"
 
   /// The register, a page at a time as its foot nears view — the paged
   /// reading of the list, which used to stop at the two-hundredth request.
@@ -106,14 +114,21 @@ export function Supplies() {
         title="Supply Requests"
         sub="Submit and track requests for consumables needed by the office, warehouse, stores and mess."
         actions={
-          <Button variant="primary" onClick={() => setAdding(true)}>
-            <Plus />
-            Request supplies
-          </Button>
+          // On a phone the one thing this page makes is the round button over
+          // the bottom bar.
+          phone ? undefined : (
+            <Button variant="primary" onClick={() => setAdding(true)}>
+              <Plus />
+              Request supplies
+            </Button>
+          )
         }
       />
 
-      <Banner tone="info">
+      <Fab label="Request supplies" onClick={() => setAdding(true)} />
+
+      {/* On a phone the note closes the list instead of opening the page. */}
+      <Banner tone="info" className="max-md:hidden">
         Non-merchandise purchase orders aren't connected to a Procurement module
         yet. The order number is recorded on this request.
       </Banner>
@@ -141,6 +156,11 @@ export function Supplies() {
             <SupplyTable rows={rows} onOpen={open.open} more={requests} />
           ),
       })}
+
+      <Banner tone="info" className="mt-4 md:hidden">
+        Non-merchandise purchase orders aren't connected to a Procurement module
+        yet. The order number is recorded on this request.
+      </Banner>
 
       <SupplyComposer
         open={adding}
@@ -209,6 +229,18 @@ function SupplyTable({
   more: Pageable
 }) {
   const units = useUnits()
+  const phone = useLayout() === "phone"
+  if (phone) {
+    return (
+      <PhoneCards
+        rows={rows}
+        rowId={(row) => row.request_id}
+        spec={supplyCard(units.units)}
+        onOpen={(row) => onOpen(row.request_id)}
+        more={more}
+      />
+    )
+  }
   return (
     <Card className="overflow-hidden">
       <div className="overflow-x-auto">
@@ -239,6 +271,38 @@ function SupplyTable({
       <LoadMore query={more} />
     </Card>
   )
+}
+
+/// A request as a phone's card: the item and how many, what it is for and who
+/// asked, what was billed, when it is needed, and the stage it is at.
+function supplyCard(
+  units: readonly { code: string; label: string }[]
+): CardSpec<GaSupplyRequestRow> {
+  return {
+    title: (row) => <span className="min-w-0 break-words">{row.item}</span>,
+    meta: [
+      (row) => (row.quantity === null ? null : gaQuantity(row, units)),
+      (row) => `${row.category_name} · ${row.site_id}`,
+      (row) =>
+        row.po_reference === null
+          ? `Asked by ${row.requested_by}`
+          : `Asked by ${row.requested_by} · PO ${row.po_reference}`,
+    ],
+    lead: (row) =>
+      row.billed_minor > 0 ? (
+        <CardFigure
+          value={
+            <span title={money(row.billed_minor)}>
+              {moneyCompact(row.billed_minor)}
+            </span>
+          }
+          caption="Billed"
+        />
+      ) : undefined,
+    foot: (row) =>
+      row.needed_by === null ? "No date" : `Needed by ${day(row.needed_by)}`,
+    action: (row) => <SupplyStagePill status={row.status} />,
+  }
 }
 
 function SupplyLine({

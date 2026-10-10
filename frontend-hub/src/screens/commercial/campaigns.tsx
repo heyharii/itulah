@@ -20,9 +20,11 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
+import { Fab } from "@/components/ui/fab"
 import { ConfirmButton, Dialog, SavedDialog } from "@/components/ui/dialog"
 import { RecordPanel } from "@/components/ui/record-panel"
 import { Field, Input, Money, Select, Textarea } from "@/components/ui/field"
@@ -33,7 +35,7 @@ import { ROOMY } from "@/screens/operations/roomy"
 import { PageHeader } from "@/components/ui/page-header"
 import { Status } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
-import { DockedFilters } from "@/components/ui/list-chrome"
+import { DeskFilterButton, DeskFilterChips } from "@/components/ui/desk-filter"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState, ErrorState } from "@/components/ui/states"
 import { AppLink } from "@/components/ui/app-link"
@@ -43,6 +45,7 @@ import {
   type FilterField,
   type Operator,
 } from "@/lib/filters"
+import { useLayout } from "@/lib/layout"
 import { useDebounced } from "@/lib/use-debounced"
 import { count, day, label, money, moment } from "@/lib/format"
 import {
@@ -50,7 +53,7 @@ import {
   campaignById,
   campaignCatalogue,
   campaignOffers,
-  campaignPage,
+  campaignPagesQuery,
   commercialKeys,
   commercialUsage,
   listPriceBooks,
@@ -82,6 +85,7 @@ import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { Switch } from "@/components/ui/form"
 import { Named, Quiet } from "@/screens/commercial/parts"
+import { CardFigure, CardFoot, CardName } from "@/components/ui/phone-cards"
 import { endOfDay, isoOf, shift, startOfDay, today } from "@/lib/calendar"
 import { Section, Stepper } from "@/components/ui/form"
 import { More, Terms } from "@/screens/commercial/controls"
@@ -116,7 +120,7 @@ import {
 /// A campaign is not a bigger promotion. It is one window, one budget and one
 /// switch over several rules, and the engine reads it that way: **a rule is
 /// live only when both it and its campaign are**. That is the whole reason it
-/// is a screen — "stop the Lebaran promo" is one act here and six acts on the
+/// is a screen — "stop the Eid promo" is one act here and six acts on the
 /// Promotions list, and six acts is how one gets left running.
 ///
 /// The header tiles are `<PerformanceHeader>`, reading
@@ -339,7 +343,7 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
     accessorFn: (row) => row.row.campaign.name,
     header: "Campaign",
     size: 240,
-    meta: { grow: 280 },
+    meta: { grow: 280, card: "hide" },
     // No text clause: the search box asks the server for the name and the id,
     // and a clause here could only narrow the pages already loaded.
     // The filing code is gone from the row. `backtoschool` under "Back to
@@ -377,6 +381,7 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
     // clause out of the table's own filters and counts the options from the
     // server's phase facets.
     meta: {
+      card: "hide",
       filter: {
         kind: "option",
         label: "Status",
@@ -421,6 +426,7 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
     // the purpose of. Hence "is any of" and the two emptiness tests only.
     meta: {
       priority: 2,
+      card: "hide",
       filter: {
         kind: "option",
         label: "Objective",
@@ -453,9 +459,10 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
     header: "Target",
     size: 210,
     enableSorting: false,
+    meta: { card: "hide" },
     // The LINE, not the distance from it. Where a campaign stands against its
-    // target is scored over that campaign's OWN window — Lebaran over
-    // Lebaran's dates — and a list cannot do that in one read: thirteen
+    // target is scored over that campaign's OWN window — Eid over
+    // Eid's dates — and a list cannot do that in one read: thirteen
     // campaigns are thirteen different windows. It is on the row's panel, and a
     // list-wide version wants a scorecard endpoint that scores each campaign
     // over its own dates in one query.
@@ -489,6 +496,7 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
     meta: {
       priority: 3,
       align: "right",
+      card: "hide",
       filter: {
         kind: "number",
         label: "Offers",
@@ -506,6 +514,7 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
       UNLIMITED,
     header: "Budget Used",
     size: 220,
+    meta: { card: "hide" },
     // Sorted by the SERVER's `budget_used`: this accessor's share, spent ÷
     // budget off the same usage counter, with a campaign that has no limit
     // sorting last whichever way round. (Its `budget` sort is the limit, not
@@ -563,6 +572,7 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
     meta: {
       priority: 3,
       align: "right",
+      card: "hide",
       filter: {
         kind: "number",
         label: "Stores",
@@ -605,6 +615,7 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
     // until when — which is the question asked after a row is picked.
     meta: {
       priority: 2,
+      card: "hide",
       filter: {
         kind: "date",
         label: "Ends",
@@ -631,6 +642,146 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
       </span>
     ),
   },
+  // Four columns that exist only on a card (`cardLead`; a phone): the campaign
+  // over what it is for, the budget it has used as the figure (in rupiah, the
+  // budget and its share under it — numbers, not a bar), a foot that says
+  // where it stands, how many offers and stores and when it runs, and Edit,
+  // which opens the sheet the card's own tap opens (owner, 2026-10-06).
+  {
+    id: "head",
+    accessorFn: (row) => row.row.campaign.name,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => {
+      const campaign = row.original.row.campaign
+      const stated = row.original.intent
+      const metric = stated === null ? null : metricOf(stated.success_metric)
+      const ended = phaseOf(campaign, Date.now()).tone === "done"
+      return (
+        // `data-campaign` is how a just-published row is found to flash it.
+        <span data-campaign={campaign.campaign_id} className="block">
+          <CardName
+            name={campaign.name}
+            muted={ended}
+            line={
+              stated === null ? (
+                <span className="text-warn-fg">Not stated</span>
+              ) : (
+                <>
+                  {objectiveOf(stated.objective)?.label ?? stated.objective}
+                  {" · "}
+                  {stated.target_direction === "AT_MOST" ? "≤ " : "≥ "}
+                  {drawMetric(
+                    metric?.unit ?? "count",
+                    stated.target_value
+                  )}{" "}
+                  {metric?.label.toLowerCase() ?? stated.success_metric}
+                </>
+              )
+            }
+          />
+        </span>
+      )
+    },
+  },
+  {
+    id: "lead",
+    accessorFn: (row) => row.usage?.spent_minor ?? 0,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "lead" },
+    cell: ({ row }) => {
+      const spent = row.original.usage?.spent_minor ?? 0
+      const budget = row.original.row.campaign.budget_minor
+      const share = consumed(spent, budget)
+      return (
+        <CardFigure
+          value={spent === 0 ? "—" : money(spent)}
+          caption={
+            share === null
+              ? "no limit"
+              : `of ${money(budget!)} · ${Math.round(share * 100)}%`
+          }
+          tone={
+            share !== null && share >= 0.9
+              ? "bad"
+              : share !== null && share >= 0.7
+                ? "warn"
+                : spent === 0
+                  ? "quiet"
+                  : undefined
+          }
+        />
+      )
+    },
+  },
+  {
+    id: "foot",
+    accessorFn: (row) => row.row.campaign.status,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row, table }) => {
+      const meta = actionsOf<CampaignLine>(table)
+      const campaign = row.original.row.campaign
+      const phase = phaseOf(campaign, Date.now())
+      const of = meta?.shops ?? null
+      const { offers, reached } = row.original
+      return (
+        <CardFoot
+          status={
+            phase.lever ? (
+              <span className="inline-flex items-center gap-2.5">
+                <Switch
+                  on={campaign.status === "ACTIVE"}
+                  busy={meta?.busy === campaign.campaign_id}
+                  label={`${campaign.status === "ACTIVE" ? "Pause" : "Resume"} ${campaign.name}`}
+                  onToggle={() => meta?.onToggle?.(row.original)}
+                />
+                <Status tone={campaign.status === "ACTIVE" ? "ok" : "warn"}>
+                  {phase.label}
+                </Status>
+              </span>
+            ) : (
+              <Status tone={phase.tone}>{phase.label}</Status>
+            )
+          }
+        >
+          {count(offers)} {offers === 1 ? "offer" : "offers"} ·{" "}
+          <span className={reached === 0 ? "text-warn-fg" : undefined}>
+            {of === null
+              ? `${count(reached)} ${reached === 1 ? "store" : "stores"}`
+              : `${count(reached)} / ${count(of)} stores`}
+          </span>
+          <br />
+          {campaign.valid_from ? day(campaign.valid_from) : "always"} →{" "}
+          {campaign.valid_to ? day(campaign.valid_to) : "open"}
+        </CardFoot>
+      )
+    },
+  },
+  {
+    id: "edit",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { align: "right", card: "status" },
+    // No handler of its own: the click reaches the card, whose tap opens the
+    // sheet — the button only says so.
+    cell: ({ row }) => (
+      <Button
+        variant="tint"
+        size="card"
+        aria-label={`Edit ${row.original.row.campaign.name}`}
+      >
+        Edit
+      </Button>
+    ),
+  },
 ]
 
 /// The tiles and the time series at the top of this screen, parked.
@@ -653,9 +804,6 @@ const columns: ColumnDef<TableSetup, CampaignLine>[] = [
 /// deleted one has to be rebuilt from memory.
 const SHOW_PERFORMANCE = false
 
-/// How many campaigns one page carries.
-const PAGE = 100
-
 /// Which column means which order the endpoint names. A column not in here
 /// cannot be sorted — `enableSorting: false` says so on the column — because
 /// the table would otherwise sort the pages it holds, not the list. `Runs`
@@ -676,6 +824,9 @@ const DEFAULT_SORT: SortingState = [{ id: "spent", desc: true }]
 export function Campaigns() {
   const client = useQueryClient()
   const actor = useActor()
+  // A phone draws the rows as cards and keeps the search, the filter and New in
+  // the drawer over the bottom bar (`DockTools`, `Fab`).
+  const phone = useLayout() === "phone"
   /// The search, in the URL like Promotions', so a narrowed list is a link.
   const search = useSheet("q")
   const query = search.value ?? ""
@@ -691,13 +842,10 @@ export function Campaigns() {
   /// A switch or publish that went through, held in the receipt dialog until
   /// it is read. One state for the three writes — pause, end, publish —
   /// because only one of them can land at a time.
-  const [switched, setSwitched] = useState<
-    | {
-        readonly title: string
-        readonly note?: string
-      }
-    | null
-  >(null)
+  const [switched, setSwitched] = useState<{
+    readonly title: string
+    readonly note?: string
+  } | null>(null)
   /// Budget used, highest first, ordered by the server — which joins the usage
   /// counter now. Cleared, it is the server's house order, by campaign id.
   const [sorting, setSorting] = useState<SortingState>(DEFAULT_SORT)
@@ -771,21 +919,7 @@ export function Campaigns() {
 
   /// The campaigns, a page at a time, the next one fetched as the last rows
   /// come into view.
-  const list = useInfiniteQuery({
-    queryKey: commercialKeys.campaignPages(scope),
-    queryFn: ({ signal, pageParam }) =>
-      campaignPage(
-        {
-          ...scope,
-          limit: PAGE,
-          ...(pageParam === undefined ? {} : { cursor: pageParam }),
-        },
-        signal
-      ),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-    placeholderData: (previous) => previous,
-  })
+  const list = useInfiniteQuery(campaignPagesQuery(scope))
   const first = list.data?.pages[0]
 
   /// Every campaign the search leaves, whatever the status clause — the
@@ -1029,6 +1163,13 @@ export function Campaigns() {
         state: {
           columnFilters: tableFilters,
           sorting,
+          // The card's own columns are drawn on a phone and never on a desk.
+          columnVisibility: {
+            head: phone,
+            lead: phone,
+            foot: phone,
+            edit: phone,
+          },
         },
         manualSorting: true,
         onSortingChange: setSorting,
@@ -1046,6 +1187,7 @@ export function Campaigns() {
         busy,
         shops,
         requestToggle,
+        phone,
       ]
     )
   )
@@ -1062,17 +1204,25 @@ export function Campaigns() {
       <PageHeader
         crumb="Marketing"
         title="Campaigns"
+        // On a phone the search and New are in the drawer over the bottom bar.
         actions={
-          <>
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              className="h-9 w-56"
-            />
-            <Button variant="primary" onClick={() => startForm(null)}>
-              New campaign
-            </Button>
-          </>
+          phone ? undefined : (
+            <>
+              <Input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                className="h-9 w-56"
+              />
+              <DeskFilterButton
+                model={filters}
+                filterModel={{ ...filters, fields: counted }}
+                table={table}
+              />
+              <Button variant="primary" onClick={() => startForm(null)}>
+                New campaign
+              </Button>
+            </>
+          )
         }
       />
 
@@ -1090,15 +1240,19 @@ export function Campaigns() {
         </Banner>
       )}
 
-      {/* The module's list shape: rows at the left, filters docked in a column
-          at the right. It was a Filter BUTTON over the table, which hides what
-          the list is narrowed by behind a click — the rail shows every field
-          at once and the chips stay visible while somebody reads the rows they
-          produced. Under 1440px it falls below rather than squeezing the
-          table. */}
-      <div className="grid min-w-0 items-start gap-5 dock:grid-cols-[minmax(0,1fr)_16rem]">
+      {/* Purchase Orders' shape: search and one filter button on the
+          header's line, the clauses in force as chips over the table — which
+          stay visible while somebody reads the rows they produced. */}
+      <div className="min-w-0">
         <div className="flex min-w-0 flex-col">
-          <Card className="overflow-hidden">
+          {!phone && (
+            <DeskFilterChips
+              model={filters}
+              filterModel={{ ...filters, fields: counted }}
+              table={table}
+            />
+          )}
+          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
             {queryState(list, {
               loading: "Loading campaigns…",
               render: () =>
@@ -1114,6 +1268,7 @@ export function Campaigns() {
                   </EmptyState>
                 ) : (
                   <DataTable<CampaignLine>
+                    refresh={[list]}
                     table={table}
                     onRowClick={(row) =>
                       sheet.open(row.row.campaign.campaign_id)
@@ -1127,6 +1282,9 @@ export function Campaigns() {
                         ? "No campaign matches those filters."
                         : "No campaign matches that search."
                     }
+                    cardSort={false}
+                    cardsApart
+                    cardLead
                     className={`max-h-[calc(100dvh-15rem)] ${ROOMY}`}
                   />
                 ),
@@ -1134,12 +1292,55 @@ export function Campaigns() {
           </Card>
         </div>
 
-        <DockedFilters
-          model={{ ...filters, fields: counted }}
-          id="campaigns"
-          subject="Campaign"
-        />
       </div>
+
+      <Fab label="New campaign" onClick={() => startForm(null)} />
+      {/* On a phone the search, the filter and the sort live in the drawer over
+          the bottom bar, not at the top of the list. */}
+      <DockTools
+        search={{ value: query, onChange: setQuery, label: "Search Campaigns" }}
+        filter={{
+          count: filters.filters.length,
+          panel: {
+            model: filters,
+            filterModel: { ...filters, fields: counted },
+            table,
+          },
+        }}
+        sort={dockSortOf(table)}
+        // The Status clause of the filter, as the one-of-a-few button the other
+        // lists have: the phases the server counts, with their counts.
+        status={{
+          value: phases.length === 1 ? phases[0] : "ALL",
+          options: [
+            {
+              value: "ALL",
+              label: "All",
+              count: everyCount ?? undefined,
+            },
+            ...(first?.facets.phases ?? [])
+              .filter((one) => one.count > 0 || phases.includes(one.value))
+              .map((one) => ({
+                value: one.value,
+                label: stateOf(one.value).label,
+                count: one.count,
+              })),
+          ],
+          onChange: (next) =>
+            filters.set([
+              ...filters.filters.filter((one) => one.column !== "live"),
+              ...(next === "ALL"
+                ? []
+                : [
+                    {
+                      column: "live",
+                      operator: "isAnyOf" as const,
+                      values: [next],
+                    },
+                  ]),
+            ]),
+        }}
+      />
 
       <CampaignSheet
         line={sheetLine}
@@ -1359,7 +1560,7 @@ function Poster({ line }: { line: CampaignLine }) {
 /// End sit in the head. No comments.
 ///
 /// **Results are the campaign's own window, never the screen's.** "Did
-/// Lebaran hit its target" is asked over Lebaran's dates whatever today is.
+/// Eid hit its target" is asked over Eid's dates whatever today is.
 function CampaignSheet({
   line,
   subject,
@@ -1909,7 +2110,7 @@ function CampaignForm({
   const [budget, setBudget] = useState(start?.budget ?? "")
   const [maxUses, setMaxUses] = useState(start?.maxUses ?? "")
   // The three a SHOPPER reads. They ride on the campaign and nowhere else —
-  // a shop cannot put "Lebaran Sale, ends Sunday" on a screen out of an id and
+  // a shop cannot put "Eid Sale, ends Sunday" on a screen out of an id and
   // a percentage.
   const [headline, setHeadline] = useState(start?.headline ?? "")
   const [image, setImage] = useState(start?.image ?? "")

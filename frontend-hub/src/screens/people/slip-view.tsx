@@ -106,7 +106,7 @@ export function SlipBreakdown({ slip }: { slip: PayrollSlipRow }) {
             value:
               slip.deduction_total_minor === null
                 ? "not worked out"
-                : `− ${money(slip.deduction_total_minor)}`,
+                : money(-slip.deduction_total_minor),
           },
         ]}
         total={{
@@ -178,7 +178,7 @@ export function SlipBreakdown({ slip }: { slip: PayrollSlipRow }) {
         )}
         {slip.final_tax_month === true && (
           <p className="mt-1 text-[0.875rem] text-mute">
-            The last month of the tax year: the year's Pasal 17 tax on its
+            The last month of the tax year: the year's Article 17 tax on its
             actual income, less what the other months withheld (PMK 168/2023).
           </p>
         )}

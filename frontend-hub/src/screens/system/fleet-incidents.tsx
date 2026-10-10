@@ -1,5 +1,6 @@
 import { useState } from "react"
 
+import { DockChoice } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { ConfirmButton } from "@/components/ui/dialog"
@@ -69,7 +70,7 @@ export function FleetIncidents() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-2 max-md:hidden">
         <Segmented
           options={VIEWS}
           value={openOnly ? "open" : "all"}
@@ -81,6 +82,14 @@ export function FleetIncidents() {
           </Button>
         )}
       </div>
+
+      {/* On a phone the two views are the dock's button, and the alert settings
+          close the list instead of opening it. */}
+      <DockChoice
+        value={openOnly ? "open" : "all"}
+        onChange={(next) => setOpenOnly(next === "open")}
+        options={VIEWS.map((one) => ({ value: one.value, label: one.label }))}
+      />
 
       <Card className="overflow-hidden">
         {queryState(incidents, {
@@ -112,6 +121,16 @@ export function FleetIncidents() {
             ),
         })}
       </Card>
+
+      {bypass && (
+        <Button
+          variant="quiet"
+          className="w-full md:hidden"
+          onClick={() => settings.open(true)}
+        >
+          Alert settings
+        </Button>
+      )}
 
       <AlertSettingsSheet open={settings.isOpen} onClose={settings.close} />
     </div>

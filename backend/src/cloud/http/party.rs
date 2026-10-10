@@ -24,9 +24,9 @@ use serde::Deserialize;
 /// between a party's roles.
 pub fn lane_routes(r: Router<AppState>) -> Router<AppState> {
     r.route(
-            "/api/v1/finance/party-links",
-            get(list_links).post(create_link),
-        )
+        "/api/v1/finance/party-links",
+        get(list_links).post(create_link),
+    )
 }
 
 #[derive(Debug, Deserialize)]

@@ -120,7 +120,8 @@ impl AttachmentStore {
         if let Some(endpoint) = &config.endpoint {
             store_config = store_config.with_endpoint(endpoint.clone());
         }
-        let store = ObjectStore::new(store_config).map_err(|error| AppError::Configuration(format!("attachment store: {error}")))?;
+        let store = ObjectStore::new(store_config)
+            .map_err(|error| AppError::Configuration(format!("attachment store: {error}")))?;
         Ok(Self { store })
     }
 

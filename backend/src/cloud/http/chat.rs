@@ -287,13 +287,8 @@ pub async fn set_preferences(
     Json(request): Json<ConversationPreferencesRequest>,
 ) -> Result<Json<ChatConversation>, AppError> {
     Ok(Json(
-        infrastructure::set_preferences(
-            &state.db,
-            conversation_id,
-            &principal.username,
-            &request,
-        )
-        .await?,
+        infrastructure::set_preferences(&state.db, conversation_id, &principal.username, &request)
+            .await?,
     ))
 }
 
@@ -304,13 +299,8 @@ pub async fn add_participants(
     Json(request): Json<AddParticipantsRequest>,
 ) -> Result<Json<ChatConversation>, AppError> {
     Ok(Json(
-        infrastructure::add_participants(
-            &state.db,
-            conversation_id,
-            &principal.username,
-            &request,
-        )
-        .await?,
+        infrastructure::add_participants(&state.db, conversation_id, &principal.username, &request)
+            .await?,
     ))
 }
 
@@ -384,7 +374,9 @@ pub async fn report_typing(
     let now = Instant::now();
     // A poisoned lock only means another request panicked mid-update; the map
     // is still a map of instants and is safe to keep using.
-    let mut rooms = typing().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut rooms = typing()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     // Swept on every write, so a room nobody types in any more does not hold
     // its entry for the life of the process.
     rooms.retain(|_, people| {
@@ -406,7 +398,9 @@ pub async fn who_is_typing(
 ) -> Result<Json<Vec<String>>, AppError> {
     infrastructure::require_participant(&state.db, conversation_id, &principal.username).await?;
     let now = Instant::now();
-    let rooms = typing().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let rooms = typing()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let mut names: Vec<String> = rooms
         .get(&conversation_id)
         .map(|people| {

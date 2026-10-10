@@ -11,7 +11,10 @@ import { Pill } from "@/components/ui/pill"
 import { EmptyState, Problem } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
+import { Fab } from "@/components/ui/fab"
+import { Sheet } from "@/components/ui/sheet"
 import { label, moment } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   financeKeys,
   listHeadOfficeAccounts,
@@ -26,6 +29,7 @@ import {
 } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
 import { Code, Grid, Td, Th } from "@/screens/finance-final/parts"
+import { PhoneCard, PhoneList } from "@/components/ui/phone-cards"
 import { AccountPicker, type PickedAccount } from "@/screens/finance/parts"
 import type { PostingSwitch } from "@itulah/contract"
 
@@ -87,6 +91,7 @@ export function PostingPolicies() {
 // ---------------------------------------------------------------------------
 
 function Switches() {
+  const phone = useLayout() === "phone"
   const client = useQueryClient()
   const switches = useQuery({
     queryKey: financeKeys.postingSwitches(),
@@ -163,6 +168,43 @@ function Switches() {
             </CardHeader>
             {data.sources.length === 0 ? (
               <EmptyState>No document kind has a switch of its own.</EmptyState>
+            ) : phone ? (
+              <ul className="flex flex-col">
+                {[...byModule.entries()].map(([group, rows]) => (
+                  <li key={group}>
+                    <div className="border-y border-hairline bg-soft px-4 py-2 text-[0.875rem] font-semibold text-ink first:border-t-0">
+                      {label(group)}
+                    </div>
+                    <ul>
+                      {rows.map((row) => (
+                        <li
+                          key={row.source_kind}
+                          className="flex items-center justify-between gap-3 border-b border-hairline px-4 py-3 last:border-b-0"
+                        >
+                          <div className="min-w-0">
+                            <Code>{row.source_kind}</Code>
+                            {row.note && (
+                              <div className="text-[0.875rem] break-words text-mute">
+                                {row.note}
+                              </div>
+                            )}
+                          </div>
+                          <Checkbox
+                            label={row.enabled ? "On" : "Off"}
+                            checked={row.enabled}
+                            disabled={
+                              one.isPending || !data.automatic_posting_enabled
+                            }
+                            onChange={(enabled) =>
+                              one.mutate({ ...row, enabled })
+                            }
+                          />
+                        </li>
+                      ))}
+                    </ul>
+                  </li>
+                ))}
+              </ul>
             ) : (
               <Grid>
                 <thead>
@@ -202,7 +244,7 @@ function Switches() {
                 </tbody>
               </Grid>
             )}
-            <div className="flex flex-wrap items-end gap-2 border-t border-hairline p-4">
+            <div className="flex flex-wrap items-end gap-2 border-t border-hairline p-4 max-md:[&>*]:w-full">
               <Field label="Document kind" required className="w-56">
                 <Input
                   value={kind}
@@ -268,6 +310,9 @@ function ChosenAccount({
 }
 
 function SourceRules() {
+  const phone = useLayout() === "phone"
+  /// The phone's form is a sheet the dock's + opens.
+  const [adding, setAdding] = useState(false)
   const client = useQueryClient()
   const rules = useQuery({
     queryKey: financeKeys.sourceRules(),
@@ -294,6 +339,7 @@ function SourceRules() {
       setKind("")
       setCategory("")
       setNote("")
+      setAdding(false)
     },
   })
   const remove = useMutation({
@@ -311,9 +357,69 @@ function SourceRules() {
     [rules.data]
   )
 
+  /// The form's fields, once: in a card beside the list on a desk, in a sheet
+  /// on a phone.
+  const fields = (
+    <>
+      <p className="text-[0.875rem] text-body">
+        An account with any ALLOW takes only the kinds allowed. A DENY keeps a
+        kind out, and wins over an ALLOW.
+      </p>
+      <Problem error={add.error} />
+      <Field label="Account" required>
+        <ChosenAccount value={account} onChange={setAccount} />
+      </Field>
+      <Field
+        label="Document kind"
+        required
+        hint="journal_entry.source_kind, e.g. CASH_SHIFT"
+      >
+        <Input value={kind} onChange={(event) => setKind(event.target.value)} />
+      </Field>
+      <Field label="Effect">
+        <Select value={effect} onChange={setEffect}>
+          <option value="ALLOW">Allow — only the kinds allowed</option>
+          <option value="DENY">Deny — never this kind</option>
+        </Select>
+      </Field>
+      <Field label="Category">
+        <Input
+          value={category}
+          onChange={(event) => setCategory(event.target.value)}
+        />
+      </Field>
+      <Field label="Note">
+        <Input value={note} onChange={(event) => setNote(event.target.value)} />
+      </Field>
+    </>
+  )
+  const submit = (
+    <Button
+      variant="primary"
+      pending={add.isPending}
+      disabled={account === null || kind.trim() === ""}
+      onClick={() => add.mutate()}
+    >
+      {add.isPending ? "Submitting…" : "Submit"}
+    </Button>
+  )
+
   return (
     <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
-      <Card className="overflow-hidden">
+      {phone && (
+        <>
+          <Fab label="Add a rule" onClick={() => setAdding(true)} />
+          <Sheet
+            open={adding}
+            onOpenChange={setAdding}
+            title="Add a rule"
+            footer={<div className="flex justify-end">{submit}</div>}
+          >
+            <div className="flex flex-col gap-3">{fields}</div>
+          </Sheet>
+        </>
+      )}
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(rules, {
           loading: "Reading the rules…",
           render: () =>
@@ -321,6 +427,41 @@ function SourceRules() {
               <EmptyState>
                 No rule: every document kind may reach every account.
               </EmptyState>
+            ) : phone ? (
+              <PhoneList>
+                {sorted.map((rule) => (
+                  <PhoneCard
+                    key={`${rule.account_code}\t${rule.source_kind}\t${rule.category_code ?? ""}`}
+                    title={
+                      <span className="font-mono">{rule.account_code}</span>
+                    }
+                    line={[
+                      rule.source_kind,
+                      rule.category_code === null
+                        ? null
+                        : `Category ${rule.category_code}`,
+                      rule.note,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                    lead={
+                      <Pill tone={rule.effect === "DENY" ? "bad" : "ok"}>
+                        {label(rule.effect)}
+                      </Pill>
+                    }
+                    action={
+                      <Button
+                        size="card"
+                        variant="tint"
+                        pending={remove.isPending}
+                        onClick={() => remove.mutate(rule)}
+                      >
+                        Remove
+                      </Button>
+                    }
+                  />
+                ))}
+              </PhoneList>
             ) : (
               <Grid>
                 <thead>
@@ -376,55 +517,13 @@ function SourceRules() {
         <Problem error={remove.error} className="m-3" />
       </Card>
 
-      <Card className="flex flex-col gap-3 p-4">
-        <h3 className="text-card-title font-semibold text-ink">Add a rule</h3>
-        <p className="text-[0.875rem] text-body">
-          An account with any ALLOW takes only the kinds allowed. A DENY keeps a
-          kind out, and wins over an ALLOW.
-        </p>
-        <Problem error={add.error} />
-        <Field label="Account" required>
-          <ChosenAccount value={account} onChange={setAccount} />
-        </Field>
-        <Field
-          label="Document kind"
-          required
-          hint="journal_entry.source_kind, e.g. CASH_SHIFT"
-        >
-          <Input
-            value={kind}
-            onChange={(event) => setKind(event.target.value)}
-          />
-        </Field>
-        <Field label="Effect">
-          <Select value={effect} onChange={setEffect}>
-            <option value="ALLOW">Allow — only the kinds allowed</option>
-            <option value="DENY">Deny — never this kind</option>
-          </Select>
-        </Field>
-        <Field label="Category">
-          <Input
-            value={category}
-            onChange={(event) => setCategory(event.target.value)}
-          />
-        </Field>
-        <Field label="Note">
-          <Input
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-          />
-        </Field>
-        <div className="flex justify-end">
-          <Button
-            variant="primary"
-            pending={add.isPending}
-            disabled={account === null || kind.trim() === ""}
-            onClick={() => add.mutate()}
-          >
-            {add.isPending ? "Submitting…" : "Submit"}
-          </Button>
-        </div>
-      </Card>
+      {!phone && (
+        <Card className="flex flex-col gap-3 p-4">
+          <h3 className="text-card-title font-semibold text-ink">Add a rule</h3>
+          {fields}
+          <div className="flex justify-end">{submit}</div>
+        </Card>
+      )}
     </div>
   )
 }
@@ -434,6 +533,8 @@ function SourceRules() {
 // ---------------------------------------------------------------------------
 
 function HeadOfficeAccounts() {
+  const phone = useLayout() === "phone"
+  const [adding, setAdding] = useState(false)
   const client = useQueryClient()
   const accounts = useQuery({
     queryKey: financeKeys.headOfficeAccounts(),
@@ -454,6 +555,7 @@ function HeadOfficeAccounts() {
       client.setQueryData(financeKeys.headOfficeAccounts(), rows)
       setAccount(null)
       setNote("")
+      setAdding(false)
     },
   })
   const remove = useMutation({
@@ -462,9 +564,57 @@ function HeadOfficeAccounts() {
       client.setQueryData(financeKeys.headOfficeAccounts(), rows),
   })
 
+  const fields = (
+    <>
+      <p className="text-[0.875rem] text-body">
+        A store's document that lands on it is refused: suppliers, banks, tax
+        and lenders are head office's to settle.
+      </p>
+      <Problem error={add.error} />
+      <Field label="Account" required>
+        <ChosenAccount value={account} onChange={setAccount} />
+      </Field>
+      <Field label="Kind">
+        <Select value={kind} onChange={setKind}>
+          {HO_KINDS.map((one) => (
+            <option key={one} value={one}>
+              {label(one)}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="Why" required>
+        <Input value={note} onChange={(event) => setNote(event.target.value)} />
+      </Field>
+    </>
+  )
+  const submit = (
+    <Button
+      variant="primary"
+      pending={add.isPending}
+      disabled={account === null || note.trim() === ""}
+      onClick={() => add.mutate()}
+    >
+      {add.isPending ? "Submitting…" : "Submit"}
+    </Button>
+  )
+
   return (
     <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
-      <Card className="overflow-hidden">
+      {phone && (
+        <>
+          <Fab label="Keep an account" onClick={() => setAdding(true)} />
+          <Sheet
+            open={adding}
+            onOpenChange={setAdding}
+            title="Keep an account for head office"
+            footer={<div className="flex justify-end">{submit}</div>}
+          >
+            <div className="flex flex-col gap-3">{fields}</div>
+          </Sheet>
+        </>
+      )}
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(accounts, {
           loading: "Reading the head-office accounts…",
           render: (rows) =>
@@ -473,6 +623,29 @@ function HeadOfficeAccounts() {
                 No account is kept for head office alone: a store's document may
                 post to any account.
               </EmptyState>
+            ) : phone ? (
+              <PhoneList>
+                {rows.map((row) => (
+                  <PhoneCard
+                    key={row.account_code}
+                    title={
+                      <span className="font-mono">{row.account_code}</span>
+                    }
+                    line={row.note}
+                    foot={label(row.kind)}
+                    action={
+                      <Button
+                        size="card"
+                        variant="tint"
+                        pending={remove.isPending}
+                        onClick={() => remove.mutate(row.account_code)}
+                      >
+                        Remove
+                      </Button>
+                    }
+                  />
+                ))}
+              </PhoneList>
             ) : (
               <Grid>
                 <thead>
@@ -512,44 +685,15 @@ function HeadOfficeAccounts() {
         <Problem error={remove.error} className="m-3" />
       </Card>
 
-      <Card className="flex flex-col gap-3 p-4">
-        <h3 className="text-card-title font-semibold text-ink">
-          Keep an account for head office
-        </h3>
-        <p className="text-[0.875rem] text-body">
-          A store's document that lands on it is refused: suppliers, banks, tax
-          and lenders are head office's to settle.
-        </p>
-        <Problem error={add.error} />
-        <Field label="Account" required>
-          <ChosenAccount value={account} onChange={setAccount} />
-        </Field>
-        <Field label="Kind">
-          <Select value={kind} onChange={setKind}>
-            {HO_KINDS.map((one) => (
-              <option key={one} value={one}>
-                {label(one)}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Why" required>
-          <Input
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-          />
-        </Field>
-        <div className="flex justify-end">
-          <Button
-            variant="primary"
-            pending={add.isPending}
-            disabled={account === null || note.trim() === ""}
-            onClick={() => add.mutate()}
-          >
-            {add.isPending ? "Submitting…" : "Submit"}
-          </Button>
-        </div>
-      </Card>
+      {!phone && (
+        <Card className="flex flex-col gap-3 p-4">
+          <h3 className="text-card-title font-semibold text-ink">
+            Keep an account for head office
+          </h3>
+          {fields}
+          <div className="flex justify-end">{submit}</div>
+        </Card>
+      )}
     </div>
   )
 }

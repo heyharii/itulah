@@ -1005,8 +1005,7 @@ pub async fn store_deposit_confirm(
         currency: row.try_get::<String, _>("currency")?,
         memo: Some(format!("{number} — setoran diterima bank")),
         lines: vec![
-            PostingLine::debit(&bank_key, &head_office, amount)
-                .with_qualifier(&bank_qualifier),
+            PostingLine::debit(&bank_key, &head_office, amount).with_qualifier(&bank_qualifier),
             PostingLine::credit("affiliate_payable", &head_office, amount)
                 .with_qualifier("PEMBIAYAAN")
                 .with_counter_unit(&unit_id),
@@ -1886,7 +1885,9 @@ pub async fn operating_fund_receive(
     let fund = fund_for_update(&mut tx, fund_id).await?;
     let received: Option<DateTime<Utc>> = fund.try_get("received_at")?;
     if received.is_some() {
-        return Err(AppError::Conflict("this fund has already been received".into()));
+        return Err(AppError::Conflict(
+            "this fund has already been received".into(),
+        ));
     }
     let unit_id: String = fund.try_get("unit_id")?;
     let number: String = fund.try_get("fund_number")?;
@@ -2320,7 +2321,11 @@ pub async fn payroll_payout_build(
     .bind(&run_id)
     .fetch_all(&mut *tx)
     .await?;
-    if let Some(line) = request.lines.iter().find(|line| held.contains(&line.employee_id)) {
+    if let Some(line) = request
+        .lines
+        .iter()
+        .find(|line| held.contains(&line.employee_id))
+    {
         return Err(AppError::Conflict(format!(
             "{}'s pay on {run_id} is held by head office; release it before listing an envelope",
             line.employee_id

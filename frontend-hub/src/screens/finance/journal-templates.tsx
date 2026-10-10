@@ -7,10 +7,12 @@ import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Day } from "@/components/ui/day"
 import { Panel } from "@/components/ui/dialog"
+import { Fab } from "@/components/ui/fab"
 import { Checkbox, Field, Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { EmptyState, Problem, Receipt } from "@/components/ui/states"
 import { count, day, label, money } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   financeKeys,
   listJournalRepeats,
@@ -24,6 +26,8 @@ import { Grid, Td, Th } from "@/screens/finance-final/parts"
 import { todayIso } from "@/screens/finance/chart"
 import { useCategoriesByFamily } from "@/screens/finance/hooks"
 import { JournalLinesGrid } from "@/screens/finance/journal-lines-grid"
+import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
+import { PhoneChoice } from "@/screens/finance/parts"
 import {
   blankLine,
   draftFromTemplate,
@@ -61,6 +65,7 @@ export function JournalTemplates() {
   })
   const [editing, setEditing] = useState<JournalTemplate | "new" | null>(null)
   const [inactive, setInactive] = useState(false)
+  const phone = useLayout() === "phone"
   const client = useQueryClient()
   const repeats = useQuery({
     queryKey: financeKeys.journalRepeats(),
@@ -107,6 +112,7 @@ export function JournalTemplates() {
   return (
     <PageContent>
       <PageHeader
+        className="max-md:hidden"
         crumb="Finance · Payments"
         title="Recurring Journal"
         sub="Journals that come back on a schedule — accruals, amortisation, allocations. Each posts on its date."
@@ -122,6 +128,19 @@ export function JournalTemplates() {
         }
       />
 
+      {/* A phone: "Show stopped" is a chip in the dock, the new journal the
+          round +, and "Run due now" stands at the foot of the list. */}
+      <PhoneChoice
+        title="Show"
+        value={inactive ? "all" : "running"}
+        onChange={(next) => setInactive(next === "all")}
+        options={[
+          { value: "running", label: "Running", short: "Running" },
+          { value: "all", label: "Running and stopped", short: "All" },
+        ]}
+      />
+      <Fab label="New recurring journal" onClick={() => setEditing("new")} />
+
       <Problem error={run.error} className="mb-3" />
       {run.isSuccess && (
         <Receipt className="mb-3">
@@ -131,7 +150,7 @@ export function JournalTemplates() {
         </Receipt>
       )}
 
-      <div className="mb-3 flex justify-end">
+      <div className="mb-3 flex justify-end max-md:hidden">
         <Checkbox
           label="Show stopped"
           checked={inactive}
@@ -147,6 +166,92 @@ export function JournalTemplates() {
               Nothing recurs yet. Save the lines of an entry that comes back
               every month, then give it a schedule.
             </EmptyState>
+          ) : phone ? (
+            <>
+              <PhoneList
+                rows={rows.map((row) => {
+                  const repeat = repeatOf.get(row.template_id)
+                  const late =
+                    repeat !== undefined &&
+                    repeat.is_active &&
+                    repeat.next_date <= todayIso()
+                  return {
+                    key: row.template_id,
+                    title: (
+                      <>
+                        {row.name}
+                        {!row.is_active && (
+                          <span className="font-normal text-mute">
+                            {" "}
+                            · stopped
+                          </span>
+                        )}
+                      </>
+                    ),
+                    line: row.memo || `${count(row.lines.length)} lines`,
+                    lead:
+                      templateTotal(row) === 0 ? (
+                        <CardFigure value="—" caption="filled in each time" />
+                      ) : (
+                        <CardFigure value={money(templateTotal(row))} />
+                      ),
+                    foot: (
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          setScheduling({
+                            repeat: repeat ?? null,
+                            template: row.template_id,
+                          })
+                        }}
+                        className="text-left"
+                      >
+                        {repeat === undefined ? (
+                          <span className="text-accent">Add a schedule</span>
+                        ) : (
+                          <>
+                            <span className="block text-ink">
+                              {label(repeat.frequency)}
+                              {!repeat.is_active && " · paused"}
+                            </span>
+                            <span
+                              className={
+                                late ? "block text-warn-fg" : "block text-mute"
+                              }
+                            >
+                              Next {day(repeat.next_date)} ·{" "}
+                              {repeat.auto_post ? "posts itself" : "as a draft"}
+                              {repeat.last_run_on
+                                ? ` · last ${day(repeat.last_run_on)}`
+                                : ""}
+                            </span>
+                          </>
+                        )}
+                      </button>
+                    ),
+                    action: (
+                      <Button
+                        variant="tint"
+                        size="card"
+                        disabled={!row.is_active}
+                        onClick={() => start(row)}
+                      >
+                        Post one now
+                      </Button>
+                    ),
+                    onOpen: () => setEditing(row),
+                  }
+                })}
+              />
+              <Button
+                className="mt-4 w-full"
+                pending={run.isPending}
+                onClick={() => run.mutate()}
+              >
+                {due > 0 ? `Run ${count(due)} due now` : "Run due now"}
+              </Button>
+            </>
           ) : (
             <Grid>
               <thead>

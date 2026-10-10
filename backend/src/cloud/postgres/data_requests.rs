@@ -58,7 +58,9 @@ fn request(row: &sqlx::postgres::PgRow) -> Result<PersonalDataRequestView, AppEr
         value: row.try_get("value")?,
         reason: row.try_get("reason")?,
         state: row.try_get("state")?,
-        filed_by: row.try_get::<Option<String>, _>("filed_by")?.unwrap_or_default(),
+        filed_by: row
+            .try_get::<Option<String>, _>("filed_by")?
+            .unwrap_or_default(),
         filed_at: row.try_get("created_at")?,
         decided_by: row.try_get("decided_by")?,
         decision_reason: row.try_get("decision_reason")?,
@@ -170,7 +172,9 @@ pub async fn close_personal_data_request(
     .execute(pool)
     .await?;
     if updated.rows_affected() == 0 {
-        return Err(AppError::Conflict(format!("request {id} is no longer waiting")));
+        return Err(AppError::Conflict(format!(
+            "request {id} is no longer waiting"
+        )));
     }
     Ok(())
 }

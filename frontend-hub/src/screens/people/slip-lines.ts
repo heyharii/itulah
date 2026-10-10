@@ -1,12 +1,12 @@
-import { money } from "@/lib/format"
+import { money, percentBps } from "@/lib/format"
 import type { SlipLineRow } from "@itulah/contract"
 
 /// How a payslip writes a rate and says what a line was worked out from.
 /// Shared by the run's payslip and the payroll settings.
 
-/// Hundredths of a percent, as a payslip writes a rate: `0,24 %`, `2 %`.
+/// Hundredths of a percent, as a payslip writes a rate: `0,24%`, `2%`.
 export function percent(bp: number): string {
-  return `${(bp / 100).toLocaleString("id-ID", { maximumFractionDigits: 2 })}%`
+  return percentBps(bp)
 }
 
 function hours(minutes: number): string {

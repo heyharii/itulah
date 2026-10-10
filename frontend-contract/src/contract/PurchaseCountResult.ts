@@ -3,7 +3,7 @@
 /**
  * A count awaiting a verifier.
  */
-export type PurchaseCountResult = { count_id: string, po_line_id: string, counted_quantity: number,
+export type PurchaseCountResult = { count_id: string, po_line_id: string, counted_quantity: number, 
 /**
  * What the checker wrote as not matching the order, inside the count.
  */

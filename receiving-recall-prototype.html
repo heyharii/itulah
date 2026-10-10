@@ -1,0 +1,812 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Receiving Recall</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<style>
+/* Measured on the running hub (pos-e2e :5480, 8 Oct 2026): Receiving list,
+   Review Count dialog, PO sheet, Count receive sheet. */
+:root {
+  --ink: #20242c; --text: #394150; --body: #565f6d; --mute: #666f7d; --faint: #89919d;
+  --hairline: #e6e6e9; --edge: #dadade; --soft: #f8f8f9; --soft-2: #f0f0f2; --soft-3: #f6f6f7;
+  --accent: #2563eb; --info-fg: #2c57bf; --tint: #eff5ff;
+  --bad-fg: #be123c; --bad-bg: #fbeaea; --warn-fg: #a64a08; --ok-fg: #137a37;
+  --rail: #242526;
+  --r-card: 10px; --r-inner: 8px; --r-sheet: 16px;
+  --shadow-soft: 0 1px 3px rgba(24, 39, 60, .04);
+  --shadow-sheet: 0 8px 24px rgba(24, 39, 60, .06), 0 24px 64px rgba(24, 39, 60, .12);
+  --ease-out: cubic-bezier(.23, 1, .32, 1);
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; }
+body {
+  font: 400 15px/1.45 "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  letter-spacing: -0.09px; color: var(--ink); background: #fff;
+  -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent;
+}
+button, input, textarea, select { font: inherit; letter-spacing: inherit; color: inherit; }
+button { cursor: pointer; border: 0; background: none; padding: 0; }
+.mono { font-family: var(--mono); }
+.num { font-variant-numeric: tabular-nums; }
+svg.lucide { width: 18px; height: 18px; stroke-width: 1.75; flex-shrink: 0; }
+
+/* ── prototype bar ───────────────────────────────────────── */
+.proto {
+  position: fixed; inset: 0 0 auto 0; z-index: 100; min-height: 48px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 16px;
+  background: #fff; border-bottom: 1px solid var(--hairline);
+}
+.seg { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; background: var(--soft-2); border-radius: 10px; }
+.seg button { height: 30px; padding: 0 12px; border-radius: 7px; font-size: 14px; font-weight: 500; color: var(--body); transition: background-color 150ms ease, color 150ms ease; }
+.seg button[aria-pressed="true"] { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgba(24, 39, 60, .08), 0 0 0 1px var(--hairline); }
+.seg .live { margin-left: 6px; font-size: 14px; color: var(--ok-fg); }
+.proto .reset { margin-left: auto; height: 30px; padding: 0 10px; border-radius: 7px; font-size: 14px; color: var(--body); }
+.proto .reset:hover { background: var(--soft-2); }
+
+/* ── shell ───────────────────────────────────────────────── */
+.shell { position: fixed; inset: 48px 0 0 0; display: grid; grid-template-columns: 68px 232px minmax(0, 1fr); }
+.rail { background: var(--rail); display: flex; flex-direction: column; align-items: center; padding: 12px 0; gap: 4px; }
+.rail .logo { width: 28px; height: 28px; border-radius: 8px; background: #fff; color: var(--rail); font-weight: 700; display: grid; place-items: center; margin-bottom: 14px; font-size: 16px; }
+.rail .ic { width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; color: #b9bcc2; position: relative; }
+.rail .ic.on { background: rgba(255, 255, 255, .1); color: #fff; }
+.rail .gap { flex: 1; }
+.rail .badge { position: absolute; top: 2px; right: 1px; background: var(--accent); color: #fff; font-size: 14px; line-height: 16px; padding: 0 4px; border-radius: 8px; transform: scale(.75); transform-origin: top right; }
+.rail .me { width: 28px; height: 28px; border-radius: 50%; background: #3a3b3d; color: #fff; display: grid; place-items: center; font-size: 14px; font-weight: 600; margin-top: 6px; }
+.dept { background: #fff; border-right: 1px solid var(--hairline); display: flex; flex-direction: column; }
+.dept .head { height: 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; font-weight: 600; }
+.dept .head svg { color: var(--mute); }
+.dept nav { display: flex; flex-direction: column; gap: 2px; padding: 4px 10px; }
+.dept nav a { height: 36px; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; border-radius: 8px; color: var(--text); text-decoration: none; font-size: 14px; }
+.dept nav a.on { background: var(--tint); color: var(--accent); font-weight: 500; }
+.dept nav a .n { color: var(--warn-fg); font-size: 14px; }
+.dept .clock { margin-top: auto; border-top: 1px solid var(--hairline); height: 52px; display: flex; align-items: center; gap: 8px; padding: 0 16px; font-size: 14px; color: var(--text); }
+.content { overflow-y: auto; padding: 14px 32px 40px; }
+.page-title { font-size: 15px; font-weight: 600; margin: 0 0 8px; line-height: 22px; }
+
+/* tabs */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--hairline); margin-bottom: 18px; }
+.tabs span { padding: 8px 12px 10px; font-size: 14px; font-weight: 500; color: var(--body); position: relative; }
+.tabs span.on { color: var(--ink); }
+.tabs span.on::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--ink); }
+
+/* cards + tables */
+.card { background: #fff; border: 1px solid var(--hairline); border-radius: var(--r-card); box-shadow: var(--shadow-soft); overflow: hidden; }
+table { border-collapse: collapse; width: 100%; }
+.dt th { height: 40px; padding: 0 12px; background: var(--soft); border-bottom: 1px solid var(--hairline); color: var(--body); font-size: 14px; font-weight: 500; letter-spacing: .04em; text-align: left; white-space: nowrap; }
+.dt td { padding: 12px; color: var(--text); border-bottom: 1px solid var(--hairline); vertical-align: middle; }
+.dt tbody tr:last-child td { border-bottom: 0; }
+.dt tr.row { height: 75px; }
+.dt tr.click { cursor: pointer; transition: background-color 150ms ease; }
+@media (hover: hover) and (pointer: fine) { .dt tr.click:hover { background: var(--soft); } }
+.r { text-align: right !important; }
+.two { display: flex; flex-direction: column; line-height: 20px; gap: 2px; min-width: 0; }
+.two .a { color: var(--ink); font-weight: 500; }
+.two .b { color: var(--mute); font-size: 14px; }
+.two .q { color: var(--body); }
+.counted { display: inline-flex; flex-direction: column; align-items: flex-end; line-height: 20px; }
+.counted b { font-weight: 500; color: var(--ink); }
+.counted span { color: var(--mute); font-size: 14px; }
+
+/* buttons */
+.btn { height: 36px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 8px; font-size: 15px; font-weight: 500; white-space: nowrap; transition: transform 160ms var(--ease-out), background-color 150ms ease, opacity 150ms ease; }
+.btn:active:not(:disabled) { transform: scale(.97); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn.primary { background: var(--accent); color: #fff; }
+.btn.soft { background: var(--soft-2); border: 1px solid var(--edge); color: var(--ink); box-shadow: var(--shadow-soft); }
+.btn.ghost { color: var(--ink); }
+.btn.ghost:hover { background: var(--soft-2); }
+.btn.tint { height: 32px; padding: 0 14px; background: var(--tint); color: var(--accent); font-weight: 600; }
+.btn.icon { width: 36px; padding: 0; justify-content: center; }
+.btn.sm { height: 32px; }
+
+/* list stamps + status words */
+.stamp-s { display: inline-block; transform: rotate(-6deg); border: 2px solid currentColor; border-radius: 6px; padding: 1px 8px; font-size: 14px; font-weight: 700; letter-spacing: .1em; line-height: 17px; text-align: center; opacity: .55; white-space: nowrap; }
+.ok { color: var(--ok-fg); } .bad { color: var(--bad-fg); } .warn { color: var(--warn-fg); } .info { color: var(--info-fg); }
+
+/* KPI strip + toolbar (PO list) */
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.kpi { background: #fff; border: 1px solid var(--hairline); border-radius: var(--r-card); padding: 12px 16px; box-shadow: var(--shadow-soft); }
+.kpi .l { font-size: 14px; color: var(--body); }
+.kpi .v { font-size: 18px; font-weight: 600; margin-top: 2px; }
+.toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+.field { height: 34px; display: inline-flex; align-items: center; gap: 8px; padding: 0 10px; border: 1px solid var(--edge); border-radius: 8px; font-size: 14px; color: var(--mute); background: #fff; }
+
+/* ── sheets / dialogs ────────────────────────────────────── */
+.scrim { position: fixed; inset: 48px 0 0 0; background: rgba(248, 248, 249, .72); z-index: 20; transition: opacity 200ms ease; }
+.scrim.top { z-index: 40; background: rgba(248, 248, 249, .5); }
+.sheet {
+  position: fixed; top: 68px; right: 20px; bottom: 20px; z-index: 30; width: min(928px, calc(100vw - 40px));
+  background: #fff; border: 1px solid var(--hairline); border-radius: var(--r-sheet); box-shadow: var(--shadow-sheet);
+  display: flex; flex-direction: column; overflow: hidden;
+  transition: opacity 220ms var(--ease-out), transform 220ms var(--ease-out);
+}
+.sheet.review { width: min(896px, calc(100vw - 40px)); }
+.sheet.top { z-index: 50; }
+.enter-from { opacity: 0 !important; transform: translateX(12px) scale(.99); }
+.scrim.enter-from { transform: none; }
+.sh-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 12px 28px; border-bottom: 1px solid var(--hairline); min-height: 68px; }
+.sh-head h2 { margin: 0; font-size: 18px; font-weight: 600; line-height: 24px; letter-spacing: -0.18px; }
+.sh-head h2.s16 { font-size: 16px; line-height: 23px; display: flex; align-items: center; gap: 8px; }
+.sh-head .sub { color: var(--mute); }
+.sh-head .x { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; color: var(--faint); margin-top: 6px; margin-right: -6px; }
+.sh-head .x:hover { background: var(--soft-2); }
+.sh-body { flex: 1; overflow-y: auto; padding: 20px 28px 28px; display: flex; flex-direction: column; gap: 18px; position: relative; }
+.sh-body > * { flex-shrink: 0; }
+.sh-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 16px 24px; border-top: 1px solid var(--hairline); }
+.sh-foot .grow { flex: 1; }
+.sh-foot .said { color: var(--body); }
+
+.facts { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 24px; }
+.facts .l { font-size: 14px; color: var(--body); line-height: 18px; }
+.facts .v { font-size: 14px; color: var(--ink); line-height: 22px; margin-top: 4px; }
+.factline { display: flex; flex-wrap: wrap; gap: 8px 48px; }
+.factline span { color: var(--mute); margin-right: 10px; }
+
+/* tables inside sheets */
+.st { border: 1px solid var(--hairline); border-radius: var(--r-card); overflow: hidden; }
+.st th { padding: 10px 16px; background: var(--soft); border-bottom: 1px solid var(--hairline); color: var(--body); font-size: 14px; font-weight: 500; text-align: left; white-space: nowrap; }
+.st td { padding: 14px 16px; vertical-align: middle; border-bottom: 1px solid var(--hairline); color: var(--ink); }
+.st tbody tr:last-child td { border-bottom: 0; }
+.st tfoot td { background: var(--soft-2); padding: 14px 16px; border-top: 1px solid var(--hairline); }
+.st tfoot tr + tr td { background: var(--soft); }
+.st tr.off td { color: var(--mute); }
+.st td.ok { color: var(--ok-fg); } .st td.warn { color: var(--warn-fg); } .st td.bad { color: var(--bad-fg); }
+.st tr.pick { cursor: pointer; }
+.st .item { display: flex; gap: 12px; align-items: flex-start; }
+.st .thumb { width: 32px; height: 32px; border-radius: 6px; background: var(--soft-2); display: grid; place-items: center; color: var(--ink); flex-shrink: 0; }
+.pill { display: inline-block; padding: 4px 10px; border-radius: 8px; font-weight: 500; }
+.pill.bad { background: var(--bad-bg); color: var(--bad-fg); }
+.pill.over { background: var(--bad-bg); color: var(--bad-fg); }
+.cb { width: 18px; height: 18px; border-radius: 5px; border: 1.5px solid var(--edge); display: inline-grid; place-items: center; background: #fff; transition: background-color 120ms ease, border-color 120ms ease; vertical-align: middle; }
+.cb.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.cb.on svg { width: 13px; height: 13px; stroke-width: 3; }
+.cb.dis { background: var(--soft-2); }
+.note { display: flex; align-items: center; gap: 10px; padding: 0 4px; color: var(--body); }
+.note b { color: var(--ink); font-weight: 500; }
+.ask { display: flex; flex-direction: column; gap: 12px; }
+.ask h3 { margin: 0; font-size: 16px; font-weight: 600; line-height: 23px; }
+textarea { width: 100%; min-height: 88px; resize: vertical; padding: 10px 12px; border: 1px solid var(--edge); border-radius: 8px; font-size: 15px; line-height: 22px; outline: none; transition: border-color 150ms ease, box-shadow 150ms ease; }
+textarea:focus, .qty:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37, 99, 235, .12); }
+.qty { width: 76px; height: 34px; padding: 0 10px; border: 1px solid var(--edge); border-radius: 8px; text-align: center; font-variant-numeric: tabular-nums; outline: none; background: #fff; }
+.qty:disabled { background: var(--soft-2); color: var(--mute); }
+.unit { width: 88px; height: 34px; padding: 0 10px; border: 1px solid var(--edge); border-radius: 8px; display: inline-flex; align-items: center; justify-content: space-between; background: #fff; }
+.unit svg { width: 14px; height: 14px; color: var(--mute); }
+.another { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; color: var(--body); font-size: 14px; }
+.another svg { width: 14px; height: 14px; }
+.cnt { display: flex; gap: 8px; align-items: center; }
+
+/* the PO sheet's stamp: it changes with the order, so it is pressed on, not swapped */
+.stamp { position: absolute; top: 18px; right: 30px; z-index: 2; transform: rotate(-6deg); border: 2px solid currentColor; border-radius: 8px; padding: 2px 12px; font-size: 18px; font-weight: 700; letter-spacing: .14em; line-height: 26px; opacity: .4; pointer-events: none; white-space: nowrap; transition: opacity 220ms var(--ease-out), transform 220ms var(--ease-out), filter 220ms ease; }
+.stamp.pressing { opacity: 0; transform: rotate(-6deg) scale(1.12); filter: blur(2px); }
+.fold { display: flex; align-items: center; gap: 6px; color: var(--ink); padding-top: 16px; border-top: 1px solid var(--hairline); }
+.fold svg { width: 16px; height: 16px; color: var(--mute); }
+.fold .c { color: var(--mute); }
+.change { color: var(--mute); font-size: 14px; line-height: 20px; }
+.change.hl { color: var(--info-fg); }
+
+/* the PO sheet's count banner (live: CountBanner) */
+.banner { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: var(--r-card); }
+.banner.info { background: #eef4fd; color: var(--info-fg); }
+.banner.warn { background: #fdf3ea; color: var(--warn-fg); }
+.banner svg { width: 20px; height: 20px; }
+.banner b { display: block; font-weight: 600; }
+.banner span span { display: block; font-size: 14px; }
+svg.lucide.inl { width: 15px; height: 15px; vertical-align: -2px; }
+.acts { display: flex; flex-direction: column; gap: 10px; margin: 2px 0 0 22px; }
+.acts li { list-style: none; display: flex; flex-direction: column; line-height: 20px; }
+.acts li span { color: var(--mute); font-size: 14px; }
+.acts li.new b { color: var(--info-fg); }
+.acts b { font-weight: 500; }
+
+/* toast */
+.toast { position: fixed; left: 50%; bottom: 28px; z-index: 90; transform: translate(-50%, 0); display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: var(--ink); color: #fff; border-radius: 10px; box-shadow: var(--shadow-sheet); font-size: 15px; transition: opacity 200ms var(--ease-out), transform 200ms var(--ease-out); }
+.toast.enter-from { opacity: 0; transform: translate(-50%, 8px); }
+.toast svg { color: #7ee2a0; }
+
+/* phone (414 baseline): no rail/department column, sheets full screen, actions stay in the foot */
+@media (max-width: 767px) {
+  .shell { grid-template-columns: minmax(0, 1fr); }
+  .rail, .dept { display: none; }
+  .content { padding: 12px 16px 32px; }
+  .kpis { grid-template-columns: 1fr 1fr; }
+  .toolbar .field:not(:first-child), .toolbar .hide-p { display: none; }
+  .hide-p { display: none; }
+  .sheet, .sheet.review { top: 48px; right: 0; bottom: 0; width: 100vw; border-radius: 0; border: 0; }
+  .sh-head { padding: 10px 16px; }
+  .sh-body { padding: 16px; }
+  .sh-foot { padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); }
+  .sh-foot .btn { height: 44px; }
+  .st th, .st td, .st tfoot td { padding-left: 10px; padding-right: 10px; }
+  .facts { grid-template-columns: 1fr; }
+  .stamp { right: 16px; top: 12px; font-size: 15px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sheet, .toast, .stamp { transition: opacity 150ms ease !important; }
+  .enter-from, .toast.enter-from, .stamp.pressing { transform: none !important; filter: none !important; }
+}
+</style>
+</head>
+<body>
+<div class="proto">
+  <div class="seg" id="views">
+    <button data-view="1">1 · Receiving · Recall Count</button>
+    <button data-view="2">2 · Review Count · Recount<span class="live">live</span></button>
+    <button data-view="3">3 · Received PO · Recall Receipt</button>
+  </div>
+  <div class="seg" id="side">
+    <button data-side="wh">Warehouse</button>
+    <button data-side="md">MD · PO</button>
+  </div>
+  <div class="seg" id="opts" hidden>
+    <button data-opt="A">A · Count again</button>
+    <button data-opt="B">B · Correct here</button>
+  </div>
+  <button class="reset" id="reset">Reset</button>
+</div>
+<div id="app"></div>
+
+<script>
+const ORDERED_007 = 12 // hidden from the counter: the count is blind
+
+const fresh = () => ({
+  view: "1", opt: "A",
+  // 1 · Receiving
+  recv: [
+    { po: "PO-041026-010", sup: "Garmen AA, UD", items: 1 },
+    { po: "PO-041026-011", sup: "Indorama, PT", items: 1 },
+    { po: "PO-051026-002", sup: "Indorama, PT", items: 1 },
+    { po: "PO-041026-007", sup: "Indorama, PT", items: 1, counted: 20, by: "Rina Kusuma", at: "04 Oct 2026, 17:04",
+      lines: [{ name: "Kaos Uji UJI4", sub: "Pria · Kaos", qty: 20, wrong: 0 }] },
+    { po: "PO-021026-001", sup: "Indorama, PT", items: 2, counted: 900, by: "Rina Kusuma", at: "02 Oct 2026, 09:13",
+      lines: [{ name: "Kemeja Oxford", sub: "Pria · Kemeja", qty: 500, wrong: 0 }, { name: "Celana Chino", sub: "Pria · Celana", qty: 400, wrong: 0 }] },
+    { po: "PO-041026-012", sup: "Indorama, PT", items: 1, counted: 700, by: "Rina Kusuma", at: "04 Oct 2026, 16:59",
+      lines: [{ name: "Kaos Polos", sub: "Wanita · Kaos", qty: 700, wrong: 0 }] },
+  ],
+  countPo: null, countMode: "read", draft: null,
+  side: "wh", mdOpen: true, mdReview: false, done007: false,
+  log: [{ t: "Counted 20 pcs", who: "Rina Kusuma", at: "04 Oct 2026, 17:04" },
+    { t: "Issued", who: "Rina Kusuma", at: "04 Oct 2026, 10:12" }],
+  // 2 · Review Count
+  review: true, reviewMode: "decide", picked: new Set(["1"]), why: "",
+  // 3 · Received PO
+  po: true, recall: false, recalled: null, recallWhy: "", recallPicked: new Set(["1"]), fix: 12, activity: 4,
+})
+let S = fresh()
+let opening = null // which sheet gets the enter transition on this render
+
+const ic = (name, cls = "") => `<i data-lucide="${name}" class="${cls}"></i>`
+const pcs = (n) => `${n.toLocaleString("id-ID")} pcs`
+const rp = (n) => `Rp ${n.toLocaleString("id-ID")}`
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c])
+
+function shell(dept, body) {
+  const ops = dept === "ops"
+  const nav = ops
+    ? [["Workload"], ["Receiving", 8, true], ["Allotment", 8], ["Return from Store"], ["Return PO", 2], ["Activity Log"]]
+    : [["Purchase Orders", 5, true], ["Suppliers"], ["Sourcing"], ["Return PO", 2]]
+  const rail = ["shopping-cart", "shirt", "truck", "boxes", "megaphone", "store", "landmark", "users", "messages-square", "book-open"]
+  return `<div class="shell">
+    <aside class="rail"><div class="logo">C</div>
+      ${rail.map((n) => `<span class="ic ${(ops ? n === "truck" : n === "shopping-cart") ? "on" : ""}">${ic(n)}</span>`).join("")}
+      <span class="gap"></span>
+      <span class="ic">${ic("message-square-text")}</span><span class="ic">${ic("message-circle")}</span>
+      <span class="ic">${ic("bell")}<span class="badge">89</span></span><span class="ic">${ic("sparkles")}</span>
+      <span class="ic">${ic("file-text")}</span><span class="ic">${ic("sliders-horizontal")}</span><span class="me">R</span>
+    </aside>
+    <aside class="dept"><div class="head">${ops ? "Ops" : "Procurement"}${ic("panel-left")}</div>
+      <nav>${nav.map(([l, n, on]) => `<a class="${on ? "on" : ""}">${l}${n ? `<span class="n">${n}</span>` : ""}</a>`).join("")}</nav>
+      <div class="clock">${ic("clock-3")}Thu 08 Oct 2026 · 11:40</div>
+    </aside>
+    <main class="content">${body}</main>
+  </div>`
+}
+
+/* ── 1 · Receiving ───────────────────────────────────────── */
+function receivingList() {
+  const rows = [...S.recv].sort((a, b) => (a.counted ? 1 : 0) - (b.counted ? 1 : 0))
+  return `<h1 class="page-title">Receiving</h1>
+  <div class="tabs"><span class="on">Purchase orders · ${S.recv.length}</span><span>Store returns</span></div>
+  <div class="card"><table class="dt">
+    <thead><tr><th>PO ⌃</th><th class="r hide-p" style="width:120px">Items</th><th class="r" style="width:300px">Count</th></tr></thead>
+    <tbody>${rows.map((r) => `<tr class="row ${r.counted ? "click" : ""}" data-po="${r.po}">
+      <td><span class="two"><span class="a">${r.sup}</span><span class="b mono">${r.po}</span>${r.reason ? `<span class="q">“${esc(r.reason)}”</span>` : ""}</span></td>
+      <td class="r num hide-p">${r.items}</td>
+      <td class="r">${r.counted
+        ? `<span class="counted num"><b>${pcs(r.counted)}</b><span>${r.by} · ${r.at}</span></span>`
+        : `<button class="btn tint" data-count="${r.po}">${r.reason || r.recalledAt ? "Count again" : "Count receive"}</button>`}</td>
+    </tr>`).join("")}</tbody>
+  </table></div>`
+}
+
+function countSheet() {
+  const r = S.recv.find((x) => x.po === S.countPo)
+  if (!r) return ""
+  const edit = S.countMode === "edit"
+  const lines = edit ? S.draft : r.lines
+  const total = lines.reduce((s, l) => s + (Number(l.qty) || 0), 0)
+  const wrong = lines.reduce((s, l) => s + (Number(l.wrong) || 0), 0)
+  return `<div class="scrim" data-close="count"></div>
+  <section class="sheet" data-sheet="count" role="dialog" aria-label="Count">
+    <header class="sh-head"><div><div class="sub mono">${r.po}</div><h2>${r.sup}</h2></div>
+      <button class="x" data-close="count" aria-label="Close">${ic("x")}</button></header>
+    <div class="sh-body">
+      ${!edit && r.counted ? `<div class="factline"><div><span>Counted</span>${r.by} · ${r.at}</div></div>` : ""}
+      <div class="st"><table>
+        <thead><tr><th>Article</th><th style="width:${edit ? 280 : 200}px">Counted</th><th class="r" style="width:130px">In pieces</th></tr></thead>
+        <tbody>${lines.map((l, i) => `<tr>
+          <td><span class="two"><span class="a" style="font-weight:400">${l.name}</span><span class="b">${l.sub}</span></span></td>
+          <td>${edit
+            ? `<div class="cnt"><input class="qty" inputmode="numeric" data-line="${i}" value="${l.qty}" aria-label="Counted, ${l.name}"><span class="unit">Piece${ic("chevron-down")}</span></div>
+               <span class="another">${ic("plus")}Another unit</span>`
+            : `<span class="num">${l.qty}</span> <span style="color:var(--mute)">Piece</span>`}</td>
+          <td class="r num" data-pieces="${i}">${Number(l.qty) ? pcs(Number(l.qty)) : "—"}</td>
+        </tr>`).join("")}</tbody>
+        <tfoot><tr><td colspan="2">Total Counted</td><td class="r num" data-total>${pcs(total)}</td></tr>
+          <tr><td><span class="two"><span class="a" style="font-weight:400">Not as Ordered</span><span class="b">Damaged or wrong items</span></span></td>
+            <td>${edit ? `<div class="cnt"><input class="qty" inputmode="numeric" value="${wrong}" aria-label="Not as ordered"><span class="unit">Piece${ic("chevron-down")}</span></div>` : `<span class="num">${wrong}</span> <span style="color:var(--mute)">Piece</span>`}</td>
+            <td class="r num">${wrong ? pcs(wrong) : "—"}</td></tr></tfoot>
+      </table></div>
+    </div>
+    <footer class="sh-foot">
+      ${edit
+        ? `${r.counted ? `<button class="btn ghost" data-act="count-back">${ic("arrow-left")}Back</button>` : ""}<span class="grow"></span>
+           <button class="btn primary" data-act="count-submit" ${total ? "" : "disabled"}>Submit count</button>`
+        : `<span class="grow"></span><button class="btn soft" data-act="count-recall">${ic("rotate-ccw")}Recall Count</button>`}
+    </footer>
+  </section>`
+}
+
+/* ── 1 · the same PO as the MD (who raised it) sees it ───── */
+function entry007() { return S.recv.find((x) => x.po === "PO-041026-007") }
+function state007() {
+  const r = entry007()
+  if (S.done007) return "received"
+  if (r && (r.recalledAt || r.reason)) return "recounting"
+  return "review"
+}
+function mdSheet() {
+  const r = entry007()
+  const st = state007()
+  const banner = st === "recounting" && r.reason
+    ? `<div class="banner warn">${ic("rotate-ccw")}<span><b>Sent back to count</b><span>${esc(r.reason)}</span></span></div>`
+    : st === "recounting"
+    ? `<div class="banner warn">${ic("rotate-ccw")}<span><b>Recalled by the warehouse</b><span>${r.by}, ${r.recalledAt} · was ${pcs(r.was)}</span></span></div>`
+    : st === "review"
+      ? `<div class="banner info">${ic("clipboard-check")}<span><b>${r.was ? "Counted again at the warehouse" : "Counted at the warehouse"}</b><span>${r.by}, ${r.at}${r.was ? ` · was ${pcs(r.was)}` : ""}</span></span></div>`
+      : ""
+  const got = st === "received" ? 12 : 0
+  return `<div class="scrim" data-close="md"></div>
+  <section class="sheet" data-sheet="md" role="dialog" aria-label="PO-041026-007">
+    <header class="sh-head"><div><h2>PO-041026-007</h2><div class="sub">Created by Rina Kusuma · 04 Oct 2026</div></div>
+      <button class="x" data-close="md" aria-label="Close">${ic("x")}</button></header>
+    <div class="sh-body">
+      ${st === "received" ? `<span class="stamp ok" data-stamp>FULLY RECEIVED</span>` : ""}
+      ${banner}
+      <div class="facts">
+        <div><div class="l">Supplier</div><div class="v">Indorama, PT</div></div>
+        <div><div class="l">Delivery Date</div><div class="v">07 Oct 2026</div></div>
+        <div><div class="l">Payment Method</div><div class="v">Giro</div></div>
+        <div><div class="l">Received</div><div class="v num">${got} of 12 pcs · ${rp(got * 40000)} of Rp 480.000</div></div>
+      </div>
+      <div style="font-size:14px;color:var(--mute);margin-bottom:-6px">Items (1)</div>
+      <div class="st"><table>
+        <thead><tr><th>Item</th><th class="r hide-p">Quantity</th><th class="r">Received</th><th class="r hide-p">Unit Price</th><th class="r">Amount</th></tr></thead>
+        <tbody><tr><td><div class="item"><span class="thumb">${ic("shirt")}</span><span class="two"><span class="a" style="font-weight:400">Kaos Uji UJI4</span><span class="b">Pria · Kaos</span>
+          ${got ? `<span class="change">Received 08 Oct 2026 · ${pcs(got)}</span>` : ""}</span></div></td>
+          <td class="r num hide-p">12 pcs</td><td class="r num ${got ? "ok" : ""}">${got ? pcs(got) : "—"}</td><td class="r num hide-p">Rp 40.000 / pc</td><td class="r num">Rp 480.000</td></tr></tbody>
+        <tfoot><tr><td colspan="4" class="hide-p" style="font-weight:600">Grand Total</td><td class="r num" style="font-weight:600">Rp 480.000</td></tr></tfoot>
+      </table></div>
+      <div>
+        <div class="fold" style="border:0;padding-top:0">${ic("chevron-down")}Activity <span class="c">(${S.log.length})</span></div>
+        <ul class="acts" style="padding:0;margin-top:10px">${S.log.map((a, i) => `<li class="${i === 0 && S.log.length > 2 ? "new" : ""}"><b>${a.t}</b><span>${a.who} · ${a.at}</span></li>`).join("")}</ul>
+      </div>
+    </div>
+    <footer class="sh-foot">
+      <button class="btn soft icon" aria-label="Print" title="Print">${ic("printer")}</button><span class="grow"></span>
+      ${st === "review" ? `<button class="btn primary" data-act="md-review">Review Count</button>` : ""}
+    </footer>
+  </section>`
+}
+
+/* ── PO list behind the sheets (2 and 3) ─────────────────── */
+function poList(tab) {
+  const active = [
+    ["Indorama, PT", "PO-041026-007", "1 item", "07 Oct 2026", 12, 480000, state007()],
+    ["Indorama, PT", "PO-051026-001", "1 item", "09 Oct 2026", 6, 240000, "Issued"],
+    ["Indorama, PT", "PO-041026-012", "1 item", "08 Oct 2026", 700, 28000000, "review"],
+    ["Indorama, PT", "PO-021026-001", "2 items", "05 Oct 2026", 900, 45000000, "review"],
+    ["Garmen AA, UD", "PO-051026-003", "1 item", "10 Oct 2026", 24, 960000, "Issued"],
+    ["Indorama, PT", "PO-051026-002", "1 item", "10 Oct 2026", 12, 480000, "Issued"],
+  ]
+  const doneStamp = S.recalled === "A" ? ["RECOUNTING", "info"] : S.recalled === "B" && S.fix < 12 ? ["PARTIALLY RECEIVED", "warn"] : ["FULLY RECEIVED", "ok"]
+  const done = [
+    ["PO-041026-009", 12, "12 pcs (+12)", ["FULLY RECEIVED", "ok"]],
+    ["PO-041026-006", 8, "8 pcs", ["FULLY RECEIVED", "ok"]],
+    ["PO-041026-005", 8, "8 pcs (+3)", ["FULLY RECEIVED", "ok"]],
+    ["PO-041026-004", 8, "5 pcs", ["CLOSED SHORT", "bad"]],
+    ["PO-041026-003", 12, "12 pcs", ["FULLY RECEIVED", "ok"]],
+    ["PO-041026-002", 18, pcs(receivedTotal()), doneStamp],
+  ]
+  const rows = tab === "active"
+    ? active.map(([s, po, it, d, q, v, st]) => `<tr class="row ${po === "PO-041026-007" && S.view === "1" ? "click" : ""}" ${po === "PO-041026-007" && S.view === "1" ? 'data-act="md-open"' : ""}><td><span class="two"><span class="a">${s}</span><span class="b"><span class="mono">${po}</span> · ${it}</span></span></td>
+        <td class="hide-p">${d}</td><td class="r num hide-p"><span class="two"><span class="a" style="font-weight:400">${pcs(q)}</span><span class="b">${rp(v)}</span></span></td><td class="r hide-p">—</td>
+        <td>${st === "review" ? `<button class="btn primary sm" ${po === "PO-041026-007" ? 'data-act="md-review"' : ""}>Review Count</button>`
+          : st === "recounting" ? `<span class="info">Recounting</span>`
+          : st === "received" ? `<span class="ok">Fully received</span>` : `<span style="color:var(--body)">${st}</span>`}</td></tr>`).join("")
+    : done.map(([po, q, got, [st, tone]]) => `<tr class="row"><td><span class="two"><span class="a">Indorama, PT</span><span class="b"><span class="mono">${po}</span> · 1 item</span></span></td>
+        <td class="hide-p">07 Oct 2026</td><td class="r num hide-p">${pcs(q)}</td><td class="r num hide-p">${got}</td>
+        <td><span class="stamp-s ${tone}">${st}<br>04 OCT</span></td></tr>`).join("")
+  return `<h1 class="page-title">Purchase Orders</h1>
+  <div class="kpis"><div class="kpi"><div class="l">Orders</div><div class="v num">${tab === "active" ? 8 : 12}</div></div>
+    <div class="kpi"><div class="l">Still open</div><div class="v num">${tab === "active" ? 6 : 0}</div></div>
+    <div class="kpi"><div class="l">Overdue</div><div class="v num">0</div></div>
+    <div class="kpi"><div class="l">On order</div><div class="v num">${tab === "active" ? "Rp 75.160.000" : "Rp 0"}</div></div></div>
+  <div class="tabs"><span class="${tab === "active" ? "on" : ""}">Active PO 8</span><span class="${tab === "active" ? "" : "on"}">Completed PO 12</span><span>Cancelled PO 1</span></div>
+  <div class="toolbar"><span class="field" style="width:180px">${ic("search")}Search orders</span><span class="field">Issued</span><span class="field">Delivery date</span>
+    <span style="flex:1"></span><button class="btn ghost hide-p">${ic("columns-3")}Columns</button><button class="btn primary">New order</button></div>
+  <div class="card"><table class="dt"><thead><tr><th>PO</th><th class="hide-p">Delivery Date</th><th class="r hide-p">Ordered</th><th class="r hide-p">Received</th><th style="width:200px">Status</th></tr></thead>
+    <tbody>${rows}</tbody></table></div>`
+}
+
+/* ── 2 · Review Count (as it is live today) ──────────────── */
+function reviewSheet(c = { qty: 20, at: "04 Oct 2026, 17:04" }, close = "review") {
+  const diff = c.qty - 12
+  const off = diff === 0 ? `<span style="color:var(--mute)">—</span>` : `<span class="pill over num">${diff > 0 ? "+" : "−"}${pcs(Math.abs(diff))}</span>`
+  const recount = S.reviewMode === "recount"
+  const on = S.picked.has("1")
+  return `<div class="scrim top" data-close="${close}"></div>
+  <section class="sheet review top" data-sheet="${close}" role="dialog" aria-label="Review Count">
+    <header class="sh-head"><div><h2 class="s16">Review Count ${diff ? `<span class="bad">${ic("circle-alert")}</span>` : ""}</h2><div class="sub mono">PO-041026-007</div></div>
+      <button class="x" data-close="${close}" aria-label="Close">${ic("x")}</button></header>
+    <div class="sh-body">
+      <div class="factline"><div><span>Supplier</span>Indorama, PT</div><div><span>Counted</span>Rina Kusuma · ${c.at}</div>
+        ${c.was ? `<div class="info">${ic("rotate-ccw", "inl")} Recounted · was ${pcs(c.was)}</div>` : ""}</div>
+      <div class="st"><table>
+        <thead><tr>${recount ? `<th style="width:44px"><span class="cb ${on ? "on" : ""}">${on ? ic("check") : ""}</span></th>` : ""}<th class="hide-p" style="width:56px">No.</th><th>Article</th><th>Ordered Quantity</th><th>Counted Quantity</th><th>Difference</th></tr></thead>
+        <tbody><tr class="${recount ? "pick" : ""}" data-act="${recount ? "review-tick" : ""}">
+          ${recount ? `<td><span class="cb ${on ? "on" : ""}">${on ? ic("check") : ""}</span></td>` : ""}
+          <td class="hide-p num" style="color:var(--body)">1</td>
+          <td><span class="two"><span class="a">Kaos Uji UJI4</span><span class="b">Pria · Kaos</span></span></td>
+          <td class="num">12 pcs</td><td class="num">${pcs(c.qty)}</td><td>${off}</td></tr></tbody>
+        <tfoot><tr>${recount ? "<td></td>" : ""}<td class="hide-p"></td><td>Total</td><td class="num">12 pcs</td><td class="num">${pcs(c.qty)}</td><td class="${diff ? "bad" : ""} num">${diff > 0 ? `${pcs(diff)} extra` : diff < 0 ? `${pcs(-diff)} short` : "—"}</td></tr></tfoot>
+      </table></div>
+      ${recount
+        ? `<div class="ask"><h3>Why should it be counted again?</h3><textarea data-input="why" aria-label="Why should it be counted again?">${esc(S.why)}</textarea></div>`
+        : diff > 0 ? `<p class="note" style="margin:0"><span class="info">${ic("undo-2")}</span><span><b>${pcs(diff)}</b> extra will be returned to the supplier</span></p>` : ""}
+    </div>
+    <footer class="sh-foot">
+      ${recount
+        ? `<button class="btn soft" data-act="review-back">${ic("arrow-left")}Back</button><span class="grow said">${on ? 1 : 0} of 1 item ticked</span>
+           <button class="btn primary" data-act="review-send" ${on && S.why.trim() ? "" : "disabled"}>Send ${on ? 1 : 0} item back to count</button>`
+        : `<button class="btn soft icon" data-act="review-recount" aria-label="Recount" title="Recount">${ic("rotate-ccw")}</button><span class="grow"></span>
+           <button class="btn primary" data-act="review-submit">${ic("check")}Submit</button>`}
+    </footer>
+  </section>`
+}
+
+/* ── 3 · Received PO → Recall Receipt ───────────────────── */
+const LINES = [
+  { no: "1", name: "Kaos Uji UJI3", sub: "Pria · Kaos", qty: 12, price: 40000, allotted: 0 },
+  { no: "2", name: "Kemeja Uji UJI5", sub: "Pria · Kemeja", qty: 6, price: 85000, allotted: 4 },
+]
+function receivedOf(l) {
+  if (l.no !== "1" || !S.recalled) return l.qty
+  return S.recalled === "A" ? 0 : S.fix
+}
+function receivedTotal() { return LINES.reduce((s, l) => s + receivedOf(l), 0) }
+
+function poSheet() {
+  if (!S.po) return ""
+  const got = receivedTotal()
+  const value = LINES.reduce((s, l) => s + Math.min(receivedOf(l), l.qty) * l.price, 0)
+  const stamp = S.recalled === "A" ? ["RECOUNTING", "info"] : S.recalled === "B" && S.fix < 12 ? ["PARTIALLY RECEIVED", "warn"] : ["FULLY RECEIVED", "ok"]
+  const canRecall = LINES.some((l) => l.allotted === 0 && receivedOf(l) > 0) && !S.recalled
+  return `<div class="scrim" data-close="po"></div>
+  <section class="sheet" data-sheet="po" role="dialog" aria-label="PO-041026-002">
+    <header class="sh-head"><div><h2>PO-041026-002</h2><div class="sub">Created by Rina Kusuma · 04 Oct 2026</div></div>
+      <button class="x" data-close="po" aria-label="Close">${ic("x")}</button></header>
+    <div class="sh-body">
+      <span class="stamp ${stamp[1]}" data-stamp>${stamp[0]}</span>
+      <div class="facts">
+        <div><div class="l">Supplier</div><div class="v">Indorama, PT</div></div>
+        <div><div class="l">Delivery Date</div><div class="v">07 Oct 2026</div></div>
+        <div><div class="l">Payment Method</div><div class="v">Giro</div></div>
+        <div><div class="l">Received</div><div class="v num">${got} of 18 pcs · ${rp(value)} of Rp 990.000</div></div>
+      </div>
+      <div style="font-size:14px;color:var(--mute);margin-bottom:-6px">Items (2)</div>
+      <div class="st"><table>
+        <thead><tr><th>Item</th><th class="r hide-p">Quantity</th><th class="r">Received</th><th class="r hide-p">Unit Price</th><th class="r">Amount</th></tr></thead>
+        <tbody>${LINES.map((l) => {
+          const r = receivedOf(l)
+          const changed = l.no === "1" && S.recalled
+          const tone = r === l.qty ? "ok" : r === 0 ? "" : "warn"
+          return `<tr><td><div class="item"><span class="thumb">${ic("shirt")}</span><span class="two"><span class="a" style="font-weight:400">${l.name}</span><span class="b">${l.sub}</span>
+            <span class="change">Received 04 Oct 2026 · ${pcs(l.qty)}</span>
+            ${changed ? `<span class="change hl">${S.recalled === "A" ? `Recalled 08 Oct 2026 · ${pcs(l.qty)}` : `Corrected 08 Oct 2026 · ${l.qty} → ${pcs(S.fix)}`}</span>` : ""}
+            ${l.allotted ? `<span class="change">${pcs(l.allotted)} allotted</span>` : ""}</span></div></td>
+            <td class="r num hide-p">${pcs(l.qty)}</td><td class="r num ${tone}">${r === 0 ? "—" : pcs(r)}</td>
+            <td class="r num hide-p">${rp(l.price)} / pc</td><td class="r num">${rp(l.qty * l.price)}</td></tr>`
+        }).join("")}</tbody>
+        <tfoot><tr><td>Total</td><td class="r num hide-p">18 pcs</td><td class="r num">${pcs(got)}</td><td class="hide-p"></td><td class="r num">Rp 990.000</td></tr>
+          <tr><td colspan="4" class="hide-p" style="font-weight:600">Grand Total</td><td class="r num" style="font-weight:600">Rp 990.000</td></tr></tfoot>
+      </table></div>
+      <div><div style="font-size:14px;color:var(--body);margin-bottom:6px">Notes</div><div>Uji alur PO</div></div>
+      <div class="fold">${ic("chevron-right")}Activity <span class="c">(${S.activity})</span></div>
+    </div>
+    <footer class="sh-foot">
+      <button class="btn soft icon" aria-label="Print" title="Print">${ic("printer")}</button><span class="grow"></span>
+      ${canRecall ? `<button class="btn soft" data-act="recall-open">${ic("rotate-ccw")}Recall Receipt</button>` : ""}
+    </footer>
+  </section>`
+}
+
+function recallSheet() {
+  if (!S.recall) return ""
+  const A = S.opt === "A"
+  const on = S.recallPicked.has("1")
+  const diff = S.fix - 12
+  const ready = A ? on && S.recallWhy.trim() : diff !== 0 && S.recallWhy.trim()
+  return `<div class="scrim top" data-close="recall"></div>
+  <section class="sheet review top" data-sheet="recall" role="dialog" aria-label="Recall Receipt">
+    <header class="sh-head"><div><h2 class="s16">Recall Receipt</h2><div class="sub mono">PO-041026-002</div></div>
+      <button class="x" data-close="recall" aria-label="Close">${ic("x")}</button></header>
+    <div class="sh-body">
+      <div class="factline"><div><span>Supplier</span>Indorama, PT</div><div><span>Received</span>Rina Kusuma · 04 Oct 2026, 09:37</div></div>
+      <div class="st"><table>
+        <thead><tr>${A ? `<th style="width:44px"><span class="cb ${on ? "on" : ""}">${on ? ic("check") : ""}</span></th>` : ""}<th class="hide-p" style="width:56px">No.</th><th>Article</th><th>Received Quantity</th>
+          ${A ? `<th>Can Recall</th>` : `<th>Correct Quantity</th><th>Difference</th>`}</tr></thead>
+        <tbody>${LINES.map((l) => {
+          const locked = l.allotted > 0
+          const free = l.qty - l.allotted
+          if (A) return `<tr class="${locked ? "off" : "pick"}" data-act="${locked ? "" : "recall-tick"}">
+            <td><span class="cb ${locked ? "dis" : on ? "on" : ""}">${!locked && on ? ic("check") : ""}</span></td>
+            <td class="hide-p num" style="color:var(--body)">${l.no}</td>
+            <td><span class="two"><span class="a" style="${locked ? "color:var(--mute)" : ""}">${l.name}</span><span class="b">${l.sub}</span></span></td>
+            <td class="num">${pcs(l.qty)}</td>
+            <td><span class="two"><span class="num" style="color:${locked ? "var(--mute)" : "var(--ink)"}">${locked ? "—" : pcs(free)}</span>${locked ? `<span class="b">${pcs(l.allotted)} allotted</span>` : ""}</span></td></tr>`
+          return `<tr class="${locked ? "off" : ""}">
+            <td class="hide-p num" style="color:var(--body)">${l.no}</td>
+            <td><span class="two"><span class="a" style="${locked ? "color:var(--mute)" : ""}">${l.name}</span><span class="b">${l.sub}</span></span></td>
+            <td class="num">${pcs(l.qty)}</td>
+            <td><span class="two"><input class="qty" inputmode="numeric" ${locked ? "disabled" : `data-input="fix"`} value="${locked ? l.qty : S.fix}" aria-label="Correct quantity, ${l.name}">${locked ? `<span class="b">${pcs(l.allotted)} allotted</span>` : ""}</span></td>
+            <td data-diff>${locked || diff === 0 ? `<span style="color:var(--mute)">—</span>` : `<span class="pill bad num">${diff > 0 ? "+" : "−"}${pcs(Math.abs(diff))}</span>`}</td></tr>`
+        }).join("")}</tbody>
+      </table></div>
+      ${!A && diff > 0 ? `<p class="note" style="margin:0" data-overnote><span class="info">${ic("undo-2")}</span><span><b>${pcs(diff)}</b> extra will be returned to the supplier</span></p>` : ""}
+      <div class="ask"><h3>${A ? "Why should it be counted again?" : "Why is it being corrected?"}</h3>
+        <textarea data-input="recallWhy" aria-label="Reason">${esc(S.recallWhy)}</textarea></div>
+    </div>
+    <footer class="sh-foot">
+      ${A
+        ? `<span class="grow said">${on ? 1 : 0} of 2 items ticked</span><button class="btn primary" data-act="recall-send" ${ready ? "" : "disabled"}>Send ${on ? 1 : 0} item back to count</button>`
+        : `<span class="grow"></span><button class="btn primary" data-act="recall-save" ${ready ? "" : "disabled"}>${ic("check")}Save Correction</button>`}
+    </footer>
+  </section>`
+}
+
+/* ── render + motion ─────────────────────────────────────── */
+function render() {
+  document.querySelectorAll("#views button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.view === S.view)))
+  document.querySelectorAll("#opts button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.opt === S.opt)))
+  document.getElementById("opts").hidden = S.view !== "3"
+  document.getElementById("side").hidden = S.view !== "1"
+  document.querySelectorAll("#side button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.side === S.side)))
+  const app = document.getElementById("app")
+  if (S.view === "1" && S.side === "wh") app.innerHTML = shell("ops", receivingList()) + (S.countPo ? countSheet() : "")
+  if (S.view === "1" && S.side === "md") {
+    const r = entry007()
+    app.innerHTML = shell("proc", poList("active")) + (S.mdOpen ? mdSheet() : "") +
+      (S.mdReview && state007() === "review" ? reviewSheet({ qty: r.counted, at: r.at, was: r.was }, "mdreview") : "")
+  }
+  if (S.view === "2") app.innerHTML = shell("proc", poList("active")) + (S.review ? reviewSheet() : "")
+  if (S.view === "3") app.innerHTML = shell("proc", poList("completed")) + poSheet() + recallSheet()
+  lucide.createIcons()
+  if (opening) {
+    const els = app.querySelectorAll(`[data-sheet="${opening}"], [data-close="${opening}"].scrim`)
+    els.forEach((el) => el.classList.add("enter-from"))
+    requestAnimationFrame(() => requestAnimationFrame(() => els.forEach((el) => el.classList.remove("enter-from"))))
+    opening = null
+  }
+}
+
+function closeSheet(name, then) {
+  const app = document.getElementById("app")
+  const els = app.querySelectorAll(`[data-sheet="${name}"], .scrim[data-close="${name}"]`)
+  els.forEach((el) => { el.style.transition = "opacity 150ms ease, transform 150ms ease"; el.classList.add("enter-from") })
+  setTimeout(then, 150)
+}
+
+function toast(text) {
+  document.querySelector(".toast")?.remove()
+  const t = document.createElement("div")
+  t.className = "toast enter-from"
+  t.innerHTML = `${ic("circle-check")}<span>${text}</span>`
+  document.body.appendChild(t)
+  lucide.createIcons()
+  requestAnimationFrame(() => requestAnimationFrame(() => t.classList.remove("enter-from")))
+  setTimeout(() => { t.classList.add("enter-from"); setTimeout(() => t.remove(), 220) }, 2600)
+}
+
+function pressStamp() {
+  const st = document.querySelector("[data-stamp]")
+  if (!st) return
+  st.classList.add("pressing")
+  requestAnimationFrame(() => requestAnimationFrame(() => st.classList.remove("pressing")))
+}
+
+/* ── events ──────────────────────────────────────────────── */
+document.getElementById("views").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-view]"); if (!b) return
+  S.view = b.dataset.view
+  opening = S.view === "2" && S.review ? "review" : S.view === "3" && S.po ? "po" : null
+  render()
+})
+document.getElementById("side").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-side]"); if (!b) return
+  S.side = b.dataset.side; S.countPo = null; S.mdReview = false; S.mdOpen = true
+  opening = S.side === "md" ? "md" : null
+  render()
+})
+document.getElementById("opts").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-opt]"); if (!b) return
+  S.opt = b.dataset.opt; S.recallWhy = ""; S.fix = 12
+  if (S.recalled) { S.recalled = null; S.activity = 4; S.recv = S.recv.filter((r) => r.po !== "PO-041026-002") }
+  render()
+})
+document.getElementById("reset").addEventListener("click", () => { const v = S.view, o = S.opt; S = fresh(); S.view = v; S.opt = o; render() })
+
+document.getElementById("app").addEventListener("click", (e) => {
+  const t = e.target
+  const close = t.closest("[data-close]")
+  if (close) {
+    const name = close.dataset.close
+    closeSheet(name, () => {
+      if (name === "count") { S.countPo = null; S.countMode = "read" }
+      if (name === "review") S.review = false
+      if (name === "po") { S.po = false; S.recall = false }
+      if (name === "recall") S.recall = false
+      if (name === "mdreview") S.mdReview = false
+      if (name === "md") { S.mdOpen = false; S.mdReview = false }
+      render()
+    })
+    return
+  }
+  const countBtn = t.closest("[data-count]")
+  if (countBtn) {
+    e.stopPropagation()
+    const r = S.recv.find((x) => x.po === countBtn.dataset.count)
+    S.countPo = r.po; S.countMode = "edit"
+    S.draft = (r.lines ?? [{ name: "Kaos Uji UJI3", sub: "Pria · Kaos", qty: "", wrong: 0 }]).map((l) => ({ ...l, qty: r.recalledAt ? l.qty : "" }))
+    opening = "count"; render(); return
+  }
+  const row = t.closest("tr.click[data-po]")
+  if (row) { S.countPo = row.dataset.po; S.countMode = "read"; opening = "count"; render(); return }
+
+  const act = t.closest("[data-act]")?.dataset.act
+  if (!act) return
+  if (act === "count-recall") {
+    const r = S.recv.find((x) => x.po === S.countPo)
+    r.was = r.counted; r.counted = undefined; r.recalledAt = "08 Oct 2026, 11:38"
+    S.log.unshift({ t: `Count recalled · was ${pcs(r.was)}`, who: r.by, at: r.recalledAt })
+    S.countMode = "edit"; S.draft = r.lines.map((l) => ({ ...l })); render()
+    document.querySelector(".qty")?.select()
+  }
+  if (act === "count-back") { S.countMode = "read"; render() }
+  if (act === "count-submit") {
+    const r = S.recv.find((x) => x.po === S.countPo)
+    const total = S.draft.reduce((s, l) => s + (Number(l.qty) || 0), 0)
+    const exact = r.po === "PO-041026-007" && total === ORDERED_007
+    if (r.po === "PO-041026-007") {
+      S.log.unshift({ t: `Counted ${pcs(total)}`, who: "Rina Kusuma", at: "08 Oct 2026, 11:40" })
+      if (exact) { S.log.unshift({ t: `Received ${pcs(total)} · count matched the order`, who: "Rina Kusuma", at: "08 Oct 2026, 11:40" }); S.done007 = true }
+    }
+    closeSheet("count", () => {
+      S.countPo = null; S.countMode = "read"
+      if (exact) {
+        render()
+        const tr = document.querySelector(`tr[data-po="${r.po}"]`)
+        const done = () => { S.recv = S.recv.filter((x) => x.po !== r.po); render() }
+        if (tr && !matchMedia("(prefers-reduced-motion: reduce)").matches) tr.animate([{ opacity: 1 }, { opacity: 0, transform: "translateX(-8px)" }], { duration: 200, easing: "cubic-bezier(.23,1,.32,1)" }).onfinish = done
+        else done()
+        toast(`${r.po} received · ${pcs(total)}`)
+      } else {
+        const had = Boolean(r.counted)
+        Object.assign(r, { counted: total, by: "Rina Kusuma", at: "08 Oct 2026, 11:40", lines: S.draft.map((l) => ({ ...l, qty: Number(l.qty) || 0 })), reason: undefined, recalledAt: undefined })
+        render(); toast(had ? "Count replaced" : "Count submitted")
+      }
+    })
+  }
+  if (act === "md-open") { if (!S.mdOpen) { S.mdOpen = true; opening = "md"; render() } return }
+  if (act === "md-review") { e.stopPropagation(); S.mdOpen = true; S.mdReview = true; opening = "mdreview"; render(); return }
+  if (act === "review-recount") { S.reviewMode = "recount"; render(); document.querySelector("textarea")?.focus() }
+  if (act === "review-back") { S.reviewMode = "decide"; render() }
+  if (act === "review-tick") { S.picked.has("1") ? S.picked.delete("1") : S.picked.add("1"); render() }
+  if (act === "review-send") {
+    const md = S.view === "1"
+    closeSheet(md ? "mdreview" : "review", () => {
+      if (md) {
+        const r = entry007()
+        S.log.unshift({ t: `Sent back to count · was ${pcs(r.counted)}`, who: "Rina Kusuma", at: "08 Oct 2026, 11:42" })
+        Object.assign(r, { was: r.counted, counted: undefined, reason: S.why.trim() })
+        S.mdReview = false; S.reviewMode = "decide"; S.why = ""
+      } else S.review = false
+      render(); toast("1 item sent back to count")
+    })
+  }
+  if (act === "review-submit") {
+    const md = S.view === "1"
+    closeSheet(md ? "mdreview" : "review", () => {
+      if (md) {
+        S.mdReview = false; S.done007 = true
+        S.log.unshift({ t: `Received ${pcs(entry007().counted)}`, who: "Rina Kusuma", at: "08 Oct 2026, 11:42" })
+        S.recv = S.recv.filter((x) => x.po !== "PO-041026-007")
+      }
+      else S.review = false
+      render(); if (md) pressStamp(); toast("1 item received")
+    })
+  }
+
+  if (act === "recall-open") { S.recall = true; opening = "recall"; render(); document.querySelector('[data-sheet="recall"] textarea')?.focus() }
+  if (act === "recall-tick") { S.recallPicked.has("1") ? S.recallPicked.delete("1") : S.recallPicked.add("1"); render() }
+  if (act === "recall-send" || act === "recall-save") {
+    const A = act === "recall-send"
+    closeSheet("recall", () => {
+      S.recall = false; S.recalled = A ? "A" : "B"; S.activity = 5
+      if (A) S.recv.unshift({ po: "PO-041026-002", sup: "Indorama, PT", items: 1, reason: S.recallWhy.trim(),
+        lines: [{ name: "Kaos Uji UJI3", sub: "Pria · Kaos", qty: "", wrong: 0 }] })
+      render(); pressStamp()
+      toast(A ? "1 item sent back to count" : `Received corrected to ${pcs(S.fix)}`)
+    })
+  }
+})
+
+// typing never re-renders the sheet (focus and caret stay put): only what depends on it updates
+document.getElementById("app").addEventListener("input", (e) => {
+  const t = e.target
+  if (t.dataset.line !== undefined) {
+    S.draft[Number(t.dataset.line)].qty = t.value.replace(/\D/g, "")
+    t.value = S.draft[Number(t.dataset.line)].qty
+    const n = Number(t.value) || 0
+    document.querySelector(`[data-pieces="${t.dataset.line}"]`).textContent = n ? pcs(n) : "—"
+    const total = S.draft.reduce((s, l) => s + (Number(l.qty) || 0), 0)
+    document.querySelector("[data-total]").textContent = pcs(total)
+    document.querySelector('[data-act="count-submit"]').disabled = total === 0
+  }
+  if (t.dataset.input === "why") {
+    S.why = t.value
+    document.querySelector('[data-act="review-send"]').disabled = !(S.picked.has("1") && S.why.trim())
+  }
+  if (t.dataset.input === "recallWhy") {
+    S.recallWhy = t.value
+    const b = document.querySelector('[data-act="recall-send"], [data-act="recall-save"]')
+    b.disabled = S.opt === "A" ? !(S.recallPicked.has("1") && S.recallWhy.trim()) : !(S.fix !== 12 && S.recallWhy.trim())
+  }
+  if (t.dataset.input === "fix") {
+    t.value = t.value.replace(/\D/g, "")
+    S.fix = Number(t.value) || 0
+    const diff = S.fix - 12
+    document.querySelector("[data-diff]").innerHTML = diff === 0 ? `<span style="color:var(--mute)">—</span>` : `<span class="pill bad num">${diff > 0 ? "+" : "−"}${pcs(Math.abs(diff))}</span>`
+    document.querySelector('[data-act="recall-save"]').disabled = !(diff !== 0 && S.recallWhy.trim())
+    const note = document.querySelector("[data-overnote]")
+    if (diff > 0 && !note) { const caret = t.selectionStart; render(); const i = document.querySelector('[data-input="fix"]'); i.focus(); i.setSelectionRange(caret, caret) }
+    else if (diff > 0 && note) note.querySelector("b").textContent = pcs(diff)
+    else if (diff <= 0 && note) note.remove()
+  }
+})
+
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return
+  const top = S.recall ? "recall" : S.countPo ? "count" : null
+  if (top) document.querySelector(`[data-close="${top}"].x`)?.click()
+})
+
+render()
+</script>
+</body>
+</html>

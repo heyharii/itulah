@@ -1283,11 +1283,10 @@ impl IntegrityCheck for InterUnitBilateralAndNetsToZero {
     }
 
     async fn evaluate(&self, pool: &PgPool, as_of: NaiveDate) -> Result<CheckResult, AppError> {
-        let linked: bool = sqlx::query_scalar(&format!(
-            "SELECT EXISTS (SELECT 1 FROM ({AFFILIATE}) a)"
-        ))
-        .fetch_one(pool)
-        .await?;
+        let linked: bool =
+            sqlx::query_scalar(&format!("SELECT EXISTS (SELECT 1 FROM ({AFFILIATE}) a)"))
+                .fetch_one(pool)
+                .await?;
         if !linked {
             return Ok(waiting_on(
                 self.key(),

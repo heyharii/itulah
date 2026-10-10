@@ -2,9 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { ChevronRight } from "lucide-react"
 import { use } from "react"
 
-import { Thumbnail } from "@/components/ui/thumbnail"
-import { useColourwayFill } from "@/lib/colourway-fill"
-import { count } from "@/lib/format"
+import { quantity } from "@/lib/format"
 import {
   allotmentDetail,
   inventoryKeys,
@@ -12,6 +10,7 @@ import {
 } from "@/lib/queries/inventory"
 import { queryState } from "@/lib/query-state"
 import { cn } from "@/lib/utils"
+import { ArticleThumb } from "@/screens/allotment/article-thumb"
 import { ExpandContext } from "@/screens/allotment/expanding"
 
 /// An allotment's goods, opened out under its row: an article at a time, its
@@ -104,7 +103,6 @@ function groupsOf(lines: readonly AllotmentLine[]): readonly ArticleGroup[] {
 
 /// The block under an opened allotment row.
 export function AllotmentItems({ id }: { id: string }) {
-  const colourFill = useColourwayFill()
   const detail = useQuery({
     queryKey: inventoryKeys.allotment(id),
     queryFn: ({ signal }) => allotmentDetail(id, signal),
@@ -121,11 +119,11 @@ export function AllotmentItems({ id }: { id: string }) {
             groups.map((article) => (
               <div key={article.id} className="py-1.5">
                 <div className="flex min-h-12 items-center gap-3">
-                  <Thumbnail
+                  <ArticleThumb
                     url={article.image}
                     name={article.name}
-                    colours={colourFill(article.colour)}
-                    className="size-10 shrink-0 rounded-inner"
+                    colour={article.colour}
+                    articleCode={article.code}
                   />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[0.9375rem] text-ink">
@@ -136,7 +134,7 @@ export function AllotmentItems({ id }: { id: string }) {
                     </span>
                   </span>
                   <span className="shrink-0 text-[0.9375rem] text-ink tabular-nums">
-                    {count(article.pieces)} pcs
+                    {quantity(article.pieces)}
                   </span>
                 </div>
                 {article.skus.map((sku) => (
@@ -149,7 +147,7 @@ export function AllotmentItems({ id }: { id: string }) {
                       <span className="font-mono text-mute">{sku.code}</span>
                     </span>
                     <span className="shrink-0 text-body tabular-nums">
-                      {count(sku.pieces)} pcs
+                      {quantity(sku.pieces)}
                     </span>
                   </div>
                 ))}

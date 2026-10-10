@@ -28,7 +28,7 @@ import {
 } from "@/screens/executive/parts"
 import { useReportScope } from "@/screens/executive/scope"
 
-/// Kas & laba — what the period earned by the books, the cash the company
+/// Cash & Profit — what the period earned by the books, the cash the company
 /// holds, what it owes suppliers, and how much of the trade the books have not
 /// caught up with yet.
 
@@ -40,21 +40,25 @@ const STATEMENT: readonly {
   readonly cost?: boolean
   readonly total?: boolean
 }[] = [
-  { label: "Penjualan bersih", pick: (p) => p.revenue_minor },
+  { label: "Net sales", pick: (p) => p.revenue_minor },
   {
-    label: "Beban pokok penjualan",
+    label: "Cost of sales",
     pick: (p) => p.cost_of_sales_minor,
     cost: true,
   },
-  { label: "Laba kotor", pick: (p) => p.gross_profit_minor, total: true },
-  { label: "Beban usaha", pick: (p) => p.operating_expenses_minor, cost: true },
+  { label: "Gross profit", pick: (p) => p.gross_profit_minor, total: true },
+  {
+    label: "Operating expenses",
+    pick: (p) => p.operating_expenses_minor,
+    cost: true,
+  },
   {
     label: "Gross operating profit",
     pick: (p) => p.gross_operating_profit_minor,
     total: true,
   },
   {
-    label: "Beban usaha lainnya",
+    label: "Other operating expenses",
     pick: (p) => p.other_operating_expenses_minor,
     cost: true,
   },
@@ -64,16 +68,16 @@ const STATEMENT: readonly {
     total: true,
   },
   {
-    label: "Pendapatan / biaya non operasi",
+    label: "Non-operating income / expense",
     pick: (p) => p.non_operating_minor,
   },
   {
-    label: "Laba sebelum pajak",
+    label: "Profit before tax",
     pick: (p) => p.profit_before_tax_minor,
     total: true,
   },
-  { label: "Pajak penghasilan", pick: (p) => p.income_tax_minor, cost: true },
-  { label: "Laba bersih", pick: (p) => p.net_profit_minor, total: true },
+  { label: "Income tax", pick: (p) => p.income_tax_minor, cost: true },
+  { label: "Net profit", pick: (p) => p.net_profit_minor, total: true },
 ]
 
 function signed(value: number, cost: boolean | undefined): string {
@@ -112,36 +116,36 @@ export function ExecutiveFinance() {
     : undefined
 
   return (
-    <ReportPage title="Kas & laba" scope={scope}>
+    <ReportPage title="Cash & Profit" scope={scope}>
       <Figures>
         <Figure
-          label="Laba bersih"
+          label="Net profit"
           value={profit.data ? rupiah(profit.data.now.net_profit_minor) : "—"}
           now={profit.data?.now.net_profit_minor}
           before={profit.data?.before.net_profit_minor}
         />
         <Figure
-          label="Kas & bank"
+          label="Cash & bank"
           value={
             cash.data && unit !== null ? rupiah(cashAt(cash.data, unit)) : "—"
           }
-          note={`Saldo per ${scope.asOfLabel}`}
+          note={`Balance as of ${scope.asOfLabel}`}
         />
         <Figure
-          label="Utang lewat jatuh tempo"
+          label="Overdue payables"
           value={overdue === undefined ? "—" : rupiah(overdue)}
           note={
             aging.data
-              ? `Dari ${rupiah(aging.data.total.total_minor)} utang pemasok`
+              ? `Of ${rupiah(aging.data.total.total_minor)} supplier payables`
               : undefined
           }
         />
         <Figure
-          label="Belum dibukukan"
+          label="Not yet booked"
           value={posting.data ? rupiah(posting.data.unposted_gross_minor) : "—"}
           note={
             posting.data
-              ? `${count(posting.data.unposted)} dari ${count(posting.data.total)} hari penjualan`
+              ? `${count(posting.data.unposted)} of ${count(posting.data.total)} sales days`
               : undefined
           }
         />
@@ -149,18 +153,18 @@ export function ExecutiveFinance() {
 
       <div className="grid gap-3 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <Card className="overflow-hidden">
-          <Head title="Laba-rugi" />
+          <Head title="Profit and loss" />
           <div className="overflow-x-auto px-[1.125rem] pb-3">
             {queryState(profit, {
-              loading: "Membaca buku…",
+              loading: "Reading the books…",
               refused: <Refused />,
               render: ({ now, before }) => (
                 <MiniTable
                   head={[
-                    "Komponen",
-                    "Periode Ini",
-                    "% Penjualan",
-                    "Periode Lalu",
+                    "Line",
+                    "This Period",
+                    "% of Sales",
+                    "Previous Period",
                   ]}
                   style={{ minWidth: "32rem" }}
                 >
@@ -199,30 +203,28 @@ export function ExecutiveFinance() {
         <div className="flex flex-col gap-3">
           <Card className="overflow-hidden">
             <Head
-              title="Utang pemasok"
+              title="Supplier payables"
               to="/finance/payables/aging"
-              link="Buka utang"
+              link="Open payables"
             />
             <div className="px-[1.125rem] pb-3">
               {queryState(aging, {
-                loading: "Membaca utang…",
+                loading: "Reading the payables…",
                 refused: <Refused />,
                 render: ({ total }) => {
                   const buckets = [
-                    ["Belum jatuh tempo", total.not_due_minor, "accent"],
-                    ["1–30 hari", total.days_1_30_minor, "warn"],
-                    ["31–60 hari", total.days_31_60_minor, "warn"],
-                    ["61–90 hari", total.days_61_90_minor, "bad"],
-                    ["> 90 hari", total.days_over_90_minor, "bad"],
+                    ["Not yet due", total.not_due_minor, "accent"],
+                    ["1–30 days", total.days_1_30_minor, "warn"],
+                    ["31–60 days", total.days_31_60_minor, "warn"],
+                    ["61–90 days", total.days_61_90_minor, "bad"],
+                    ["> 90 days", total.days_over_90_minor, "bad"],
                   ] as const
                   const widest = Math.max(
                     ...buckets.map(([, value]) => value),
                     1
                   )
                   return total.total_minor === 0 ? (
-                    <EmptyState>
-                      Tidak ada utang pemasok yang terbuka.
-                    </EmptyState>
+                    <EmptyState>No supplier payables are open.</EmptyState>
                   ) : (
                     buckets.map(([label, value, tone]) => (
                       <Bar
@@ -241,20 +243,20 @@ export function ExecutiveFinance() {
 
           <Card className="overflow-hidden">
             <Head
-              title="Penjualan & pembukuan"
+              title="Sales & booking"
               to="/finance/receivables/sales-postings"
-              link="Buka posting"
+              link="Open postings"
             />
             <div className="px-[1.125rem] pb-3">
               {queryState(posting, {
-                loading: "Membaca posting…",
+                loading: "Reading the postings…",
                 refused: <Refused />,
                 render: (page) => (
                   <>
-                    <Line label="Hari penjualan" value={count(page.total)} />
-                    <Line label="Sudah dibukukan" value={count(page.posted)} />
+                    <Line label="Sales days" value={count(page.total)} />
+                    <Line label="Booked" value={count(page.posted)} />
                     <Line
-                      label="Belum dibukukan"
+                      label="Not yet booked"
                       value={count(page.unposted)}
                       aside={rupiah(page.unposted_gross_minor)}
                       strong={page.unposted > 0}
@@ -269,10 +271,10 @@ export function ExecutiveFinance() {
 
       {scope.store === undefined && (
         <Card className="mt-3 overflow-hidden">
-          <Head title="Kas & bank per unit" />
+          <Head title="Cash & bank by unit" />
           <div className="px-[1.125rem] pb-3">
             {queryState(cash, {
-              loading: "Membaca kas…",
+              loading: "Reading the cash…",
               refused: <Refused />,
               render: (matrix) => {
                 const units = matrix.units
@@ -285,7 +287,7 @@ export function ExecutiveFinance() {
                 const widest = Math.max(...units.map((unit) => unit.value), 1)
                 return units.length === 0 ? (
                   <EmptyState>
-                    Belum ada saldo kas atau bank yang tercatat.
+                    No cash or bank balance has been recorded yet.
                   </EmptyState>
                 ) : (
                   <div className="grid gap-x-8 md:grid-cols-2">

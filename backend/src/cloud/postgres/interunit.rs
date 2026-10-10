@@ -188,7 +188,13 @@ async fn unit_names(pool: &PgPool) -> Result<Vec<(String, String, String)>, AppE
         .fetch_all(pool)
         .await?;
     rows.iter()
-        .map(|row| Ok((row.try_get("id")?, row.try_get("code")?, row.try_get("name")?)))
+        .map(|row| {
+            Ok((
+                row.try_get("id")?,
+                row.try_get("code")?,
+                row.try_get("name")?,
+            ))
+        })
         .collect()
 }
 
@@ -293,12 +299,12 @@ fn pair_up(
 
     keys.into_iter()
         .map(|(store, kind)| {
-            let receivable = receivables.iter().find(|s| {
-                s.unit_id == head_office && s.counter_unit_id == store && s.kind == kind
-            });
-            let payable = payables.iter().find(|s| {
-                s.unit_id == store && s.counter_unit_id == head_office && s.kind == kind
-            });
+            let receivable = receivables
+                .iter()
+                .find(|s| s.unit_id == head_office && s.counter_unit_id == store && s.kind == kind);
+            let payable = payables
+                .iter()
+                .find(|s| s.unit_id == store && s.counter_unit_id == head_office && s.kind == kind);
             // Both reported positive-when-owed. The asset is already that way
             // round; the liability is negated, because a credit balance on
             // `Hutang Affiliasi` IS what the store owes.

@@ -210,7 +210,7 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     (async () => {
       await self.registration.showNotification(title, {
-        body: message.body ?? "Ada yang perlu Anda tangani.",
+        body: message.body ?? "Something needs your attention.",
         // The id as the tag: a retried push replaces the one on screen rather
         // than stacking a copy under it.
         tag: message.notification_id ?? undefined,

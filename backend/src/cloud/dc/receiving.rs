@@ -34,10 +34,12 @@ use crate::cloud::http::auth::Principal;
 use crate::cloud::postgres::InvoiceApplication;
 use crate::cloud::{AppError, AppState};
 use crate::edge::contracts::{
-    GoodsReceiptView, InvoiceDocumentView, OpenGoodsReceiptRequest, PurchaseCountAwaitingVerification,
-    PurchaseCountRequest, PurchaseCountResult, PurchaseCountUnit, PurchaseVerifyDecision,
-    PurchaseVerifyRequest, PurchaseVerifyResult, PurchaseWorkLine, RecordInvoiceRequest,
-    RejectDeliveryRequest,
+    GoodsReceiptView, InvoiceDocumentView, OpenGoodsReceiptRequest,
+    PurchaseCountAwaitingVerification, PurchaseCountBatchRequest, PurchaseCountBatchResult,
+    PurchaseCountRecallRequest, PurchaseCountRecallResult, PurchaseCountRequest,
+    PurchaseCountResult, PurchaseCountUnit, PurchaseCountVariant, PurchaseReviewVariant,
+    PurchaseVerifyDecision, PurchaseVerifyRequest, PurchaseVerifyResult, PurchaseWorkLine,
+    PurchaseWorkVariant, RecalledCount, RecordInvoiceRequest, RejectDeliveryRequest,
 };
 use axum::{
     body::Bytes,
@@ -61,6 +63,7 @@ const INVOICE_PAGE_LIMIT: usize = 8 * 1024 * 1024;
 pub fn routes(router: Router<AppState>) -> Router<AppState> {
     router
         .route("/api/v1/dc/purchase-orders", get(purchase_lines))
+        .route("/api/v1/dc/purchase-orders/summary", get(purchase_summary))
         .route(
             "/api/v1/dc/goods-receipts",
             get(goods_receipts).post(open_goods_receipt),
@@ -83,6 +86,16 @@ pub fn routes(router: Router<AppState>) -> Router<AppState> {
         .route(
             "/api/v1/dc/purchase-counts",
             get(counts_awaiting_verification).post(count_purchase),
+        )
+        .route(
+            "/api/v1/dc/purchase-counts/batch",
+            post(count_purchase_batch),
+        )
+        // Under the counting path on purpose: whoever may count may take their
+        // count back (0950), and the path gate reads the prefix.
+        .route(
+            "/api/v1/dc/purchase-counts/recall",
+            post(recall_counts),
         )
         .route("/api/v1/dc/purchase-verifications", post(verify_purchase))
 }
@@ -107,6 +120,87 @@ pub async fn hosted_order_target(
 
 // ---- the routes -------------------------------------------------------------
 
+/// What the screens outside Receiving need from its work list, without the
+/// list: how many orders the Gudang is still owed a delivery against (the
+/// badge on every page) and which of them were sent back to be counted again,
+/// with the reason (the order book). The same lines as [`purchase_lines`] —
+/// the list itself is a line per article with its units, megabytes once the
+/// open book is large, and a badge polled from every screen must not fetch it
+/// to count it.
+async fn purchase_summary(State(state): State<AppState>) -> Result<Json<Value>, AppError> {
+    common::require_hosted()?;
+    let site = common::gudang_site(&state.db).await?;
+    let row = sqlx::query(
+        "WITH unsettled AS MATERIALIZED (
+             -- Only an order that is not yet settled can owe anything: the
+             -- summary says which (0826), and an order it has no row for is
+             -- still looked at. Without this every line of every order ever
+             -- placed was asked how much of it had arrived (36 s at 92 000
+             -- lines and 2.2 million receipt lines).
+             SELECT purchase_order_id FROM purchase_order_summary
+              WHERE lifecycle IN ('ACTIVE', 'PARTIALLY_RECEIVED')
+             UNION ALL
+             SELECT o.purchase_order_id FROM purchase_order o
+              WHERE NOT EXISTS (SELECT 1 FROM purchase_order_summary s
+                                 WHERE s.purchase_order_id = o.purchase_order_id)
+         ),
+         owed AS MATERIALIZED (
+             SELECT o.purchase_order_id, o.po_number, l.po_line_id, l.line_number
+               FROM purchase_order_line l
+               JOIN purchase_order o ON o.purchase_order_id = l.purchase_order_id
+              WHERE o.purchase_order_id IN (SELECT purchase_order_id FROM unsettled)
+                AND o.destination_site_id = $1
+                AND o.order_status <> 'CANCELLED'
+                AND l.line_status <> 'CANCELLED'
+                AND l.closed_short_at IS NULL
+                AND l.ordered_quantity > COALESCE(
+                        (SELECT sum(g.matched_quantity) FROM goods_receipt_line g
+                          WHERE g.po_line_id = l.po_line_id), 0)
+         ),
+         -- A line is being counted again when its latest count was sent back
+         -- by the buyer, or recalled by the bay (0950). An order's reason is
+         -- its first such line's, as the order sheet reads it; a recall also
+         -- says who took it back, when, and what the recalled counts said.
+         latest AS (
+             SELECT owed.po_number, owed.line_number, c.status, c.reason,
+                    c.recalled_by, c.recalled_at, c.counted_quantity
+               FROM owed
+               JOIN LATERAL (
+                    SELECT x.status, x.recalled_by, x.recalled_at, x.counted_quantity,
+                           CASE WHEN x.status = 'RECOUNT_REQUESTED'
+                                THEN COALESCE(x.verifier_note, '')
+                                ELSE COALESCE(x.recall_reason, '') END AS reason
+                      FROM dc_receiving_count x
+                     WHERE x.po_line_id = owed.po_line_id
+                     ORDER BY x.counted_at DESC LIMIT 1
+               ) c ON c.status IN ('RECOUNT_REQUESTED', 'RECALLED')
+         ),
+         recount AS (
+             SELECT po_number,
+                    (array_agg(reason ORDER BY line_number))[1] AS reason,
+                    (array_agg(recalled_by ORDER BY recalled_at DESC)
+                        FILTER (WHERE status = 'RECALLED'))[1] AS recalled_by,
+                    max(recalled_at) AS recalled_at,
+                    sum(counted_quantity) FILTER (WHERE status = 'RECALLED')::bigint AS was
+               FROM latest
+              GROUP BY po_number
+         )
+         SELECT (SELECT count(DISTINCT purchase_order_id) FROM owed) AS orders,
+                COALESCE((SELECT jsonb_agg(jsonb_build_object(
+                                     'po_number', po_number, 'reason', reason,
+                                     'recalled_by', recalled_by, 'recalled_at', recalled_at,
+                                     'was', was)
+                                   ORDER BY po_number)
+                            FROM recount), '[]'::jsonb) AS recounts",
+    )
+    .bind(&site)
+    .fetch_one(&state.db)
+    .await?;
+    let orders: i64 = row.try_get("orders")?;
+    let recounts: Value = row.try_get("recounts")?;
+    Ok(Json(json!({ "orders": orders, "recounts": recounts })))
+}
+
 /// The receiving clerk's work list: the lines the Gudang still owes a
 /// delivery against. Blind — never the ordered quantity.
 async fn purchase_lines(State(state): State<AppState>) -> Result<Json<Value>, AppError> {
@@ -117,41 +211,109 @@ async fn purchase_lines(State(state): State<AppState>) -> Result<Json<Value>, Ap
         // is meant to produce is not evidence of anything. Received is what
         // the cloud's receipts matched — the same figure the applier splits
         // against, so the list and the split cannot disagree.
-        "SELECT l.po_line_id, o.po_number, o.supplier_id, o.supplier_name,
-                l.line_number::bigint AS line_number, l.article_code, l.article_name,
-                l.image_url, COALESCE(r.matched, 0)::bigint AS received,
-                COALESCE(o.issued_at, o.created_at) AS activated_at,
-                l.order_unit_code,
-                (SELECT CASE WHEN c.status = 'RECOUNT_REQUESTED'
-                             THEN COALESCE(c.verifier_note, '') END
-                   FROM dc_receiving_count c WHERE c.po_line_id = l.po_line_id
-                  ORDER BY c.counted_at DESC LIMIT 1) AS recount_reason,
-                COALESCE((
-                    SELECT jsonb_agg(jsonb_build_object(
-                               'code', u.code,
-                               'label', u.label,
-                               'factor', trim_scale(u.factor)::text,
-                               'is_stock', u.code = COALESCE(
-                                   (SELECT a.stock_unit_code FROM article a
-                                     WHERE a.article_code = btrim(l.article_code)),
-                                   (SELECT b.code FROM unit_of_measure b WHERE b.is_base)))
-                           ORDER BY u.factor, u.code)
-                      FROM (SELECT m.code, m.label,
-                                   article_unit_factor(l.article_code, m.code) AS factor
-                              FROM unit_of_measure m WHERE m.active) u
-                     WHERE u.factor IS NOT NULL), '[]'::jsonb) AS count_units
-           FROM purchase_order_line l
-           JOIN purchase_order o ON o.purchase_order_id = l.purchase_order_id
-           LEFT JOIN LATERAL (SELECT sum(g.matched_quantity) AS matched
-                                FROM goods_receipt_line g
-                               WHERE g.po_line_id = l.po_line_id) r ON TRUE
-          WHERE o.destination_site_id = $1
-            AND o.order_status <> 'CANCELLED'
-            AND l.line_status <> 'CANCELLED'
-            -- A line closed short is owed nothing more and invites no count.
-            AND l.closed_short_at IS NULL
-            AND l.ordered_quantity > COALESCE(r.matched, 0)
-          ORDER BY activated_at DESC, o.po_number, l.line_number",
+        "WITH unsettled AS MATERIALIZED (
+            -- Only an order that is not yet settled can owe anything (see the
+            -- summary above, which must agree with this list).
+            SELECT purchase_order_id FROM purchase_order_summary
+             WHERE lifecycle IN ('ACTIVE', 'PARTIALLY_RECEIVED')
+            UNION ALL
+            SELECT o.purchase_order_id FROM purchase_order o
+             WHERE NOT EXISTS (SELECT 1 FROM purchase_order_summary s
+                                WHERE s.purchase_order_id = o.purchase_order_id)
+        ),
+        owed AS MATERIALIZED (
+            SELECT l.po_line_id, o.po_number, o.supplier_id, o.supplier_name,
+                   l.line_number::bigint AS line_number, l.article_code, l.article_name,
+                   l.image_url, COALESCE(r.matched, 0)::bigint AS received,
+                   COALESCE(o.issued_at, o.created_at) AS activated_at,
+                   l.order_unit_code,
+                   -- Units depend on the ARTICLE, and only an article that exists has
+                   -- any of its own. Every code that is not one (a supplier's item
+                   -- before Article Setup) is answered by the global chain alone, so
+                   -- they all share one key: NULL.
+                   CASE WHEN EXISTS (SELECT 1 FROM article a
+                                      WHERE a.article_code = btrim(l.article_code))
+                        THEN l.article_code END AS unit_key
+              FROM purchase_order_line l
+              JOIN purchase_order o ON o.purchase_order_id = l.purchase_order_id
+              LEFT JOIN LATERAL (SELECT sum(g.matched_quantity) AS matched
+                                   FROM goods_receipt_line g
+                                  WHERE g.po_line_id = l.po_line_id) r ON TRUE
+             WHERE o.purchase_order_id IN (SELECT purchase_order_id FROM unsettled)
+               AND o.destination_site_id = $1
+               AND o.order_status <> 'CANCELLED'
+               AND l.line_status <> 'CANCELLED'
+               AND l.closed_short_at IS NULL
+               AND l.ordered_quantity > COALESCE(r.matched, 0)
+        ),
+        units AS MATERIALIZED (
+            SELECT d.unit_key,
+                   COALESCE((
+                       SELECT jsonb_agg(jsonb_build_object(
+                                  'code', u.code,
+                                  'label', u.label,
+                                  'factor', trim_scale(u.factor)::text,
+                                  'is_stock', u.code = d.stock_unit)
+                              ORDER BY u.factor, u.code)
+                         FROM (SELECT m.code, m.label,
+                                      article_unit_factor(d.unit_key, m.code) AS factor
+                                 FROM unit_of_measure m WHERE m.active) u
+                        WHERE u.factor IS NOT NULL), '[]'::jsonb) AS count_units
+              FROM (SELECT x.unit_key,
+                           COALESCE(
+                               (SELECT a.stock_unit_code FROM article a
+                                 WHERE a.article_code = btrim(x.unit_key)),
+                               (SELECT b.code FROM unit_of_measure b WHERE b.is_base)) AS stock_unit
+                      FROM (SELECT DISTINCT unit_key FROM owed) x) d
+        )
+        SELECT owed.po_line_id, owed.po_number, owed.supplier_id, owed.supplier_name,
+               owed.line_number, owed.article_code, owed.article_name,
+               owed.image_url, owed.received, owed.activated_at, owed.order_unit_code,
+               (SELECT CASE WHEN c.status = 'RECOUNT_REQUESTED'
+                            THEN COALESCE(c.verifier_note, '') END
+                  FROM dc_receiving_count c WHERE c.po_line_id = owed.po_line_id
+                 ORDER BY c.counted_at DESC LIMIT 1) AS recount_reason,
+               -- The bay took its last count back (0950): what it said, so the
+               -- sheet opens with the checker's own numbers.
+               (SELECT CASE WHEN c.status = 'RECALLED' THEN jsonb_build_object(
+                           'count_id', c.count_id, 'po_line_id', c.po_line_id,
+                           'receipt_id', c.receipt_id,
+                           'counted_quantity', c.counted_quantity,
+                           'wrong_quantity', c.wrong_quantity,
+                           'counted_unit_code', c.counted_unit_code,
+                           'counted_unit_quantity', c.counted_unit_quantity,
+                           'counted_by', c.counted_by, 'counted_at', c.counted_at,
+                           'recalled_by', c.recalled_by, 'recalled_at', c.recalled_at,
+                           'reason', c.recall_reason,
+                           -- And what it said per variant (0963).
+                           'variants', COALESCE((
+                               SELECT jsonb_agg(jsonb_build_object(
+                                          'colour_code', x.colour_code,
+                                          'size_code', x.size_code::text,
+                                          'counted_quantity', x.counted_quantity))
+                                 FROM dc_receiving_count_variant x
+                                WHERE x.count_id = c.count_id), '[]'::jsonb)) END
+                  FROM dc_receiving_count c WHERE c.po_line_id = owed.po_line_id
+                 ORDER BY c.counted_at DESC LIMIT 1) AS recalled,
+               -- The colours × sizes the line was ordered in, each counted on
+               -- its own (owner, 2026-10-10): what they are and what they look
+               -- like, never how many of each — the count is blind.
+               COALESCE((SELECT jsonb_agg(jsonb_build_object(
+                                    'colour_code', v.colour_code,
+                                    'colour_label', col.label,
+                                    'size_code', v.size_code::text,
+                                    'size_label', sz.label,
+                                    'image_urls', to_jsonb(v.image_urls))
+                                ORDER BY col.display_order, v.colour_code,
+                                         sz.display_order, v.size_code)
+                           FROM purchase_order_line_variant v
+                           LEFT JOIN colour col ON col.code = v.colour_code
+                           LEFT JOIN size_code sz ON sz.code = v.size_code
+                          WHERE v.po_line_id = owed.po_line_id), '[]'::jsonb) AS variants,
+               units.count_units
+          FROM owed
+          JOIN units ON units.unit_key IS NOT DISTINCT FROM owed.unit_key
+         ORDER BY owed.activated_at DESC, owed.po_number, owed.line_number",
     )
     .bind(&site)
     .fetch_all(&state.db)
@@ -159,6 +321,8 @@ async fn purchase_lines(State(state): State<AppState>) -> Result<Json<Value>, Ap
     let mut items = Vec::with_capacity(rows.len());
     for row in rows {
         let units: Value = row.try_get("count_units")?;
+        let recalled: Option<Value> = row.try_get("recalled")?;
+        let variants: Value = row.try_get("variants")?;
         items.push(PurchaseWorkLine {
             po_line_id: row.try_get("po_line_id")?,
             po_number: row.try_get("po_number")?,
@@ -175,27 +339,56 @@ async fn purchase_lines(State(state): State<AppState>) -> Result<Json<Value>, Ap
                 .unwrap_or_default(),
             activated_at: row.try_get("activated_at")?,
             recount_reason: row.try_get("recount_reason")?,
+            recalled: recalled
+                .map(serde_json::from_value::<RecalledCount>)
+                .transpose()?,
+            variants: serde_json::from_value::<Vec<PurchaseWorkVariant>>(variants)?,
         });
     }
     Ok(Json(json!({ "items": items })))
 }
 
 /// Deliveries still being worked through on the loading bay.
+///
+/// One statement: the counted/accepted tallies ride the same read as grouped
+/// counts instead of a `receipt_view` per delivery — this endpoint is polled,
+/// and an open bay with K deliveries used to answer K+1 queries for it.
 async fn goods_receipts(State(state): State<AppState>) -> Result<Json<Value>, AppError> {
     common::require_hosted()?;
     let site = common::gudang_site(&state.db).await?;
-    let ids: Vec<Uuid> = sqlx::query_scalar(
-        "SELECT receipt_id FROM dc_goods_receipt
-          WHERE site_id = $1 AND status = 'OPEN' ORDER BY arrived_at",
+    let rows = sqlx::query(
+        "SELECT r.receipt_id, r.receipt_number, r.supplier_id, r.arrived_at, r.status,
+                r.opened_by, r.invoice_number, r.invoice_total_minor,
+                -- A recalled count was taken back (0950); its recount is the line's.
+                count(c.count_id) FILTER (WHERE c.status <> 'RECALLED')::bigint AS counted_lines,
+                count(c.count_id) FILTER (WHERE c.status = 'ACCEPTED')::bigint
+                    AS accepted_lines
+           FROM dc_goods_receipt r
+           LEFT JOIN dc_receiving_count c ON c.receipt_id = r.receipt_id
+          WHERE r.site_id = $1 AND r.status = 'OPEN'
+          GROUP BY r.receipt_id
+          ORDER BY r.arrived_at",
     )
     .bind(&site)
     .fetch_all(&state.db)
     .await?;
-    let mut conn = state.db.acquire().await?;
-    let mut items = Vec::with_capacity(ids.len());
-    for id in ids {
-        items.push(receipt_view(&mut conn, id).await?);
-    }
+    let items = rows
+        .into_iter()
+        .map(|row| {
+            Ok(GoodsReceiptView {
+                receipt_id: row.try_get("receipt_id")?,
+                receipt_number: row.try_get("receipt_number")?,
+                supplier_id: row.try_get("supplier_id")?,
+                arrived_at: row.try_get("arrived_at")?,
+                status: row.try_get("status")?,
+                opened_by: row.try_get("opened_by")?,
+                invoice_number: row.try_get("invoice_number")?,
+                invoice_total_minor: row.try_get("invoice_total_minor")?,
+                counted_lines: row.try_get("counted_lines")?,
+                accepted_lines: row.try_get("accepted_lines")?,
+            })
+        })
+        .collect::<Result<Vec<_>, AppError>>()?;
     Ok(Json(json!({ "items": items })))
 }
 
@@ -214,7 +407,14 @@ async fn open_goods_receipt(
         ));
     }
     let mut tx = state.db.begin().await?;
-    if let Some(answer) = replay(&mut tx, &request.idempotency_key, "DC_GOODS_RECEIPT_OPEN", &request).await? {
+    if let Some(answer) = replay(
+        &mut tx,
+        &request.idempotency_key,
+        "DC_GOODS_RECEIPT_OPEN",
+        &request,
+    )
+    .await?
+    {
         tx.commit().await?;
         return Ok((StatusCode::CREATED, Json(serde_json::from_value(answer)?)));
     }
@@ -237,10 +437,22 @@ async fn open_goods_receipt(
     }
     let now = state.clock.now();
     let arrived_at = request.arrived_at.unwrap_or(now);
-    let receipt_id =
-        mint_goods_receipt(&mut tx, &site, &supplier_id, arrived_at, &request.actor_id, now).await?;
+    let receipt_id = mint_goods_receipt(
+        &mut tx,
+        &site,
+        &supplier_id,
+        arrived_at,
+        &request.actor_id,
+        now,
+    )
+    .await?;
     let view = receipt_view(&mut tx, receipt_id).await?;
-    remember(&mut tx, &request.idempotency_key, &serde_json::to_value(&view)?).await?;
+    remember(
+        &mut tx,
+        &request.idempotency_key,
+        &serde_json::to_value(&view)?,
+    )
+    .await?;
     tx.commit().await?;
     Ok((StatusCode::CREATED, Json(view)))
 }
@@ -267,7 +479,14 @@ async fn count_purchase(
         )));
     }
     let mut tx = state.db.begin().await?;
-    if let Some(answer) = replay(&mut tx, &request.idempotency_key, "DC_PURCHASE_COUNT", &request).await? {
+    if let Some(answer) = replay(
+        &mut tx,
+        &request.idempotency_key,
+        "DC_PURCHASE_COUNT",
+        &request,
+    )
+    .await?
+    {
         tx.commit().await?;
         return Ok((StatusCode::CREATED, Json(serde_json::from_value(answer)?)));
     }
@@ -415,11 +634,643 @@ async fn count_purchase(
         counted_by: request.actor_id.clone(),
         counted_at: now,
     };
-    remember(&mut tx, &request.idempotency_key, &serde_json::to_value(&response)?).await?;
+    remember(
+        &mut tx,
+        &request.idempotency_key,
+        &serde_json::to_value(&response)?,
+    )
+    .await?;
     tx.commit().await?;
     // After the count is committed, and best effort: a failure here only
     // means the count waits for the manual review.
     auto_receive_exact_counts(&state, purchase_order_id).await;
+    Ok((StatusCode::CREATED, Json(response)))
+}
+
+/// A whole count sheet in one command: every counted line of ONE order
+/// against one delivery document.
+///
+/// The sheet the checker submits used to be N per-line requests, each
+/// repeating the delivery, the order and every check. One transaction answers
+/// them all: the lines, their order, the unit factors and the delivery are
+/// read once, the counts are written in one statement, and the auto-receive
+/// probe runs once instead of once per line.
+async fn count_purchase_batch(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(mut request): Json<PurchaseCountBatchRequest>,
+) -> Result<(StatusCode, Json<PurchaseCountBatchResult>), AppError> {
+    common::require_hosted()?;
+    request.actor_id = principal.username;
+    // A sheet is one order's lines. A purchase order carries at most a few
+    // hundred lines; anything larger is a caller's bug, not a sheet.
+    if request.counts.is_empty() {
+        return Err(AppError::Validation(
+            "a count sheet carries at least one counted line".into(),
+        ));
+    }
+    if request.counts.len() > 500 {
+        return Err(AppError::Validation(
+            "a count sheet carries at most 500 lines".into(),
+        ));
+    }
+    for entry in &request.counts {
+        // A count of 0 is a statement (owner, 2026-10-05): this line did not
+        // come. It puts nothing in the Gudang, and it lets the buyer see the
+        // shortage.
+        if entry.counted_quantity < 0 {
+            return Err(AppError::Validation(
+                "a count cannot be less than nothing".into(),
+            ));
+        }
+        if entry.wrong_quantity < 0 || entry.wrong_quantity > entry.counted_quantity {
+            return Err(AppError::Validation(format!(
+                "{} pieces cannot be not as ordered out of a count of {}",
+                entry.wrong_quantity, entry.counted_quantity
+            )));
+        }
+        // A line counted per variant (owner, 2026-10-10): its rows break the
+        // line's own pieces down, so they add up to them exactly — the
+        // receipt is still the line's, and nothing is counted twice.
+        if !entry.variants.is_empty() {
+            let mut seen = std::collections::HashSet::with_capacity(entry.variants.len());
+            let mut sum: i64 = 0;
+            for variant in &entry.variants {
+                if variant.counted_quantity < 0 {
+                    return Err(AppError::Validation(
+                        "a count cannot be less than nothing".into(),
+                    ));
+                }
+                let key = variant_key(variant);
+                if key.0.is_none() && key.1.is_none() {
+                    return Err(AppError::Validation(
+                        "a variant is a colour, a size or both; this one names neither".into(),
+                    ));
+                }
+                if !seen.insert(key) {
+                    return Err(AppError::Validation(
+                        "a variant is counted once on a sheet; add its pieces into one figure"
+                            .into(),
+                    ));
+                }
+                sum = sum.checked_add(variant.counted_quantity).ok_or_else(|| {
+                    AppError::Validation("that is more pieces than a count can hold".into())
+                })?;
+            }
+            let right = entry.counted_quantity - entry.wrong_quantity;
+            if sum != right {
+                return Err(AppError::Validation(format!(
+                    "the variants come to {sum} pieces and the line to {right}; a line counted \
+                     per variant is the sum of its variants"
+                )));
+            }
+        }
+    }
+    let mut tx = state.db.begin().await?;
+    if let Some(answer) = replay(
+        &mut tx,
+        &request.idempotency_key,
+        "DC_PURCHASE_COUNT_BATCH",
+        &request,
+    )
+    .await?
+    {
+        tx.commit().await?;
+        return Ok((StatusCode::CREATED, Json(serde_json::from_value(answer)?)));
+    }
+    let site = common::gudang_site_tx(&mut tx).await?;
+    // Every line's order, in one read. All of them must be one order: a sheet
+    // for a second order would land on that order's own receipt, which is the
+    // single-line path's work.
+    let line_ids: Vec<Uuid> = request
+        .counts
+        .iter()
+        .map(|entry| entry.po_line_id)
+        .collect();
+    let rows = sqlx::query(
+        "SELECT l.po_line_id, o.purchase_order_id, o.supplier_id, o.order_status,
+                o.destination_site_id
+           FROM purchase_order_line l
+           JOIN purchase_order o ON o.purchase_order_id = l.purchase_order_id
+          WHERE l.po_line_id = ANY($1)",
+    )
+    .bind(&line_ids)
+    .fetch_all(&mut *tx)
+    .await?;
+    let mut orders: std::collections::HashMap<Uuid, (Uuid, String)> =
+        std::collections::HashMap::with_capacity(rows.len());
+    for row in rows {
+        let po_line_id: Uuid = row.try_get("po_line_id")?;
+        let purchase_order_id: Uuid = row.try_get("purchase_order_id")?;
+        let supplier_id: String = row.try_get("supplier_id")?;
+        let order_status: String = row.try_get("order_status")?;
+        let destination: String = row.try_get("destination_site_id")?;
+        if destination != site {
+            return Err(AppError::NotFound(format!(
+                "purchase order line {po_line_id} is delivered to {destination}, not to the \
+                 Gudang"
+            )));
+        }
+        // Head office called the order off: nothing is counted against it.
+        if order_status == "CANCELLED" {
+            return Err(AppError::Conflict(
+                "this purchase order was cancelled by head office; refuse the delivery".into(),
+            ));
+        }
+        orders.insert(po_line_id, (purchase_order_id, supplier_id));
+    }
+    let mut purchase_order_id: Option<Uuid> = None;
+    let mut ordered_from: Option<String> = None;
+    for entry in &request.counts {
+        let Some((order, supplier)) = orders.get(&entry.po_line_id) else {
+            return Err(AppError::NotFound(format!(
+                "the Gudang holds no purchase order line {}; it cannot count against one it \
+                 was never given",
+                entry.po_line_id
+            )));
+        };
+        match (&purchase_order_id, &ordered_from) {
+            (Some(order_id), Some(supplier_id)) => {
+                if order != order_id {
+                    return Err(AppError::Validation(
+                        "a count sheet carries one order's lines; send each order's sheet as \
+                         its own command"
+                            .into(),
+                    ));
+                }
+                if supplier.trim() != supplier_id.trim() {
+                    return Err(AppError::Conflict(format!(
+                        "order {order} names two suppliers: {supplier_id} and {supplier}"
+                    )));
+                }
+            }
+            _ => {
+                purchase_order_id = Some(*order);
+                ordered_from = Some(supplier.clone());
+            }
+        }
+    }
+    let purchase_order_id = purchase_order_id.expect("at least one line was checked");
+    let ordered_from = ordered_from.expect("at least one line was checked");
+    // A variant row is one the line was ordered in. Pieces of any other
+    // colour or size are not a variant of this order: they are the
+    // delivery's Not as Ordered, as they always were (0963).
+    let split_lines: Vec<Uuid> = request
+        .counts
+        .iter()
+        .filter(|entry| !entry.variants.is_empty())
+        .map(|entry| entry.po_line_id)
+        .collect();
+    if !split_lines.is_empty() {
+        let mut ordered_variants: std::collections::HashSet<(
+            Uuid,
+            Option<String>,
+            Option<String>,
+        )> = std::collections::HashSet::new();
+        for row in sqlx::query(
+            "SELECT po_line_id, colour_code, size_code::text AS size_code
+               FROM purchase_order_line_variant
+              WHERE po_line_id = ANY($1)",
+        )
+        .bind(&split_lines)
+        .fetch_all(&mut *tx)
+        .await?
+        {
+            let colour: Option<String> = row.try_get("colour_code")?;
+            let size: Option<String> = row.try_get("size_code")?;
+            ordered_variants.insert((
+                row.try_get("po_line_id")?,
+                colour.map(|code| code.trim().to_owned()),
+                size.map(|code| code.trim().to_owned()),
+            ));
+        }
+        for entry in request.counts.iter().filter(|entry| !entry.variants.is_empty()) {
+            for variant in &entry.variants {
+                let (colour, size) = variant_key(variant);
+                if !ordered_variants.contains(&(entry.po_line_id, colour.clone(), size.clone())) {
+                    return Err(AppError::Validation(format!(
+                        "{} was not ordered on this line; count those pieces as Not as Ordered",
+                        [colour, size].into_iter().flatten().collect::<Vec<_>>().join(" ")
+                    )));
+                }
+            }
+        }
+    }
+    // A count typed in a unit other than pieces: converted with the line's
+    // own factor, exactly, and checked against the pieces sent. One read
+    // covers every distinct line-and-unit pair on the sheet.
+    let mut wanted_units: std::collections::BTreeSet<(Uuid, String)> =
+        std::collections::BTreeSet::new();
+    for entry in &request.counts {
+        if let Some(code) = entry
+            .counted_unit_code
+            .as_deref()
+            .map(str::trim)
+            .filter(|code| !code.is_empty())
+        {
+            wanted_units.insert((entry.po_line_id, code.to_uppercase()));
+        }
+    }
+    let mut factors: std::collections::HashMap<(Uuid, String), Decimal> =
+        std::collections::HashMap::with_capacity(wanted_units.len());
+    if !wanted_units.is_empty() {
+        let ids: Vec<Uuid> = wanted_units.iter().map(|(line, _)| *line).collect();
+        let codes: Vec<String> = wanted_units.iter().map(|(_, code)| code.clone()).collect();
+        let rows = sqlx::query(
+            "SELECT requested.po_line_id, requested.unit_code,
+                    article_unit_factor(l.article_code, requested.unit_code) AS factor
+               FROM unnest($1::uuid[], $2::text[]) AS requested(po_line_id, unit_code)
+               JOIN purchase_order_line l ON l.po_line_id = requested.po_line_id",
+        )
+        .bind(&ids)
+        .bind(&codes)
+        .fetch_all(&mut *tx)
+        .await?;
+        for row in rows {
+            let po_line_id: Uuid = row.try_get("po_line_id")?;
+            let code: String = row.try_get("unit_code")?;
+            let factor: Option<Decimal> = row.try_get("factor")?;
+            let Some(factor) = factor else {
+                return Err(AppError::Validation(format!(
+                    "this line cannot be counted in {code}; count it in pieces"
+                )));
+            };
+            factors.insert((po_line_id, code), factor);
+        }
+    }
+    let mut counted_units: Vec<Option<(String, String)>> = Vec::with_capacity(request.counts.len());
+    for entry in &request.counts {
+        let counted_unit = match entry
+            .counted_unit_code
+            .as_deref()
+            .map(str::trim)
+            .filter(|code| !code.is_empty())
+        {
+            None => None,
+            Some(code) => {
+                let code = code.to_uppercase();
+                let factor = factors
+                    .get(&(entry.po_line_id, code.clone()))
+                    .copied()
+                    .ok_or_else(|| {
+                        AppError::Validation(format!(
+                            "this line cannot be counted in {code}; count it in pieces"
+                        ))
+                    })?;
+                let typed = entry
+                    .counted_unit_quantity
+                    .as_deref()
+                    .unwrap_or_default()
+                    .trim()
+                    .replace(',', ".");
+                let pieces = pieces_of(&typed, factor).ok_or_else(|| {
+                    AppError::Validation(format!("{typed} {code} is not a whole number of pieces"))
+                })?;
+                if pieces != entry.counted_quantity {
+                    return Err(AppError::Validation(format!(
+                        "{typed} {code} is {pieces} pieces, not the {} sent",
+                        entry.counted_quantity
+                    )));
+                }
+                Some((code, typed))
+            }
+        };
+        counted_units.push(counted_unit);
+    }
+    // A count belongs to a delivery that is still open: counting into a
+    // refused one would change a document somebody already acted on.
+    let delivery = sqlx::query(
+        "SELECT status, supplier_id FROM dc_goods_receipt WHERE receipt_id = $1 FOR UPDATE",
+    )
+    .bind(request.receipt_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(delivery) = delivery else {
+        return Err(AppError::NotFound(format!(
+            "no delivery {}: open the document when the lorry arrives, then count into it",
+            request.receipt_id
+        )));
+    };
+    let status: String = delivery.try_get("status")?;
+    let delivered_by: String = delivery.try_get("supplier_id")?;
+    if status != "OPEN" {
+        return Err(AppError::Conflict(format!(
+            "delivery {} is {}; open a new one for goods arriving now",
+            request.receipt_id,
+            status.to_lowercase()
+        )));
+    }
+    // One supplier's lorry cannot answer another supplier's order.
+    if delivered_by.trim() != ordered_from.trim() {
+        return Err(AppError::Validation(format!(
+            "this delivery came from {delivered_by} and that order is with {ordered_from}; a \
+             supplier's goods cannot be received against another supplier's order"
+        )));
+    }
+    let receipt_id = receipt_for_order(
+        &mut tx,
+        &site,
+        request.receipt_id,
+        purchase_order_id,
+        delivered_by.trim(),
+        &request.actor_id,
+        state.clock.now(),
+    )
+    .await?;
+    let now = state.clock.now();
+    let count_ids: Vec<Uuid> = request.counts.iter().map(|_| Uuid::new_v4()).collect();
+    let counted_quantities: Vec<i64> = request
+        .counts
+        .iter()
+        .map(|entry| entry.counted_quantity)
+        .collect();
+    let wrong_quantities: Vec<i64> = request
+        .counts
+        .iter()
+        .map(|entry| entry.wrong_quantity)
+        .collect();
+    let unit_codes: Vec<Option<String>> = counted_units
+        .iter()
+        .map(|unit| unit.as_ref().map(|(code, _)| code.clone()))
+        .collect();
+    let unit_quantities: Vec<Option<String>> = counted_units
+        .iter()
+        .map(|unit| unit.as_ref().map(|(_, quantity)| quantity.clone()))
+        .collect();
+    sqlx::query(
+        "INSERT INTO dc_receiving_count
+             (count_id, receipt_id, po_line_id, counted_quantity, wrong_quantity,
+              counted_unit_code, counted_unit_quantity, counted_by, counted_at, status)
+         SELECT line.count_id, $2, line.po_line_id, line.counted, line.wrong,
+                line.unit_code, line.unit_quantity, $3, $4, 'AWAITING_VERIFICATION'
+           FROM unnest($1::uuid[], $5::uuid[], $6::bigint[], $7::bigint[], $8::text[], $9::text[])
+                AS line(count_id, po_line_id, counted, wrong, unit_code, unit_quantity)",
+    )
+    .bind(&count_ids)
+    .bind(receipt_id)
+    .bind(&request.actor_id)
+    .bind(now)
+    .bind(&line_ids)
+    .bind(&counted_quantities)
+    .bind(&wrong_quantities)
+    .bind(&unit_codes)
+    .bind(&unit_quantities)
+    .execute(&mut *tx)
+    .await?;
+    // Each line's breakdown, beside its count, in the same transaction: a
+    // sheet is accepted whole or not at all (0963).
+    let mut variant_count_ids: Vec<Uuid> = Vec::new();
+    let mut variant_colours: Vec<Option<String>> = Vec::new();
+    let mut variant_sizes: Vec<Option<String>> = Vec::new();
+    let mut variant_quantities: Vec<i64> = Vec::new();
+    for (count_id, entry) in count_ids.iter().zip(&request.counts) {
+        for variant in &entry.variants {
+            let (colour, size) = variant_key(variant);
+            variant_count_ids.push(*count_id);
+            variant_colours.push(colour);
+            variant_sizes.push(size);
+            variant_quantities.push(variant.counted_quantity);
+        }
+    }
+    if !variant_count_ids.is_empty() {
+        sqlx::query(
+            "INSERT INTO dc_receiving_count_variant
+                 (count_id, colour_code, size_code, counted_quantity)
+             SELECT v.count_id, v.colour_code, v.size_code, v.counted
+               FROM unnest($1::uuid[], $2::text[], $3::text[], $4::bigint[])
+                    AS v(count_id, colour_code, size_code, counted)",
+        )
+        .bind(&variant_count_ids)
+        .bind(&variant_colours)
+        .bind(&variant_sizes)
+        .bind(&variant_quantities)
+        .execute(&mut *tx)
+        .await?;
+    }
+    let items = count_ids
+        .iter()
+        .zip(&request.counts)
+        .map(|(count_id, entry)| PurchaseCountResult {
+            count_id: *count_id,
+            po_line_id: entry.po_line_id,
+            counted_quantity: entry.counted_quantity,
+            wrong_quantity: entry.wrong_quantity,
+            counted_by: request.actor_id.clone(),
+            counted_at: now,
+        })
+        .collect();
+    let response = PurchaseCountBatchResult { receipt_id, items };
+    remember(
+        &mut tx,
+        &request.idempotency_key,
+        &serde_json::to_value(&response)?,
+    )
+    .await?;
+    tx.commit().await?;
+    // After the sheet is committed, and best effort, once for the whole
+    // order: a failure here only means the counts wait for the manual review.
+    auto_receive_exact_counts(&state, purchase_order_id).await;
+    Ok((StatusCode::CREATED, Json(response)))
+}
+
+/// The bay takes its own count back, before anybody decided on it (0950).
+///
+/// A count sheet is one order's lines, so the counts named must all be of one
+/// order, and every one of them still waiting for review: the sheet is
+/// recalled whole or not at all. Nothing is deleted — each count stays as
+/// RECALLED in the order's history, and its line is owed a count again, into
+/// the same delivery document (the arrival did not change). Stock is not
+/// touched: a count waiting for review never put anything in the Gudang.
+///
+/// Refused once the buyer has decided. An accepted count is goods that exist;
+/// a count sent back is already the bay's to count again. The row lock is the
+/// one [`verify`] takes, so a recall and an acceptance of the same count can
+/// not both win: whichever commits second finds the status changed.
+async fn recall_counts(
+    State(state): State<AppState>,
+    Extension(principal): Extension<Principal>,
+    Json(mut request): Json<PurchaseCountRecallRequest>,
+) -> Result<(StatusCode, Json<PurchaseCountRecallResult>), AppError> {
+    common::require_hosted()?;
+    request.actor_id = principal.username;
+    request.reason = request
+        .reason
+        .as_deref()
+        .map(str::trim)
+        .filter(|reason| !reason.is_empty())
+        .map(str::to_owned);
+    if request.count_ids.is_empty() {
+        return Err(AppError::Validation(
+            "name the counts to recall: a recall takes back at least one".into(),
+        ));
+    }
+    // A sheet carries at most a few hundred lines (see the batch count).
+    if request.count_ids.len() > 1000 {
+        return Err(AppError::Validation(
+            "a recall takes back one order's count sheet, not more".into(),
+        ));
+    }
+    let mut ids = request.count_ids.clone();
+    ids.sort();
+    ids.dedup();
+    let mut tx = state.db.begin().await?;
+    if let Some(answer) = replay(
+        &mut tx,
+        &request.idempotency_key,
+        "DC_PURCHASE_RECALL",
+        &request,
+    )
+    .await?
+    {
+        tx.commit().await?;
+        return Ok((StatusCode::CREATED, Json(serde_json::from_value(answer)?)));
+    }
+    let site = common::gudang_site_tx(&mut tx).await?;
+    let rows = sqlx::query(
+        "SELECT c.count_id, c.po_line_id, c.receipt_id, c.counted_quantity, c.wrong_quantity,
+                c.counted_unit_code, c.counted_unit_quantity, c.counted_by, c.counted_at,
+                c.status, c.verified_by, o.po_number, o.order_status, r.site_id
+           FROM dc_receiving_count c
+           JOIN dc_goods_receipt r ON r.receipt_id = c.receipt_id
+           JOIN purchase_order_line l ON l.po_line_id = c.po_line_id
+           JOIN purchase_order o ON o.purchase_order_id = l.purchase_order_id
+          WHERE c.count_id = ANY($1)
+          ORDER BY l.line_number
+          FOR UPDATE OF c",
+    )
+    .bind(&ids)
+    .fetch_all(&mut *tx)
+    .await?;
+    if rows.len() != ids.len() {
+        return Err(AppError::NotFound(format!(
+            "{} of the {} counts named are not counts at this Gudang",
+            ids.len() - rows.len(),
+            ids.len()
+        )));
+    }
+    let mut po_number: Option<String> = None;
+    for row in &rows {
+        let order: String = row.try_get("po_number")?;
+        let at: String = row.try_get("site_id")?;
+        if at != site {
+            return Err(AppError::NotFound(format!(
+                "a count on {order} was taken at {at}, not at the Gudang"
+            )));
+        }
+        match &po_number {
+            None => po_number = Some(order.clone()),
+            Some(first) if *first != order => {
+                return Err(AppError::Validation(format!(
+                    "a recall takes back one order's count; these are counts of {first} and \
+                     {order}"
+                )))
+            }
+            Some(_) => {}
+        }
+        let order_status: String = row.try_get("order_status")?;
+        if order_status == "CANCELLED" {
+            return Err(AppError::Conflict(format!(
+                "{order} was cancelled by head office; its count is void and is not recalled"
+            )));
+        }
+        let status: String = row.try_get("status")?;
+        match status.as_str() {
+            "AWAITING_VERIFICATION" => {}
+            "ACCEPTED" => {
+                let by: Option<String> = row.try_get("verified_by")?;
+                return Err(AppError::Conflict(format!(
+                    "{} already accepted this count of {order}; the goods are received and \
+                     the count can no longer be recalled",
+                    by.as_deref().unwrap_or("the buyer")
+                )));
+            }
+            "RECOUNT_REQUESTED" => {
+                let by: Option<String> = row.try_get("verified_by")?;
+                return Err(AppError::Conflict(format!(
+                    "{} already sent this count of {order} back to be counted again; count it \
+                     again",
+                    by.as_deref().unwrap_or("the buyer")
+                )));
+            }
+            "RECALLED" => {
+                return Err(AppError::Conflict(format!(
+                    "this count of {order} was already recalled; count it again"
+                )));
+            }
+            other => {
+                return Err(AppError::Conflict(format!(
+                    "this count of {order} is {}",
+                    other.to_lowercase().replace('_', " ")
+                )));
+            }
+        }
+    }
+    let now = state.clock.now();
+    sqlx::query(
+        "UPDATE dc_receiving_count
+            SET status = 'RECALLED', recalled_by = $2, recalled_at = $3, recall_reason = $4
+          WHERE count_id = ANY($1)",
+    )
+    .bind(&ids)
+    .bind(&request.actor_id)
+    .bind(now)
+    .bind(&request.reason)
+    .execute(&mut *tx)
+    .await?;
+    // What each count said per variant (0963): the sheet opens with them.
+    let mut recalled_variants: std::collections::HashMap<Uuid, Vec<PurchaseCountVariant>> =
+        std::collections::HashMap::new();
+    for row in sqlx::query(
+        "SELECT count_id, colour_code, size_code::text AS size_code, counted_quantity
+           FROM dc_receiving_count_variant
+          WHERE count_id = ANY($1)",
+    )
+    .bind(&ids)
+    .fetch_all(&mut *tx)
+    .await?
+    {
+        let count_id: Uuid = row.try_get("count_id")?;
+        recalled_variants
+            .entry(count_id)
+            .or_default()
+            .push(PurchaseCountVariant {
+                colour_code: row.try_get("colour_code")?,
+                size_code: row.try_get("size_code")?,
+                counted_quantity: row.try_get("counted_quantity")?,
+            });
+    }
+    let items = rows
+        .iter()
+        .map(|row| {
+            let count_id: Uuid = row.try_get("count_id")?;
+            Ok(RecalledCount {
+                count_id,
+                po_line_id: row.try_get("po_line_id")?,
+                receipt_id: row.try_get("receipt_id")?,
+                counted_quantity: row.try_get("counted_quantity")?,
+                wrong_quantity: row.try_get("wrong_quantity")?,
+                counted_unit_code: row.try_get("counted_unit_code")?,
+                counted_unit_quantity: row.try_get("counted_unit_quantity")?,
+                counted_by: row.try_get("counted_by")?,
+                counted_at: row.try_get("counted_at")?,
+                recalled_by: request.actor_id.clone(),
+                recalled_at: now,
+                reason: request.reason.clone(),
+                variants: recalled_variants.remove(&count_id).unwrap_or_default(),
+            })
+        })
+        .collect::<Result<Vec<_>, AppError>>()?;
+    let response = PurchaseCountRecallResult {
+        po_number: po_number.unwrap_or_default(),
+        items,
+    };
+    remember(
+        &mut tx,
+        &request.idempotency_key,
+        &serde_json::to_value(&response)?,
+    )
+    .await?;
+    tx.commit().await?;
     Ok((StatusCode::CREATED, Json(response)))
 }
 
@@ -442,7 +1293,24 @@ async fn counts_awaiting_verification(
                 c.counted_unit_code, c.counted_unit_quantity,
                 COALESCE((SELECT a.stock_unit_code FROM article a
                            WHERE a.article_code = btrim(l.article_code)),
-                         (SELECT b.code FROM unit_of_measure b WHERE b.is_base)) AS stock_unit_code
+                         (SELECT b.code FROM unit_of_measure b WHERE b.is_base)) AS stock_unit_code,
+                -- The count variant by variant beside what was ordered of each
+                -- (owner, 2026-10-10); none for a count taken as a whole.
+                COALESCE((SELECT jsonb_agg(jsonb_build_object(
+                                     'colour_code', v.colour_code,
+                                     'colour_label', col.label,
+                                     'size_code', v.size_code,
+                                     'size_label', sz.label,
+                                     'image_urls', to_jsonb(v.image_urls),
+                                     'ordered_quantity', v.ordered_quantity,
+                                     'outstanding_quantity', v.outstanding_quantity,
+                                     'counted_quantity', v.counted_quantity)
+                                 ORDER BY col.display_order, v.colour_code,
+                                          sz.display_order, v.size_code)
+                            FROM dc_receiving_count_breakdown(c.count_id) v
+                            LEFT JOIN colour col ON col.code = v.colour_code
+                            LEFT JOIN size_code sz ON sz.code::text = v.size_code),
+                         '[]'::jsonb) AS variants
            FROM dc_receiving_count c
            JOIN dc_goods_receipt r ON r.receipt_id = c.receipt_id
            JOIN purchase_order_line l ON l.po_line_id = c.po_line_id
@@ -461,6 +1329,7 @@ async fn counts_awaiting_verification(
         let ordered: i64 = row.try_get("ordered_quantity")?;
         let counted: i64 = row.try_get("counted_quantity")?;
         let already_matched: i64 = row.try_get("already_matched")?;
+        let variants: Value = row.try_get("variants")?;
         items.push(PurchaseCountAwaitingVerification {
             count_id: row.try_get("count_id")?,
             receipt_id: row.try_get("receipt_id")?,
@@ -485,6 +1354,7 @@ async fn counts_awaiting_verification(
             counted_unit_code: row.try_get("counted_unit_code")?,
             counted_unit_quantity: row.try_get("counted_unit_quantity")?,
             stock_unit_code: row.try_get("stock_unit_code")?,
+            variants: serde_json::from_value::<Vec<PurchaseReviewVariant>>(variants)?,
         });
     }
     Ok(Json(json!({ "items": items })))
@@ -520,7 +1390,14 @@ async fn reject_delivery(
     }
     common::ensure_origin(&state.db).await?;
     let mut tx = state.db.begin().await?;
-    if let Some(answer) = replay(&mut tx, &request.idempotency_key, "DC_GOODS_RECEIPT_REJECT", &request).await? {
+    if let Some(answer) = replay(
+        &mut tx,
+        &request.idempotency_key,
+        "DC_GOODS_RECEIPT_REJECT",
+        &request,
+    )
+    .await?
+    {
         tx.commit().await?;
         return Ok(Json(serde_json::from_value(answer)?));
     }
@@ -587,7 +1464,12 @@ async fn reject_delivery(
     )
     .await?;
     let view = receipt_view(&mut tx, receipt_id).await?;
-    remember(&mut tx, &request.idempotency_key, &serde_json::to_value(&view)?).await?;
+    remember(
+        &mut tx,
+        &request.idempotency_key,
+        &serde_json::to_value(&view)?,
+    )
+    .await?;
     tx.commit().await?;
     Ok(Json(view))
 }
@@ -611,7 +1493,14 @@ async fn record_invoice(
         ));
     }
     let mut tx = state.db.begin().await?;
-    if let Some(answer) = replay(&mut tx, &request.idempotency_key, "DC_GOODS_RECEIPT_INVOICE", &request).await? {
+    if let Some(answer) = replay(
+        &mut tx,
+        &request.idempotency_key,
+        "DC_GOODS_RECEIPT_INVOICE",
+        &request,
+    )
+    .await?
+    {
         tx.commit().await?;
         return Ok(Json(serde_json::from_value(answer)?));
     }
@@ -674,7 +1563,12 @@ async fn record_invoice(
         }
     }
     let view = receipt_view(&mut tx, receipt_id).await?;
-    remember(&mut tx, &request.idempotency_key, &serde_json::to_value(&view)?).await?;
+    remember(
+        &mut tx,
+        &request.idempotency_key,
+        &serde_json::to_value(&view)?,
+    )
+    .await?;
     tx.commit().await?;
     Ok(Json(view))
 }
@@ -703,7 +1597,9 @@ async fn store_invoice_document(
 ) -> Result<(StatusCode, Json<InvoiceDocumentView>), AppError> {
     common::require_hosted()?;
     if bytes.is_empty() {
-        return Err(AppError::Validation("an empty file is not an invoice".into()));
+        return Err(AppError::Validation(
+            "an empty file is not an invoice".into(),
+        ));
     }
     if bytes.len() > INVOICE_PAGE_LIMIT {
         return Err(AppError::Validation(format!(
@@ -824,7 +1720,10 @@ async fn invoice_document(
         HeaderValue::from_str(&content_type)
             .unwrap_or(HeaderValue::from_static("application/octet-stream")),
     );
-    headers.insert(header::CONTENT_DISPOSITION, HeaderValue::from_static("inline"));
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_static("inline"),
+    );
     Ok((headers, body).into_response())
 }
 
@@ -860,7 +1759,14 @@ async fn verify(
     }
     common::ensure_origin(&state.db).await?;
     let mut tx = state.db.begin().await?;
-    if let Some(answer) = replay(&mut tx, &request.idempotency_key, "DC_PURCHASE_VERIFY", &request).await? {
+    if let Some(answer) = replay(
+        &mut tx,
+        &request.idempotency_key,
+        "DC_PURCHASE_VERIFY",
+        &request,
+    )
+    .await?
+    {
         tx.commit().await?;
         return Ok(serde_json::from_value(answer)?);
     }
@@ -928,7 +1834,12 @@ async fn verify(
             movement_group_id: None,
             decided_at,
         };
-        remember(&mut tx, &request.idempotency_key, &serde_json::to_value(&response)?).await?;
+        remember(
+            &mut tx,
+            &request.idempotency_key,
+            &serde_json::to_value(&response)?,
+        )
+        .await?;
         tx.commit().await?;
         return Ok(response);
     }
@@ -970,7 +1881,12 @@ async fn verify(
             movement_group_id: None,
             decided_at,
         };
-        remember(&mut tx, &request.idempotency_key, &serde_json::to_value(&response)?).await?;
+        remember(
+            &mut tx,
+            &request.idempotency_key,
+            &serde_json::to_value(&response)?,
+        )
+        .await?;
         tx.commit().await?;
         return Ok(response);
     }
@@ -1146,7 +2062,12 @@ async fn verify(
         movement_group_id: Some(movement_group_id),
         decided_at,
     };
-    remember(&mut tx, &request.idempotency_key, &serde_json::to_value(&response)?).await?;
+    remember(
+        &mut tx,
+        &request.idempotency_key,
+        &serde_json::to_value(&response)?,
+    )
+    .await?;
     tx.commit().await?;
     Ok(response)
 }
@@ -1253,6 +2174,24 @@ async fn exact_counts_of_order(
     if waiting.len() != owed.len() {
         return Ok(None);
     }
+    // A line counted per variant is exact only when every variant is (owner,
+    // 2026-10-10): ten black for five black and five white adds up and is
+    // still the wrong goods, which is exactly what the buyer has to see.
+    let variants_differ: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1
+               FROM dc_receiving_count c
+               JOIN purchase_order_line l ON l.po_line_id = c.po_line_id
+               CROSS JOIN LATERAL dc_receiving_count_breakdown(c.count_id) v
+              WHERE l.purchase_order_id = $1 AND c.status = 'AWAITING_VERIFICATION'
+                AND v.counted_quantity <> v.outstanding_quantity)",
+    )
+    .bind(purchase_order_id)
+    .fetch_one(db)
+    .await?;
+    if variants_differ {
+        return Ok(None);
+    }
     let mut seen = std::collections::HashSet::with_capacity(waiting.len());
     let mut count_ids = Vec::with_capacity(waiting.len());
     for row in waiting {
@@ -1279,7 +2218,8 @@ async fn receipt_view(
         "SELECT r.receipt_number, r.supplier_id, r.arrived_at, r.status, r.opened_by,
                 r.invoice_number, r.invoice_total_minor,
                 (SELECT count(*) FROM dc_receiving_count c
-                  WHERE c.receipt_id = r.receipt_id)::bigint AS counted_lines,
+                  WHERE c.receipt_id = r.receipt_id
+                    AND c.status <> 'RECALLED')::bigint AS counted_lines,
                 (SELECT count(*) FROM dc_receiving_count c
                   WHERE c.receipt_id = r.receipt_id AND c.status = 'ACCEPTED')::bigint
                     AS accepted_lines
@@ -1424,6 +2364,18 @@ async fn unidentified_pool(
             "site {site_id} has no Unidentified pool to receive goods into"
         ))
     })
+}
+
+/// A counted variant's colour and size as the order line's variant spells
+/// them: trimmed, and an empty one is no colour (or no size) at all.
+fn variant_key(variant: &PurchaseCountVariant) -> (Option<String>, Option<String>) {
+    let clean = |code: &Option<String>| {
+        code.as_deref()
+            .map(str::trim)
+            .filter(|code| !code.is_empty())
+            .map(str::to_owned)
+    };
+    (clean(&variant.colour_code), clean(&variant.size_code))
 }
 
 /// `quantity × factor` as a whole number of pieces, exactly, or `None` when

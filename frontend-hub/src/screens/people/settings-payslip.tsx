@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox, Field, Input, Textarea } from "@/components/ui/field"
@@ -16,7 +17,7 @@ import {
 } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
-import { SheetFooter } from "@/screens/people/settings-kit"
+import { PageFoot, SheetFooter } from "@/screens/people/settings-kit"
 import { useOpener } from "@/screens/people/settings-lib"
 import type { PayslipTemplate } from "@itulah/contract"
 
@@ -25,6 +26,7 @@ import type { PayslipTemplate } from "@itulah/contract"
 /// payslips takes a password of its own.
 export function PayslipSettings() {
   const canWrite = useCanWrite()
+  const phone = useLayout() === "phone"
   const template = useQuery({
     queryKey: payKeys.payslipTemplate(),
     queryFn: ({ signal }) => payslipTemplate(signal),
@@ -38,6 +40,7 @@ export function PayslipSettings() {
         title="Payslip"
         sub="What the payslip says around its figures and who may open it."
         actions={
+          !phone &&
           canWrite && (
             <Button
               variant="primary"
@@ -84,6 +87,13 @@ export function PayslipSettings() {
           open={edit.isOpen}
           onClose={edit.hide}
           current={template.data}
+        />
+      )}
+      {canWrite && (
+        <PageFoot
+          label="Edit"
+          disabled={!template.data}
+          onClick={() => edit.show()}
         />
       )}
     </PageContent>

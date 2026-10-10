@@ -1,4 +1,4 @@
-import { dateOf } from "@/lib/calendar"
+import { day, dayMonth } from "@/lib/format"
 import type { FilterField, FilterState } from "@/lib/filters"
 
 /// A window of days as a field asks it: from and to, as two clauses — `gte`
@@ -53,11 +53,7 @@ export function setDayRange(
 }
 
 function short(iso: string, withYear: boolean): string {
-  return dateOf(iso).toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    ...(withYear ? { year: "numeric" } : {}),
-  })
+  return withYear ? day(iso) : dayMonth(iso)
 }
 
 /// A window in a row's own words — "14 Oct – 22 Oct", "From 14 Oct" — the
@@ -75,4 +71,3 @@ export function sayDays(days: DayWindow): string {
   if (days.to !== "") return `Until ${short(days.to, withYear)}`
   return ""
 }
-

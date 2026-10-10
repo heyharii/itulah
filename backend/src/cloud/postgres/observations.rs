@@ -371,14 +371,28 @@ pub async fn sightings_page(pool: &PgPool, scope: SightingScope) -> Result<Sight
 }
 
 /// How many sightings there are, and how they split.
+///
+/// When nothing narrows `searched` — no pool, no tag, no needle — the set
+/// it describes is the whole sighting table, and a materialised CTE means
+/// writing millions of wide rows out once and reading them back four
+/// times: three group-bys and a count. `NOT MATERIALIZED` in that case
+/// lets each branch read the sighting table itself, where the facet
+/// indexes (0948) answer a group-by with an index-only scan. Anything
+/// that narrows the set keeps the materialisation — one pass over a
+/// small set beats four.
 async fn sighting_facets(
     pool: &PgPool,
     scope: &SightingScope,
     epc: Option<&str>,
     needle: Option<&str>,
 ) -> Result<(i64, SightingFacets), AppError> {
+    let hint = if scope.pool_id.is_none() && epc.is_none() && needle.is_none() {
+        " NOT MATERIALIZED"
+    } else {
+        ""
+    };
     let sql = format!(
-        "WITH searched AS ({SIGHTING_ROWS}), kept AS (
+        "WITH searched AS{hint} ({SIGHTING_ROWS}), kept AS{hint} (
              SELECT * FROM searched {SIGHTING_FILTERS}
          )
          SELECT 'pool' AS kind, pool_id AS value, pool_label AS l, COUNT(*)::bigint AS n
@@ -426,29 +440,4 @@ async fn sighting_facets(
         rank_facets(list);
     }
     Ok((total, facets))
-}
-
-pub async fn observation_anomalies(pool: &PgPool) -> Result<Value, AppError> {
-    let rows = sqlx::query(r#"
-WITH latest_observation AS (
-    SELECT DISTINCT ON (subject_id) subject_id,epc,pool_id,last_seen_at,device_id
-    FROM observation_sighting WHERE subject_id IS NOT NULL ORDER BY subject_id,last_seen_at DESC
-), deltas AS (
-    SELECT subject_id,to_place_id place_id,quantity delta FROM movement
-    UNION ALL SELECT subject_id,from_place_id,-quantity FROM movement
-), current_ledger AS (
-    SELECT d.subject_id,ip.pool_id,SUM(d.delta)::bigint quantity FROM deltas d JOIN inventory_place ip ON ip.id=d.place_id
-    WHERE ip.kind='OPERATIONAL' GROUP BY d.subject_id,ip.pool_id HAVING SUM(d.delta)>0
-)
-SELECT o.subject_id,o.epc,o.pool_id observed_pool,o.last_seen_at,o.device_id,c.pool_id ledger_pool,c.quantity
-FROM latest_observation o JOIN current_ledger c ON c.subject_id=o.subject_id WHERE c.pool_id<>o.pool_id
-ORDER BY o.last_seen_at DESC
-"#).fetch_all(pool).await?;
-    let items: Vec<Value> = rows.into_iter().map(|r| json!({
-        "type":"PLACEMENT_MISMATCH","subject_id":r.get::<Uuid,_>("subject_id"),"epc":r.get::<String,_>("epc"),
-        "ledger_pool":r.get::<String,_>("ledger_pool"),"observed_pool":r.get::<String,_>("observed_pool"),"quantity":r.get::<i64,_>("quantity"),
-        "last_observed_at":r.get::<DateTime<Utc>,_>("last_seen_at"),"device_id":r.get::<String,_>("device_id"),
-        "automatic_inventory_effect":false
-    })).collect();
-    Ok(json!({"items":items}))
 }

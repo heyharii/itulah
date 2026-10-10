@@ -4,9 +4,12 @@ import { useState } from "react"
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Input } from "@/components/ui/field"
+import { Fab } from "@/components/ui/fab"
+import { Field, Input } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
+import { Sheet } from "@/components/ui/sheet"
 import { EmptyState, Problem } from "@/components/ui/states"
+import { useLayout } from "@/lib/layout"
 import {
   useGlossary,
   useRemoveGlossaryEntry,
@@ -16,6 +19,7 @@ import {
 import { queryState } from "@/lib/query-state"
 import { useIdentity } from "@/lib/session"
 import { Grid, Td, Th } from "@/screens/finance-final/parts"
+import { type CardSpec, PhoneCards } from "@/components/ui/phone-cards"
 
 /// The words this business uses, and what they mean here.
 ///
@@ -31,6 +35,10 @@ export function AssistantGlossary() {
   const list = useGlossary()
   const identity = useIdentity()
   const keeper = identity.data?.role === "ADMIN"
+  const phone = useLayout() === "phone"
+  /// On a phone a word is added and changed in a sheet, opened by the round
+  /// button or by the word's own card.
+  const [editing, setEditing] = useState<GlossaryEntry | "new" | null>(null)
 
   return (
     <PageContent>
@@ -39,16 +47,31 @@ export function AssistantGlossary() {
         title="Glossary"
         sub="The business's own words and what they mean here. The assistant reads every question with these meanings."
       />
-      {keeper && <NewEntry />}
-      <Card className="overflow-hidden">
+      {keeper && !phone && <NewEntry />}
+      {keeper && <Fab label="New word" onClick={() => setEditing("new")} />}
+      <Card
+        className={
+          phone
+            ? "overflow-visible border-0 bg-transparent shadow-none"
+            : "overflow-hidden"
+        }
+      >
         {queryState(list, {
           loading: "Reading the glossary…",
           render: (entries) =>
             entries.length === 0 ? (
               <EmptyState>
                 No words yet. Start with the ones an outsider would read
-                wrongly: shop codes, omzet, kodi.
+                wrongly: shop codes, omzet (sales turnover), kodi (a unit of 20
+                pieces).
               </EmptyState>
+            ) : phone ? (
+              <PhoneCards
+                rows={entries}
+                rowId={(entry) => entry.id}
+                spec={wordCard(keeper, setEditing)}
+                onOpen={keeper ? setEditing : undefined}
+              />
             ) : (
               <Grid>
                 <thead>
@@ -67,7 +90,118 @@ export function AssistantGlossary() {
             ),
         })}
       </Card>
+
+      <WordSheet
+        key={editing === null ? "none" : editing === "new" ? "new" : editing.id}
+        entry={editing}
+        onClose={() => setEditing(null)}
+      />
     </PageContent>
+  )
+}
+
+/// A word as a phone's card: the word, what it means here, and — for head
+/// office — the one button that changes it.
+function wordCard(
+  keeper: boolean,
+  onEdit: (entry: GlossaryEntry) => void
+): CardSpec<GlossaryEntry> {
+  return {
+    title: (entry) => <span className="min-w-0 break-words">{entry.term}</span>,
+    meta: [(entry) => entry.meaning],
+    action: keeper
+      ? (entry) => (
+          <Button
+            variant="tint"
+            size="card"
+            aria-label={`Edit ${entry.term}`}
+            onClick={(event) => {
+              event.stopPropagation()
+              onEdit(entry)
+            }}
+          >
+            Edit
+          </Button>
+        )
+      : undefined,
+  }
+}
+
+/// A word, new or changed, on a phone: the two fields and the one button at the
+/// foot, with Remove beside it for a word that exists.
+function WordSheet({
+  entry,
+  onClose,
+}: {
+  entry: GlossaryEntry | "new" | null
+  onClose: () => void
+}) {
+  const save = useSaveGlossaryEntry()
+  const remove = useRemoveGlossaryEntry()
+  const existing = entry === null || entry === "new" ? null : entry
+  const [term, setTerm] = useState(existing?.term ?? "")
+  const [meaning, setMeaning] = useState(existing?.meaning ?? "")
+  const changed =
+    term.trim() !== "" &&
+    meaning.trim() !== "" &&
+    (existing === null ||
+      term.trim() !== existing.term ||
+      meaning.trim() !== existing.meaning)
+
+  return (
+    <Sheet
+      open={entry !== null}
+      onOpenChange={(next) => {
+        if (!next) onClose()
+      }}
+      title={existing === null ? "New word" : existing.term}
+    >
+      <div className="flex flex-col gap-4">
+        <Field label="Word">
+          <Input
+            value={term}
+            maxLength={80}
+            onChange={(event) => setTerm(event.target.value)}
+          />
+        </Field>
+        <Field label="What it means here">
+          <Input
+            value={meaning}
+            maxLength={400}
+            onChange={(event) => setMeaning(event.target.value)}
+          />
+        </Field>
+        <Problem error={save.error ?? remove.error} />
+        <div className="flex items-center justify-end gap-2">
+          {existing !== null && (
+            <Button
+              variant="quiet"
+              pending={remove.isPending}
+              onClick={() => remove.mutate(existing.id, { onSuccess: onClose })}
+            >
+              Remove
+            </Button>
+          )}
+          <Button
+            variant="primary"
+            disabled={!changed}
+            pending={save.isPending}
+            onClick={() =>
+              save.mutate(
+                {
+                  ...(existing === null ? {} : { id: existing.id }),
+                  term: term.trim(),
+                  meaning: meaning.trim(),
+                },
+                { onSuccess: onClose }
+              )
+            }
+          >
+            {save.isPending ? "Submitting…" : "Submit"}
+          </Button>
+        </div>
+      </div>
+    </Sheet>
   )
 }
 

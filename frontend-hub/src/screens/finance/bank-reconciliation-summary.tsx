@@ -11,6 +11,7 @@ import { Pill } from "@/components/ui/pill"
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
 import { fileSafe, type ExportSheet } from "@/lib/export-xlsx"
 import { count, money, span } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   bookOnlyLines,
   financeKeys,
@@ -20,6 +21,7 @@ import {
 import { Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
 import { isoDay, monthLabel, todayIso } from "@/screens/finance/chart"
 import { useUnitName } from "@/screens/finance/hooks"
+import { PhoneCard, PhoneList } from "@/components/ui/phone-cards"
 import { UnitSelect } from "@/screens/finance/parts"
 import { ReportFilters, ReportSummary } from "@/screens/finance/report"
 import type { BankStatementRow, BookOnlyLine } from "@itulah/contract"
@@ -61,6 +63,7 @@ import type { BankStatementRow, BookOnlyLine } from "@itulah/contract"
 /// cells draw a dash and the status is decided from the difference and the
 /// unmatched lines alone.
 export function BankReconciliationSummary() {
+  const phone = useLayout() === "phone"
   const navigate = useNavigate()
   const unitName = useUnitName()
   const [month, setMonth] = useState(lastCompleteMonth)
@@ -228,11 +231,15 @@ export function BankReconciliationSummary() {
       <PageHeader
         crumb="Finance · Banking"
         title="Bank Reconciliation Summary"
+        // On a phone Export is a row of the Filters sheet, not a button at the
+        // top of the page.
         actions={
-          <ExportButton
-            build={exportSheet}
-            disabled={pending || failure !== undefined || lines.length === 0}
-          />
+          phone ? undefined : (
+            <ExportButton
+              build={exportSheet}
+              disabled={pending || failure !== undefined || lines.length === 0}
+            />
+          )
         }
       />
 
@@ -256,6 +263,12 @@ export function BankReconciliationSummary() {
           className="h-control w-52"
           aria-label="Unit"
         />
+        {phone && (
+          <ExportButton
+            build={exportSheet}
+            disabled={pending || failure !== undefined || lines.length === 0}
+          />
+        )}
       </ReportFilters>
 
       {pending ? (
@@ -297,29 +310,61 @@ export function BankReconciliationSummary() {
             ]}
           />
 
-          <Grid>
-            <thead>
-              <tr>
-                <Th>Bank account</Th>
-                <Th width="11rem">Statement period</Th>
-                <Th align="right">Bank closing balance</Th>
-                <Th align="right">Book balance</Th>
-                <Th align="right">Difference</Th>
-                <Th align="right" width="8rem">
-                  Bank lines not matched
-                </Th>
-                <Th align="right">In the books, not on the bank</Th>
-                <Th width="9.5rem">Status</Th>
-              </tr>
-            </thead>
-            <tbody>
+          {phone ? (
+            <PhoneList>
               {lines.map((line) => (
-                <tr
+                <PhoneCard
                   key={line.key}
-                  // A row opens that statement's reconciliation. An account
-                  // with no statement has nowhere to go, and says so by not
-                  // looking pressable.
-                  onClick={
+                  title={line.accountName}
+                  line={
+                    <>
+                      {unitName(line.unitId)}
+                      {line.statement !== null && (
+                        <>
+                          {" · "}
+                          {span(
+                            line.statement.period_start,
+                            line.statement.period_end
+                          )}
+                        </>
+                      )}
+                    </>
+                  }
+                  lead={line.difference === null ? "—" : money(line.difference)}
+                  caption="difference"
+                  tone={
+                    line.difference === null
+                      ? "quiet"
+                      : line.difference === 0
+                        ? "quiet"
+                        : "bad"
+                  }
+                  foot={
+                    <>
+                      <div className="tabular-nums">
+                        Bank {money(line.bank)} · Book {money(line.book)}
+                      </div>
+                      {line.unmatched !== null && line.unmatched > 0 && (
+                        <div className="text-warn-fg">
+                          {count(line.unmatched)} bank{" "}
+                          {line.unmatched === 1 ? "line" : "lines"} not matched
+                        </div>
+                      )}
+                      {line.openCount !== null && line.openCount > 0 && (
+                        <div className="text-warn-fg">
+                          {count(line.openCount)}{" "}
+                          {line.openCount === 1 ? "posting" : "postings"} not on
+                          the bank · {money(line.openNet)}
+                        </div>
+                      )}
+                    </>
+                  }
+                  action={
+                    <Pill tone={STATUS[line.status].tone}>
+                      {STATUS[line.status].label}
+                    </Pill>
+                  }
+                  onOpen={
                     line.statement === null
                       ? undefined
                       : () =>
@@ -328,89 +373,127 @@ export function BankReconciliationSummary() {
                             search: { statement: line.statement?.statement_id },
                           } as never)
                   }
-                  className={
-                    line.statement === null ? undefined : "cursor-pointer"
-                  }
-                >
-                  <Td>
-                    <span className="text-ink">{line.accountName}</span>
-                    <span className="block text-[0.875rem] text-mute">
-                      {unitName(line.unitId)}
+                />
+              ))}
+            </PhoneList>
+          ) : (
+            <Grid>
+              <thead>
+                <tr>
+                  <Th>Bank account</Th>
+                  <Th width="11rem">Statement period</Th>
+                  <Th align="right">Bank closing balance</Th>
+                  <Th align="right">Book balance</Th>
+                  <Th align="right">Difference</Th>
+                  <Th align="right" width="8rem">
+                    Bank lines not matched
+                  </Th>
+                  <Th align="right">In the books, not on the bank</Th>
+                  <Th width="9.5rem">Status</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {lines.map((line) => (
+                  <tr
+                    key={line.key}
+                    // A row opens that statement's reconciliation. An account
+                    // with no statement has nowhere to go, and says so by not
+                    // looking pressable.
+                    onClick={
+                      line.statement === null
+                        ? undefined
+                        : () =>
+                            void navigate({
+                              to: "/finance/cash-bank/bank-reconciliation",
+                              search: {
+                                statement: line.statement?.statement_id,
+                              },
+                            } as never)
+                    }
+                    className={
+                      line.statement === null ? undefined : "cursor-pointer"
+                    }
+                  >
+                    <Td>
+                      <span className="text-ink">{line.accountName}</span>
+                      <span className="block text-[0.875rem] text-mute">
+                        {unitName(line.unitId)}
+                      </span>
+                    </Td>
+                    <Td>
+                      {line.statement === null ? (
+                        <span className="text-mute">—</span>
+                      ) : (
+                        span(
+                          line.statement.period_start,
+                          line.statement.period_end
+                        )
+                      )}
+                    </Td>
+                    <Td align="right">{money(line.bank)}</Td>
+                    <Td align="right">{money(line.book)}</Td>
+                    <Td align="right">
+                      {line.difference === null ? (
+                        <span className="text-mute">—</span>
+                      ) : line.difference === 0 ? (
+                        <span className="text-mute">0</span>
+                      ) : (
+                        <span className="font-medium text-bad-fg">
+                          {money(line.difference)}
+                        </span>
+                      )}
+                    </Td>
+                    <Td align="right">
+                      {line.unmatched === null ? (
+                        <span className="text-mute">—</span>
+                      ) : line.unmatched === 0 ? (
+                        <span className="text-mute">0</span>
+                      ) : (
+                        <span className="font-medium text-warn-fg">
+                          {count(line.unmatched)}
+                        </span>
+                      )}
+                    </Td>
+                    <Td align="right">
+                      {line.openCount === null ? (
+                        <span className="text-mute">—</span>
+                      ) : line.openCount === 0 ? (
+                        <span className="text-mute">0</span>
+                      ) : (
+                        <>
+                          {money(line.openNet)}
+                          <span className="block text-[0.875rem] text-mute">
+                            {count(line.openCount)}{" "}
+                            {line.openCount === 1 ? "posting" : "postings"}
+                          </span>
+                        </>
+                      )}
+                    </Td>
+                    <Td>
+                      <Pill tone={STATUS[line.status].tone}>
+                        {STATUS[line.status].label}
+                      </Pill>
+                    </Td>
+                  </tr>
+                ))}
+                <TotalRow>
+                  <Td>Total</Td>
+                  <Td />
+                  <Td align="right">{money(total.bank)}</Td>
+                  <Td align="right">{money(total.book)}</Td>
+                  <Td align="right">{money(total.difference)}</Td>
+                  <Td align="right">{count(total.unmatched)}</Td>
+                  <Td align="right">
+                    {money(total.openNet)}
+                    <span className="ml-1.5 font-normal text-mute">
+                      · {count(total.openCount)}
                     </span>
                   </Td>
-                  <Td>
-                    {line.statement === null ? (
-                      <span className="text-mute">—</span>
-                    ) : (
-                      span(
-                        line.statement.period_start,
-                        line.statement.period_end
-                      )
-                    )}
-                  </Td>
-                  <Td align="right">{money(line.bank)}</Td>
-                  <Td align="right">{money(line.book)}</Td>
-                  <Td align="right">
-                    {line.difference === null ? (
-                      <span className="text-mute">—</span>
-                    ) : line.difference === 0 ? (
-                      <span className="text-mute">0</span>
-                    ) : (
-                      <span className="font-medium text-bad-fg">
-                        {money(line.difference)}
-                      </span>
-                    )}
-                  </Td>
-                  <Td align="right">
-                    {line.unmatched === null ? (
-                      <span className="text-mute">—</span>
-                    ) : line.unmatched === 0 ? (
-                      <span className="text-mute">0</span>
-                    ) : (
-                      <span className="font-medium text-warn-fg">
-                        {count(line.unmatched)}
-                      </span>
-                    )}
-                  </Td>
-                  <Td align="right">
-                    {line.openCount === null ? (
-                      <span className="text-mute">—</span>
-                    ) : line.openCount === 0 ? (
-                      <span className="text-mute">0</span>
-                    ) : (
-                      <>
-                        {money(line.openNet)}
-                        <span className="block text-[0.875rem] text-mute">
-                          {count(line.openCount)}{" "}
-                          {line.openCount === 1 ? "posting" : "postings"}
-                        </span>
-                      </>
-                    )}
-                  </Td>
-                  <Td>
-                    <Pill tone={STATUS[line.status].tone}>
-                      {STATUS[line.status].label}
-                    </Pill>
-                  </Td>
-                </tr>
-              ))}
-              <TotalRow>
-                <Td>Total</Td>
-                <Td />
-                <Td align="right">{money(total.bank)}</Td>
-                <Td align="right">{money(total.book)}</Td>
-                <Td align="right">{money(total.difference)}</Td>
-                <Td align="right">{count(total.unmatched)}</Td>
-                <Td align="right">
-                  {money(total.openNet)}
-                  <span className="ml-1.5 font-normal text-mute">
-                    · {count(total.openCount)}
-                  </span>
-                </Td>
-                <Td />
-              </TotalRow>
-            </tbody>
-          </Grid>
+                  <Td />
+                </TotalRow>
+              </tbody>
+            </Grid>
+          )}
           <p className="mt-3 px-1 text-[0.875rem] text-mute">
             Totals cover accounts with a statement. Open items are measured to
             each statement&rsquo;s last day, not to the end of the month.

@@ -12,7 +12,7 @@ import "./styles/index.css"
 import { App } from "@/App"
 import { cacheKey, edge, setEdgeToken } from "@/lib/api"
 import { markSignedOutElsewhere, watchIdentity } from "@/lib/session"
-import { registerServiceWorker } from "@/lib/pwa"
+import { startPersistence } from "@/lib/query-persist"
 import { hydrateReference } from "@/lib/offline/reference"
 import { startOutbox } from "@/lib/offline/po-outbox"
 import {
@@ -81,6 +81,16 @@ const queryClient = new QueryClient({
 /// PO form works with no connection; and orders made that way are sent as soon
 /// as there is one (`lib/offline/po-outbox.ts`).
 watchIdentity(queryClient)
+/// The last answers of the lists on this device (`lib/query-persist.ts`), and
+/// the first data of the screens fetched before they are opened
+/// (`lib/prefetch.ts`). Persistence first: its read of the device's storage
+/// overlaps the sign-in questions already on their way.
+startPersistence(queryClient)
+// No warm-up of other screens at load (owner, 2026-10-10: it slowed the first screen).
+// `startPrefetch(queryClient)` from `lib/prefetch.ts` is intentionally not called.
+// Development only: the client in the console, to see what is cached.
+if (import.meta.env.DEV)
+  (window as unknown as Record<string, unknown>).__queryClient = queryClient
 hydrateReference(queryClient)
 startOutbox(queryClient)
 
@@ -93,10 +103,21 @@ edge.onBearerRejected(() => {
   queryClient.setQueryData(cacheKey.edgeMe(), null)
 })
 
-/// The installed-app worker: the shell, the "new version" toast and Web Push
-/// (`lib/pwa.ts`, `src/sw.ts`). Before the first render, so the browser's
-/// install offer — which fires once, early — is not missed.
-registerServiceWorker()
+/// No service worker (owner, 2026-10-10: the offline worker misbehaves on
+/// Windows and holds an old build in the browser). One that an earlier visit
+/// installed is removed, with the caches it made. `public/sw.js` of this build
+/// is a worker that does the same, so a browser still controlled by the old one
+/// is freed on its next update check.
+if ("serviceWorker" in navigator) {
+  void navigator.serviceWorker
+    .getRegistrations()
+    .then((all) => Promise.all(all.map((one) => one.unregister())))
+    .catch(() => {})
+  void caches
+    ?.keys()
+    .then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
+    .catch(() => {})
+}
 
 /// A tab asking for a lazy chunk of a build that is gone. The server keeps the
 /// previous build's chunks for a while, so this is the rare case (a tab left

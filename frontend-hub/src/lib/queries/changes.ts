@@ -1,4 +1,5 @@
 import type { ChangeKind, ChangeStatus, PriceChange } from "@itulah/contract"
+import { infiniteQueryOptions } from "@tanstack/react-query"
 
 import { node } from "@/lib/api"
 
@@ -192,6 +193,27 @@ export function priceEventPage(
     { signal }
   )
 }
+
+/// How many events one page of the History log asks for.
+export const LOG_PAGE = 150
+
+/// The History log, a page at a time, narrowed by shop and kind. Shared by the
+/// screen and its prefetcher (`screens/commercial/prefetch.ts`) so the key and
+/// the request cannot drift apart.
+export const priceEventPagesQuery = (
+  siteId: string | null,
+  kinds: readonly PriceEventKind[]
+) =>
+  infiniteQueryOptions({
+    queryKey: eventKeys.pages(siteId, kinds),
+    queryFn: ({ pageParam, signal }) =>
+      priceEventPage(
+        { siteId, kinds, cursor: pageParam, limit: LOG_PAGE },
+        signal
+      ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  })
 
 /// What each kind says, in the fewest words that keep the five apart.
 ///

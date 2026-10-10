@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
+import { Fab } from "@/components/ui/fab"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { Field, Input } from "@/components/ui/field"
@@ -22,6 +24,7 @@ import {
 } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
+import { CardFoot } from "@/screens/people/settings-kit"
 import { FormSheet, NameCell } from "@/screens/people/settings-parts"
 import {
   figure,
@@ -37,6 +40,7 @@ type GradeRow = Awaited<ReturnType<typeof jobGrades>>[number]
 /// pay, never a refusal.
 export function LevelSettings() {
   const canWrite = useCanWrite()
+  const phone = useLayout() === "phone"
   const level = useSheetTarget<LevelRow>()
   const grade = useSheetTarget<GradeRow>()
   const levels = useQuery({
@@ -46,11 +50,13 @@ export function LevelSettings() {
 
   return (
     <PageContent>
+      {canWrite && <Fab label="New level" onClick={() => level.show(null)} />}
       <PageHeader
         crumb="People"
         title="Levels & Grades"
         sub="The ranks people are placed on, and the pay band on each."
         actions={
+          !phone &&
           canWrite && (
             <>
               <Button variant="ghost" onClick={() => grade.show(null)}>
@@ -75,7 +81,7 @@ export function LevelSettings() {
                 {rows.length === 0 ? (
                   <EmptyState>
                     No job level yet. Levels rank people for the org chart — 1
-                    is the most senior: Direktur, Manager, Supervisor, Staff.
+                    is the most senior: Director, Manager, Supervisor, Staff.
                     New level adds the first.
                   </EmptyState>
                 ) : (
@@ -218,6 +224,7 @@ function GradeList({
     queryFn: ({ signal }) => jobGrades(signal),
   })
   const levelName = new Map(levels.map((one) => [one.code, one.name]))
+  const canWrite = useCanWrite()
   return (
     <Card className="mb-4">
       <CardHeader>
@@ -286,6 +293,9 @@ function GradeList({
           ),
         })}
       </div>
+      {canWrite && (
+        <CardFoot label="New grade" onClick={() => sheet.show(null)} />
+      )}
     </Card>
   )
 }

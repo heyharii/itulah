@@ -1,14 +1,16 @@
 import { useQuery } from "@tanstack/react-query"
-import { useState } from "react"
+import { Fragment, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Card } from "@/components/ui/card"
 import { ExportButton } from "@/components/ui/export-button"
 import { Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
+import { Pill } from "@/components/ui/pill"
 import { EmptyState } from "@/components/ui/states"
 import { fileSafe, type ExportSheet } from "@/lib/export-xlsx"
-import { count, day, money } from "@/lib/format"
+import { count, day, money, percentBps } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { queryState } from "@/lib/query-state"
 import { financeKeys, listTaxTemplates } from "@/lib/queries/finance"
 import {
@@ -18,7 +20,9 @@ import {
 import { Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
 import { monthLabel, todayIso } from "@/screens/finance/chart"
 import { useSupplierName, useUnitName } from "@/screens/finance/hooks"
+import { PhoneCard, PhoneHeading, PhoneList } from "@/components/ui/phone-cards"
 import { UnitSelect } from "@/screens/finance/parts"
+import { FactsSheet } from "@/screens/finance/phone-parts"
 import { ReportFilters, ReportSummary } from "@/screens/finance/report"
 import type { WithholdingRow } from "@itulah/contract"
 
@@ -40,6 +44,7 @@ import type { WithholdingRow } from "@itulah/contract"
 /// certificate (bukti potong) cannot be issued without one, and the person
 /// reading this is the person who will find that out otherwise on the 10th.
 export function WithholdingReport() {
+  const phone = useLayout() === "phone"
   const [month, setMonth] = useState(lastMonth)
   const [unit, setUnit] = useState("")
   const [template, setTemplate] = useState("")
@@ -154,11 +159,15 @@ export function WithholdingReport() {
       <PageHeader
         crumb="Finance · Taxes"
         title="Tax Withholding Details"
+        // On a phone Export is a row of the Filters sheet, not a button at the
+        // top of the page.
         actions={
-          <ExportButton
-            build={build}
-            disabled={report.data === undefined || report.data.length === 0}
-          />
+          phone ? undefined : (
+            <ExportButton
+              build={build}
+              disabled={report.data === undefined || report.data.length === 0}
+            />
+          )
         }
       />
 
@@ -195,6 +204,12 @@ export function WithholdingReport() {
             </option>
           ))}
         </Select>
+        {phone && (
+          <ExportButton
+            build={build}
+            disabled={report.data === undefined || report.data.length === 0}
+          />
+        )}
       </ReportFilters>
 
       {queryState(report, {
@@ -206,6 +221,7 @@ export function WithholdingReport() {
 }
 
 function Body({ rows }: { rows: WithholdingRow[] }) {
+  const phone = useLayout() === "phone"
   if (rows.length === 0) {
     return (
       <Card>
@@ -233,31 +249,35 @@ function Body({ rows }: { rows: WithholdingRow[] }) {
         ]}
       />
 
-      <Grid>
-        <thead>
-          <tr>
-            <Th width="8rem">Date</Th>
-            <Th width="14rem">Payment</Th>
-            <Th>Supplier</Th>
-            <Th align="right" width="9.5rem">
-              Base (DPP)
-            </Th>
-            <Th align="right" width="9.5rem">
-              Withheld
-            </Th>
-          </tr>
-        </thead>
-        <tbody>
-          {groups.map((group) => (
-            <GroupRows key={group.code} group={group} />
-          ))}
-          <TotalRow>
-            <Td colSpan={3}>Total</Td>
-            <Td align="right">{money(base)}</Td>
-            <Td align="right">{money(withheld)}</Td>
-          </TotalRow>
-        </tbody>
-      </Grid>
+      {phone ? (
+        <PhoneGroups groups={groups} base={base} withheld={withheld} />
+      ) : (
+        <Grid>
+          <thead>
+            <tr>
+              <Th width="8rem">Date</Th>
+              <Th width="14rem">Payment</Th>
+              <Th>Supplier</Th>
+              <Th align="right" width="9.5rem">
+                Base (DPP)
+              </Th>
+              <Th align="right" width="9.5rem">
+                Withheld
+              </Th>
+            </tr>
+          </thead>
+          <tbody>
+            {groups.map((group) => (
+              <GroupRows key={group.code} group={group} />
+            ))}
+            <TotalRow>
+              <Td colSpan={3}>Total</Td>
+              <Td align="right">{money(base)}</Td>
+              <Td align="right">{money(withheld)}</Td>
+            </TotalRow>
+          </tbody>
+        </Grid>
+      )}
 
       {missing.length > 0 && (
         <p className="mt-3 px-1 text-[0.875rem] text-warn-fg">
@@ -299,6 +319,110 @@ function groupRows(rows: readonly WithholdingRow[]): Group[] {
         withheld: sum(bucket, "withheld_minor"),
       }
     })
+}
+
+/// The payments as a phone reads them: a heading per tax with what it came to,
+/// then a card per payment — the supplier, what was withheld, and the rest in
+/// the sheet a tap opens.
+function PhoneGroups({
+  groups,
+  base,
+  withheld,
+}: {
+  groups: readonly Group[]
+  base: number
+  withheld: number
+}) {
+  const supplierName = useSupplierName()
+  const [shown, setShown] = useState<WithholdingRow | null>(null)
+  const noNpwp = (row: WithholdingRow) => row.npwp === null || row.npwp === ""
+  return (
+    <>
+      <PhoneList>
+        {groups.map((group) => (
+          <Fragment key={group.code}>
+            <PhoneHeading
+              title={
+                <>
+                  {group.name}
+                  {group.rows[0] !== undefined && (
+                    <span className="font-normal text-mute">
+                      {" · "}
+                      {kindOf(group.rows[0])}
+                    </span>
+                  )}
+                </>
+              }
+              total={money(group.withheld)}
+            />
+            {group.rows.map((row) => (
+              <PhoneCard
+                key={row.payment_id}
+                title={
+                  <>
+                    {supplierOf(row, supplierName)}
+                    {row.supplier_count > 1 && (
+                      <span className="font-normal text-mute">
+                        {" "}
+                        +{count(row.supplier_count - 1)} more
+                      </span>
+                    )}
+                  </>
+                }
+                line={<span className="font-mono">{row.payment_number}</span>}
+                lead={money(row.withheld_minor)}
+                caption="withheld"
+                foot={
+                  <span className="tabular-nums">
+                    {day(row.payment_date)} · Base {money(row.base_minor)}
+                  </span>
+                }
+                action={
+                  noNpwp(row) ? <Pill tone="warn">No NPWP</Pill> : undefined
+                }
+                onOpen={() => setShown(row)}
+              />
+            ))}
+          </Fragment>
+        ))}
+        <PhoneCard
+          title="Total"
+          lead={money(withheld)}
+          caption="withheld"
+          foot={<span className="tabular-nums">Base {money(base)}</span>}
+        />
+      </PhoneList>
+      <FactsSheet
+        open={shown !== null}
+        onClose={() => setShown(null)}
+        title={shown === null ? "" : supplierOf(shown, supplierName)}
+        id={shown?.payment_number}
+        facts={
+          shown === null
+            ? []
+            : [
+                { label: "Date", value: day(shown.payment_date) },
+                { label: "Tax", value: taxOf(shown) },
+                { label: "Kind", value: kindOf(shown) },
+                {
+                  label: "NPWP",
+                  value: noNpwp(shown) ? (
+                    <span className="text-warn-fg">No NPWP</span>
+                  ) : (
+                    <span className="font-mono">{shown.npwp}</span>
+                  ),
+                },
+                { label: "Base (DPP)", value: money(shown.base_minor) },
+                { label: "Withheld", value: money(shown.withheld_minor) },
+                {
+                  label: "Bills",
+                  value: shown.invoices === "" ? "—" : shown.invoices,
+                },
+              ]
+        }
+      />
+    </>
+  )
 }
 
 function GroupRows({ group }: { group: Group }) {
@@ -381,7 +505,7 @@ function GroupRows({ group }: { group: Group }) {
 /// server no longer names falls back to its code.
 function taxOf(row: WithholdingRow): string {
   const name = row.template_name ?? row.template_code
-  return row.rate_bps === null ? name : `${name} · ${row.rate_bps / 100}%`
+  return row.rate_bps === null ? name : `${name} · ${percentBps(row.rate_bps)}`
 }
 
 function kindOf(row: WithholdingRow): string {

@@ -1,3 +1,6 @@
+import { Fragment } from "react"
+
+import { PhotoImg } from "@/components/ui/photo-img"
 import { ZoomPhoto } from "@/components/ui/photo-viewer"
 import { Thumbnail } from "@/components/ui/thumbnail"
 import { useColourwayFill } from "@/lib/colourway-fill"
@@ -23,6 +26,15 @@ import { cn } from "@/lib/utils"
 
 export type ReceivedTone = "ok" | "bad" | null
 
+/// One colour × size of a line, drawn as a quiet sub-row under it.
+export interface ItemsVariant {
+  readonly key: string
+  /// "Black M".
+  readonly label: string
+  readonly pieces: number
+  readonly photo?: string | null
+}
+
 export interface ItemsRow {
   readonly key: string
   readonly image: string | null
@@ -47,6 +59,9 @@ export interface ItemsRow {
   readonly more?: React.ReactNode
   /// Buttons at the row's end — the form's pencil and bin.
   readonly actions?: React.ReactNode
+  /// The line split by colour and size, when it is (the owner, 2026-10-10):
+  /// each one under the line, so the order says how many Black M it wants.
+  readonly variants?: readonly ItemsVariant[]
 }
 
 export interface ItemsTotals {
@@ -107,6 +122,28 @@ function Identity({ row, eager }: { row: ItemsRow; eager: boolean }) {
         {row.more}
       </div>
     </div>
+  )
+}
+
+/// A variant's name with its first photograph, when it has one.
+function VariantName({ variant }: { variant: ItemsVariant }) {
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      {variant.photo ? (
+        <ZoomPhoto
+          url={variant.photo}
+          name={variant.label}
+          className="size-7 shrink-0"
+        >
+          <PhotoImg
+            url={variant.photo}
+            alt={variant.label}
+            className="size-7 rounded-inner border border-hairline object-cover"
+          />
+        </ZoomPhoto>
+      ) : null}
+      <span className="truncate">{variant.label}</span>
+    </span>
   )
 }
 
@@ -183,7 +220,8 @@ export function ItemsTable({
             </thead>
             <tbody className="[&_tr:first-child_td]:border-t-0">
               {rows.map((row, at) => (
-                <tr key={row.key}>
+                <Fragment key={row.key}>
+                <tr>
                   <td className={CELL}>
                     <Identity row={row} eager={at < EAGER_ROWS} />
                   </td>
@@ -228,6 +266,34 @@ export function ItemsTable({
                     </td>
                   )}
                 </tr>
+                {(row.variants ?? []).map((variant, index, all) => (
+                  <tr key={variant.key}>
+                    <td
+                      className={cn(
+                        "px-4 pt-0 pb-2 text-[0.875rem] text-body",
+                        index === all.length - 1 && "pb-3.5"
+                      )}
+                    >
+                      {/* Under the name: the picture is 40px and its gap 12px. */}
+                      <span className="block pl-[3.25rem]">
+                        <VariantName variant={variant} />
+                      </span>
+                    </td>
+                    <td
+                      className={cn(
+                        "px-4 pt-0 pb-2 text-right text-[0.875rem] whitespace-nowrap text-body tabular-nums",
+                        index === all.length - 1 && "pb-3.5"
+                      )}
+                    >
+                      {pcs(variant.pieces)}
+                    </td>
+                    {withReceived && <td />}
+                    <td />
+                    <td />
+                    {withActions && <td />}
+                  </tr>
+                ))}
+                </Fragment>
               ))}
             </tbody>
             <tfoot className="text-[0.875rem] tabular-nums">
@@ -266,7 +332,7 @@ export function ItemsTable({
                     )}
                   </td>
                   <td className="px-4 py-3 text-right whitespace-nowrap text-ink">
-                    {`− ${money(totals.discount.minor)}`}
+                    {money(-totals.discount.minor)}
                   </td>
                   {withActions && <td />}
                 </tr>
@@ -277,7 +343,7 @@ export function ItemsTable({
                     {`Closed Short · ${pcs(totals.closedShort.pieces)}`}
                   </td>
                   <td className="px-4 py-3 text-right whitespace-nowrap text-ink">
-                    {`− ${money(totals.closedShort.value)}`}
+                    {money(-totals.closedShort.value)}
                   </td>
                   {withActions && <td />}
                 </tr>
@@ -318,6 +384,21 @@ export function ItemsTable({
                   </span>
                 )}
               </div>
+              {(row.variants ?? []).length > 0 && (
+                <ul className="flex flex-col gap-1.5 pr-3.5 pb-3 pl-[4.25rem] text-[0.875rem] text-body">
+                  {(row.variants ?? []).map((variant) => (
+                    <li
+                      key={variant.key}
+                      className="flex items-center justify-between gap-3"
+                    >
+                      <VariantName variant={variant} />
+                      <span className="whitespace-nowrap tabular-nums">
+                        {pcs(variant.pieces)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
               <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5 px-3.5 pb-3.5 text-[0.9375rem]">
                 <Figure label="Quantity">
                   {pcs(row.pieces)}
@@ -386,13 +467,15 @@ export function ItemsTable({
                   </span>
                 )}
               </span>
-              <span className="text-ink">{`− ${money(totals.discount.minor)}`}</span>
+              <span className="text-ink">{money(-totals.discount.minor)}</span>
             </div>
           )}
           {totals.closedShort !== undefined && (
             <div className="flex items-baseline justify-between gap-3 text-body">
               <span>{`Closed Short · ${pcs(totals.closedShort.pieces)}`}</span>
-              <span className="text-ink">{`− ${money(totals.closedShort.value)}`}</span>
+              <span className="text-ink">
+                {money(-totals.closedShort.value)}
+              </span>
             </div>
           )}
           {totals.grand !== undefined && (

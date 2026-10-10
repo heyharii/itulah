@@ -469,7 +469,7 @@ export function ChatComposer({
       )}
 
       {problem !== null && (
-        <div className="flex items-start gap-2 rounded-inner bg-bad-bg px-3 py-1.5 text-[0.8125rem] text-bad-fg">
+        <div className="flex items-start gap-2 rounded-inner bg-bad-bg px-3 py-1.5 text-[0.875rem] text-bad-fg">
           <span className="min-w-0 flex-1">{problem}</span>
           {editing === null && (
             <button
@@ -620,7 +620,7 @@ function ContextBar({
           )}
         </div>
         {line !== "" && (
-          <div className="truncate text-[0.8125rem] text-body">{line}</div>
+          <div className="truncate text-[0.875rem] text-body">{line}</div>
         )}
       </div>
       <button

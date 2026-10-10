@@ -296,8 +296,18 @@ mod tests {
     #[test]
     fn a_crossing_skips_the_beat_but_not_the_gap() {
         let sent = at(0);
-        assert!(!count_due(sent + Duration::seconds(10), true, Some(sent), true));
-        assert!(count_due(sent + Duration::seconds(30), true, Some(sent), true));
+        assert!(!count_due(
+            sent + Duration::seconds(10),
+            true,
+            Some(sent),
+            true
+        ));
+        assert!(count_due(
+            sent + Duration::seconds(30),
+            true,
+            Some(sent),
+            true
+        ));
     }
 
     #[test]

@@ -164,7 +164,7 @@ export function GeneralLedger() {
       sheet: "General Ledger",
       title: `General Ledger · ${head.account_code} ${head.account_name}`,
       subtitle: `${day(head.from)} – ${day(head.to)} · ${
-        head.unit_id === null ? "every unit" : unitName(head.unit_id)
+        head.unit_id === null ? "all units" : unitName(head.unit_id)
       }`,
       columns: [
         { header: "Date", kind: "date" },
@@ -249,7 +249,7 @@ export function GeneralLedger() {
             <>
               {day(head.from)} – {day(head.to)} ·{" "}
               {head.unit_id === null ? (
-                "every unit"
+                "all units"
               ) : (
                 <UnitName id={head.unit_id} />
               )}
@@ -340,7 +340,7 @@ export function GeneralLedger() {
                         size="sm"
                         onClick={() => setUnit("")}
                       >
-                        Every unit
+                        All units
                       </Button>
                     )}
                   </div>

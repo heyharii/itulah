@@ -1,3 +1,5 @@
+import { infiniteQueryOptions } from "@tanstack/react-query"
+
 import { node } from "@/lib/api"
 import type { Filter } from "@/lib/filters"
 
@@ -390,6 +392,22 @@ export function listVouchers(
     signal,
   })
 }
+
+/// The Vouchers list, a page at a time, on the server's cursor. Shared by the
+/// screen and its prefetcher (`screens/commercial/prefetch.ts`) so the key and
+/// the request cannot drift apart. Its own key beside the plain list's: the
+/// Overview reads that one as a single page.
+export const voucherPagesQuery = (scope: VoucherQuery) =>
+  infiniteQueryOptions({
+    queryKey: [...voucherKeys.list(scope), "pages"] as const,
+    queryFn: ({ pageParam, signal }) =>
+      listVouchers({ ...scope, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    // The rows already drawn stay while a new filter's first page is on its
+    // way, rather than the table blinking to a spinner on every keystroke.
+    placeholderData: (previous) => previous,
+  })
 
 export function voucherDetail(
   code: string,

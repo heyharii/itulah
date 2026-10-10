@@ -305,59 +305,59 @@ pub(super) async fn lane_i_cost_layer(
     // gets a layer for its share and the same share of the value, cut so the
     // parts add up to the line's value exactly. A line with one session takes
     // the whole quantity and value, as it always did.
-    let shares: Vec<(Uuid, i64, i64)> = match sqlx::query_scalar::<_, Uuid>(
-        "SELECT id FROM article WHERE article_code = $1",
-    )
-    .bind(article_code)
-    .fetch_optional(&mut **tx)
-    .await?
-    {
-        Some(article_id) => vec![(article_id, quantity, gross_cost_minor)],
-        None => {
-            let sessions = sqlx::query(
-                "SELECT a.id AS article_id, s.receipt_quantity
+    let shares: Vec<(Uuid, i64, i64)> =
+        match sqlx::query_scalar::<_, Uuid>("SELECT id FROM article WHERE article_code = $1")
+            .bind(article_code)
+            .fetch_optional(&mut **tx)
+            .await?
+        {
+            Some(article_id) => vec![(article_id, quantity, gross_cost_minor)],
+            None => {
+                let sessions = sqlx::query(
+                    "SELECT a.id AS article_id, s.receipt_quantity
                    FROM article_setup_session s
                    LEFT JOIN article a ON a.article_code = s.article_code
                   WHERE s.receipt_line_id = $1
                   ORDER BY s.article_code, s.session_id",
-            )
-            .bind(receipt_line_id)
-            .fetch_all(&mut **tx)
-            .await?;
-            if sessions.len() <= 1 {
-                sessions
-                    .iter()
-                    .map(|row| row.try_get::<Option<Uuid>, _>("article_id"))
-                    .collect::<Result<Vec<_>, _>>()?
-                    .into_iter()
-                    .flatten()
-                    .map(|article_id| (article_id, quantity, gross_cost_minor))
-                    .collect()
-            } else {
-                let mut whole = 0i64;
-                for row in &sessions {
-                    whole += row.try_get::<i64, _>("receipt_quantity")?;
-                }
-                let mut shares = Vec::with_capacity(sessions.len());
-                let mut running = 0i64;
-                for row in &sessions {
-                    let part: i64 = row.try_get("receipt_quantity")?;
-                    let before = running;
-                    running += part;
-                    let value = (i128::from(gross_cost_minor) * i128::from(running)
-                        / i128::from(whole.max(1))
-                        - i128::from(gross_cost_minor) * i128::from(before)
-                            / i128::from(whole.max(1))) as i64;
-                    // An article not minted yet gets its layer when its own
-                    // session is issued.
-                    if let Some(article_id) = row.try_get::<Option<Uuid>, _>("article_id")? {
-                        shares.push((article_id, part, value));
+                )
+                .bind(receipt_line_id)
+                .fetch_all(&mut **tx)
+                .await?;
+                if sessions.len() <= 1 {
+                    sessions
+                        .iter()
+                        .map(|row| row.try_get::<Option<Uuid>, _>("article_id"))
+                        .collect::<Result<Vec<_>, _>>()?
+                        .into_iter()
+                        .flatten()
+                        .map(|article_id| (article_id, quantity, gross_cost_minor))
+                        .collect()
+                } else {
+                    let mut whole = 0i64;
+                    for row in &sessions {
+                        whole += row.try_get::<i64, _>("receipt_quantity")?;
                     }
+                    let mut shares = Vec::with_capacity(sessions.len());
+                    let mut running = 0i64;
+                    for row in &sessions {
+                        let part: i64 = row.try_get("receipt_quantity")?;
+                        let before = running;
+                        running += part;
+                        let value = (i128::from(gross_cost_minor) * i128::from(running)
+                            / i128::from(whole.max(1))
+                            - i128::from(gross_cost_minor) * i128::from(before)
+                                / i128::from(whole.max(1)))
+                            as i64;
+                        // An article not minted yet gets its layer when its own
+                        // session is issued.
+                        if let Some(article_id) = row.try_get::<Option<Uuid>, _>("article_id")? {
+                            shares.push((article_id, part, value));
+                        }
+                    }
+                    shares
                 }
-                shares
             }
-        }
-    };
+        };
     if shares.is_empty() {
         // Not set up yet. The valuation entry beside it still stands, and the
         // layer is opened when the setup is issued (`cost_layer_on_setup`).
@@ -1557,7 +1557,11 @@ pub(super) async fn append_price_correction(
     }
     let total: i64 = rows
         .iter()
-        .map(|row| row.try_get::<i64, _>("opening_cost_minor").unwrap_or(0).max(0))
+        .map(|row| {
+            row.try_get::<i64, _>("opening_cost_minor")
+                .unwrap_or(0)
+                .max(0)
+        })
         .sum();
     let mut allocated = 0i64;
     let last = rows.len() - 1;
@@ -2662,17 +2666,16 @@ pub async fn payment_withhold(
         let code: Option<String> = row.try_get("withholding_code")?;
         let Some(code) = code else { continue };
         let invoice_number: String = row.try_get("invoice_number")?;
-        let template = sqlx::query(
-            "SELECT name, rate_bps FROM tax_template WHERE code = $1 AND is_active",
-        )
-        .bind(&code)
-        .fetch_optional(pool)
-        .await?
-        .ok_or_else(|| {
-            AppError::Validation(format!(
+        let template =
+            sqlx::query("SELECT name, rate_bps FROM tax_template WHERE code = $1 AND is_active")
+                .bind(&code)
+                .fetch_optional(pool)
+                .await?
+                .ok_or_else(|| {
+                    AppError::Validation(format!(
                 "bill {invoice_number} names withholding {code}, which Finance no longer keeps"
             ))
-        })?;
+                })?;
         let label: String = template.try_get("name")?;
         let rate_bp: i32 = template.try_get("rate_bps")?;
         let withheld = withholding::withholding_on_payment(

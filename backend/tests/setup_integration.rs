@@ -33,9 +33,16 @@ fn stores(names: &[(&str, &str)]) -> cloud::OpenStoresRequest {
 }
 
 async fn open(pool: &PgPool, names: &[(&str, &str)], key: &str) -> cloud::OpenStoresAnswer {
-    cloud::open_stores(pool, stores(names), ACTOR, key, &format!("digest:{key}"), ORIGIN)
-        .await
-        .unwrap_or_else(|error| panic!("open stores: {error}"))
+    cloud::open_stores(
+        pool,
+        stores(names),
+        ACTOR,
+        key,
+        &format!("digest:{key}"),
+        ORIGIN,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("open stores: {error}"))
 }
 
 /// The pools a shop works with — one per role at the shop — and the return
@@ -417,8 +424,8 @@ async fn without_a_template_no_store_is_half_opened(pool: PgPool) {
 async fn a_store_without_its_manager_refuses_the_whole_batch(pool: PgPool) {
     let mut request = stores(&[("Brebes", "Brebes"), ("Slawi", "Tegal")]);
     request.stores[1].manager = None;
-    let refused = cloud::open_stores(&pool, request, ACTOR, "unmanned", "digest:unmanned", ORIGIN)
-        .await;
+    let refused =
+        cloud::open_stores(&pool, request, ACTOR, "unmanned", "digest:unmanned", ORIGIN).await;
     match refused {
         Err(AppError::Unprocessable(sentence)) => {
             assert!(sentence.contains("Slawi"), "{sentence}");
@@ -444,7 +451,11 @@ async fn a_store_is_opened_with_its_managers_join_link(pool: PgPool) {
         .clone()
         .unwrap_or_else(|| panic!("no manager invitation: {answer:?}"));
     assert_eq!(invitation.name, "Manager Brebes");
-    assert!(invitation.link.starts_with("https://hub.test/join/"), "{}", invitation.link);
+    assert!(
+        invitation.link.starts_with("https://hub.test/join/"),
+        "{}",
+        invitation.link
+    );
     let token = invitation.link.trim_start_matches("https://hub.test/join/");
     let (role, unit, posted): (String, String, bool) = sqlx::query_as(
         "SELECT i.role_code, i.unit_id,
@@ -458,6 +469,9 @@ async fn a_store_is_opened_with_its_managers_join_link(pool: PgPool) {
     .await
     .unwrap_or_else(|error| panic!("invitation: {error}"));
     assert_eq!(role, "STORE_MANAGER");
-    assert_eq!(unit, format!("store-{}", answer.created[0].unit_code.to_ascii_lowercase()));
+    assert_eq!(
+        unit,
+        format!("store-{}", answer.created[0].unit_code.to_ascii_lowercase())
+    );
     assert!(posted, "the manager is posted to the store's unit");
 }

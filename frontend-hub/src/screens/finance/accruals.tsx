@@ -16,11 +16,13 @@ import {
 } from "@/components/ui/states"
 import { node } from "@/lib/api"
 import { count, day, money } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { problemOf } from "@/lib/problem"
 import { listBills } from "@/lib/queries/finance"
 import { Grid, Td, Th } from "@/screens/finance-final/parts"
 import { useSupplierName, useUnitName } from "@/screens/finance/hooks"
-import { UnitSelect } from "@/screens/finance/parts"
+import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
+import { PhoneFigures, UnitSelect } from "@/screens/finance/parts"
 
 /// Payables › Accruals (owner, 2026-10-01).
 ///
@@ -75,6 +77,7 @@ export function Accruals() {
   const [matching, setMatching] = useState<AccrualRow | null>(null)
   const [needle, setNeedle] = useState("")
   const [unit, setUnit] = useState("")
+  const phone = useLayout() === "phone"
   const unitName = useUnitName()
   const supplierName = useSupplierName()
 
@@ -113,6 +116,7 @@ export function Accruals() {
   return (
     <PageContent>
       <PageHeader
+        className="max-md:hidden"
         crumb="Finance · Payables"
         title="Accruals"
         sub="Costs booked before their bill. Match each one to the bill that replaces it."
@@ -123,19 +127,42 @@ export function Accruals() {
           {
             value: "OPEN",
             label: <TabLabel text="Waiting for a bill" n={waiting.length} />,
+            short: "Waiting",
           },
-          { value: "SETTLED", label: <TabLabel text="Settled" n={settled} /> },
-          { value: "ALL", label: <TabLabel text="All" n={every.length} /> },
+          {
+            value: "SETTLED",
+            label: <TabLabel text="Settled" n={settled} />,
+            short: "Settled",
+          },
+          {
+            value: "ALL",
+            label: <TabLabel text="All" n={every.length} />,
+            short: "All",
+          },
         ]}
         value={status}
         onChange={setStatus}
       />
 
+      {waitingShown.length > 0 && (
+        <PhoneFigures
+          items={[
+            {
+              label: "Waiting for a bill",
+              value: waitingShown.length,
+              unit: "count",
+            },
+            { label: "Still to be billed", value: owed },
+          ]}
+        />
+      )}
+
       <Toolbar>
         <Input
           value={needle}
           onChange={(event) => setNeedle(event.target.value)}
-          aria-label="Search"
+          aria-label="Search accruals"
+          placeholder="Search accruals"
           className="h-control w-64"
         />
         <UnitSelect
@@ -146,7 +173,7 @@ export function Accruals() {
         />
         <Toolbar.Spacer />
         {waitingShown.length > 0 && (
-          <span className="text-[0.875rem] text-mute">
+          <span className="text-[0.875rem] text-mute max-md:hidden">
             {count(waitingShown.length)} waiting ·{" "}
             <span className="font-medium text-ink tabular-nums">
               {money(owed)}
@@ -168,6 +195,48 @@ export function Accruals() {
               ? "Every accrued cost has its bill."
               : "No accrual matches."}
         </EmptyState>
+      ) : phone ? (
+        <PhoneList
+          rows={rows.map((row) => ({
+            key: row.entry_id,
+            title: row.expense_name ?? row.account_name,
+            code: row.entry_number,
+            line: unitName(row.unit_id).replace(/^[^·]*· /, ""),
+            lead: (
+              <CardFigure
+                value={money(row.amount_minor)}
+                caption={`accrued ${day(row.posting_date)}`}
+              />
+            ),
+            foot:
+              row.status === "OPEN" ? (
+                <span className="text-warn-fg">Waiting for a bill</span>
+              ) : row.invoice_number !== null ? (
+                <span className="flex flex-col">
+                  <span className="text-ink">{row.invoice_number}</span>
+                  <span>
+                    {row.supplier_name
+                      ? `${supplierName(null, row.supplier_name)} · `
+                      : ""}
+                    settled {day(row.settled_on)}
+                  </span>
+                </span>
+              ) : (
+                <span>Released {day(row.settled_on)}</span>
+              ),
+            action:
+              row.status === "OPEN" ? (
+                <Button
+                  variant="tint"
+                  size="card"
+                  onClick={() => setMatching(row)}
+                >
+                  Match bill
+                </Button>
+              ) : undefined,
+            onOpen: row.status === "OPEN" ? () => setMatching(row) : undefined,
+          }))}
+        />
       ) : (
         <Grid>
           <thead>

@@ -159,7 +159,11 @@ fn may_act(principal: &Principal) -> bool {
             || [OWNER, ADMIN, "IT"].contains(&principal.job.code.as_str()))
 }
 
-async fn require_reach(state: &AppState, principal: &Principal, unit: &str) -> Result<(), AppError> {
+async fn require_reach(
+    state: &AppState,
+    principal: &Principal,
+    unit: &str,
+) -> Result<(), AppError> {
     if reach_of(state, principal).await?.covers(unit) {
         return Ok(());
     }

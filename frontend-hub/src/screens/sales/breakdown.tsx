@@ -1,20 +1,42 @@
 import { useQuery } from "@tanstack/react-query"
+import { useNavigate } from "@tanstack/react-router"
 import { RotateCcw, Search } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Card } from "@/components/ui/card"
+import { Day } from "@/components/ui/day"
 import { ExportButton } from "@/components/ui/export-button"
 import { Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
+import { BottomSheet } from "@/components/ui/picker-sheet"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
+import { Sheet } from "@/components/ui/sheet"
 import { EmptyState } from "@/components/ui/states"
 import { node } from "@/lib/api"
 import { fileSafe, type ExportSheet } from "@/lib/export-xlsx"
-import { count, money } from "@/lib/format"
+import {
+  count,
+  dateRange,
+  dateText,
+  dayMonth,
+  money,
+  moneyCompact,
+  monthName,
+  quantity,
+} from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { queryState } from "@/lib/query-state"
 import { listTerms, vocabularyKeys } from "@/lib/queries/vocabulary"
 import { cn } from "@/lib/utils"
+import {
+  CardFigure,
+  CardName,
+  Fig,
+  PhoneCard,
+  Sentence,
+} from "@/components/ui/phone-cards"
 import { Td, TotalRow } from "@/screens/finance-final/parts"
 import { share } from "@/screens/finance-final/reports/two-year"
 import { isoDay, todayIso } from "@/screens/finance/chart"
@@ -150,12 +172,52 @@ const noneKey = "\u0000none"
 /// the rest are in the table under it.
 const TOP = 10
 
+/// What a phone's ten cuts have in common, kept while it moves between them.
+///
+/// The ten reports are ten routes, and on a phone they are one button in the
+/// drawer over the bottom bar: "Store", "Division", "Tag"… Moving from one to
+/// the next should not forget the dates, the unit and the division somebody had
+/// just asked about, so the last answers are held here and the next report opens
+/// on them. A desk is left as it was — each report opens on the year so far.
+const carried: {
+  unit: string
+  division: string
+  window: { from: string; to: string } | null
+} = { unit: "", division: "", window: null }
+
+/// The ten cuts, in the owner's order, as the phone's status button lists them.
+const CUTS: readonly { readonly value: By; readonly label: string }[] = [
+  { value: "store", label: "Store" },
+  { value: "division", label: "Division" },
+  { value: "tag", label: "Tag" },
+  { value: "article", label: "Article" },
+  { value: "sku", label: "SKU" },
+  { value: "po", label: "PO" },
+  { value: "supplier", label: "Supplier" },
+  { value: "campaign", label: "Campaign" },
+  { value: "payment", label: "Payment" },
+  { value: "session", label: "Cashier session" },
+]
+
 export function SalesBreakdownScreen({ by, title }: { by: By; title: string }) {
   const kind = KINDS[by]
-  const range = useYearToDate()
+  const phone = useLayout() === "phone"
+  const navigate = useNavigate()
+  const range = useYearToDate(phone)
   const { from, to } = range
-  const [unit, setUnit] = useState("")
-  const [division, setDivision] = useState("")
+  const [unit, setUnitState] = useState(phone ? carried.unit : "")
+  const [division, setDivisionState] = useState(phone ? carried.division : "")
+  const setUnit = (next: string) => {
+    carried.unit = next
+    setUnitState(next)
+  }
+  const setDivision = (next: string) => {
+    carried.division = next
+    setDivisionState(next)
+  }
+  /// A phone's filters sheet: the dates, the unit, the division and the export,
+  /// which have no room at the top of the list.
+  const [options, setOptions] = useState(false)
   const [view, setView] = useState<"all" | "stores">("all")
   const [needle, setNeedle] = useState("")
   const unitName = useUnitName()
@@ -216,45 +278,131 @@ export function SalesBreakdownScreen({ by, title }: { by: By; title: string }) {
     <PageContent>
       <PageHeader crumb="Sales" title={title} />
 
-      <Toolbar className="mb-6 gap-3">
-        <label className="flex h-control w-72 items-center gap-2 rounded-inner border border-hairline-2 bg-soft px-3 focus-within:border-accent">
-          <Search className="size-4 shrink-0 text-line-ico" />
-          <input
-            value={needle}
-            onChange={(event) => setNeedle(event.target.value)}
-            aria-label={kind.search}
-            className="min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-mute"
+      {!phone && (
+        <Toolbar className="mb-6 gap-3">
+          <label className="flex h-control w-72 items-center gap-2 rounded-inner border border-hairline-2 bg-soft px-3 focus-within:border-accent">
+            <Search className="size-4 shrink-0 text-line-ico" />
+            <input
+              value={needle}
+              onChange={(event) => setNeedle(event.target.value)}
+              aria-label={kind.search}
+              className="min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-mute"
+            />
+          </label>
+          <WindowControl range={range} />
+          <UnitSelect
+            value={unit}
+            onChange={setUnit}
+            emptyLabel="All units"
+            className="h-control w-52"
+            aria-label="Unit"
           />
-        </label>
-        <WindowControl range={range} />
-        <UnitSelect
-          value={unit}
-          onChange={setUnit}
-          emptyLabel="All units"
-          className="h-control w-52"
-          aria-label="Unit"
-        />
-        {filterable && (
-          <Select
-            value={division}
-            onChange={setDivision}
-            className="h-control w-48"
-            aria-label="Division"
-          >
-            <option value="">All divisions</option>
-            {(divisions.data?.terms ?? []).map((term) => (
-              <option key={term.code} value={term.code}>
-                {term.label}
-              </option>
-            ))}
-          </Select>
-        )}
-        <Toolbar.Spacer />
-        <ExportButton
-          build={build}
-          disabled={report.data === undefined || report.data.rows.length === 0}
-        />
-      </Toolbar>
+          {filterable && (
+            <Select
+              value={division}
+              onChange={setDivision}
+              className="h-control w-48"
+              aria-label="Division"
+            >
+              <option value="">All divisions</option>
+              {(divisions.data?.terms ?? []).map((term) => (
+                <option key={term.code} value={term.code}>
+                  {term.label}
+                </option>
+              ))}
+            </Select>
+          )}
+          <Toolbar.Spacer />
+          <ExportButton
+            build={build}
+            disabled={
+              report.data === undefined || report.data.rows.length === 0
+            }
+          />
+        </Toolbar>
+      )}
+
+      {/* On a phone the search, the cut and the filters live in the drawer over
+          the bottom bar: the ten reports are one button, and the dates, the
+          unit, the division and the export are its sheet. */}
+      {phone && (
+        <>
+          <DockTools
+            search={{ value: needle, onChange: setNeedle, label: kind.search }}
+            filter={{
+              count: (unit === "" ? 0 : 1) + (divisionCode === "" ? 0 : 1),
+              onOpen: () => setOptions(true),
+            }}
+            status={{
+              value: by,
+              options: CUTS,
+              onChange: (next) =>
+                void navigate({ to: `/sales/by-${next}` } as never),
+            }}
+          />
+          <BottomSheet open={options} onOpenChange={setOptions} title="Filters">
+            <div className="flex min-h-0 flex-col gap-4 overflow-y-auto overscroll-contain px-4 pb-4">
+              <div className="grid grid-cols-2 gap-3">
+                <label className="flex min-w-0 flex-col gap-1.5 text-[0.875rem] text-mute">
+                  From
+                  <Day
+                    value={range.from}
+                    onChange={range.setFrom}
+                    className="h-11 w-full"
+                    label="From"
+                  />
+                </label>
+                <label className="flex min-w-0 flex-col gap-1.5 text-[0.875rem] text-mute">
+                  To
+                  <Day
+                    value={range.to}
+                    onChange={range.setTo}
+                    className="h-11 w-full"
+                    label="To"
+                  />
+                </label>
+              </div>
+              <label className="flex flex-col gap-1.5 text-[0.875rem] text-mute">
+                Unit
+                <UnitSelect
+                  value={unit}
+                  onChange={setUnit}
+                  emptyLabel="All units"
+                  className="h-11 w-full"
+                  aria-label="Unit"
+                />
+              </label>
+              {filterable && (
+                <label className="flex flex-col gap-1.5 text-[0.875rem] text-mute">
+                  Division
+                  <Select
+                    value={division}
+                    onChange={setDivision}
+                    className="h-11 w-full"
+                    aria-label="Division"
+                  >
+                    <option value="">All divisions</option>
+                    {(divisions.data?.terms ?? []).map((term) => (
+                      <option key={term.code} value={term.code}>
+                        {term.label}
+                      </option>
+                    ))}
+                  </Select>
+                </label>
+              )}
+              <div className="[&>button]:h-11 [&>button]:w-full">
+                <ExportButton
+                  variant="ghost"
+                  build={build}
+                  disabled={
+                    report.data === undefined || report.data.rows.length === 0
+                  }
+                />
+              </div>
+            </div>
+          </BottomSheet>
+        </>
+      )}
 
       {!ready ? (
         <Card>
@@ -343,6 +491,7 @@ function Body({
   setView: (view: "all" | "stores") => void
 }) {
   const { voided } = report
+  const phone = useLayout() === "phone"
   const query = needle.trim().toLowerCase()
   const shown = useMemo(
     () =>
@@ -364,6 +513,26 @@ function Body({
       </Card>
     )
   }
+
+  // A phone reads ranked cards, biggest first, not a replaying chart and a
+  // table wider than the glass.
+  if (phone)
+    return (
+      <>
+        <PhoneRows report={shown} full={report} by={by} kind={kind} />
+        <div className="mt-6 flex flex-col gap-2 px-1 text-[0.875rem] text-mute tabular-nums">
+          {report.rows_total > report.rows.length && (
+            <p>
+              Top {count(report.rows.length)} of {count(report.rows_total)} by
+              net sales.
+            </p>
+          )}
+          <p>
+            Voided sales: {count(voided.count)} · {money(voided.gross_minor)}
+          </p>
+        </div>
+      </>
+    )
 
   return (
     <>
@@ -400,6 +569,141 @@ function Body({
           Voided sales: {count(voided.count)} · {money(voided.gross_minor)}
         </p>
       </div>
+    </>
+  )
+}
+
+/// The rows of a report as a phone's ranked cards, biggest first (the order the
+/// server sends them in): net sales is the figure with its share of the total
+/// under it, and what was sold and what is left on the shelves sit under the
+/// name. There is nothing to press on the card but the card: one tap opens the
+/// sheet that says it again for every store — Stock · Quantity · Sales — which
+/// the wide table spread across the screen. A report whose rows are stores
+/// already, or sessions at one store, has no such sheet to open.
+function PhoneRows({
+  report,
+  full,
+  by,
+  kind,
+}: {
+  report: Report
+  /// The report before the search narrowed it: the sentence is about all of it.
+  full: Report
+  by: By
+  kind: Kind
+}) {
+  const [open, setOpen] = useState<BreakdownRow | null>(null)
+  const split = !ONE_SHOP.has(by)
+  const cells = useMemo(() => {
+    const map = new Map<string, BreakdownCell>()
+    for (const cell of full.cells)
+      map.set(cellKey(cell.code, cell.site_id), cell)
+    return map
+  }, [full.cells])
+  const total = full.total.net_minor
+  const plural = (n: number) =>
+    `${kind.noun === "PO" || kind.noun === "SKU" ? kind.noun : kind.noun.toLowerCase()}${n === 1 ? "" : "s"}`
+  const coded = by === "article" || by === "sku" || by === "po"
+
+  return (
+    <>
+      <Sentence>
+        <Fig>{money(full.total.net_minor)}</Fig> net sales,{" "}
+        <Fig>{quantity(full.total.quantity)}</Fig>, across{" "}
+        <Fig>{count(full.rows.length)}</Fig> {plural(full.rows.length)}. Biggest
+        first.
+      </Sentence>
+
+      {report.rows.length === 0 ? (
+        <Card>
+          <EmptyState>No match.</EmptyState>
+        </Card>
+      ) : (
+        <ul className="flex flex-col gap-2.5">
+          {report.rows.map((row) => {
+            const none = row.code === ""
+            const pct =
+              total > 0 ? Math.round((row.net_minor / total) * 100) : 0
+            return (
+              <PhoneCard
+                key={row.code || noneKey}
+                onOpen={split ? () => setOpen(row) : undefined}
+                head={
+                  <CardName
+                    name={none ? kind.none : row.name}
+                    code={
+                      coded && !none && row.code !== row.name
+                        ? row.code
+                        : undefined
+                    }
+                    line={
+                      <>
+                        {count(row.quantity)} sold
+                        {report.has_stock && (
+                          <> · {count(row.stock)} in stock</>
+                        )}
+                      </>
+                    }
+                    muted={none}
+                  />
+                }
+                lead={
+                  <CardFigure
+                    value={money(row.net_minor)}
+                    caption={`${pct}% of total`}
+                    tone={row.net_minor === 0 ? "quiet" : undefined}
+                  />
+                }
+              />
+            )
+          })}
+        </ul>
+      )}
+
+      <Sheet
+        open={open !== null}
+        onOpenChange={(next) => !next && setOpen(null)}
+        title={open === null ? "" : open.code === "" ? kind.none : open.name}
+        id={kind.noun}
+      >
+        {open !== null && (
+          <ul>
+            {full.sites.map((site) => {
+              const cell = cells.get(cellKey(open.code, site.site_id))
+              if (cell === undefined) return null
+              return (
+                <li
+                  key={site.site_id}
+                  className="flex items-start justify-between gap-3 border-b border-hairline py-3"
+                >
+                  <span className="flex min-w-0 flex-col">
+                    <span className="text-ink">{site.name}</span>
+                    <span className="text-[0.875rem] text-mute tabular-nums">
+                      {count(cell.quantity)} sold
+                      {full.has_stock && <> · {count(cell.stock)} in stock</>}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-ink tabular-nums">
+                    {money(cell.net_minor)}
+                  </span>
+                </li>
+              )
+            })}
+            <li className="flex items-start justify-between gap-3 py-3 font-semibold text-ink">
+              <span className="flex min-w-0 flex-col">
+                <span>All stores</span>
+                <span className="text-[0.875rem] font-normal text-mute tabular-nums">
+                  {count(open.quantity)} sold
+                  {full.has_stock && <> · {count(open.stock)} in stock</>}
+                </span>
+              </span>
+              <span className="shrink-0 tabular-nums">
+                {money(open.net_minor)}
+              </span>
+            </li>
+          </ul>
+        )}
+      </Sheet>
     </>
   )
 }
@@ -533,7 +837,7 @@ function RaceCard({
                 style={{ left: `${(tick / axis.max) * 100}%` }}
                 className="absolute top-0 -translate-x-1/2 text-[0.875rem] text-mute tabular-nums"
               >
-                {compactMoney(tick)}
+                {tickMoney(tick)}
               </span>
             ))}
           </div>
@@ -854,22 +1158,11 @@ function parseIso(iso: string): Date {
   return new Date(year, (month ?? 1) - 1, date ?? 1)
 }
 
-const monthShort = (date: Date) =>
-  date.toLocaleDateString("en-US", { month: "short" })
-
 /// "15 Sep" — a day without its year.
-function dayLabel(iso: string): string {
-  const date = parseIso(iso)
-  return `${date.getDate()} ${monthShort(date)}`
-}
+const dayLabel = dayMonth
 
-/// "1 Jan – 30 Sep 2026", or with both years when the window crosses one.
-function windowLabel(from: string, to: string): string {
-  const full = (iso: string) => `${dayLabel(iso)} ${iso.slice(0, 4)}`
-  return from.slice(0, 4) === to.slice(0, 4)
-    ? `${dayLabel(from)} – ${full(to)}`
-    : `${full(from)} – ${full(to)}`
-}
+/// "01 Jan – 30 Sep 2026", or with both years when the window crosses one.
+const windowLabel = dateRange
 
 /// The big label over the bars: what the scrubber is standing on.
 function bigLabel(iso: string | undefined, step: string, multiYear: boolean) {
@@ -877,7 +1170,7 @@ function bigLabel(iso: string | undefined, step: string, multiYear: boolean) {
   const date = parseIso(iso)
   const year = multiYear ? ` ${date.getFullYear()}` : ""
   if (step === "month") {
-    return `${date.toLocaleDateString("en-US", { month: "long" })}${year}`
+    return `${dateText(date, { month: "long" })}${year}`
   }
   if (step === "week") return `Week of ${dayLabel(iso)}${year}`
   return `${dayLabel(iso)}${year}`
@@ -888,32 +1181,21 @@ function shortLabel(iso: string | undefined, step: string, multiYear: boolean) {
   if (iso === undefined) return ""
   const date = parseIso(iso)
   if (step === "month") {
-    return `${monthShort(date)}${multiYear ? ` ${date.getFullYear()}` : ""}`
+    return `${monthName(date)}${multiYear ? ` ${date.getFullYear()}` : ""}`
   }
   return `${dayLabel(iso)}${multiYear ? ` ${date.getFullYear()}` : ""}`
 }
 
-/// Rupiah the way an Indonesian chart says it: rb (thousand), jt (million),
-/// M (billion), T (trillion). The full figure is in the table; a bar only has
-/// to say roughly how long it is.
-const compactNumber = (value: number) =>
-  new Intl.NumberFormat("id-ID", {
-    maximumFractionDigits: value < 10 ? 2 : value < 100 ? 1 : 0,
-  }).format(value)
-
-function compactMoney(minor: number): string {
-  const sign = minor < 0 ? "−" : ""
-  const size = Math.abs(minor)
-  if (size >= 1e12) return `${sign}Rp ${compactNumber(size / 1e12)} T`
-  if (size >= 1e9) return `${sign}Rp ${compactNumber(size / 1e9)} M`
-  if (size >= 1e6) return `${sign}Rp ${compactNumber(size / 1e6)} jt`
-  if (size >= 1e3) return `${sign}Rp ${compactNumber(size / 1e3)} rb`
-  return `${sign}Rp ${compactNumber(size)}`
-}
+/// Rupiah the way a chart says it — `moneyCompact`, K / M / B / T. The full
+/// figure is in the table; a bar only has to say roughly how long it is. An
+/// axis tick keeps a second decimal, because a step of 2,5 over a power of ten
+/// lands on 1,25 B and "1,3 B" would label the gridline wrongly.
+const compactMoney = (minor: number) => moneyCompact(minor)
+const tickMoney = (minor: number) => moneyCompact(minor, 2)
 
 /// A round top for the axis and the gridlines under it: a step of 1, 2, 2.5 or
-/// 5 times a power of ten, so the ticks read "200 jt, 400 jt" and not
-/// "183 jt, 366 jt".
+/// 5 times a power of ten, so the ticks read "200 M, 400 M" and not
+/// "183 M, 366 M".
 function niceAxis(peak: number): { max: number; ticks: number[] } {
   if (peak <= 0) return { max: 1, ticks: [] }
   const raw = peak / 5
@@ -1049,7 +1331,7 @@ function FigureTable({
   )
 }
 
-const STOCK_TITLE = "Pieces on hand at the shops now"
+const STOCK_TITLE = "Pcs on hand at the shops now"
 
 const cellKey = (code: string, site: string) => `${code}\u0000${site}`
 
@@ -1370,15 +1652,21 @@ function exportSheet({
 /// somebody edits one. The same default the division report in Finance opens
 /// on; copied rather than shared because that file owns its own screen and
 /// this one only borrows its habit.
-function useYearToDate(): DateWindow {
-  const [draft, setDraft] = useState<{ from: string; to: string } | null>(null)
+function useYearToDate(carry = false): DateWindow {
+  const [draft, setDraft] = useState<{ from: string; to: string } | null>(
+    carry ? carried.window : null
+  )
   const today = todayIso()
   const value = draft ?? { from: `${today.slice(0, 4)}-01-01`, to: today }
+  const write = (next: { from: string; to: string }) => {
+    carried.window = next
+    setDraft(next)
+  }
   return {
     from: value.from,
     to: value.to,
-    setFrom: (from) => setDraft({ ...value, from }),
-    setTo: (to) => setDraft({ ...value, to }),
+    setFrom: (from) => write({ ...value, from }),
+    setTo: (to) => write({ ...value, to }),
     chip: windowLabel(value.from, value.to),
   }
 }

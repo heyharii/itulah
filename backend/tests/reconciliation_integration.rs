@@ -178,6 +178,7 @@ async fn a_trading_day_reaches_the_centre_and_reconciles(pool: PgPool) {
         actor_id: "kasir-1".into(),
         epcs: vec!["EPC70000001".into()],
         tenders: cash(50_000),
+        coupon_authorizations: Vec::new(),
     })
     .unwrap_or_else(|e| panic!("sale: {e}"));
 

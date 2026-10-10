@@ -282,7 +282,12 @@ pub(super) async fn hand_over(
         actor_id: actor.clone(),
         occurred_at,
     };
-    write_movement(&mut tx, &command, &format!("dc-purchase-return:{return_id}")).await?;
+    write_movement(
+        &mut tx,
+        &command,
+        &format!("dc-purchase-return:{return_id}"),
+    )
+    .await?;
     crate::cloud::postgres::purchase_return_handed_over(
         &mut tx,
         &return_id.to_string(),

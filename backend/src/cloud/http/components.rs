@@ -36,10 +36,10 @@ use super::employment::reach_of;
 use crate::cloud::{
     application::{AppError, AppState},
     domain::{
-        actions, required_role_for_action, role_allows, AttendanceMonth, Authorization,
-        ComponentBase, ComponentBasis, ComponentCode, ComponentError, ComponentInForce,
+        actions, required_role_for_action, role_allows, statutory, AttendanceMonth, Authorization,
+        BpjsRates, ComponentBase, ComponentBasis, ComponentCode, ComponentError, ComponentInForce,
         ComponentKind, ComponentRate, ComponentShape, CountedUnit, PayComponent, PayrollAdjustment,
-        RateNumbers, Reach, RecordKind, statutory, BpjsRates, PtkpStatus, TerCategory,
+        PtkpStatus, RateNumbers, Reach, RecordKind, TerCategory,
     },
     http::audit::DeclaredSubject,
     postgres::{self as infrastructure, PayrollAdjustmentRow},
@@ -941,10 +941,14 @@ pub async fn save_salary_structure(
     require(&principal, actions::PAY_COMPONENT_DEFINE)?;
     let code = body.code.trim().to_uppercase();
     if code.is_empty() || body.name.trim().is_empty() {
-        return Err(AppError::Validation("a structure has a code and a name".to_owned()));
+        return Err(AppError::Validation(
+            "a structure has a code and a name".to_owned(),
+        ));
     }
     if body.base_minor.is_some_and(|base| base <= 0) {
-        return Err(AppError::Validation("a base is a positive amount".to_owned()));
+        return Err(AppError::Validation(
+            "a base is a positive amount".to_owned(),
+        ));
     }
     let mut seen = std::collections::HashSet::new();
     let mut allowances = Vec::with_capacity(body.allowances.len());

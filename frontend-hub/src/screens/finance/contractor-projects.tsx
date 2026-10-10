@@ -14,11 +14,15 @@ import {
   ErrorState,
   LoadingState,
 } from "@/components/ui/states"
+import { Fab } from "@/components/ui/fab"
 import { node } from "@/lib/api"
 import { count, day, money } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { problemOf } from "@/lib/problem"
 import { Grid, Td, Th } from "@/screens/finance-final/parts"
 import { todayIso } from "@/screens/finance/chart"
+import { PhoneCard, PhoneList } from "@/components/ui/phone-cards"
+import { PhoneRows } from "@/screens/finance/phone-parts"
 import {
   useAssetClasses,
   useMoneyAccountChoices,
@@ -110,6 +114,7 @@ export function ContractorProjects() {
 // ---------------------------------------------------------------------------
 
 function ProjectList({ onOpen }: { onOpen: (id: string) => void }) {
+  const phone = useLayout() === "phone"
   const unitName = useUnitName()
   const supplierName = useSupplierName()
   const [creating, setCreating] = useState(false)
@@ -124,12 +129,16 @@ function ProjectList({ onOpen }: { onOpen: (id: string) => void }) {
         crumb="Finance · Assets"
         title="Contractor Projects"
         sub="Work paid for ahead and invoiced over months, split into assets when it is done."
+        // The new project is the dock's + on a phone.
         actions={
-          <Button variant="primary" onClick={() => setCreating(true)}>
-            New project
-          </Button>
+          phone ? undefined : (
+            <Button variant="primary" onClick={() => setCreating(true)}>
+              New project
+            </Button>
+          )
         }
       />
+      {phone && <Fab label="New project" onClick={() => setCreating(true)} />}
 
       {projects.isPending ? (
         <LoadingState>Reading the projects…</LoadingState>
@@ -140,6 +149,28 @@ function ProjectList({ onOpen }: { onOpen: (id: string) => void }) {
           No contractor project yet. Open one when a contractor is paid ahead
           for work that will take months.
         </EmptyState>
+      ) : phone ? (
+        <PhoneList>
+          {(projects.data ?? []).map((row) => (
+            <PhoneCard
+              key={row.project_id}
+              title={row.name}
+              line={
+                <>
+                  <div>
+                    {supplierName(row.supplier_id, row.supplier_name)} ·{" "}
+                    {row.project_number}
+                  </div>
+                  <div>{plainUnit(unitName(row.unit_id))}</div>
+                </>
+              }
+              lead={money(row.advanced_minor)}
+              caption="paid in advance"
+              foot={<StatusLine project={row} />}
+              onOpen={() => onOpen(row.project_id)}
+            />
+          ))}
+        </PhoneList>
       ) : (
         <Grid>
           <thead>
@@ -235,6 +266,7 @@ function StatusLine({ project }: { project: Project }) {
 // ---------------------------------------------------------------------------
 
 function ProjectPage({ id, onBack }: { id: string; onBack: () => void }) {
+  const phone = useLayout() === "phone"
   const unitName = useUnitName()
   const supplierName = useSupplierName()
   const [acting, setActing] = useState<"advance" | "invoice" | "close" | null>(
@@ -265,8 +297,10 @@ function ProjectPage({ id, onBack }: { id: string; onBack: () => void }) {
           <PageHeader
             title={project.name}
             sub={`${supplierName(project.supplier_id, project.supplier_name)} · ${plainUnit(unitName(project.unit_id))} · ${project.project_number}`}
+            // On a phone the three are at the foot of the page, under what
+            // they act on.
             actions={
-              project.status === "OPEN" ? (
+              project.status === "OPEN" && !phone ? (
                 <>
                   <Button onClick={() => setActing("advance")}>
                     Pay an advance
@@ -313,6 +347,28 @@ function ProjectPage({ id, onBack }: { id: string; onBack: () => void }) {
           <Section title="Advances paid" note="Into Advanced – To Contractors">
             {detail.data!.advances.length === 0 ? (
               <EmptyState>No advance paid yet.</EmptyState>
+            ) : phone ? (
+              <PhoneRows
+                rows={detail.data!.advances.map((row) => ({
+                  key: row.advance_id,
+                  title: day(row.paid_on),
+                  sub: (
+                    <>
+                      {moneyAccountWord(row.account_key)}{" "}
+                      {row.account_qualifier}
+                      {[row.reference, row.entry_number].filter(Boolean)
+                        .length > 0 && (
+                        <div>
+                          {[row.reference, row.entry_number]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </div>
+                      )}
+                    </>
+                  ),
+                  figure: money(row.amount_minor),
+                }))}
+              />
             ) : (
               <Grid>
                 <thead>
@@ -353,6 +409,42 @@ function ProjectPage({ id, onBack }: { id: string; onBack: () => void }) {
           >
             {detail.data!.invoices.length === 0 ? (
               <EmptyState>No invoice from the contractor yet.</EmptyState>
+            ) : phone ? (
+              <PhoneRows
+                rows={detail.data!.invoices.map((row) => {
+                  const fromAdvance = row.applied_minor
+                  const rest = row.total_minor - fromAdvance
+                  return {
+                    key: row.invoice_id,
+                    title: (
+                      <span className="font-mono text-[0.875rem]">
+                        {row.invoice_number}
+                      </span>
+                    ),
+                    sub: (
+                      <>
+                        <div>{day(row.invoice_date)}</div>
+                        {row.note && <div>{row.note}</div>}
+                      </>
+                    ),
+                    figure: money(row.total_minor),
+                    note:
+                      rest === 0 ? (
+                        "The advance"
+                      ) : (
+                        <>
+                          {fromAdvance > 0 && (
+                            <div>Advance {money(fromAdvance)}</div>
+                          )}
+                          <OwedLine
+                            outstanding={row.outstanding_minor}
+                            total={rest}
+                          />
+                        </>
+                      ),
+                  }
+                })}
+              />
             ) : (
               <Grid>
                 <thead>
@@ -414,38 +506,75 @@ function ProjectPage({ id, onBack }: { id: string; onBack: () => void }) {
               title={`Split on ${day(project.closed_on)}`}
               note="Moved out of Contract in Progress"
             >
-              <Grid>
-                <thead>
-                  <tr>
-                    <Th>Into</Th>
-                    <Th width="12rem">Life</Th>
-                    <Th align="right" width="12rem">
-                      Amount
-                    </Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {detail.data!.split.map((row) => (
-                    <tr key={row.line_number}>
-                      <Td>
-                        <span className="block text-ink">{row.name}</span>
-                        <span className="block text-[0.875rem] text-mute">
-                          {row.kind === "ASSET"
-                            ? `New asset · ${row.account_code}`
-                            : `Expense · ${row.account_code}`}
-                        </span>
-                      </Td>
-                      <Td className="text-body">
-                        {row.kind === "ASSET"
-                          ? lifeWords(row.useful_life_months)
-                          : "This month"}
-                      </Td>
-                      <Td align="right">{money(row.amount_minor)}</Td>
+              {phone ? (
+                <PhoneRows
+                  rows={detail.data!.split.map((row) => ({
+                    key: String(row.line_number),
+                    title: row.name,
+                    sub: `${
+                      row.kind === "ASSET"
+                        ? `New asset · ${row.account_code}`
+                        : `Expense · ${row.account_code}`
+                    } · ${
+                      row.kind === "ASSET"
+                        ? lifeWords(row.useful_life_months)
+                        : "This month"
+                    }`,
+                    figure: money(row.amount_minor),
+                  }))}
+                />
+              ) : (
+                <Grid>
+                  <thead>
+                    <tr>
+                      <Th>Into</Th>
+                      <Th width="12rem">Life</Th>
+                      <Th align="right" width="12rem">
+                        Amount
+                      </Th>
                     </tr>
-                  ))}
-                </tbody>
-              </Grid>
+                  </thead>
+                  <tbody>
+                    {detail.data!.split.map((row) => (
+                      <tr key={row.line_number}>
+                        <Td>
+                          <span className="block text-ink">{row.name}</span>
+                          <span className="block text-[0.875rem] text-mute">
+                            {row.kind === "ASSET"
+                              ? `New asset · ${row.account_code}`
+                              : `Expense · ${row.account_code}`}
+                          </span>
+                        </Td>
+                        <Td className="text-body">
+                          {row.kind === "ASSET"
+                            ? lifeWords(row.useful_life_months)
+                            : "This month"}
+                        </Td>
+                        <Td align="right">{money(row.amount_minor)}</Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Grid>
+              )}
             </Section>
+          )}
+
+          {project.status === "OPEN" && phone && (
+            <div className="flex flex-col gap-2">
+              <Button
+                variant="primary"
+                disabled={project.invoiced_minor === 0}
+                onClick={() => setActing("close")}
+              >
+                Close and split
+              </Button>
+              <Button onClick={() => setActing("invoice")}>
+                Add an invoice
+              </Button>
+              <Button onClick={() => setActing("advance")}>
+                Pay an advance
+              </Button>
+            </div>
           )}
 
           <Panel

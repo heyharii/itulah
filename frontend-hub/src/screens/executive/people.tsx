@@ -20,7 +20,7 @@ import { usePlaces } from "@/screens/executive/places"
 import { useReportScope } from "@/screens/executive/scope"
 import { SupplierName } from "@/screens/procurement/supplier-name"
 
-/// Tim & aset — how many people each place has, what is broken, what is due
+/// Team & Assets — how many people each place has, what is broken, what is due
 /// for upkeep, and which agreements run out in the next thirty days.
 
 const SOON = 30
@@ -119,49 +119,49 @@ export function ExecutivePeople() {
   )
 
   return (
-    <ReportPage title="Tim & aset" scope={scope}>
+    <ReportPage title="Team & Assets" scope={scope}>
       <Figures>
         <Figure
-          label="Karyawan aktif"
+          label="Active employees"
           value={headcount.data ? count(headcount.data.total) : "…"}
         />
         <Figure
-          label="Kontrak karyawan berakhir"
+          label="Employee contracts ending"
           value={expiring.data ? count(people.length) : "…"}
-          note={`Dalam ${SOON} hari`}
+          note={`Within ${SOON} days`}
         />
         <Figure
-          label="Perbaikan terbuka"
+          label="Open repairs"
           value={locations.data ? count(repairs) : "—"}
           note={
             locations.data
-              ? `${count(rows.reduce((sum, row) => sum + row.due_task_count, 0))} perawatan jatuh tempo`
+              ? `${count(rows.reduce((sum, row) => sum + row.due_task_count, 0))} maintenance due`
               : undefined
           }
         />
         <Figure
-          label="Kontrak GA berakhir"
+          label="GA contracts ending"
           value={agreements.data ? count(deals.length) : "—"}
-          note={`Dalam ${SOON} hari`}
+          note={`Within ${SOON} days`}
         />
       </Figures>
 
       <Card className="mb-3 overflow-hidden">
-        <Head title="Per lokasi" to="/maintenance" link="Buka perbaikan" />
+        <Head title="By location" to="/maintenance" link="Open repairs" />
         <div className="overflow-x-auto px-[1.125rem] pb-3">
           {queryState(locations, {
-            loading: "Membaca lokasi…",
+            loading: "Reading the locations…",
             render: () =>
               rows.length === 0 ? (
-                <EmptyState>Belum ada lokasi yang terdaftar.</EmptyState>
+                <EmptyState>No locations are registered yet.</EmptyState>
               ) : (
                 <MiniTable
                   head={[
-                    "Lokasi",
-                    "Karyawan Aktif",
-                    "Perbaikan Terbuka",
-                    "Perawatan Jatuh Tempo",
-                    "Tagihan Bulan Ini",
+                    "Location",
+                    "Active Employees",
+                    "Open Repairs",
+                    "Maintenance Due",
+                    "Billed This Month",
                   ]}
                   style={{ minWidth: "38rem" }}
                 >
@@ -202,18 +202,22 @@ export function ExecutivePeople() {
 
       <div className="grid gap-3 xl:grid-cols-2">
         <Card className="overflow-hidden">
-          <Head title="Kontrak karyawan berakhir" to="/people" link="Buka HR" />
+          <Head
+            title="Employee contracts ending"
+            to="/people"
+            link="Open People"
+          />
           <div className="overflow-x-auto px-[1.125rem] pb-3">
             {queryState(expiring, {
-              loading: "Membaca kontrak…",
+              loading: "Reading the contracts…",
               render: () =>
                 people.length === 0 ? (
                   <EmptyState>
-                    Tidak ada kontrak yang berakhir {SOON} hari ke depan.
+                    No contracts end in the next {SOON} days.
                   </EmptyState>
                 ) : (
                   <MiniTable
-                    head={["Karyawan", "Lokasi", "Berakhir", "Sisa"]}
+                    head={["Employee", "Location", "Ends", "Remaining"]}
                     style={{ minWidth: "26rem" }}
                   >
                     {people.map((row) => (
@@ -231,7 +235,7 @@ export function ExecutivePeople() {
                         </MiniCell>
                         <MiniCell align="right">{day(row.ends_on)}</MiniCell>
                         <MiniCell align="right">
-                          {row.days_remaining} hari
+                          {row.days_remaining} days
                         </MiniCell>
                       </MiniRow>
                     ))}
@@ -243,21 +247,21 @@ export function ExecutivePeople() {
 
         <Card className="overflow-hidden">
           <Head
-            title="Kontrak GA berakhir"
+            title="GA contracts ending"
             to="/contracts"
-            link="Buka kontrak"
+            link="Open contracts"
           />
           <div className="overflow-x-auto px-[1.125rem] pb-3">
             {queryState(agreements, {
-              loading: "Membaca kontrak…",
+              loading: "Reading the contracts…",
               render: () =>
                 deals.length === 0 ? (
                   <EmptyState>
-                    Tidak ada kontrak yang berakhir {SOON} hari ke depan.
+                    No contracts end in the next {SOON} days.
                   </EmptyState>
                 ) : (
                   <MiniTable
-                    head={["Kontrak", "Lokasi", "Berakhir", "Sisa"]}
+                    head={["Contract", "Location", "Ends", "Remaining"]}
                     style={{ minWidth: "26rem" }}
                   >
                     {deals.map((row) => (
@@ -276,11 +280,11 @@ export function ExecutivePeople() {
                           </span>
                         </MiniCell>
                         <MiniCell align="right">
-                          {row.site_id === null ? "Semua" : nameOf(row.site_id)}
+                          {row.site_id === null ? "All" : nameOf(row.site_id)}
                         </MiniCell>
                         <MiniCell align="right">{day(row.ends_on)}</MiniCell>
                         <MiniCell align="right">
-                          {row.days_to_end} hari
+                          {row.days_to_end} days
                         </MiniCell>
                       </MiniRow>
                     ))}

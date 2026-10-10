@@ -97,7 +97,10 @@ pub async fn geofences(pool: &PgPool) -> Result<Vec<GeofenceView>, AppError> {
 }
 
 pub async fn geofence_of(pool: &PgPool, unit_id: &str) -> Result<Option<GeofenceView>, AppError> {
-    Ok(geofences(pool).await?.into_iter().find(|fence| fence.unit_id == unit_id))
+    Ok(geofences(pool)
+        .await?
+        .into_iter()
+        .find(|fence| fence.unit_id == unit_id))
 }
 
 pub async fn set_geofence(
@@ -109,10 +112,14 @@ pub async fn set_geofence(
     set_by: &Authorization,
 ) -> Result<(), AppError> {
     if !(-90.0..=90.0).contains(&latitude) || !(-180.0..=180.0).contains(&longitude) {
-        return Err(AppError::Validation("that point is not on the earth".into()));
+        return Err(AppError::Validation(
+            "that point is not on the earth".into(),
+        ));
     }
     if !(10..=5000).contains(&radius_m) {
-        return Err(AppError::Validation("a radius is 10 to 5,000 metres".into()));
+        return Err(AppError::Validation(
+            "a radius is 10 to 5,000 metres".into(),
+        ));
     }
     sqlx::query(
         "INSERT INTO unit_geofence (unit_id, latitude, longitude, radius_m, set_by)
@@ -207,8 +214,12 @@ pub async fn absence_rules(pool: &PgPool) -> Result<Vec<AbsenceRuleView>, AppErr
                 enabled: row.try_get("enabled")?,
                 basis: row.try_get("basis")?,
                 divisor_days: row.try_get("divisor_days")?,
-                ratified_by: row.try_get::<Option<String>, _>("ratified_by")?.unwrap_or_default(),
-                reason: row.try_get::<Option<String>, _>("reason")?.unwrap_or_default(),
+                ratified_by: row
+                    .try_get::<Option<String>, _>("ratified_by")?
+                    .unwrap_or_default(),
+                reason: row
+                    .try_get::<Option<String>, _>("reason")?
+                    .unwrap_or_default(),
             })
         })
         .collect()
@@ -226,7 +237,9 @@ pub async fn state_absence_rule(
 ) -> Result<(), AppError> {
     let basis = basis.trim().to_ascii_uppercase();
     if basis != "BASE" && basis != "WAGE" {
-        return Err(AppError::Validation("an absence is a share of the BASE or the WAGE".into()));
+        return Err(AppError::Validation(
+            "an absence is a share of the BASE or the WAGE".into(),
+        ));
     }
     if divisor_days.is_some_and(|d| !(1..=31).contains(&d)) {
         return Err(AppError::Validation("a divisor is 1 to 31 days".into()));
@@ -277,7 +290,8 @@ pub async fn set_overtime_tier_minutes(
 ) -> Result<(), AppError> {
     if ![300, 420, 480].contains(&minutes) {
         return Err(AppError::Validation(
-            "the first tier is 7 hours (six-day week), 8 (five-day week) or 5 (the short day)".into(),
+            "the first tier is 7 hours (six-day week), 8 (five-day week) or 5 (the short day)"
+                .into(),
         ));
     }
     sqlx::query(

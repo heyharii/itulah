@@ -446,7 +446,10 @@ pub async fn ga_asset_page(pool: &PgPool, scope: GaAssetScope) -> Result<GaAsset
         .bind(limit)
         .fetch_all(pool)
         .await?;
-    let out = rows.iter().map(to_ga_asset).collect::<Result<Vec<_>, _>>()?;
+    let out = rows
+        .iter()
+        .map(to_ga_asset)
+        .collect::<Result<Vec<_>, _>>()?;
     let next_cursor = match out.last() {
         Some(last) if out.len() as i64 == limit => Some(super::encode_cursor(&GaAssetCursor {
             asset_id: last.asset_id,
@@ -685,7 +688,10 @@ pub async fn ga_build_schema(pool: &PgPool) -> Result<GaBuildSchema, AppError> {
 /// ones it does; this adds the second half of the same question — which FORM
 /// that class is filled in on — because the caller needs it to validate the
 /// fields and there is no other place the answer lives.
-async fn class_build(executor: impl sqlx::PgExecutor<'_>, class_code: &str) -> Result<String, AppError> {
+async fn class_build(
+    executor: impl sqlx::PgExecutor<'_>,
+    class_code: &str,
+) -> Result<String, AppError> {
     let row = sqlx::query("SELECT build FROM asset_class WHERE class_code = $1")
         .bind(class_code)
         .fetch_optional(executor)
@@ -953,9 +959,7 @@ pub async fn ga_asset_update(
     .map_err(|error| plate_conflict(error, specs_to_write.as_ref()))?;
 
     if condition != was_condition {
-        let reason = format!(
-            "Kondisi berubah dari {was_condition} ke {condition}"
-        );
+        let reason = format!("Kondisi berubah dari {was_condition} ke {condition}");
         sqlx::query(
             "INSERT INTO ga_asset_event
                (asset_id, kind, reason, occurred_on, recorded_by)
@@ -1052,7 +1056,9 @@ pub async fn ga_asset_transfer(
     {
         return Err(AppError::Validation(format!(
             "the thing is already at {from_site}{}; a transfer records a move",
-            to_location.map(|place| format!(" · {place}")).unwrap_or_default()
+            to_location
+                .map(|place| format!(" · {place}"))
+                .unwrap_or_default()
         )));
     }
 
@@ -1116,10 +1122,11 @@ pub async fn ga_asset_note(
         ));
     }
     let mut tx = pool.begin().await?;
-    let known: Option<(Uuid,)> = sqlx::query_as("SELECT asset_id FROM fixed_asset WHERE asset_id = $1")
-        .bind(asset_id)
-        .fetch_optional(&mut *tx)
-        .await?;
+    let known: Option<(Uuid,)> =
+        sqlx::query_as("SELECT asset_id FROM fixed_asset WHERE asset_id = $1")
+            .bind(asset_id)
+            .fetch_optional(&mut *tx)
+            .await?;
     if known.is_none() {
         return Err(AppError::NotFound("asset".into()));
     }

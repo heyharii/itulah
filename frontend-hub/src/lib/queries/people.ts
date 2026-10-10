@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query"
 import { node } from "@/lib/api"
 import { ApiError } from "@itulah/contract/client"
 import type { Tone } from "@/lib/format"
+import { approvalWord, STATUS } from "@/lib/words"
 import type {
   CalendarView,
   CalendarYearsView,
@@ -873,24 +874,10 @@ export function readDays(centidays: number): string {
   return `${whole}.${String(fraction).padStart(2, "0")} days`
 }
 
-/// What a leave state means in a sentence.
-///
-/// `PENDING` is spelled as what it is waiting for rather than as what it is:
-/// the only thing anybody reading this queue wants to know is whether it is
-/// still on somebody's desk.
+/// What a leave state is called: Pending, Approved, Rejected or Withdrawn — the
+/// one approval vocabulary (`lib/words.ts`).
 export function leaveStateLabel(state: string): string {
-  switch (state) {
-    case "PENDING":
-      return "Waiting on a decision"
-    case "APPROVED":
-      return "Approved"
-    case "REJECTED":
-      return "Refused"
-    case "WITHDRAWN":
-      return "Taken back"
-    default:
-      return state
-  }
+  return approvalWord(state)
 }
 
 /// What a kind of leave draws on, said plainly.
@@ -1054,7 +1041,7 @@ export function publishCalendar(
 
 /// Add or withdraw one day.
 ///
-/// The same grant as publishing, deliberately: adding a *cuti bersama* in March
+/// The same grant as publishing, deliberately: adding a *collective leave* in March
 /// changes what people are owed exactly as much as publishing the year in
 /// January did — and usually more, because by then the year is running.
 export function amendCalendar(
@@ -1120,9 +1107,9 @@ export function overtimeStateLabel(state: string): string {
     case "AGREED":
       return "Agreed"
     case "DECLINED":
-      return "Refused"
+      return STATUS.rejected
     case "WITHDRAWN":
-      return "Taken back"
+      return STATUS.withdrawn
     default:
       return state
   }
@@ -1613,7 +1600,7 @@ export function taxTables(signal?: AbortSignal): Promise<TaxTablesView> {
 export function taxMethodLabel(method: string | null | undefined): string {
   switch (method) {
     case "GROSS_UP":
-      return "Gross up — a tunjangan pays the tax"
+      return "Gross up — an allowance pays the tax"
     case "NETTO":
       return "Netto — the company bears the tax"
     case "GROSS":
@@ -2378,25 +2365,24 @@ export interface ClaimFilters {
 
 /// What a claim state means in a sentence.
 ///
-/// `SUBMITTED` is spelled as what it is waiting for, the way the leave queue
-/// spells `PENDING`: the only thing anybody opening this list wants to know is
-/// whether it is still on somebody's desk. `APPROVED` is spelled as what it
-/// *costs* — approved and unpaid is money owed, and a pill saying only
-/// "approved" hides that.
+/// `SUBMITTED` is Pending, the way the leave queue spells it, and the other
+/// two answers are Rejected and Withdrawn (`lib/words.ts`). `APPROVED` is
+/// spelled as what it *costs* — approved and unpaid is money owed, and a pill
+/// saying only "approved" hides that.
 export function claimStateLabel(state: string): string {
   switch (state) {
     case "DRAFT":
       return "Draft — not sent yet"
     case "SUBMITTED":
-      return "Waiting on a decision"
+      return STATUS.pending
     case "APPROVED":
       return "Approved, not yet paid"
     case "REJECTED":
-      return "Refused"
+      return STATUS.rejected
     case "PAID":
       return "Paid"
     case "WITHDRAWN":
-      return "Taken back"
+      return STATUS.withdrawn
     default:
       return state
   }
@@ -2432,7 +2418,7 @@ export function claimActionLabel(action: string): string {
     case "PAID":
       return "Paid"
     case "WITHDRAWN":
-      return "Taken back"
+      return STATUS.withdrawn
     default:
       return action
   }

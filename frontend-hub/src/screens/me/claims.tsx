@@ -274,8 +274,8 @@ function ClaimForm({ onDone }: { onDone: () => void }) {
           File and send
         </Button>
         <p className="text-meta text-mute">
-          Batas per jenis ada di aturan head office. Yang disetujui boleh lebih
-          rendah dari yang diajukan.
+          Limits per type are set in the head office rules. The approved amount
+          may be lower than the amount requested.
         </p>
       </div>
     </Panel>

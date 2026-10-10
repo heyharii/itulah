@@ -9,9 +9,12 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Status } from "@/components/ui/pill"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { count, day, money } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { problemOf } from "@/lib/problem"
 import { clearGiro, financeKeys, listGiros } from "@/lib/queries/finance"
 import { Code, Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
+import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
+import { PhoneFigures } from "@/screens/finance/parts"
 import { FilterCheck, ReportFilters } from "@/screens/finance/report"
 
 import type { GiroRow } from "@itulah/contract"
@@ -41,6 +44,7 @@ export function BankClearance() {
   const [withCleared, setWithCleared] = useState(false)
   const [dates, setDates] = useState<Readonly<Record<string, string>>>({})
   const [done, setDone] = useState<number | null>(null)
+  const phone = useLayout() === "phone"
 
   // One request per status, so every narrowing is the server's.
   const statuses = withCleared ? [...OPEN, "CLEARED"] : OPEN
@@ -106,7 +110,10 @@ export function BankClearance() {
 
   return (
     <PageContent>
+      {/* A phone's "Update Clearance Date" is the last thing on the page,
+          under the giros it clears. */}
       <PageHeader
+        className="max-md:hidden"
         crumb="Finance · Banking"
         title="Bank Clearance"
         actions={
@@ -135,7 +142,7 @@ export function BankClearance() {
             className="h-control w-44"
             aria-label="Bank Account"
           >
-            <option value="">Every bank</option>
+            <option value="">All banks</option>
             {banks.map((name) => (
               <option key={name} value={name}>
                 {name}
@@ -187,6 +194,69 @@ export function BankClearance() {
           {bank === "" ? "" : ` at ${bank}`}. A giro is written from a payment
           or a cash document paid by giro.
         </EmptyState>
+      ) : phone ? (
+        <>
+          <PhoneFigures
+            items={[
+              { label: "Received", value: debit },
+              { label: "Paid out", value: credit },
+            ]}
+          />
+          <PhoneList
+            rows={rows.map((row) => ({
+              key: row.giro_id,
+              title: row.party_name ?? (
+                <span className="font-normal text-faint">No party</span>
+              ),
+              code: row.number,
+              lead: (
+                <CardFigure
+                  value={money(row.amount_minor)}
+                  caption={row.direction === "IN" ? "received" : "paid out"}
+                />
+              ),
+              body:
+                row.status === "CLEARED" ? (
+                  <span className="text-[0.9375rem] text-ink">
+                    Cleared {day(row.cleared_on)}
+                  </span>
+                ) : (
+                  <Day
+                    value={dates[row.giro_id] ?? ""}
+                    onChange={(value) =>
+                      setDates((was) => ({ ...was, [row.giro_id]: value }))
+                    }
+                    className="h-control w-full"
+                    label="Clearance Date"
+                  />
+                ),
+              foot: (
+                <span>
+                  {row.bank} · cheque date {day(row.due_date)}
+                </span>
+              ),
+              action: (
+                <Status tone={STATUS_TONE[row.status] ?? "neutral"}>
+                  {STATUS_LABEL[row.status] ?? row.status}
+                </Status>
+              ),
+            }))}
+          />
+          <Button
+            variant="primary"
+            size="lg"
+            className="mt-4 w-full"
+            pending={update.isPending}
+            disabled={ready.length === 0}
+            onClick={() => {
+              setDone(null)
+              update.mutate(ready)
+            }}
+          >
+            Update Clearance Date
+            {ready.length > 0 && ` (${count(ready.length)})`}
+          </Button>
+        </>
       ) : (
         <Grid>
           <thead>

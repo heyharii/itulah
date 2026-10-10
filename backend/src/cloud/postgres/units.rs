@@ -22,9 +22,9 @@
 
 use super::{begin_idempotent, complete_idempotent, NullablePatch};
 use crate::cloud::application::AppError;
+use crate::cloud::domain::uom::{spelling, UnitLookup, UNIT_CATEGORIES};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use crate::cloud::domain::uom::{spelling, UnitLookup, UNIT_CATEGORIES};
 use sqlx::{postgres::PgRow, PgPool, Postgres, Row, Transaction};
 use std::str::FromStr;
 use uuid::Uuid;
@@ -562,12 +562,11 @@ pub async fn update_unit(
     }
     let will_be_whole = will_be_base || request.whole_number.unwrap_or(was_whole);
     if was_whole && !will_be_whole {
-        let stocked: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM article WHERE stock_unit_code = $1)",
-        )
-        .bind(&code)
-        .fetch_one(&mut *transaction)
-        .await?;
+        let stocked: bool =
+            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM article WHERE stock_unit_code = $1)")
+                .bind(&code)
+                .fetch_one(&mut *transaction)
+                .await?;
         if stocked {
             return Err(AppError::Validation(format!(
                 "{code} is an article's stock unit, and stock is counted in whole numbers"
@@ -657,13 +656,12 @@ pub async fn create_unit_conversion(
     }
 
     // Said here as well as by the trigger (0653), for the sentence.
-    let categories: Vec<(String, String)> = sqlx::query_as(
-        "SELECT code, category FROM unit_of_measure WHERE code IN ($1, $2)",
-    )
-    .bind(&from_unit)
-    .bind(&to_unit)
-    .fetch_all(&mut *transaction)
-    .await?;
+    let categories: Vec<(String, String)> =
+        sqlx::query_as("SELECT code, category FROM unit_of_measure WHERE code IN ($1, $2)")
+            .bind(&from_unit)
+            .bind(&to_unit)
+            .fetch_all(&mut *transaction)
+            .await?;
     if let [(_, one), (_, other)] = categories.as_slice() {
         if one != other {
             return Err(AppError::Validation(format!(
@@ -921,7 +919,9 @@ pub async fn purchase_line_units(
     }
     Ok(crate::cloud::domain::PurchaseLineUnits {
         order_unit_code: order_unit.as_ref().map(|(code, _, _)| code.clone()),
-        order_unit_quantity: order_unit.as_ref().map(|(_, quantity, _)| quantity.to_string()),
+        order_unit_quantity: order_unit
+            .as_ref()
+            .map(|(_, quantity, _)| quantity.to_string()),
         unit_factor: order_unit.as_ref().map(|(_, _, factor)| factor.to_string()),
         count_units,
     })
@@ -968,7 +968,10 @@ pub fn purchase_value(
 /// `shareOut` is the same rule. All zero when there is nothing to share or
 /// nothing to share it by.
 pub fn share_out(total: i64, weights: &[i64]) -> Vec<i64> {
-    let sum: i128 = weights.iter().map(|weight| i128::from((*weight).max(0))).sum();
+    let sum: i128 = weights
+        .iter()
+        .map(|weight| i128::from((*weight).max(0)))
+        .sum();
     if total <= 0 || sum <= 0 {
         return vec![0; weights.len()];
     }
@@ -1041,9 +1044,7 @@ pub fn price_purchase_line(
                     "agreed unit price cannot be negative".into(),
                 ));
             }
-            let amount = piece_price_minor
-                .checked_mul(pieces)
-                .ok_or_else(overflow)?;
+            let amount = piece_price_minor.checked_mul(pieces).ok_or_else(overflow)?;
             Ok((piece_price_minor, amount, None))
         }
     }

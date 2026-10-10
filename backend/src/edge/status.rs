@@ -359,8 +359,7 @@ impl StatusSource {
     fn machine_facts(&self) -> MachineFacts {
         let mut facts = MachineFacts {
             database_bytes: Some(
-                file_size(&self.database)
-                    + file_size(&self.database.with_extension("sqlite3-wal")),
+                file_size(&self.database) + file_size(&self.database.with_extension("sqlite3-wal")),
             ),
             machine_uptime_seconds: Some(sysinfo::System::uptime()),
             clock_skew_seconds: self.clock_skew.lock().ok().and_then(|skew| *skew),
@@ -421,7 +420,10 @@ impl StatusSource {
                 "SELECT count(*) FROM edge_terminal WHERE active = 1 AND last_seen_at >= ?1",
                 Some(&recently),
             ),
-            rfid_active: count("SELECT count(*) FROM edge_rfid_device WHERE active = 1", None),
+            rfid_active: count(
+                "SELECT count(*) FROM edge_rfid_device WHERE active = 1",
+                None,
+            ),
             rfid_seen_recently: count(
                 "SELECT count(*) FROM edge_rfid_device WHERE active = 1 AND last_seen_at >= ?1",
                 Some(&recently),

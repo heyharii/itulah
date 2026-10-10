@@ -1,39 +1,53 @@
 import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 
+import { DockTools } from "@/components/shell/dock-tools"
 import { AppLink } from "@/components/ui/app-link"
-import { Card } from "@/components/ui/card"
-import { ListTable, type ListColumn } from "@/components/ui/list-table"
+import { Button } from "@/components/ui/button"
+import { CardList } from "@/components/ui/card-list"
+import { CardTable } from "@/components/ui/card-table"
+import { LeadCard } from "@/components/ui/lead-card"
+import { OpenButton } from "@/components/ui/open-rows"
 import { Screen } from "@/components/ui/screen"
+import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { EmptyState } from "@/components/ui/states"
 import { count, moment } from "@/lib/format"
 import { useGo } from "@/lib/go"
+import { useLayout } from "@/lib/layout"
+import { isDown } from "@/lib/prices"
 import { catalogueKey, fetchCatalogue } from "@/lib/queries"
-import { isDown } from "@/screens/catalogue"
-import { money } from "@itulah/contract/money"
 import { queryState } from "@/lib/query-state"
+import { cn } from "@/lib/utils"
+import { Photograph } from "@/screens/catalogue-parts"
 import {
   Bullets,
   Countdown,
-  DropPill,
   NoPriceBook,
   PhaseFilter,
+  PhasePill,
+  phaseOptions,
+  PhaseStatus,
   SearchBox,
-  Toolbar,
   sentences,
+  Summary,
+  Toolbar,
 } from "@/screens/promotions/parts"
 import {
   dropKey,
   dropReach,
   hasPriceBook,
   inPhase,
+  leftIn,
   matches,
   slot,
-  provenance,
+  span,
+  urgent,
+  useNow,
   useOffers,
   type Phase,
 } from "@/screens/promotions/shared"
 import type { PriceDropWindow, StoreOffers } from "@itulah/contract"
+import { money } from "@itulah/contract/money"
 
 /// Price changes — the markdowns this shop is in, or is about to enter, and when
 /// each one stops.
@@ -47,10 +61,15 @@ import type { PriceDropWindow, StoreOffers } from "@itulah/contract"
 /// is one event to a shop and two thousand rows to the database. A run that
 /// names a campaign wears the campaign's name; a run that names none is the
 /// set of drops that share its dates, and is **not given an invented name**.
+///
+/// A run is a lead card — the time LEFT as the figure, how much of the range it
+/// covers in the foot with its status — and opens a sheet with the dates and the
+/// small print. Under the runs, the articles that are at the new price, as
+/// cards with the photograph. One search, in the dock on a phone, narrows both.
 export function PriceDrops() {
   const offers = useOffers()
   return (
-    <Screen sub={provenance(offers.data)}>
+    <Screen>
       {queryState(offers, {
         loading: "Reading this shop's price changes…",
         render: (answer) =>
@@ -64,90 +83,16 @@ export function PriceDrops() {
 /// on the ticket is what changes, and that is what the cashier has to know.
 const VERBS = { start: "Prices drop", end: "Back to full price" }
 
-/// From and Until give way first on a narrow table — the countdown in When
-/// says the same thing in the words a shop uses, and the row's detail has
-/// both dates.
-const columns: readonly ListColumn<PriceDropWindow>[] = [
-  {
-    id: "drop",
-    header: "Price change",
-    className: "min-w-[12rem] whitespace-normal",
-    cell: (window) =>
-      window.name !== null ? (
-        <span className="font-medium text-ink">{window.name}</span>
-      ) : (
-        // A description, not a name — set in the body grey so it is not read
-        // as one.
-        <span className="text-body">
-          {window.campaign_id === null ? "Not part of a campaign" : "Unnamed"}
-        </span>
-      ),
-  },
-  {
-    id: "status",
-    header: "Status",
-    card: "status",
-    cell: (window) => <DropPill window={window} />,
-  },
-  {
-    id: "reach",
-    header: "Marked down",
-    className: "min-w-[8rem] whitespace-normal",
-    cell: (window) => (
-      <span className="text-ink tabular-nums">{dropReach(window)}</span>
-    ),
-  },
-  {
-    id: "from",
-    header: "From",
-    card: "hide",
-    className: "max-lg:hidden",
-    cell: (window) => (
-      <span className="tabular-nums">{moment(window.starts_at)}</span>
-    ),
-  },
-  {
-    id: "until",
-    header: "Until",
-    card: "hide",
-    className: "max-lg:hidden",
-    cell: (window) =>
-      window.ends_at === null ? (
-        <span className="text-mute">No end date</span>
-      ) : (
-        <span className="tabular-nums">{moment(window.ends_at)}</span>
-      ),
-  },
-  {
-    id: "when",
-    header: "When",
-    cell: (window) => {
-      /// When in the week and in the day the price is actually down.
-      ///
-      /// It matters more here than on a promotion: a promotion outside its
-      /// hours simply does not fire, while a markdown outside its hours means
-      /// **the ticket on the garment is wrong**.
-      const hours = slot(window.weekdays, window.time_window)
-      return (
-        <span className="block">
-          <Countdown
-            state={window.state}
-            startsAt={window.starts_at}
-            endsAt={window.ends_at}
-            verbs={VERBS}
-          />
-          {hours !== null && (
-            <span className="block text-meta text-mute">{hours}</span>
-          )}
-        </span>
-      )
-    },
-  },
-]
+/// How many articles a phone draws before somebody asks for more.
+const PAGE = 48
 
 function DropList({ offers }: { offers: StoreOffers }) {
+  const phone = useLayout() === "phone"
   const [phase, setPhase] = useState<Phase>("ALL")
   const [typed, setTyped] = useState("")
+  const [openKey, setOpenKey] = useState<string | null>(null)
+  const [limit, setLimit] = useState(PAGE)
+  const go = useGo()
   const needle = typed.trim().toLowerCase()
 
   const every = offers.price_drops
@@ -158,19 +103,47 @@ function DropList({ offers }: { offers: StoreOffers }) {
       matches(needle, window.name, window.terms, dropReach(window)),
   )
 
+  // The articles at the new price: read from the catalogue the till already
+  // holds — a markdown is a price, so they are the rows priced under their base.
+  const catalogue = useQuery({
+    queryKey: catalogueKey(),
+    queryFn: ({ signal }) => fetchCatalogue(signal),
+    refetchInterval: 60_000,
+  })
+  const currency = catalogue.data?.currency ?? "IDR"
+  const marked = (catalogue.data?.items ?? []).filter(isDown)
+  const articles = marked.filter(
+    (row) =>
+      needle === "" ||
+      `${row.name} ${row.sku_code}`.toLowerCase().includes(needle),
+  )
+
   if (every.length === 0) {
     return (
-      <Card>
-        <EmptyState>
-          Nothing at this shop is marked down, and no price drop is due to
-          start. Every ticket in the catalogue is at its full price.
-        </EmptyState>
-      </Card>
+      <EmptyState>
+        Nothing at this shop is marked down, and no price change is due to
+        start. Every ticket in the catalogue is at its full price.
+      </EmptyState>
     )
   }
 
+  const showRuns = shown.length > 0
+  const showArticles = articles.length > 0
+
   return (
     <>
+      <DockTools
+        search={{
+          value: typed,
+          onChange: setTyped,
+          label: "Search price changes",
+        }}
+        status={{
+          value: phase,
+          options: phaseOptions(running, every.length - running),
+          onChange: (next) => setPhase(next as Phase),
+        }}
+      />
       <Toolbar>
         <PhaseFilter
           value={phase}
@@ -181,167 +154,260 @@ function DropList({ offers }: { offers: StoreOffers }) {
         <SearchBox
           value={typed}
           onChange={setTyped}
-          placeholder="Search price changes"
+          placeholder="Search price changes and articles"
         />
       </Toolbar>
 
-      <Card>
-        <ListTable
-          rows={shown}
-          columns={columns}
-          rowKey={dropKey}
-          detail={(window) => <DropDetail window={window} />}
-          empty={
-            needle !== ""
-              ? `No price change here matches “${typed.trim()}”.`
-              : phase === "RUNNING"
-                ? "Nothing is marked down right now — what this shop has is still to start."
-                : "No price change is due to start."
-          }
-        />
-      </Card>
+      <Summary
+        parts={[
+          [running, "active"],
+          [every.length - running, "scheduled"],
+        ]}
+      />
 
-      <MarkedDownArticles />
+      {!showRuns && !showArticles && (
+        <EmptyState>
+          {needle !== ""
+            ? `No price change here matches “${typed.trim()}”.`
+            : phase === "RUNNING"
+              ? "Nothing is marked down right now — what this shop has is still to start."
+              : "No price change is due to start."}
+        </EmptyState>
+      )}
+
+      {showRuns && (
+        <CardList grid>
+          {shown.map((window) => (
+            <DropCard
+              key={dropKey(window)}
+              window={window}
+              onOpen={() => setOpenKey(dropKey(window))}
+            />
+          ))}
+        </CardList>
+      )}
+
+      {showArticles && (
+        <section className={cn(showRuns && "mt-6")}>
+          <CardTable
+            title="Articles at the new price"
+            aside={count(articles.length)}
+            rows={phone ? articles.slice(0, limit) : articles}
+            rowKey={(row) => row.sku_code}
+            empty="No marked-down article matches."
+            onOpen={(row) => go("/catalogue", { sku: row.sku_code })}
+            columns={[
+              {
+                id: "article",
+                header: "Article",
+                className: "min-w-[14rem] whitespace-normal",
+                cell: (row) => (
+                  <OpenButton id={row.sku_code}>
+                    <span className="block font-medium text-ink">
+                      {row.name}
+                    </span>
+                    <span className="block font-mono text-id text-mute">
+                      {row.sku_code}
+                    </span>
+                  </OpenButton>
+                ),
+              },
+              {
+                id: "was",
+                header: "Was",
+                align: "right",
+                cell: (row) => (
+                  <span className="text-mute tabular-nums line-through">
+                    {money(row.base_unit_price_minor, currency)}
+                  </span>
+                ),
+              },
+              {
+                id: "now",
+                header: "Now",
+                align: "right",
+                cell: (row) => (
+                  <span className="font-semibold text-ink tabular-nums">
+                    {money(row.unit_price_minor, currency)}
+                  </span>
+                ),
+              },
+              {
+                id: "off",
+                header: "Off",
+                align: "right",
+                cell: (row) => (
+                  <span className="text-bad-fg tabular-nums">
+                    −
+                    {percentOff(
+                      row.unit_price_minor,
+                      row.base_unit_price_minor,
+                    )}
+                    %
+                  </span>
+                ),
+              },
+            ]}
+            card={(row) => ({
+              media: (
+                <Photograph
+                  sku={row.sku_code}
+                  has={row.has_image}
+                  name={row.name}
+                />
+              ),
+              title: row.name,
+              code: row.sku_code,
+              lead: {
+                figure: money(row.unit_price_minor, currency),
+                // Both numbers, because a was-price with nothing struck through
+                // is just a smaller price.
+                caption: (
+                  <span className="line-through">
+                    {money(row.base_unit_price_minor, currency)}
+                  </span>
+                ),
+              },
+              foot: {
+                info: `${percentOff(row.unit_price_minor, row.base_unit_price_minor)}% off`,
+              },
+            })}
+            foot={
+              phone && articles.length > limit ? (
+                <div className="mt-4 flex justify-center">
+                  <Button onClick={() => setLimit((was) => was + PAGE)}>
+                    Show {count(Math.min(PAGE, articles.length - limit))} more
+                  </Button>
+                </div>
+              ) : undefined
+            }
+          />
+        </section>
+      )}
+
+      <DropSheet
+        window={every.find((window) => dropKey(window) === openKey)}
+        onClose={() => setOpenKey(null)}
+      />
     </>
   )
 }
 
-function DropDetail({ window }: { window: PriceDropWindow }) {
-  const hours = slot(window.weekdays, window.time_window)
+/// Whole percent, rounded to the nearest: what the ticket says.
+function percentOff(now: number, was: number): number {
+  return was > 0 ? Math.round((1 - now / was) * 100) : 0
+}
+
+/// One run: what it is called, when the price is down, how much of the range is
+/// in it — and, as the figure, how long is left of it (or until it starts).
+function DropCard({
+  window,
+  onOpen,
+}: {
+  window: PriceDropWindow
+  onOpen: () => void
+}) {
+  const now = useNow(true)
+  const upcoming = window.state === "UPCOMING"
+  const lead = upcoming
+    ? { figure: leftIn(window.starts_at, now), caption: "to start" }
+    : window.ends_at === null
+      ? { figure: "Open", caption: "no end date" }
+      : {
+          figure: (
+            <span className={cn(urgent(window.ends_at, now) && "text-bad-fg")}>
+              {leftIn(window.ends_at, now)}
+            </span>
+          ),
+          caption: "left",
+        }
   return (
-    <div className="flex max-w-[46em] flex-col gap-2 pt-1">
-      <h4 className="text-cell font-semibold text-ink">What changes</h4>
-      <Bullets
-        lines={[
-          `${dropReach(window)} change price`,
-          window.ends_at === null
-            ? `New prices from ${moment(window.starts_at)}, no end date`
-            : `New prices ${moment(window.starts_at)} – ${moment(window.ends_at)}, then back to full price`,
-          // The node reports days and hours only when every markdown in the run
-          // agrees, so none means all day unless the articles differ.
-          hours !== null && hours,
-          ...sentences(window.terms),
-          window.state === "RUNNING"
-            ? "Already on the tickets — the articles are listed below."
-            : "Not live yet — the articles appear below once it starts.",
-        ]}
-      />
-      {window.campaign_id !== null && (
-        <AppLink
-          to="/promotions/campaigns"
-          className="text-cell font-medium text-accent underline-offset-2 hover:underline"
-        >
-          Part of {window.name ?? "a campaign"}
-        </AppLink>
-      )}
-    </div>
+    <LeadCard
+      onOpen={onOpen}
+      title={window.name ?? "Price change"}
+      lines={[
+        // The hours matter more here than on a promotion: a promotion outside
+        // its hours simply does not fire, while a markdown outside its hours
+        // means the ticket on the garment is wrong.
+        slot(window.weekdays, window.time_window),
+        span(window.starts_at, window.ends_at),
+      ]}
+      lead={lead}
+      foot={{
+        info: dropReach(window),
+        status: <PhaseStatus state={window.state} />,
+      }}
+    />
   )
 }
 
-/// The articles that are marked down at this shop right now, one line each: the
-/// price on the old ticket, the price it is now, and how much that is.
+/// A run as a record sheet: the dates and the hours, the small print, and a way
+/// back to the campaign it belongs to. Nothing sits in the foot — a price change
+/// is read, not acted on, at a shop.
 ///
-/// Read from the catalogue the till already holds — a markdown is a price, so
-/// the articles are the rows priced under their base.
-function MarkedDownArticles() {
-  const go = useGo()
-  const catalogue = useQuery({
-    queryKey: catalogueKey(),
-    queryFn: ({ signal }) => fetchCatalogue(signal),
-    refetchInterval: 60_000,
-  })
-  const [typed, setTyped] = useState("")
-  const needle = typed.trim().toLowerCase()
-  const rows = (catalogue.data?.items ?? []).filter(
-    (row) =>
-      isDown(row) &&
-      (needle === "" ||
-        `${row.name} ${row.sku_code}`.toLowerCase().includes(needle)),
-  )
-  const currency = catalogue.data?.currency ?? "IDR"
-  if (catalogue.data === undefined || (rows.length === 0 && needle === ""))
-    return null
+/// Kept while it slides away, so closing does not blank the record mid-travel.
+function DropSheet({
+  window,
+  onClose,
+}: {
+  window: PriceDropWindow | undefined
+  onClose: () => void
+}) {
+  const [shown, setShown] = useState<PriceDropWindow | undefined>(undefined)
+  if (window !== undefined && window !== shown) setShown(window)
+  const record = window ?? shown
+  const hours =
+    record === undefined ? null : slot(record.weekdays, record.time_window)
+  const terms = sentences(record?.terms ?? null)
 
   return (
-    <section className="mt-6">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-card-title font-semibold text-ink">
-          Articles at the new price{" "}
-          <span className="font-normal text-mute tabular-nums">
-            {count(rows.length)}
-          </span>
-        </h3>
-        <SearchBox
-          value={typed}
-          onChange={setTyped}
-          placeholder="Search articles"
-        />
-      </div>
-      <Card>
-        <ListTable
-          roomy
-          rows={rows}
-          rowKey={(row) => row.sku_code}
-          empty={`No marked-down article matches “${typed.trim()}”.`}
-          columns={[
-            {
-              id: "article",
-              header: "Article",
-              className: "min-w-[14rem] whitespace-normal",
-              cell: (row) => (
-                <button
-                  type="button"
-                  onClick={() => go("/catalogue/product", { sku: row.sku_code })}
-                  className="block text-left"
-                >
-                  <span className="block font-medium text-ink">{row.name}</span>
-                  <span className="block font-mono text-id text-mute">
-                    {row.sku_code}
-                  </span>
-                </button>
-              ),
-            },
-            {
-              id: "was",
-              header: "Was",
-              align: "right",
-              card: "hide",
-              cell: (row) => (
-                <span className="text-mute tabular-nums line-through">
-                  {money(row.base_unit_price_minor, currency)}
-                </span>
-              ),
-            },
-            {
-              id: "now",
-              header: "Now",
-              align: "right",
-              card: "status",
-              cell: (row) => (
-                <span className="font-semibold text-ink tabular-nums">
-                  {money(row.unit_price_minor, currency)}
-                </span>
-              ),
-            },
-            {
-              id: "off",
-              header: "Off",
-              align: "right",
-              card: "meta",
-              cell: (row) => (
-                <span className="text-bad-fg tabular-nums">
-                  −
-                  {Math.round(
-                    (1 - row.unit_price_minor / row.base_unit_price_minor) *
-                      100,
-                  )}
-                  %
-                </span>
-              ),
-            },
-          ]}
-        />
-      </Card>
-    </section>
+    <Sheet
+      open={window !== undefined}
+      onOpenChange={(next) => !next && onClose()}
+      title={record?.name ?? "Price change"}
+      badge={
+        record === undefined ? undefined : <PhasePill state={record.state} />
+      }
+    >
+      {record !== undefined && (
+        <div className="flex flex-col gap-6">
+          <Facts>
+            <Fact term="Marked down" wide>
+              {dropReach(record)}
+            </Fact>
+            <Fact term="From">{moment(record.starts_at)}</Fact>
+            <Fact term="Until">
+              {record.ends_at === null ? "No end date" : moment(record.ends_at)}
+            </Fact>
+            <Fact term="Hours">{hours ?? "All day, every day"}</Fact>
+            <Fact term="Countdown" wide>
+              <Countdown
+                state={record.state}
+                startsAt={record.starts_at}
+                endsAt={record.ends_at}
+                verbs={VERBS}
+                className="text-ink"
+              />
+            </Fact>
+          </Facts>
+          {terms.length > 0 && (
+            <section>
+              <h3 className="mb-2.5 text-card-title font-semibold text-ink">
+                Terms
+              </h3>
+              <Bullets lines={terms} />
+            </section>
+          )}
+          {record.campaign_id !== null && (
+            <AppLink
+              to="/promotions/campaigns"
+              className="text-cell font-medium text-accent underline-offset-2 hover:underline"
+            >
+              Part of {record.name ?? "a campaign"}
+            </AppLink>
+          )}
+        </div>
+      )}
+    </Sheet>
   )
 }

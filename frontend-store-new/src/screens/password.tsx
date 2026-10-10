@@ -1,5 +1,4 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { KeyRound } from "lucide-react"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -8,6 +7,7 @@ import { Field, Input } from "@/components/ui/field"
 import { KeyValue } from "@/components/ui/rows"
 import { Screen } from "@/components/ui/screen"
 import { Banner } from "@/components/ui/states"
+import { useSite } from "@/components/shell/sidebar"
 import { cacheKey, node } from "@/lib/api"
 import { describe } from "@/lib/errors"
 import { label } from "@/lib/format"
@@ -38,15 +38,18 @@ import type { Identity } from "@itulah/contract/client"
 /// with no login box in front of anyone.
 ///
 /// Drawn as the hub's node Account (`frontend-hub/src/screens/operations/node/
-/// account.tsx`): the form as a card with its buttons at its foot, and beside
-/// it who the node thinks is signed in — the answer to "whose password is this
-/// about to change", read before rather than after.
+/// account.tsx`): the form as a card with its buttons at its foot — the way out
+/// quiet at the left, the one filled button at the right, side by side on every
+/// width — and beside it who the node thinks is signed in: the answer to "whose
+/// password is this about to change", read before rather than after. The page's
+/// title is the shell's; the card does not say it again.
 export function Password() {
   const go = useGo()
   const client = useQueryClient()
   const unsent = unsentCount(useSaleQueue())
   const me = useIdentity()
   const where = useNodeIdentity()
+  const site = useSite()
   const [current, setCurrent] = useState("")
   const [next, setNext] = useState("")
   const [again, setAgain] = useState("")
@@ -103,27 +106,12 @@ export function Password() {
               }
             }}
           >
-            <div className="flex items-center gap-3 border-b border-hairline bg-soft px-4 py-3">
-              <span className="grid size-8 shrink-0 place-items-center rounded-inner border border-hairline-2 bg-canvas text-line-ico">
-                <KeyRound className="size-4 stroke-[1.7]" />
-              </span>
-              <div className="min-w-0">
-                <h2 className="text-card-title font-semibold text-ink">
-                  Change your password
-                </h2>
-              </div>
-            </div>
-
             <div className="flex flex-col gap-4 px-4 py-4">
               {change.isSuccess && (
-                <Banner tone="ok">
-                  Password changed. Sign in again.
-                </Banner>
+                <Banner tone="ok">Password changed. Sign in again.</Banner>
               )}
               {signInOff && !change.isSuccess && (
-                <Banner tone="info">
-                  Sign-in is off on this server.
-                </Banner>
+                <Banner tone="info">Sign-in is off on this server.</Banner>
               )}
               {unsent > 0 && !change.isSuccess && !signInOff && (
                 <Banner tone="warn">
@@ -170,10 +158,9 @@ export function Password() {
             </div>
 
             {/* The form's buttons at its foot, as the hub's sheet draws them:
-                the way out quiet, the one action filled. Full width on a
-                phone, where the two are thumbed. */}
-            <div className="flex gap-2 border-t border-hairline px-4 py-3 md:justify-end max-md:[&>*]:flex-1">
-              <Button variant="ghost" onClick={() => go(homePath)}>
+                the way out quiet, the one action filled. */}
+            <div className="flex justify-end gap-2 border-t border-hairline px-4 py-3">
+              <Button variant="quiet" onClick={() => go(homePath)}>
                 Cancel
               </Button>
               <Button type="submit" variant="primary" disabled={!ready}>
@@ -185,26 +172,19 @@ export function Password() {
 
         <div className="flex flex-col gap-4">
           <Card>
-            <h2 className="px-4 pt-3.5 pb-1 text-card-title font-semibold text-ink">
+            <h2 className="px-4 pt-3.5 pb-1 text-[0.9375rem] font-medium text-ink">
               Signed in
             </h2>
             <div className="px-4 pb-3">
               <KeyValue term="Name">{me.data?.display_name ?? "—"}</KeyValue>
-              <KeyValue term="Username">
-                <span className="font-mono text-id">
-                  {me.data?.username ?? "—"}
-                </span>
+              <KeyValue term="Sign-in name">
+                {me.data?.username ?? "—"}
               </KeyValue>
               <KeyValue term="Role">{label(me.data?.role)}</KeyValue>
               <KeyValue term="Account">{accountKind(me.data)}</KeyValue>
-              <KeyValue term="Shop">
-                <span className="font-mono text-id">
-                  {where.data?.site_id ?? "—"}
-                </span>
-              </KeyValue>
+              <KeyValue term="Shop">{site}</KeyValue>
             </div>
           </Card>
-
         </div>
       </div>
     </Screen>

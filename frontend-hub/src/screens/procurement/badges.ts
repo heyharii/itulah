@@ -31,8 +31,8 @@ export function useOpenReturns(): number | null {
   )
 }
 
-/// Purchase orders whose count the Gudang took and the buyer has not yet
-/// reviewed — the "Counted at the Gudang" banner on an order's sheet, as a
+/// Purchase orders whose count the warehouse took and the buyer has not yet
+/// reviewed — the "Counted at the warehouse" banner on an order's sheet, as a
 /// number. Nothing until this browser holds a DC session (see
 /// `useCountsAwaiting`), which is the sign-in the order book opens quietly.
 export function useOrdersAwaitingReview(): number {

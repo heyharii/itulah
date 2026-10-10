@@ -115,8 +115,9 @@ async fn a_contract_inside_its_window_is_told_once(pool: PgPool) {
     let subjects: Vec<_> = told.iter().filter_map(|(_, _, s)| s.clone()).collect();
     assert!(subjects.contains(&soon.to_string()));
     assert!(subjects.contains(&ended.to_string()));
-    assert!(told.iter().any(|(_, body, _)| body.contains("LK/2026/0142")
-        && body.contains("in 36 days")));
+    assert!(told
+        .iter()
+        .any(|(_, body, _)| body.contains("LK/2026/0142") && body.contains("in 36 days")));
 
     let second = pass(&pool).await;
     assert_eq!(raised(job(&second, reminder::jobs::GA_CONTRACT)), 0);
@@ -206,8 +207,14 @@ async fn bills_due_this_week_are_told_in_one_notice(pool: PgPool) {
     let told = notices(&pool, reminder::kinds::BILL_DUE).await;
     assert_eq!(told.len(), 1);
     let body = &told[0].1;
-    assert!(body.contains("INV-001") && body.contains("INV-002"), "{body}");
-    assert!(!body.contains("INV-003") && !body.contains("INV-004"), "{body}");
+    assert!(
+        body.contains("INV-001") && body.contains("INV-002"),
+        "{body}"
+    );
+    assert!(
+        !body.contains("INV-003") && !body.contains("INV-004"),
+        "{body}"
+    );
     assert!(body.contains("Rp 2.000.000"), "{body}");
 
     // The same bills are not the same news tomorrow.
@@ -251,7 +258,9 @@ async fn a_withholding_month_is_told_before_its_deadlines(pool: PgPool) {
     assert!(titles.contains(&"A tax payment is late"), "{titles:?}");
     assert!(titles.contains(&"A tax return is late"), "{titles:?}");
     assert!(told.iter().all(|(_, body, _)| body.contains("2026-08")));
-    assert!(told.iter().any(|(_, body, _)| body.contains("Rp 3.400.000")));
+    assert!(told
+        .iter()
+        .any(|(_, body, _)| body.contains("Rp 3.400.000")));
 
     let second = pass(&pool).await;
     assert_eq!(raised(job(&second, reminder::jobs::TAX_DEADLINE)), 0);

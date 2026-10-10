@@ -38,7 +38,7 @@ export interface NewAttendanceCorrection {
 
 /// One year's days off that apply at this person's place. `HolidayView` is
 /// the server's; only the regional days for other places have been dropped.
-/// `consumes_annual_leave` marks *cuti bersama*: a national day off that is
+/// `consumes_annual_leave` marks *collective leave*: a national day off that is
 /// deducted from annual leave, and neither an ordinary holiday nor ordinary
 /// leave.
 export interface HolidayCalendar {

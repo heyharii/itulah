@@ -21,9 +21,7 @@
 
 use super::{ExternalPlace, InventoryState, OperationalPool, Place, PoolRole, SystemPlace};
 
-pub use crate::edge::{
-    MovementCause, MovementCommand, MovementError, MovementLine, SubjectType,
-};
+pub use crate::edge::{MovementCause, MovementCommand, MovementError, MovementLine, SubjectType};
 
 pub fn validate_command(command: &MovementCommand) -> Result<(), MovementError> {
     if command.lines.is_empty() {
@@ -256,9 +254,14 @@ fn normal_pool_transition(from: &OperationalPool, to: &OperationalPool) -> bool 
         // carton, and therefore a destination, is chosen. The legacy
         // per-store pick leaves take no new writes, but what stands in them
         // may still be packed.
-        (Stockroom | Floor | Reject | Return, Picking) | (Picking, Stockroom) => {
-            !from.is_legacy_leaf() && !to.is_legacy_leaf()
-        }
+        //
+        // The Gudang takes its own work back before anything leaves
+        // (`cloud::dc::move_back`): a pick undone goes back to the room it
+        // was fetched from, and a carton opened again puts its pieces back
+        // in the pick area. Nothing ever goes back into a legacy leaf.
+        (Stockroom | Floor | Reject | Return, Picking)
+        | (Picking, Stockroom | Floor | Reject | Return)
+        | (Packed, Picking) => !from.is_legacy_leaf() && !to.is_legacy_leaf(),
         (Picking, Packed) if from.is_legacy_leaf() => same_destination(from, to),
         (_, Packed) => from.is_fulfillment_source_for(to.site_id()),
         // The centre never had a LOADED stage of its own; a shipment could
@@ -315,8 +318,14 @@ mod tests {
             ("dc.outbound.picking:on_hand", "dc.outbound.packed:on_hand"),
             ("dc.outbound.packed:on_hand", "dc.outbound.shipment:on_hand"),
             ("dc.outbound.shipment:on_hand", "dc.outbound.loaded:on_hand"),
-            ("dc.outbound.loaded:on_hand", "dc.outbound.in-transit:on_hand"),
-            ("dc.outbound.in-transit:on_hand", "store-07.warehouse:on_hand"),
+            (
+                "dc.outbound.loaded:on_hand",
+                "dc.outbound.in-transit:on_hand",
+            ),
+            (
+                "dc.outbound.in-transit:on_hand",
+                "store-07.warehouse:on_hand",
+            ),
             (
                 "dc.outbound.picked.store-07:on_hand",
                 "dc.outbound.packed.store-07:on_hand",
@@ -370,6 +379,48 @@ mod tests {
             &line("store-07.floor:on_hand", "store-07.reject:on_hand")
         )
         .is_err());
+    }
+
+    #[test]
+    fn a_move_back_reverses_a_pack_and_a_pick_and_nothing_else() {
+        let allowed = [
+            ("dc.outbound.packed:on_hand", "dc.outbound.picking:on_hand"),
+            ("dc.outbound.picking:on_hand", "dc.warehouse:on_hand"),
+            ("dc.outbound.picking:on_hand", "dc.reject:on_hand"),
+            ("dc.outbound.picking:on_hand", "dc.return.store-07:on_hand"),
+        ];
+        for (from, to) in allowed {
+            assert!(
+                validate_transition(MovementCause::NormalMove, &line(from, to)).is_ok(),
+                "{from} -> {to}"
+            );
+        }
+        let refused = [
+            // Only an unsent carton is opened again, never a later stage.
+            ("dc.outbound.shipment:on_hand", "dc.outbound.picking:on_hand"),
+            ("dc.outbound.in-transit:on_hand", "dc.outbound.picking:on_hand"),
+            // Nothing goes back into, or out of, a legacy per-store leaf.
+            (
+                "dc.outbound.packed.store-07:on_hand",
+                "dc.outbound.picking:on_hand",
+            ),
+            (
+                "dc.outbound.packed:on_hand",
+                "dc.outbound.picked.store-07:on_hand",
+            ),
+            // And never across sites.
+            (
+                "dc.outbound.packed:on_hand",
+                "store-07.outbound.picking:on_hand",
+            ),
+            ("dc.outbound.picking:on_hand", "store-07.warehouse:on_hand"),
+        ];
+        for (from, to) in refused {
+            assert!(
+                validate_transition(MovementCause::NormalMove, &line(from, to)).is_err(),
+                "{from} -> {to}"
+            );
+        }
     }
 
     #[test]

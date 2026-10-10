@@ -25,8 +25,7 @@
 
 /// The five rungs of the ladder, in order. REJECTED sits outside the flow and
 /// is deliberately absent: it is an exit, not a stage.
-pub const SUPPLY_STATUS_FLOW: &[&str] =
-    &["REQUESTED", "APPROVED", "ORDERED", "RECEIVED", "BILLED"];
+pub const SUPPLY_STATUS_FLOW: &[&str] = &["REQUESTED", "APPROVED", "ORDERED", "RECEIVED", "BILLED"];
 
 /// Whether a supply request may move from one state to the next.
 ///

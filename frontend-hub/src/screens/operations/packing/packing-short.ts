@@ -3,6 +3,7 @@ import { useMemo } from "react"
 
 import { dc } from "@/lib/api"
 import { keys } from "@/lib/operations/keys"
+import { koliQuery } from "@/lib/operations/queries"
 import { allotmentsUnfilled, inventoryKeys } from "@/lib/queries/inventory"
 import type { ClosedShortLine } from "@itulah/contract"
 
@@ -29,10 +30,7 @@ export function usePackingShort(): ReadonlyMap<string, number> {
     queryKey: inventoryKeys.allotmentsUnfilled(),
     queryFn: ({ signal }) => allotmentsUnfilled(signal),
   })
-  const list = useQuery({
-    queryKey: keys.koli(),
-    queryFn: ({ signal }) => dc.koli({}, signal),
-  })
+  const list = useQuery(koliQuery())
 
   const closed = useMemo(() => {
     const byAllotment = new Map<string, number>()

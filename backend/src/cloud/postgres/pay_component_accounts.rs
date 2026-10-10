@@ -60,9 +60,11 @@ fn to_row(row: &sqlx::postgres::PgRow) -> Result<PayComponentPosting, AppError> 
 }
 
 pub async fn pay_component_postings(pool: &PgPool) -> Result<Vec<PayComponentPosting>, AppError> {
-    let rows = sqlx::query(&format!("{ROWS} ORDER BY c.retired_at IS NOT NULL, c.kind, c.code"))
-        .fetch_all(pool)
-        .await?;
+    let rows = sqlx::query(&format!(
+        "{ROWS} ORDER BY c.retired_at IS NOT NULL, c.kind, c.code"
+    ))
+    .fetch_all(pool)
+    .await?;
     rows.iter().map(to_row).collect()
 }
 
@@ -83,7 +85,11 @@ pub async fn set_pay_component_posting(
     .execute(pool)
     .await
     .map_err(|error| match &error {
-        sqlx::Error::Database(db) if db.constraint().is_some_and(|c| c.starts_with("pay_component_")) => {
+        sqlx::Error::Database(db)
+            if db
+                .constraint()
+                .is_some_and(|c| c.starts_with("pay_component_")) =>
+        {
             AppError::Validation(
                 "only a deduction can be borne by the company, and only an earning can be paid \
                  from the accrual"

@@ -29,8 +29,8 @@ use http::Request;
 use inventory_backend::cloud::domain::{BreakerPolicy, IngestBatch, IngestResponse};
 use inventory_backend::cloud::{http as cloud_http, postgres as cloud, AppConfig, AppState};
 use inventory_backend::edge::{
-    store_router_with_auth, EdgeAuth, EdgeAuthConfig, EdgeInventory, EdgeRole, NodeContext,
-    SiteId, SqliteEdge, SqliteSyncStore,
+    store_router_with_auth, EdgeAuth, EdgeAuthConfig, EdgeInventory, EdgeRole, NodeContext, SiteId,
+    SqliteEdge, SqliteSyncStore,
 };
 use inventory_backend::sync::port::{SyncConfig, SyncTransport};
 use inventory_backend::sync::{run_cycle, CycleReport};
@@ -173,7 +173,8 @@ impl Phone {
                 .iter()
                 .find_map(|line| {
                     let pair = line.split(';').next()?;
-                    pair.starts_with(&format!("{name}=")).then(|| pair.to_owned())
+                    pair.starts_with(&format!("{name}="))
+                        .then(|| pair.to_owned())
                 })
                 .unwrap_or_else(|| panic!("no {name} cookie in {set_cookies:?}"))
         };
@@ -191,7 +192,12 @@ impl Phone {
             &[("cookie", self.cookies.clone())],
         )
         .await;
-        assert!(reply.status.is_success(), "GET {uri}: {} {}", reply.status, reply.body);
+        assert!(
+            reply.status.is_success(),
+            "GET {uri}: {} {}",
+            reply.status,
+            reply.body
+        );
         reply.body
     }
 }
@@ -305,7 +311,10 @@ impl SyncTransport for IngestOverHttp {
             .await
             .map_err(|e| e.to_string())?;
         if !status.is_success() {
-            return Err(format!("ingest {status}: {}", String::from_utf8_lossy(&bytes)));
+            return Err(format!(
+                "ingest {status}: {}",
+                String::from_utf8_lossy(&bytes)
+            ));
         }
         serde_json::from_slice(&bytes).map_err(|e| e.to_string())
     }
@@ -314,7 +323,13 @@ impl SyncTransport for IngestOverHttp {
 /// Head office prices the SKU and runs a points offer: one point per
 /// Rp 10.000 of goods (tax excluded), the same shape the live stack runs.
 async fn publish_points_book(fleet: &Fleet) {
-    let availability = ok(fleet.cloud_router(), "GET", "/api/v1/inventory/availability", None).await;
+    let availability = ok(
+        fleet.cloud_router(),
+        "GET",
+        "/api/v1/inventory/availability",
+        None,
+    )
+    .await;
     let sku_id = availability["items"]
         .as_array()
         .unwrap_or_else(|| panic!("no availability: {availability}"))
@@ -351,7 +366,10 @@ async fn publish_points_book(fleet: &Fleet) {
         })),
     )
     .await;
-    let id = draft["id"].as_str().unwrap_or_else(|| panic!("no id: {draft}")).to_owned();
+    let id = draft["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no id: {draft}"))
+        .to_owned();
     let published = ok(
         fleet.cloud_router(),
         "POST",
@@ -359,7 +377,11 @@ async fn publish_points_book(fleet: &Fleet) {
         Some(json!({"actor_id": "merchandiser-1", "idempotency_key": "points-book-publish"})),
     )
     .await;
-    assert_eq!(published["delivered_to"], json!([STORE_ORIGIN]), "{published}");
+    assert_eq!(
+        published["delivered_to"],
+        json!([STORE_ORIGIN]),
+        "{published}"
+    );
 }
 
 async fn stock(fleet: &Fleet, epc: &str) {
@@ -434,7 +456,12 @@ async fn a_sale_at_the_till_becomes_points_on_the_members_phone(pool: PgPool) {
         &[],
     )
     .await;
-    assert!(paired.status.is_success(), "pairing: {} {}", paired.status, paired.body);
+    assert!(
+        paired.status.is_success(),
+        "pairing: {} {}",
+        paired.status,
+        paired.body
+    );
     let phone = Phone::from(&paired.set_cookies);
 
     publish_points_book(&fleet).await;
@@ -446,13 +473,24 @@ async fn a_sale_at_the_till_becomes_points_on_the_members_phone(pool: PgPool) {
     let sale = sell(&fleet, &["EPC-CHAIN-1", "EPC-CHAIN-2"], "chain-sale-1").await;
     assert_eq!(sale["total_minor"], json!(300_000), "{sale}");
     // 300.000 incl. 11% PPN is 270.270 of goods: 27 whole points.
-    assert_eq!(sale["points_earned"], json!(27), "the till computed the award: {sale}");
-    let sale_id = sale["sale_id"].as_str().unwrap_or_else(|| panic!("{sale}")).to_owned();
+    assert_eq!(
+        sale["points_earned"],
+        json!(27),
+        "the till computed the award: {sale}"
+    );
+    let sale_id = sale["sale_id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{sale}"))
+        .to_owned();
 
     // Before the shop has synced, the centre has not accepted anything, and
     // the phone must not show points nobody has validated yet.
     let before = phone.get(&fleet, "/api/v1/member/points").await;
-    assert_ne!(before["balance_points"], json!(27), "points before the centre took the sale: {before}");
+    assert_ne!(
+        before["balance_points"],
+        json!(27),
+        "points before the centre took the sale: {before}"
+    );
     let summary = phone.get(&fleet, "/api/v1/member/summary").await;
     assert_eq!(summary["transaction_count"], json!(0), "{summary}");
 
@@ -480,21 +518,43 @@ async fn a_sale_at_the_till_becomes_points_on_the_members_phone(pool: PgPool) {
     assert_eq!(summary["spent_minor"], json!(300_000), "{summary}");
     assert_eq!(summary["points_earned_total"], json!(27), "{summary}");
 
-    let history = phone.get(&fleet, "/api/v1/member/transactions?limit=5").await;
-    assert_eq!(history["transactions"][0]["sale_id"], json!(sale_id), "{history}");
-    assert_eq!(history["transactions"][0]["status"], json!("COMPLETED"), "{history}");
+    let history = phone
+        .get(&fleet, "/api/v1/member/transactions?limit=5")
+        .await;
+    assert_eq!(
+        history["transactions"][0]["sale_id"],
+        json!(sale_id),
+        "{history}"
+    );
+    assert_eq!(
+        history["transactions"][0]["status"],
+        json!("COMPLETED"),
+        "{history}"
+    );
 
     let receipt = phone
         .get(&fleet, &format!("/api/v1/member/transactions/{sale_id}"))
         .await;
-    assert_eq!(receipt["lines"].as_array().map(Vec::len), Some(2), "{receipt}");
+    assert_eq!(
+        receipt["lines"].as_array().map(Vec::len),
+        Some(2),
+        "{receipt}"
+    );
 
     // ── a lost acknowledgement: the till retries, the worker runs again ──
     let replay = sell(&fleet, &["EPC-CHAIN-1", "EPC-CHAIN-2"], "chain-sale-1").await;
-    assert_eq!(replay["sale_id"], json!(sale_id), "a retry is the same sale");
+    assert_eq!(
+        replay["sale_id"],
+        json!(sale_id),
+        "a retry is the same sale"
+    );
     fleet.sync().await;
     let points = phone.get(&fleet, "/api/v1/member/points").await;
-    assert_eq!(points["balance_points"], json!(27), "one sale earns once: {points}");
+    assert_eq!(
+        points["balance_points"],
+        json!(27),
+        "one sale earns once: {points}"
+    );
 
     // ── the next purchase adds to the same balance ────────────────────────
     stock(&fleet, "EPC-CHAIN-3").await;

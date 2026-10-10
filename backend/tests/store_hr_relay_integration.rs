@@ -8,16 +8,15 @@
 //! sign in there — and to the bound it then imposes: the node's own place for
 //! HR, the node's own site for GA, whatever the person could reach elsewhere.
 
-use axum::body::{Body, to_bytes};
-use http::{Request, StatusCode, header};
+use axum::body::{to_bytes, Body};
+use http::{header, Request, StatusCode};
 use inventory_backend::cloud::{
-    AppConfig, AppState,
     application::{CreateUserRequest, UpsertEdgeAssignmentRequest},
     domain::Role,
-    http as cloud_http, postgres as cloud,
+    http as cloud_http, postgres as cloud, AppConfig, AppState,
 };
 use inventory_backend::security;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use sqlx::PgPool;
 use std::{net::SocketAddr, path::PathBuf};
 use tower::ServiceExt;

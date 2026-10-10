@@ -26,11 +26,11 @@
 use super::{post, PostingIntent, PostingLine};
 use crate::cloud::application::AppError;
 use crate::cloud::domain::{
-    AllowanceCode, AttendanceMonth, Authorization, BankAccount, ComponentBase, ComponentBasis,
-    CountedUnit, FixedAllowance, HandoverState, IdentityAmendment, PayError, PayRecord,
-    PayTimeline, PayrollHandover, PayrollHandoverLine, PayrollHandoverWire, PayrollIdentity,
-    PayrollRun, PayrollRunWire, UnitId, RunEvent, RunState, SlipComputation, SlipFacts, SlipLine,
-    statutory, BpjsRates, ComponentInForce, PtkpStatus, TaxMethod, TerCategory,
+    statutory, AllowanceCode, AttendanceMonth, Authorization, BankAccount, BpjsRates,
+    ComponentBase, ComponentBasis, ComponentInForce, CountedUnit, FixedAllowance, HandoverState,
+    IdentityAmendment, PayError, PayRecord, PayTimeline, PayrollHandover, PayrollHandoverLine,
+    PayrollHandoverWire, PayrollIdentity, PayrollRun, PayrollRunWire, PtkpStatus, RunEvent,
+    RunState, SlipComputation, SlipFacts, SlipLine, TaxMethod, TerCategory, UnitId,
 };
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use pricing_engine::Money;
@@ -609,7 +609,8 @@ async fn write_slip_lines(
             // a BPJS share) and nothing else; every other shape without a
             // basis carries none.
             _ => (
-                line.statutory_rate_bp().and_then(|bp| i32::try_from(bp).ok()),
+                line.statutory_rate_bp()
+                    .and_then(|bp| i32::try_from(bp).ok()),
                 None,
                 None,
                 None,
@@ -785,7 +786,10 @@ async fn paid_month(
         base_sum += prorate(*base, *days);
         for allowance in allowances {
             let weighted = prorate(allowance.amount().minor, *days);
-            match allowance_sums.iter_mut().find(|(code, _)| code == allowance.code()) {
+            match allowance_sums
+                .iter_mut()
+                .find(|(code, _)| code == allowance.code())
+            {
                 Some((_, sum)) => *sum += weighted,
                 None => allowance_sums.push((allowance.code().clone(), weighted)),
             }
@@ -804,9 +808,9 @@ async fn paid_month(
         }
     }
     let (_, last_base, last_allowances) = &in_force[last];
-    let wage = last_allowances
-        .iter()
-        .fold(*last_base, |sum, allowance| sum.saturating_add(allowance.amount().minor));
+    let wage = last_allowances.iter().fold(*last_base, |sum, allowance| {
+        sum.saturating_add(allowance.amount().minor)
+    });
 
     Ok(Some(PaidMonth {
         days_paid,
@@ -925,7 +929,8 @@ async fn bpjs_rates_in_force(
         // statement this system has.
         return Ok(BpjsRates::default());
     };
-    let bp = |column: &str| -> Result<i64, AppError> { Ok(i64::from(row.try_get::<i32, _>(column)?)) };
+    let bp =
+        |column: &str| -> Result<i64, AppError> { Ok(i64::from(row.try_get::<i32, _>(column)?)) };
     Ok(BpjsRates {
         kesehatan_company_bp: bp("kesehatan_company_bp")?,
         kesehatan_employee_bp: bp("kesehatan_employee_bp")?,
@@ -1072,7 +1077,12 @@ fn statutory_lines(
             in_force.component.code().as_str() == code && !in_force.component.is_retired()
         });
         match found {
-            Some(in_force) => lines.push(SlipLine::statutory(&in_force.component, amount, base_of, rate)),
+            Some(in_force) => lines.push(SlipLine::statutory(
+                &in_force.component,
+                amount,
+                base_of,
+                rate,
+            )),
             None => blocked.push(format!(
                 "the statutory component {code} is missing or retired, so its figure was not \
                  put on the slip"
@@ -1082,18 +1092,58 @@ fn statutory_lines(
     // BPJS, only for the programmes the person is enrolled in.
     if contribution.kesehatan_base.minor > 0 {
         let base = Some(contribution.kesehatan_base);
-        push("BPJS_KES", contribution.kesehatan_employee, base, Some(rates.kesehatan_employee_bp));
-        push("BPJS_KES_CO", contribution.kesehatan_company, base, Some(rates.kesehatan_company_bp));
+        push(
+            "BPJS_KES",
+            contribution.kesehatan_employee,
+            base,
+            Some(rates.kesehatan_employee_bp),
+        );
+        push(
+            "BPJS_KES_CO",
+            contribution.kesehatan_company,
+            base,
+            Some(rates.kesehatan_company_bp),
+        );
     }
     if contribution.jp_base.minor > 0 {
         let wage = Some(contribution.wage);
         let jp = Some(contribution.jp_base);
-        push("BPJS_JHT", contribution.jht_employee, wage, Some(rates.jht_employee_bp));
-        push("BPJS_JHT_CO", contribution.jht_company, wage, Some(rates.jht_company_bp));
-        push("BPJS_JP", contribution.jp_employee, jp, Some(rates.jp_employee_bp));
-        push("BPJS_JP_CO", contribution.jp_company, jp, Some(rates.jp_company_bp));
-        push("BPJS_JKK_CO", contribution.jkk_company, wage, Some(rates.jkk_bp));
-        push("BPJS_JKM_CO", contribution.jkm_company, wage, Some(rates.jkm_bp));
+        push(
+            "BPJS_JHT",
+            contribution.jht_employee,
+            wage,
+            Some(rates.jht_employee_bp),
+        );
+        push(
+            "BPJS_JHT_CO",
+            contribution.jht_company,
+            wage,
+            Some(rates.jht_company_bp),
+        );
+        push(
+            "BPJS_JP",
+            contribution.jp_employee,
+            jp,
+            Some(rates.jp_employee_bp),
+        );
+        push(
+            "BPJS_JP_CO",
+            contribution.jp_company,
+            jp,
+            Some(rates.jp_company_bp),
+        );
+        push(
+            "BPJS_JKK_CO",
+            contribution.jkk_company,
+            wage,
+            Some(rates.jkk_bp),
+        );
+        push(
+            "BPJS_JKM_CO",
+            contribution.jkm_company,
+            wage,
+            Some(rates.jkm_bp),
+        );
     }
 
     // THR: base_of is the month's wage and the rate is the months counted out
@@ -1113,7 +1163,12 @@ fn statutory_lines(
     if tax.tax.minor < 0 {
         // The year withheld more than it owed: the excess goes back to the
         // employee, on the slip as an earning.
-        push("PPH21_RETURN", Money::new(-tax.tax.minor), Some(tax.taxable_gross), None);
+        push(
+            "PPH21_RETURN",
+            Money::new(-tax.tax.minor),
+            Some(tax.taxable_gross),
+            None,
+        );
     } else {
         let code = match method {
             TaxMethod::Netto => "PPH21_CO",
@@ -1203,9 +1258,15 @@ pub async fn build_slips(
         // The days this person was posted here on an agreement, and what those
         // days were worth. Somebody with no agreement on any of them gets no
         // slip: a zero-pay line reads as "owed nothing", which is a claim.
-        let Some(paid) =
-            paid_month(tx, &employee_id, run.unit(), first_day, next_month, &schedule.prorate_basis)
-                .await?
+        let Some(paid) = paid_month(
+            tx,
+            &employee_id,
+            run.unit(),
+            first_day,
+            next_month,
+            &schedule.prorate_basis,
+        )
+        .await?
         else {
             continue;
         };
@@ -1292,9 +1353,21 @@ pub async fn build_slips(
         .await?;
         let absence = match &absence_rule {
             Some(rule) if rule.enabled && absent > 0 => {
-                let of = if rule.basis == "WAGE" { paid.wage } else { paid.monthly_base };
-                let divisor = rule.divisor_days.map_or(paid.days_in_month, i64::from).max(1);
-                Some((Money::new(of * absent / divisor), Money::new(of), absent, divisor))
+                let of = if rule.basis == "WAGE" {
+                    paid.wage
+                } else {
+                    paid.monthly_base
+                };
+                let divisor = rule
+                    .divisor_days
+                    .map_or(paid.days_in_month, i64::from)
+                    .max(1);
+                Some((
+                    Money::new(of * absent / divisor),
+                    Money::new(of),
+                    absent,
+                    divisor,
+                ))
             }
             _ => None,
         };
@@ -1318,8 +1391,7 @@ pub async fn build_slips(
         // rides the slip the way a hand-filed kasbon recovery does (0804).
         file_loan_instalment(tx, run.unit().as_str(), first_day, &employee_id).await?;
         let adjustments =
-            super::components::adjustments_for_run(tx, run.unit(), first_day, &employee_id)
-                .await?;
+            super::components::adjustments_for_run(tx, run.unit(), first_day, &employee_id).await?;
 
         // A component whose code is a fixed allowance in a pay agreement is a
         // per-person allowance: its figure is the agreement's, already in the
@@ -1336,7 +1408,10 @@ pub async fn build_slips(
                 if !in_force.component.shape().has_standing_rate() {
                     return true;
                 }
-                if allowances.iter().any(|allowance| allowance.code().as_str() == code) {
+                if allowances
+                    .iter()
+                    .any(|allowance| allowance.code().as_str() == code)
+                {
                     return false;
                 }
                 in_force.rate.is_some() || !agreement_codes.contains(code)
@@ -1346,8 +1421,9 @@ pub async fn build_slips(
 
         // Twice through the engine: once for the cash gross the tax is levied
         // on, then again with the statutory lines that gross decided.
-        let cash = SlipComputation::compute(Money::new(statutory_base), &facts, &catalogue, &adjustments)
-            .map_err(super::components::component_error)?;
+        let cash =
+            SlipComputation::compute(Money::new(statutory_base), &facts, &catalogue, &adjustments)
+                .map_err(super::components::component_error)?;
         let identity = statutory_identity(tx, &employee_id).await?;
         let contribution = statutory::bpjs(Money::new(paid.wage), &rates, identity.enrolment);
         // THR, when this run carries it (0801): the wage of the agreement in
@@ -1367,8 +1443,7 @@ pub async fn build_slips(
         // An absence is pay never earned, so it comes off the taxable gross.
         let absence_amount = absence.map_or(0, |(amount, _, _, _)| amount.minor);
         let taxable = Money::new(
-            cash.gross().minor + thr_amount + contribution.taxable_benefit().minor
-                - absence_amount,
+            cash.gross().minor + thr_amount + contribution.taxable_benefit().minor - absence_amount,
         );
         let final_month = is_final_tax_month(tx, &employee_id, first_day, next_month).await?;
         let tax = match identity.ptkp {
@@ -1389,8 +1464,14 @@ pub async fn build_slips(
             )),
             None => None,
         };
-        let (mut lines, blocked) =
-            statutory_lines(&catalogue, &rates, &contribution, tax.as_ref(), identity.method, thr);
+        let (mut lines, blocked) = statutory_lines(
+            &catalogue,
+            &rates,
+            &contribution,
+            tax.as_ref(),
+            identity.method,
+            thr,
+        );
         let mut blocked = blocked;
         if let Some((amount, of, days, divisor)) = absence {
             if amount.minor > 0 {
@@ -2408,9 +2489,8 @@ async fn payroll_accrual_lines(
     }
 
     let mut lines = Vec::new();
-    let signed = |amount: i64, line: PostingLine| -> Option<PostingLine> {
-        (amount != 0).then_some(line)
-    };
+    let signed =
+        |amount: i64, line: PostingLine| -> Option<PostingLine> { (amount != 0).then_some(line) };
     for (code, amount) in &earnings {
         let line = if *amount > 0 {
             PostingLine::debit("payroll_expense", unit_id, *amount)
@@ -2420,9 +2500,13 @@ async fn payroll_accrual_lines(
         lines.extend(signed(*amount, line.from_source("PAY_COMPONENT", code)));
     }
     if base_pay > 0 {
-        lines.push(PostingLine::debit("payroll_expense", unit_id, base_pay).with_qualifier("SALARY"));
+        lines.push(
+            PostingLine::debit("payroll_expense", unit_id, base_pay).with_qualifier("SALARY"),
+        );
     } else if base_pay < 0 {
-        lines.push(PostingLine::credit("payroll_expense", unit_id, -base_pay).with_qualifier("SALARY"));
+        lines.push(
+            PostingLine::credit("payroll_expense", unit_id, -base_pay).with_qualifier("SALARY"),
+        );
     }
     if from_accrual > 0 {
         // THR comes out of what was accrued for it — the unit's thr_payable
@@ -2480,7 +2564,9 @@ async fn payroll_accrual_lines(
         lines.push(PostingLine::debit("payroll_payable", unit_id, -net));
     }
     if thr_accrual > 0 {
-        lines.push(PostingLine::debit("payroll_expense", unit_id, thr_accrual).with_qualifier("THR"));
+        lines.push(
+            PostingLine::debit("payroll_expense", unit_id, thr_accrual).with_qualifier("THR"),
+        );
         lines.push(PostingLine::credit("thr_payable", unit_id, thr_accrual));
     }
     for (code, amount) in &borne {
@@ -3079,7 +3165,9 @@ pub async fn hold_pay(
     .fetch_one(pool)
     .await?;
     if !on_run {
-        return Err(AppError::NotFound(format!("{employee_id} has no slip on {run_id}")));
+        return Err(AppError::NotFound(format!(
+            "{employee_id} has no slip on {run_id}"
+        )));
     }
     let written = sqlx::query(
         "INSERT INTO payroll_withholding (run_id, employee_id, withheld)
@@ -3419,7 +3507,10 @@ const LOAN_SELECT: &str = "
       JOIN employee e ON e.id = p.employee_id
       LEFT JOIN employee_profile pr ON pr.employee_id = p.employee_id";
 
-async fn loan_rows(pool: &PgPool, rows: Vec<sqlx::postgres::PgRow>) -> Result<Vec<LoanView>, AppError> {
+async fn loan_rows(
+    pool: &PgPool,
+    rows: Vec<sqlx::postgres::PgRow>,
+) -> Result<Vec<LoanView>, AppError> {
     let mut loans = Vec::with_capacity(rows.len());
     for row in rows {
         let advance_id: Uuid = row.try_get("advance_id")?;
@@ -3442,7 +3533,11 @@ async fn loan_rows(pool: &PgPool, rows: Vec<sqlx::postgres::PgRow>) -> Result<Ve
         .map(|r| {
             let kind: String = r.try_get("kind")?;
             Ok(LoanRepayment {
-                period: if kind == "PAYROLL" { r.try_get("note")? } else { None },
+                period: if kind == "PAYROLL" {
+                    r.try_get("note")?
+                } else {
+                    None
+                },
                 kind,
                 amount_minor: r.try_get("amount_minor")?,
                 at: r.try_get("settled_at")?,
@@ -3466,7 +3561,9 @@ async fn loan_rows(pool: &PgPool, rows: Vec<sqlx::postgres::PgRow>) -> Result<Ve
             outstanding_minor: outstanding,
             instalments_left: (to_go + instalment - 1) / instalment,
             stopped: row.try_get("stopped")?,
-            granted_by: row.try_get::<Option<String>, _>("granted_by")?.unwrap_or_default(),
+            granted_by: row
+                .try_get::<Option<String>, _>("granted_by")?
+                .unwrap_or_default(),
             repayments,
         });
     }
@@ -3594,7 +3691,9 @@ pub async fn stop_loan(
     .fetch_optional(pool)
     .await?;
     employee.ok_or_else(|| {
-        AppError::Conflict("no running loan by that id: it does not exist or is already stopped".into())
+        AppError::Conflict(
+            "no running loan by that id: it does not exist or is already stopped".into(),
+        )
     })
 }
 

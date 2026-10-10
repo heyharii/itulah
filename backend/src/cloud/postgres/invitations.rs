@@ -163,7 +163,11 @@ impl MintedInvitation {
             None => (origin, String::new()),
         };
         IssuedInvitation {
-            link: format!("{}/join/{}{query}", origin.trim_end_matches('/'), self.token),
+            link: format!(
+                "{}/join/{}{query}",
+                origin.trim_end_matches('/'),
+                self.token
+            ),
             invitation_id: self.invitation_id,
             employee_id: self.employee_id,
             name: self.name,
@@ -192,7 +196,9 @@ fn invalid(error: impl std::fmt::Display) -> AppError {
 fn trimmed(value: &str, what: &str, max: usize) -> Result<String, AppError> {
     let value = value.trim();
     if value.is_empty() || value.chars().count() > max {
-        return Err(AppError::Validation(format!("{what} is 1-{max} characters")));
+        return Err(AppError::Validation(format!(
+            "{what} is 1-{max} characters"
+        )));
     }
     Ok(value.to_owned())
 }
@@ -242,7 +248,12 @@ async fn suggest_username(
             return Ok(candidate);
         }
     }
-    let tail: String = Uuid::new_v4().simple().to_string().chars().take(4).collect();
+    let tail: String = Uuid::new_v4()
+        .simple()
+        .to_string()
+        .chars()
+        .take(4)
+        .collect();
     Ok(format!("{base}{tail}"))
 }
 
@@ -311,7 +322,11 @@ pub async fn invite_tx(
     let employee_id = format!("emp_{simple}");
     let code = format!(
         "ITL-{}",
-        simple.chars().take(8).collect::<String>().to_ascii_uppercase()
+        simple
+            .chars()
+            .take(8)
+            .collect::<String>()
+            .to_ascii_uppercase()
     );
     let employee = Employee::try_register(&employee_id, &code).map_err(invalid)?;
     super::register_employee_tx(tx, &employee).await?;
@@ -447,7 +462,13 @@ pub async fn list_invitations(
           LIMIT 1000"
     ))
     .bind(status)
-    .bind(scope.unit_id.as_deref().map(str::trim).filter(|u| !u.is_empty()))
+    .bind(
+        scope
+            .unit_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|u| !u.is_empty()),
+    )
     .fetch_all(pool)
     .await?;
     Ok(InvitationList {
@@ -649,12 +670,12 @@ pub async fn preview_invitation(pool: &PgPool, token: &str) -> Result<Invitation
 /// Whether a token names an invitation at all, for the limiter: a miss is
 /// what a guesser produces.
 pub async fn token_exists(pool: &PgPool, token: &str) -> Result<bool, AppError> {
-    Ok(sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM user_invitation WHERE token_sha256 = $1)",
+    Ok(
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM user_invitation WHERE token_sha256 = $1)")
+            .bind(security::sha256_hex(token.trim()))
+            .fetch_one(pool)
+            .await?,
     )
-    .bind(security::sha256_hex(token.trim()))
-    .fetch_one(pool)
-    .await?)
 }
 
 /// Accept: the login, the binding, the hire, the servers and the session,
@@ -715,8 +736,9 @@ pub async fn accept_invitation(
     };
     let auth_version: i64 = created.try_get("auth_version")?;
 
-    let linked = Authorization::try_new(&open.created_by, actions::ACCOUNT_PROVISION, now, &because)
-        .map_err(invalid)?;
+    let linked =
+        Authorization::try_new(&open.created_by, actions::ACCOUNT_PROVISION, now, &because)
+            .map_err(invalid)?;
     super::bind_new_account(&mut tx, &open.employee_id, user_id, &linked).await?;
 
     // They have joined: a candidate is hired from today. Somebody HR already
@@ -758,10 +780,9 @@ pub async fn accept_invitation(
     .bind(user_id)
     .fetch_one(&mut *tx)
     .await?;
-    let role: Role = me
-        .try_get::<String, _>("role")?
-        .parse()
-        .map_err(|error: crate::cloud::domain::AuthError| AppError::Configuration(error.to_string()))?;
+    let role: Role = me.try_get::<String, _>("role")?.parse().map_err(
+        |error: crate::cloud::domain::AuthError| AppError::Configuration(error.to_string()),
+    )?;
     let job = super::job_grant_of(&me)?;
     tx.commit().await?;
 

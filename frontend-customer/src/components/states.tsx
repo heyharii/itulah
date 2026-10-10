@@ -1,9 +1,24 @@
-import { Inbox, RefreshCw } from "lucide-react"
+import { Inbox, Loader2, RefreshCw } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { ListGroup } from "@/components/ui/list"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ApiError } from "@itulah/contract/client"
+
+/// What a route shows while its code arrives.
+///
+/// The seven screens each ship as their own chunk (`router.tsx` lazy-loads
+/// them), and the gap between a tab press and that chunk is this: the page,
+/// grey as it ever is, and one spinner. Nothing else — the shell around the
+/// route keeps still, so the only thing that moves is the thing that is
+/// missing.
+export function RoutePending() {
+  return (
+    <div className="flex min-h-svh items-center justify-center" role="status">
+      <Loader2 aria-hidden className="size-5 animate-spin text-mute" />
+    </div>
+  )
+}
 
 /// Placeholder rows in the shape of the rows that are coming, so the list
 /// does not jump when they land.

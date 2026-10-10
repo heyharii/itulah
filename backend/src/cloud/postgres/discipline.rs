@@ -45,14 +45,19 @@ fn letter(row: &sqlx::postgres::PgRow) -> Result<WarningLetterView, AppError> {
         issued_on: row.try_get("issued_on")?,
         valid_until: row.try_get("valid_until")?,
         violation: row.try_get("violation")?,
-        issued_by: row.try_get::<Option<String>, _>("issued_by")?.unwrap_or_default(),
+        issued_by: row
+            .try_get::<Option<String>, _>("issued_by")?
+            .unwrap_or_default(),
         acknowledged_at: row.try_get("acknowledged_at")?,
         revoked: row.try_get("revoked")?,
         active: row.try_get("active")?,
     })
 }
 
-pub async fn warning_letters_of(pool: &PgPool, employee_id: &str) -> Result<Vec<WarningLetterView>, AppError> {
+pub async fn warning_letters_of(
+    pool: &PgPool,
+    employee_id: &str,
+) -> Result<Vec<WarningLetterView>, AppError> {
     let rows = sqlx::query(&format!(
         "{LETTER_SELECT} WHERE w.employee_id = $1 ORDER BY w.issued_on DESC, w.created_at DESC"
     ))
@@ -97,14 +102,18 @@ pub async fn issue_warning_letter(
 ) -> Result<String, AppError> {
     let level = level.trim().to_ascii_uppercase();
     if !["TEGURAN", "SP1", "SP2", "SP3"].contains(&level.as_str()) {
-        return Err(AppError::Validation("a letter is TEGURAN, SP1, SP2 or SP3".into()));
+        return Err(AppError::Validation(
+            "a letter is TEGURAN, SP1, SP2 or SP3".into(),
+        ));
     }
     if violation.trim().is_empty() {
         return Err(AppError::Validation("say what was done".into()));
     }
     let months = valid_months.unwrap_or(6);
     if !(1..=12).contains(&months) {
-        return Err(AppError::Validation("a letter is in force 1 to 12 months".into()));
+        return Err(AppError::Validation(
+            "a letter is in force 1 to 12 months".into(),
+        ));
     }
     let valid_until = issued_on
         .checked_add_months(Months::new(months))
@@ -129,13 +138,19 @@ pub async fn issue_warning_letter(
 
 /// Whose letter it is.
 pub async fn warning_letter_employee(pool: &PgPool, id: &str) -> Result<Option<String>, AppError> {
-    Ok(sqlx::query_scalar("SELECT employee_id FROM warning_letter WHERE id = $1")
-        .bind(id)
-        .fetch_optional(pool)
-        .await?)
+    Ok(
+        sqlx::query_scalar("SELECT employee_id FROM warning_letter WHERE id = $1")
+            .bind(id)
+            .fetch_optional(pool)
+            .await?,
+    )
 }
 
-pub async fn acknowledge_warning_letter(pool: &PgPool, id: &str, employee_id: &str) -> Result<(), AppError> {
+pub async fn acknowledge_warning_letter(
+    pool: &PgPool,
+    id: &str,
+    employee_id: &str,
+) -> Result<(), AppError> {
     let done = sqlx::query(
         "UPDATE warning_letter SET acknowledged_at = now()
           WHERE id = $1 AND employee_id = $2 AND acknowledged_at IS NULL AND revoked_at IS NULL",
@@ -152,7 +167,11 @@ pub async fn acknowledge_warning_letter(pool: &PgPool, id: &str, employee_id: &s
     Ok(())
 }
 
-pub async fn revoke_warning_letter(pool: &PgPool, id: &str, revoked: &Authorization) -> Result<(), AppError> {
+pub async fn revoke_warning_letter(
+    pool: &PgPool,
+    id: &str,
+    revoked: &Authorization,
+) -> Result<(), AppError> {
     let done = sqlx::query(
         "UPDATE warning_letter SET revoked_at = now(), revoked = $2
           WHERE id = $1 AND revoked_at IS NULL",

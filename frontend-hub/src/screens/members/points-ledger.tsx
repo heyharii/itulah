@@ -10,6 +10,7 @@ import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { Tag } from "@/components/ui/tag"
 import { EmptyState, LoadMore } from "@/components/ui/states"
 import { count, moment } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   describeEntryType,
   listPointsLedger,
@@ -18,6 +19,12 @@ import {
 } from "@/lib/queries/points"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
+import {
+  CardFigure,
+  CardFoot,
+  CardName,
+  PhoneCard,
+} from "@/components/ui/phone-cards"
 
 /// Points Ledger — every movement, newest first.
 ///
@@ -49,6 +56,8 @@ function causeOf(entry: PointsEntry): { what: string; id: string } | null {
 }
 
 export function PointsLedger() {
+  // A phone draws a card per movement, with the signed points as the figure.
+  const phone = useLayout() === "phone"
   const customer = useSheet("customer")
 
   /// Newest first, a page at a time as the foot of the list comes into view.
@@ -75,7 +84,7 @@ export function PointsLedger() {
         title="Points Ledger"
         sub="Every points movement and what caused it. The balances on Points are a summary of this list, never the other way round."
         actions={
-          customer.value === undefined ? undefined : (
+          customer.value === undefined || phone ? undefined : (
             <button
               type="button"
               onClick={customer.close}
@@ -93,10 +102,19 @@ export function PointsLedger() {
           <AppLink to="/members/points" className="text-accent">
             Back to balances
           </AppLink>
+          {phone && (
+            <button
+              type="button"
+              onClick={customer.close}
+              className="text-accent underline underline-offset-2"
+            >
+              Show every member
+            </button>
+          )}
         </p>
       )}
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(list, {
           loading: "Reading the points ledger…",
           render: () =>
@@ -108,73 +126,116 @@ export function PointsLedger() {
               </EmptyState>
             ) : (
               <>
-                <MiniTable
-                  head={[
-                    { label: "When", align: "left" },
-                    "Member",
-                    { label: "What", align: "left" },
-                    { label: "Points", align: "right" },
-                    { label: "Caused by", align: "right" },
-                  ]}
-                >
-                  {entries.map((entry) => (
-                    <MiniRow key={entry.entry_id}>
-                      <MiniCell>
-                        <span className="text-[0.875rem] text-body">
-                          {moment(entry.created_at)}
-                        </span>
-                      </MiniCell>
-                      <MiniCell>
-                        <span className="block truncate text-ink">
-                          {entry.display_name ?? entry.customer_id}
-                        </span>
-                      </MiniCell>
-                      <MiniCell>
-                        <span className="text-body">
-                          {describeEntryType(entry.entry_type)}
-                        </span>
-                        {entry.reason !== null && (
-                          <span className="block truncate text-[0.875rem] text-mute">
-                            {entry.reason}
-                          </span>
-                        )}
-                      </MiniCell>
-                      <MiniCell align="right">
-                        {/* Signed and coloured, so the column reads as
-                          arithmetic rather than as a list of magnitudes. */}
-                        <span
-                          className={
-                            entry.points < 0
-                              ? "text-bad tabular-nums"
-                              : "text-ok tabular-nums"
+                {phone ? (
+                  <ul className="flex flex-col gap-2.5">
+                    {entries.map((entry) => {
+                      const cause = causeOf(entry)
+                      return (
+                        <PhoneCard
+                          key={entry.entry_id}
+                          head={
+                            <CardName
+                              name={entry.display_name ?? entry.customer_id}
+                              line={
+                                <>
+                                  {describeEntryType(entry.entry_type)}
+                                  {entry.reason !== null &&
+                                    ` · ${entry.reason}`}
+                                </>
+                              }
+                            />
                           }
-                        >
-                          {entry.points < 0 ? "−" : "+"}
-                          {count(Math.abs(entry.points))}
-                        </span>
-                      </MiniCell>
-                      <MiniCell align="right">
-                        {(() => {
-                          const cause = causeOf(entry)
-                          return cause === null ? (
-                            // An adjustment names no record, and that is exactly
-                            // when the actor matters: somebody did this by hand.
-                            <span className="text-[0.875rem] text-mute">
-                              by {entry.actor}
-                            </span>
-                          ) : (
-                            <span className="flex flex-col items-end leading-tight">
+                          lead={
+                            <CardFigure
+                              value={`${entry.points < 0 ? "−" : "+"}${count(Math.abs(entry.points))}`}
+                              caption="points"
+                              tone={entry.points < 0 ? "bad" : undefined}
+                            />
+                          }
+                          foot={
+                            <CardFoot>
+                              {moment(entry.created_at)}
+                              {cause === null ? ` · by ${entry.actor}` : ""}
+                            </CardFoot>
+                          }
+                          action={
+                            cause === null ? undefined : (
                               <Pill tone="neutral">{cause.what}</Pill>
-                              <span className="font-mono text-[0.875rem] text-mute">
-                                {cause.id.slice(0, 8)}
-                              </span>
+                            )
+                          }
+                        />
+                      )
+                    })}
+                  </ul>
+                ) : (
+                  <MiniTable
+                    head={[
+                      { label: "When", align: "left" },
+                      "Member",
+                      { label: "What", align: "left" },
+                      { label: "Points", align: "right" },
+                      { label: "Caused by", align: "right" },
+                    ]}
+                  >
+                    {entries.map((entry) => (
+                      <MiniRow key={entry.entry_id}>
+                        <MiniCell>
+                          <span className="text-[0.875rem] text-body">
+                            {moment(entry.created_at)}
+                          </span>
+                        </MiniCell>
+                        <MiniCell>
+                          <span className="block truncate text-ink">
+                            {entry.display_name ?? entry.customer_id}
+                          </span>
+                        </MiniCell>
+                        <MiniCell>
+                          <span className="text-body">
+                            {describeEntryType(entry.entry_type)}
+                          </span>
+                          {entry.reason !== null && (
+                            <span className="block truncate text-[0.875rem] text-mute">
+                              {entry.reason}
                             </span>
-                          )
-                        })()}
-                      </MiniCell>
-                    </MiniRow>
-                  ))}
-                </MiniTable>
+                          )}
+                        </MiniCell>
+                        <MiniCell align="right">
+                          {/* Signed and coloured, so the column reads as
+                          arithmetic rather than as a list of magnitudes. */}
+                          <span
+                            className={
+                              entry.points < 0
+                                ? "text-bad tabular-nums"
+                                : "text-ok tabular-nums"
+                            }
+                          >
+                            {entry.points < 0 ? "−" : "+"}
+                            {count(Math.abs(entry.points))}
+                          </span>
+                        </MiniCell>
+                        <MiniCell align="right">
+                          {(() => {
+                            const cause = causeOf(entry)
+                            return cause === null ? (
+                              // An adjustment names no record, and that is exactly
+                              // when the actor matters: somebody did this by hand.
+                              <span className="text-[0.875rem] text-mute">
+                                by {entry.actor}
+                              </span>
+                            ) : (
+                              <span className="flex flex-col items-end leading-tight">
+                                <Pill tone="neutral">{cause.what}</Pill>
+                                <span className="font-mono text-[0.875rem] text-mute">
+                                  {cause.id.slice(0, 8)}
+                                </span>
+                              </span>
+                            )
+                          })()}
+                        </MiniCell>
+                      </MiniRow>
+                    ))}
+                  </MiniTable>
+                )}
                 {/* Inside the card, which scrolls with the page — see
                   `<LoadMore>`. */}
                 <LoadMore query={list} className="py-3" />

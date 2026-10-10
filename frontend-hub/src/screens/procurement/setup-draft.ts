@@ -37,18 +37,56 @@ export function readSetupDraft(receiptLineId: string): SetupDraft | null {
     : null
 }
 
-export function writeSetupDraft(receiptLineId: string, draft: SetupDraft) {
+/// A keystroke must not cost a read and a rewrite of the whole draft map, and
+/// the map is one localStorage entry, so writes are held briefly and land
+/// together. The hold is short — a quick close must not lose the form — and
+/// the flush is bound to the two events that fire when that happens.
+const WRITE_AFTER_MS = 300
+
+const pending = new Map<string, SetupDraft>()
+let timer: number | undefined
+let closeBound = false
+
+function flush(): void {
+  clearTimeout(timer)
+  timer = undefined
+  if (pending.size === 0) return
+  const writes = [...pending]
+  pending.clear()
   try {
-    localStorage.setItem(
-      KEY,
-      JSON.stringify({ ...all(), [receiptLineId]: draft })
-    )
+    const drafts = all()
+    for (const [receiptLineId, draft] of writes)
+      drafts[receiptLineId] = draft
+    localStorage.setItem(KEY, JSON.stringify(drafts))
   } catch {
     // Storage denied: the form simply is not kept.
   }
 }
 
+function bindFlushOnClose(): void {
+  if (closeBound) return
+  closeBound = true
+  // `pagehide` is the one a phone or a closed tab actually fires;
+  // `beforeunload` covers the desktop's own habit. Either way the held draft
+  // lands before the page is gone.
+  window.addEventListener("pagehide", flush)
+  window.addEventListener("beforeunload", flush)
+}
+
+export function writeSetupDraft(receiptLineId: string, draft: SetupDraft) {
+  pending.set(receiptLineId, draft)
+  bindFlushOnClose()
+  // `window.setTimeout`, not bare `setTimeout`: the browser's number handle
+  // is what `timer` holds, and `clearTimeout` takes either.
+  if (timer !== undefined) window.clearTimeout(timer)
+  timer = window.setTimeout(flush, WRITE_AFTER_MS)
+}
+
 export function clearSetupDraft(receiptLineId: string) {
+  // A clear outruns the debounce, and takes any held write for the line with
+  // it — a draft cleared because the line got its identity must not be
+  // resurrected by a keystroke still waiting to land.
+  pending.delete(receiptLineId)
   try {
     const rest = all()
     delete rest[receiptLineId]

@@ -139,7 +139,7 @@ export function Home() {
                     // phone the act is the reason, stated rather than asked.
                     completeTask.mutate({
                       templateId: task.template_id,
-                      reason: "ditandai selesai oleh karyawan",
+                      reason: "marked done by the employee",
                     })
                   }
                 >
@@ -256,7 +256,7 @@ export function Home() {
           </Row>
           {nextHoliday.consumes_annual_leave && (
             <p className="text-cell text-body">
-              Cuti bersama — deducted from your annual leave.
+              Collective leave — deducted from your annual leave.
             </p>
           )}
         </Panel>

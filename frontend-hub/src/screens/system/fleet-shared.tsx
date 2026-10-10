@@ -1,6 +1,6 @@
 import { AppLink } from "@/components/ui/app-link"
 import type { Tone } from "@/lib/format"
-import { ago } from "@/lib/format"
+import { ago, percent } from "@/lib/format"
 import {
   useFleetStatusOf,
   type FleetColour,
@@ -83,7 +83,7 @@ export function FleetDayBars({
       {days.map((bar) => (
         <span
           key={bar.day}
-          title={`${bar.day}${bar.uptime_percent === null ? " · no history" : ` · ${bar.uptime_percent.toFixed(2)}%`}`}
+          title={`${bar.day}${bar.uptime_percent === null ? " · no history" : ` · ${percent(bar.uptime_percent, { digits: 2, pad: true })}`}`}
           className={cn(
             "h-full w-[3px] shrink-0 rounded-[1px]",
             BAR_FILL[bar.colour]
@@ -114,12 +114,12 @@ export function FleetDayBarsPlaceholder({ className }: { className?: string }) {
 export function uptimeWord(uptime: number | null): string {
   if (uptime === null) return "—"
   if (uptime >= 99.995) return "100%"
-  return `${uptime.toFixed(2)}%`
+  return percent(uptime, { digits: 2, pad: true })
 }
 
 const KIND_WORD: Readonly<Record<string, string>> = {
   STORE: "Store",
-  GUDANG: "Gudang",
+  GUDANG: "Warehouse",
   HEAD_OFFICE: "Head office",
 }
 

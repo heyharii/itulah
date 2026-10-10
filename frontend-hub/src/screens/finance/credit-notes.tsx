@@ -6,12 +6,14 @@ import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Day } from "@/components/ui/day"
+import { Fab } from "@/components/ui/fab"
 import { Panel, ConfirmButton } from "@/components/ui/dialog"
 import { Field, Input, Money, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Status } from "@/components/ui/pill"
 import { EmptyState, Problem, Truncated } from "@/components/ui/states"
 import { day, money } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   accountDetail,
   createCreditNote,
@@ -41,10 +43,12 @@ import {
   useMeaningLabel,
   useMoneyAccounts,
 } from "@/screens/finance/hooks"
+import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
 import {
   AccountAndCategory,
   accountChoiceProblem,
   accountChoiceReady,
+  PhoneChoice,
   SiteName,
   SupplierName,
   SupplierPicker,
@@ -100,6 +104,7 @@ const LIMIT = 500
 export function CreditNotes() {
   const [status, setStatus] = useState("")
   const [opened, setOpened] = useState<string | "new" | null>(null)
+  const phone = useLayout() === "phone"
 
   const notes = useQuery({
     queryKey: financeKeys.creditNotes(status || null, null),
@@ -116,6 +121,7 @@ export function CreditNotes() {
   return (
     <PageContent>
       <PageHeader
+        className="max-md:hidden"
         crumb="Finance · Payables"
         title="Credit Note"
         actions={
@@ -124,8 +130,22 @@ export function CreditNotes() {
           </Button>
         }
       />
+      {/* On a phone the status is a chip in the dock and the new note is the
+          round + beside it. */}
+      <PhoneChoice
+        title="Status"
+        value={status}
+        onChange={setStatus}
+        options={[
+          { value: "", label: "All statuses", short: "All statuses" },
+          { value: "DRAFT", label: "Draft" },
+          { value: "POSTED", label: "Posted" },
+          { value: "REFUNDED", label: "Refunded" },
+        ]}
+      />
+      <Fab label="New credit note" onClick={() => setOpened("new")} />
 
-      <div className="mb-3.5 flex flex-wrap items-center gap-[0.4375rem]">
+      <div className="mb-3.5 flex flex-wrap items-center gap-[0.4375rem] max-md:hidden">
         <span className="inline-flex w-40 shrink-0">
           <Select
             value={status}
@@ -133,7 +153,7 @@ export function CreditNotes() {
             className="h-control w-40"
             aria-label="Status"
           >
-            <option value="">Every status</option>
+            <option value="">All statuses</option>
             <option value="DRAFT">Draft</option>
             <option value="POSTED">Posted</option>
             <option value="REFUNDED">Refunded</option>
@@ -156,6 +176,28 @@ export function CreditNotes() {
                   : "No credit note has this status."}
               </EmptyState>
             </Card>
+          ) : phone ? (
+            <PhoneList
+              rows={rows.map((row) => ({
+                key: row.credit_note_id,
+                title: <SupplierName id={row.supplier_id} />,
+                code: row.credit_number,
+                lead: <CardFigure value={money(row.total_minor)} />,
+                foot: (
+                  <span className="flex flex-col">
+                    <span>
+                      {day(row.credit_date)} · {reasonLabel(row.reason)}
+                    </span>
+                    <span>Against {row.invoice_number}</span>
+                    {row.refund_date !== null && (
+                      <span>Refunded {day(row.refund_date)}</span>
+                    )}
+                  </span>
+                ),
+                action: <NoteStatus status={row.status} />,
+                onOpen: () => setOpened(row.credit_note_id),
+              }))}
+            />
           ) : (
             <Grid>
               <thead>

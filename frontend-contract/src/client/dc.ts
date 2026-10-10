@@ -49,6 +49,10 @@ import type {
   PrintSessionSummary,
   PurchaseCountAwaitingVerification,
   PurchaseCountRequest,
+  PurchaseCountBatchRequest,
+  PurchaseCountBatchResult,
+  PurchaseCountRecallRequest,
+  PurchaseCountRecallResult,
   PurchaseCountResult,
   PurchaseVerifyRequest,
   PurchaseVerifyResult,
@@ -72,6 +76,21 @@ import type {
   TaggingWorkJob,
 } from "../index";
 import { Node } from "./node";
+
+/// `GET /api/v1/dc/purchase-orders/summary`.
+export interface PurchaseSummary {
+  readonly orders: number;
+  /// Orders being counted again: sent back by the buyer, or recalled by the
+  /// bay (0950). A recall also says who took it back, when, and what the
+  /// recalled counts came to; a DC server that cannot recall leaves them out.
+  readonly recounts: readonly {
+    po_number: string;
+    reason: string;
+    recalled_by?: string | null;
+    recalled_at?: string | null;
+    was?: number | null;
+  }[];
+}
 
 /// Narrow a listing to the rows one decision cares about.
 ///
@@ -229,6 +248,17 @@ export class Dc {
     return body.items;
   }
 
+  /// What the screens outside Receiving read off its work list, without the
+  /// list: how many orders are still owed a delivery (the badge) and which
+  /// were sent back to be counted again, with the reason (the order book).
+  /// The list is a line per article and grows with the open book.
+  async purchaseSummary(signal?: AbortSignal): Promise<PurchaseSummary> {
+    return this.node.get<PurchaseSummary>(
+      "/api/v1/dc/purchase-orders/summary",
+      { signal },
+    );
+  }
+
   /// Write down what physically arrived. A document, not a movement: nothing
   /// becomes stock here.
   countPurchase(
@@ -237,6 +267,36 @@ export class Dc {
   ): Promise<PurchaseCountResult> {
     return this.node.post<PurchaseCountResult>(
       "/api/v1/dc/purchase-counts",
+      request,
+      { signal },
+    );
+  }
+
+  /// A whole count sheet in one command: every counted line of one order,
+  /// one delivery document, one transaction. The per-line
+  /// [`countPurchase`] remains the shape of a single line; this is what a
+  /// sheet submits, so N lines cost one round trip instead of N.
+  countPurchases(
+    request: PurchaseCountBatchRequest,
+    signal?: AbortSignal,
+  ): Promise<PurchaseCountBatchResult> {
+    return this.node.post<PurchaseCountBatchResult>(
+      "/api/v1/dc/purchase-counts/batch",
+      request,
+      { signal },
+    );
+  }
+
+  /// Take back a count sheet nobody has decided on yet (0950): every count
+  /// named, of one order, still waiting for review. Refused (409) once the
+  /// buyer accepted it or sent it back. The counts stay, as RECALLED, and the
+  /// lines are owed a count again.
+  recallCounts(
+    request: PurchaseCountRecallRequest,
+    signal?: AbortSignal,
+  ): Promise<PurchaseCountRecallResult> {
+    return this.node.post<PurchaseCountRecallResult>(
+      "/api/v1/dc/purchase-counts/recall",
       request,
       { signal },
     );

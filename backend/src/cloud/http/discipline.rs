@@ -25,8 +25,13 @@ fn require(principal: &Principal, action_key: &str) -> Result<(), AppError> {
 }
 
 fn authority(principal: &Principal, reason: &str) -> Result<Authorization, AppError> {
-    Authorization::try_new(&principal.username, actions::EMPLOYMENT_CHANGE, Utc::now(), reason)
-        .map_err(|error| AppError::Validation(error.to_string()))
+    Authorization::try_new(
+        &principal.username,
+        actions::EMPLOYMENT_CHANGE,
+        Utc::now(),
+        reason,
+    )
+    .map_err(|error| AppError::Validation(error.to_string()))
 }
 
 /// One person's letters. `me` reads one's own.
@@ -37,7 +42,9 @@ pub async fn letters(
 ) -> Result<Json<Vec<WarningLetterView>>, AppError> {
     let access = resolve(&state, &principal, &raw).await?;
     access.may_read(actions::EMPLOYEE_READ)?;
-    Ok(Json(infrastructure::warning_letters_of(&state.db, &access.employee_id).await?))
+    Ok(Json(
+        infrastructure::warning_letters_of(&state.db, &access.employee_id).await?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -75,7 +82,9 @@ pub async fn issue(
         &by,
     )
     .await?;
-    Ok(Json(infrastructure::warning_letters_of(&state.db, &access.employee_id).await?))
+    Ok(Json(
+        infrastructure::warning_letters_of(&state.db, &access.employee_id).await?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -112,7 +121,9 @@ pub async fn acknowledge(
     }
     let access = resolve(&state, &principal, &raw).await?;
     infrastructure::acknowledge_warning_letter(&state.db, &id, &access.employee_id).await?;
-    Ok(Json(infrastructure::warning_letters_of(&state.db, &access.employee_id).await?))
+    Ok(Json(
+        infrastructure::warning_letters_of(&state.db, &access.employee_id).await?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -133,5 +144,7 @@ pub async fn revoke(
         .ok_or_else(|| AppError::NotFound(format!("letter {id}")))?;
     let by = authority(&principal, &body.reason)?;
     infrastructure::revoke_warning_letter(&state.db, &id, &by).await?;
-    Ok(Json(infrastructure::warning_letters_of(&state.db, &employee).await?))
+    Ok(Json(
+        infrastructure::warning_letters_of(&state.db, &employee).await?,
+    ))
 }

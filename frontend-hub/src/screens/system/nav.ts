@@ -23,7 +23,7 @@ import type { AppModule } from "@/lib/navigation"
 /// one row, "Store servers", with those as tabs rather than five rows that
 /// each said "node" or "origin" somewhere on the page. Those two words are
 /// gone from this module's copy; a shop's own machine is a "store server" (or
-/// a "Gudang server" for the warehouse) everywhere a person reads it.
+/// a "warehouse server" for the warehouse) everywhere a person reads it.
 ///
 /// Access is gone as a screen of its own. Its two halves went to where they
 /// actually belonged: who may sign in at the CENTRE — job role, unit, suspend,
@@ -98,7 +98,7 @@ export const systemNav: AppModule = {
           icon: Activity,
         },
         { path: "/system/activity", label: "Activity", icon: ScrollText },
-        /// The Gudang server's own sync and sign-in. The screens live in
+        /// The warehouse server's own sync and sign-in. The screens live in
         /// `screens/operations/node/` and keep their old paths.
         { path: "/operations/node", label: "Sync", icon: RefreshCw },
         { path: "/operations/node/account", label: "Account", icon: UserCog },

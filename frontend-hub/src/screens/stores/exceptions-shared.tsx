@@ -1,9 +1,10 @@
-import { Link, type LinkProps } from "@tanstack/react-router"
+import { Link, useNavigate, type LinkProps } from "@tanstack/react-router"
 
 import { AppLink } from "@/components/ui/app-link"
 import { ConfirmButton } from "@/components/ui/dialog"
 import { Pill } from "@/components/ui/pill"
 import { ago, moment } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   exceptionKindLabel,
   exceptionSeverityTone,
@@ -12,6 +13,12 @@ import {
   useExceptionsForStore,
   type ExceptionItem,
 } from "@/lib/queries/exceptions"
+import {
+  CardFigure,
+  CardFoot,
+  CardName,
+  PhoneCard,
+} from "@/components/ui/phone-cards"
 
 /// One exception, drawn the same way on the Stores › Exceptions list and on
 /// a store's own Overview card — see `lib/queries/exceptions.ts` and
@@ -66,6 +73,85 @@ export function ExceptionRow({
   showStore?: boolean
 }) {
   const acknowledge = useAcknowledgeException()
+  const phone = useLayout() === "phone"
+  const navigate = useNavigate()
+  // A phone reads each exception as a card, as every other list does: what it
+  // is and the data's own sentence, how long it has been standing as the
+  // figure, and in the foot where it stands with Acknowledge, the one thing to
+  // press. A tap opens whatever the row's own "Open" link opens.
+  if (phone)
+    return (
+      <PhoneCard
+        onOpen={() => void navigate({ to: exceptionHref(item) } as never)}
+        head={
+          <CardName
+            name={exceptionKindLabel(item.kind)}
+            line={<span className="text-text">{item.sentence}</span>}
+          />
+        }
+        lead={
+          <CardFigure
+            value={ago(item.since).replace(/ ago$/, "")}
+            caption={exceptionStateLabel(item.state).toLowerCase()}
+            tone={
+              exceptionSeverityTone(item.severity) === "bad" ? "bad" : "warn"
+            }
+          />
+        }
+        foot={
+          <CardFoot>
+            {showStore ? `${item.unit_name} (${item.unit_code})` : "Since"}
+            {!showStore ? ` ${ago(item.since)}` : ""}
+            {item.acknowledged_by && (
+              <>
+                <br />
+                Acknowledged by {item.acknowledged_by}
+                {item.note ? ` — "${item.note}"` : ""}
+              </>
+            )}
+            {item.resolved_at && (
+              <>
+                <br />
+                Resolved {moment(item.resolved_at)}
+              </>
+            )}
+          </CardFoot>
+        }
+        action={
+          // The click and the dialog (portalled, but still this card in React's
+          // eyes) must not reach the card's own tap, which navigates away.
+          <span
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+          >
+            {item.state === "OPEN" ? (
+              <ConfirmButton
+                label="Acknowledge"
+                variant="quiet"
+                className="bg-accent-bg font-semibold text-accent hover:bg-accent-bg/60 hover:text-accent"
+                title="Acknowledge this exception?"
+                description="This says somebody has it — the data fixing itself is what resolves it, not this."
+                confirmLabel="Acknowledge"
+                reason={{
+                  label: "Note (optional)",
+                  optional: true,
+                }}
+                onConfirm={(note) =>
+                  acknowledge.mutateAsync({
+                    id: item.id,
+                    note: note.trim() === "" ? undefined : note,
+                  })
+                }
+              />
+            ) : (
+              <Pill tone={item.state === "RESOLVED" ? "ok" : "neutral"}>
+                {exceptionStateLabel(item.state)}
+              </Pill>
+            )}
+          </span>
+        }
+      />
+    )
   return (
     <li className="flex flex-col gap-1.5 px-4 py-3.5">
       <div className="flex items-start justify-between gap-3">

@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { EmptyState } from "@/components/ui/states"
 import { monthStamp, type ExportSheet } from "@/lib/export-xlsx"
 import { money } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { financeKeys, statement } from "@/lib/queries/finance"
 import { unitLabel } from "@/lib/queries/organisation"
 import { queryState } from "@/lib/query-state"
@@ -14,6 +15,10 @@ import { Code, Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
 import { asPresented, ladderLevel, periodResult } from "@/screens/finance/chart"
 import { useLocations, useUnitName, useWindow } from "@/screens/finance/hooks"
 import { UnitName, UnitSelect, WindowControl } from "@/screens/finance/parts"
+import {
+  PhoneStatement,
+  type StatementLine,
+} from "@/screens/finance/phone-parts"
 import {
   FilterCheck,
   PeriodicitySelect,
@@ -52,6 +57,7 @@ import type { Statement } from "@itulah/contract"
 /// flipped for reading by `asPresented()` and `periodResult()`, shared with
 /// every other statement so no two can disagree about a sign.
 export function ProfitAndLoss() {
+  const phone = useLayout() === "phone"
   const range = useWindow()
   const [unit, setUnit] = useState("")
   const [periodicity, setPeriodicity] = useState<Periodicity>("Yearly")
@@ -195,9 +201,9 @@ export function ProfitAndLoss() {
       title: "Profit and Loss Statement",
       subtitle: `${range.chip} · ${
         compareUnits
-          ? "every unit, side by side"
+          ? "all units, side by side"
           : unit === ""
-            ? "every unit"
+            ? "all units"
             : unitName(unit)
       } · ${periodicity}${accumulated ? " · accumulated" : ""}`,
       columns: [
@@ -244,8 +250,12 @@ export function ProfitAndLoss() {
       <PageHeader
         crumb="Finance · Financial Reports"
         title="Profit and Loss Statement"
+        // On a phone Export is a row of the Filters sheet, not a button at the
+        // top of the page.
         actions={
-          <ExportButton build={build} disabled={total.data === undefined} />
+          phone ? undefined : (
+            <ExportButton build={build} disabled={total.data === undefined} />
+          )
         }
       />
 
@@ -254,9 +264,9 @@ export function ProfitAndLoss() {
           <>
             {range.chip}
             {compareUnits ? (
-              " · every unit, side by side"
+              " · all units, side by side"
             ) : unit === "" ? (
-              " · every unit"
+              " · all units"
             ) : (
               <>
                 {" · "}
@@ -285,6 +295,9 @@ export function ProfitAndLoss() {
           checked={compareUnits}
           onChange={setCompareUnits}
         />
+        {phone && (
+          <ExportButton build={build} disabled={total.data === undefined} />
+        )}
       </ReportFilters>
 
       {queryState(total, {
@@ -359,6 +372,8 @@ export function ProfitAndLoss() {
                   Nothing was posted to the income and expense classes in this
                   window, so there is no profit and loss to draw.
                 </EmptyState>
+              ) : phone ? (
+                <PhoneStatement lines={phoneLines(rows, shown, result)} />
               ) : (
                 <Grid>
                   <thead>
@@ -471,6 +486,66 @@ export function ProfitAndLoss() {
 
 /// Fourteen units fits. Two years month by month does not.
 const MAX_COLUMNS = 24
+
+/// The statement as a phone reads it: each account with the last column's
+/// figure (the window's Total, when there are several periods), the other
+/// columns in the sheet a tap opens, then gross profit and the result.
+function phoneLines(
+  rows: readonly TreeRow[],
+  shown: readonly ShownColumn[],
+  result: ReturnType<typeof periodResult>
+): StatementLine[] {
+  const last = shown[shown.length - 1]
+  const facts = (read: (column: ShownColumn) => number | null) =>
+    shown.length > 1
+      ? shown.map((column) => ({
+          label: column.label,
+          value: money(read(column)),
+        }))
+      : undefined
+  const lines: StatementLine[] = rows.map((row) => {
+    const read = (column: ShownColumn) =>
+      presented(
+        column.reading,
+        row.kind === "section" ? sectionKey(row.rootClass) : row.code,
+        row.rootClass
+      )
+    const value = read(last)
+    return {
+      key: `${row.rootClass}:${row.code}`,
+      kind: row.kind,
+      code: row.code,
+      name: row.name,
+      level: row.level,
+      figure: money(value),
+      tone: value !== null && value < 0 ? "bad" : undefined,
+      facts: facts(read),
+    }
+  })
+  const gross = grossOf(last.reading)
+  lines.push(
+    {
+      key: "gross",
+      name: "Gross profit",
+      figure: money(gross),
+      tone: gross !== null && gross < 0 ? "bad" : undefined,
+      facts: facts((column) => grossOf(column.reading)),
+    },
+    {
+      key: "result",
+      kind: "total",
+      name: result.label,
+      figure: money(result.minor),
+      tone: result.loss ? "bad" : undefined,
+      facts: facts((column) =>
+        column.reading.report === undefined
+          ? null
+          : periodResult(column.reading.report.result_minor).minor
+      ),
+    }
+  )
+  return lines
+}
 
 /// One column of the report: a window, a unit, and the label above it.
 interface ReportColumn {

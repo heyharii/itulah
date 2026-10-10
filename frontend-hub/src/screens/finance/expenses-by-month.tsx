@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { EmptyState } from "@/components/ui/states"
 import { fileSafe, type ExportSheet } from "@/lib/export-xlsx"
 import { count, day } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { queryState } from "@/lib/query-state"
 import {
   expensesByMonth,
@@ -19,6 +20,10 @@ import { Code, Grid, Td, TotalRow } from "@/screens/finance-final/parts"
 import { todayIso } from "@/screens/finance/chart"
 import { useUnitName, type DateWindow } from "@/screens/finance/hooks"
 import { UnitSelect, WindowControl } from "@/screens/finance/parts"
+import {
+  PhoneStatement,
+  type StatementLine,
+} from "@/screens/finance/phone-parts"
 import { ReportFilters, ReportSummary } from "@/screens/finance/report"
 import type {
   ExpensesByMonth as Report,
@@ -48,6 +53,7 @@ import type {
 /// the ledger takes only the account in its address, not a window, so the link
 /// would open the wrong dates; there is none.
 export function ExpensesByMonth() {
+  const phone = useLayout() === "phone"
   const range = useYearToDate()
   const [unit, setUnit] = useState("")
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
@@ -131,13 +137,17 @@ export function ExpensesByMonth() {
       <PageHeader
         crumb="Finance · Financial Reports"
         title="Expenses by Month"
+        // On a phone Export is a row of the Filters sheet, not a button at the
+        // top of the page.
         actions={
-          <ExportButton
-            build={build}
-            disabled={
-              report.data === undefined || report.data.lines.length === 0
-            }
-          />
+          phone ? undefined : (
+            <ExportButton
+              build={build}
+              disabled={
+                report.data === undefined || report.data.lines.length === 0
+              }
+            />
+          )
         }
       />
 
@@ -150,6 +160,14 @@ export function ExpensesByMonth() {
           aria-label="Unit"
         />
         <WindowControl range={range} />
+        {phone && (
+          <ExportButton
+            build={build}
+            disabled={
+              report.data === undefined || report.data.lines.length === 0
+            }
+          />
+        )}
       </ReportFilters>
 
       {refusal !== null ? (
@@ -180,6 +198,7 @@ function Body({
   collapsed: ReadonlySet<string>
   onToggle: (key: string) => void
 }) {
+  const phone = useLayout() === "phone"
   const groups = useMemo(() => groupLines(report), [report])
   const totals = columnTotals(report)
 
@@ -219,47 +238,94 @@ function Body({
         ]}
       />
 
-      <Grid>
-        <thead>
-          <tr>
-            <th className={cn(HEAD, STICKY, "min-w-[18rem] text-left")}>
-              Account
-            </th>
-            {report.months.map((month) => (
-              <th key={month} className={cn(HEAD, "text-right")}>
-                {monthName(month)}
+      {phone ? (
+        <PhoneStatement lines={phoneLines(report, groups, totals)} />
+      ) : (
+        <Grid>
+          <thead>
+            <tr>
+              <th className={cn(HEAD, STICKY, "min-w-[18rem] text-left")}>
+                Account
               </th>
-            ))}
-            <th className={cn(HEAD, "text-right")}>Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          {groups.map((group) => {
-            const closed = collapsed.has(group.key)
-            const Chevron = closed ? ChevronRight : ChevronDown
-            return (
-              <GroupBlock
-                key={group.key}
-                group={group}
-                closed={closed}
-                chevron={<Chevron className="size-4 shrink-0 text-mute" />}
-                onToggle={() => onToggle(group.key)}
-              />
-            )
-          })}
-          <TotalRow>
-            <Td className={cn(STICKY, "bg-soft")}>Total expenses</Td>
-            {totals.map((value, index) => (
-              <Td key={report.months[index]} align="right">
-                {figure(value)}
-              </Td>
-            ))}
-            <Td align="right">{figure(report.total_minor)}</Td>
-          </TotalRow>
-        </tbody>
-      </Grid>
+              {report.months.map((month) => (
+                <th key={month} className={cn(HEAD, "text-right")}>
+                  {monthName(month)}
+                </th>
+              ))}
+              <th className={cn(HEAD, "text-right")}>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {groups.map((group) => {
+              const closed = collapsed.has(group.key)
+              const Chevron = closed ? ChevronRight : ChevronDown
+              return (
+                <GroupBlock
+                  key={group.key}
+                  group={group}
+                  closed={closed}
+                  chevron={<Chevron className="size-4 shrink-0 text-mute" />}
+                  onToggle={() => onToggle(group.key)}
+                />
+              )
+            })}
+            <TotalRow>
+              <Td className={cn(STICKY, "bg-soft")}>Total expenses</Td>
+              {totals.map((value, index) => (
+                <Td key={report.months[index]} align="right">
+                  {figure(value)}
+                </Td>
+              ))}
+              <Td align="right">{figure(report.total_minor)}</Td>
+            </TotalRow>
+          </tbody>
+        </Grid>
+      )}
     </>
   )
+}
+
+/// The report as a phone reads it: each heading a band with what it came to,
+/// each account under it with its total, and the month by month in the sheet a
+/// tap opens.
+function phoneLines(
+  report: Report,
+  groups: readonly Group[],
+  totals: readonly number[]
+): StatementLine[] {
+  const facts = (byMonth: readonly number[], total: number) => [
+    ...report.months.map((month, index) => ({
+      label: monthName(month),
+      value: figure(byMonth[index] ?? 0),
+    })),
+    { label: "Total", value: figure(total) },
+  ]
+  return [
+    ...groups.flatMap((group): StatementLine[] => [
+      {
+        key: `group:${group.key}`,
+        kind: "section",
+        name: group.name,
+        figure: figure(group.total),
+        facts: facts(group.byMonth, group.total),
+      },
+      ...group.lines.map((line): StatementLine => ({
+        key: line.account_code,
+        code: line.account_code,
+        name: line.account_name,
+        level: 1,
+        figure: figure(line.total_minor),
+        facts: facts(line.by_month_minor, line.total_minor),
+      })),
+    ]),
+    {
+      key: "total",
+      kind: "total",
+      name: "Total expenses",
+      figure: figure(report.total_minor),
+      facts: facts(totals, report.total_minor),
+    },
+  ]
 }
 
 function GroupBlock({

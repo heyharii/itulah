@@ -87,10 +87,12 @@ fn needs_finance(what: &str) -> String {
 /// Look up the client's own name for an account, so a proposal reads as words
 /// and not only as a code.
 async fn account_name(pool: &PgPool, code: &str) -> Result<Option<String>, AppError> {
-    Ok(sqlx::query_scalar("SELECT name FROM ledger_account WHERE account_code = $1")
-        .bind(code)
-        .fetch_optional(pool)
-        .await?)
+    Ok(
+        sqlx::query_scalar("SELECT name FROM ledger_account WHERE account_code = $1")
+            .bind(code)
+            .fetch_optional(pool)
+            .await?,
+    )
 }
 
 /// Try one meaning/qualifier at one site. A missing mapping is returned as a
@@ -177,7 +179,9 @@ pub async fn suggest_account(
         .fetch_optional(pool)
         .await?;
         let row = row.ok_or_else(|| {
-            AppError::Validation(format!("there is no repair {repair_id} to suggest an account for"))
+            AppError::Validation(format!(
+                "there is no repair {repair_id} to suggest an account for"
+            ))
         })?;
         let objek: String = row.try_get("objek")?;
         let objek_name: String = row.try_get("objek_name")?;
@@ -207,7 +211,9 @@ pub async fn suggest_account(
         .fetch_optional(pool)
         .await?;
         let row = row.ok_or_else(|| {
-            AppError::Validation(format!("there is no contract {contract_id} to suggest an account for"))
+            AppError::Validation(format!(
+                "there is no contract {contract_id} to suggest an account for"
+            ))
         })?;
         let contract_type: String = row.try_get("contract_type")?;
         let objek: Option<String> = row.try_get("objek")?;
@@ -314,13 +320,17 @@ pub async fn suggest_account(
         // the supplier as TEXT (`supplier_invoice.supplier_id` has no foreign
         // key), so one side has to be cast and the text side is the one that
         // must keep working for a party the register has not got as a uuid.
-        let code: Option<String> =
-            sqlx::query_scalar("SELECT expense_account_code FROM supplier WHERE supplier_id::text = $1")
-                .bind(&supplier_id)
-                .fetch_optional(pool)
-                .await?
-                .flatten();
-        return match code.map(|code| code.trim().to_string()).filter(|c| !c.is_empty()) {
+        let code: Option<String> = sqlx::query_scalar(
+            "SELECT expense_account_code FROM supplier WHERE supplier_id::text = $1",
+        )
+        .bind(&supplier_id)
+        .fetch_optional(pool)
+        .await?
+        .flatten();
+        return match code
+            .map(|code| code.trim().to_string())
+            .filter(|c| !c.is_empty())
+        {
             Some(code) => Ok(AccountSuggestion {
                 account_name: account_name(pool, &code).await?,
                 account_code: Some(code),

@@ -348,6 +348,13 @@ pub struct QuoteRequest {
     /// quotes a price the sale will not honour.
     #[serde(default)]
     pub charges: Vec<pricing_engine::Charge>,
+    /// The holds head office granted for this basket's limited coupons, each
+    /// relayed through this node (`/store/coupons/{code}/authorize`). A coupon
+    /// with a cross-shop cap is priced only on one of these; a hold this node
+    /// has no record of — or one already used, released or lapsed — is left
+    /// out of the preview, and the coupon is reported as still needing one.
+    #[serde(default)]
+    pub coupon_authorizations: Vec<pricing_engine::CouponAuthorization>,
 }
 
 /// Declaring a checkout before the money is asked for.
@@ -492,6 +499,15 @@ pub struct SaleRequest {
     /// person, and for a per-customer usage limit.
     #[serde(default)]
     pub customer_id: Option<String>,
+    /// The holds head office granted for this basket's limited coupons — the
+    /// same list the quote was given. Unlike the quote, a sale REFUSES a hold
+    /// this node cannot vouch for rather than quietly pricing without it: the
+    /// till showed the shopper a total with the coupon in it, and charging a
+    /// different one without saying so is the worse outcome. Each hold the
+    /// sale actually used is spent here and travels on the sale fact
+    /// (`promotions[].coupon_authorization_id`), where head office commits it.
+    #[serde(default)]
+    pub coupon_authorizations: Vec<pricing_engine::CouponAuthorization>,
 }
 
 /// Quantity-only DC Pick. The server assigns this quantity to accepted
@@ -983,7 +999,8 @@ pub trait EdgeInventory: Send + Sync {
     ) -> Result<super::outbound::PackingBox, EdgeError>;
     fn packing_box(&self, session_id: &str) -> Result<super::outbound::PackingBox, EdgeError>;
     fn open_packing_boxes(&self) -> Result<Vec<super::outbound::PackingBox>, EdgeError>;
-    fn box_candidates(&self, session_id: &str) -> Result<super::outbound::BoxCandidates, EdgeError>;
+    fn box_candidates(&self, session_id: &str)
+        -> Result<super::outbound::BoxCandidates, EdgeError>;
     fn outstanding_for_destination(
         &self,
         destination_store_id: &str,
@@ -1221,6 +1238,13 @@ pub trait EdgeInventory: Send + Sync {
     /// A hold head office released (the basket was abandoned) or committed
     /// directly: it can no longer be spent at this till.
     fn close_voucher_hold(&self, code: &str, checkout_id: &str) -> Result<(), EdgeError>;
+    /// Write down a limited-coupon hold head office just granted through this
+    /// node's relay. A quote or sale may lean only on a hold recorded here —
+    /// see `migrations/sqlite/0078`.
+    fn record_coupon_hold(&self, hold: CouponHoldRecord) -> Result<(), EdgeError>;
+    /// A coupon hold head office released (the basket was abandoned): no quote
+    /// or sale at this till may lean on it any more.
+    fn close_coupon_hold(&self, code: &str, checkout_id: &str) -> Result<(), EdgeError>;
     fn list_pools(&self) -> Result<Vec<PoolBalance>, EdgeError>;
     /// Spendable units per SKU on the floor and in the warehouse, for every
     /// SKU with any. See [`sku_stock_pools`] for which pool is which.
@@ -1494,6 +1518,12 @@ pub trait EdgeInventory: Send + Sync {
         &self,
         request: PurchaseCountRequest,
     ) -> Result<PurchaseCountResult, EdgeError>;
+    /// Record a whole count sheet at once — every counted line of one order,
+    /// one delivery document, one transaction. See [`PurchaseCountBatchRequest`].
+    fn count_purchase_batch(
+        &self,
+        request: PurchaseCountBatchRequest,
+    ) -> Result<PurchaseCountBatchResult, EdgeError>;
     /// Counts waiting for a decision, with the order and the variance beside
     /// them — the verifier's view, as opposed to the checker's.
     fn counts_awaiting_verification(
@@ -1757,6 +1787,173 @@ pub struct PurchaseCountResult {
     pub counted_at: chrono::DateTime<chrono::Utc>,
 }
 
+/// One line of a whole count sheet, as the checker submits it: every line of
+/// one order they counted, in one command.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PurchaseCountEntry {
+    pub po_line_id: uuid::Uuid,
+    /// Counted by hand, in pieces.
+    pub counted_quantity: i64,
+    /// Of the counted pieces, how many are NOT the article the line names.
+    /// Absent means none.
+    #[serde(default)]
+    pub wrong_quantity: i64,
+    /// The unit the count was typed in and how many, exactly as
+    /// [`PurchaseCountRequest`] carries them. Absent means pieces.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub counted_unit_code: Option<String>,
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub counted_unit_quantity: Option<String>,
+    /// A line ordered in variants is counted per variant (owner, 2026-10-10):
+    /// one row per colour × size the line names, in pieces, 0 for one that
+    /// did not come. A breakdown, not a second count — the rows add up to the
+    /// line's own pieces (`counted_quantity − wrong_quantity`) and the
+    /// receipt stays per line. Empty is a count taken as a whole.
+    #[serde(default)]
+    pub variants: Vec<PurchaseCountVariant>,
+}
+
+/// Pieces counted of one variant of a line (0963).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PurchaseCountVariant {
+    /// The colour master's code, as the order line's variant carries it.
+    #[serde(default)]
+    pub colour_code: Option<String>,
+    /// The size code ("05"), as the order line's variant carries it.
+    #[serde(default)]
+    pub size_code: Option<String>,
+    pub counted_quantity: i64,
+}
+
+/// One variant of a line on the bay's work list: what it is, never how many
+/// were ordered — the count stays blind (0963).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PurchaseWorkVariant {
+    #[serde(default)]
+    pub colour_code: Option<String>,
+    /// The colour master's name for it; null when the master does not know it.
+    #[serde(default)]
+    pub colour_label: Option<String>,
+    #[serde(default)]
+    pub size_code: Option<String>,
+    /// "XL", from the size vocabulary.
+    #[serde(default)]
+    pub size_label: Option<String>,
+    /// The variant's own photographs, in the order added (0961). Often none.
+    #[serde(default)]
+    pub image_urls: Vec<String>,
+}
+
+/// One variant of a count under review: what the order asked of it and what
+/// the bay found (0963).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PurchaseReviewVariant {
+    #[serde(default)]
+    pub colour_code: Option<String>,
+    #[serde(default)]
+    pub colour_label: Option<String>,
+    #[serde(default)]
+    pub size_code: Option<String>,
+    #[serde(default)]
+    pub size_label: Option<String>,
+    #[serde(default)]
+    pub image_urls: Vec<String>,
+    /// What the order line names of this variant; 0 for a variant the count
+    /// named that the order no longer does.
+    pub ordered_quantity: i64,
+    /// Of that, what is still owed after earlier accepted counts' own
+    /// breakdowns — the variant's counterpart of `outstanding_stock_units`.
+    pub outstanding_quantity: i64,
+    /// What this count found of it; 0 when it named none.
+    pub counted_quantity: i64,
+}
+
+/// A whole count sheet in one command: every line of ONE order the checker
+/// counted against one delivery document.
+///
+/// The per-line [`PurchaseCountRequest`] remains the shape of a single line;
+/// this is the sheet that used to be N of those, one HTTP round trip each,
+/// with the delivery, the order and every validation repeated per line. All
+/// lines commit in one transaction: a sheet is accepted whole or not at all,
+/// and one idempotency key replays the whole sheet.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PurchaseCountBatchRequest {
+    pub receipt_id: uuid::Uuid,
+    pub counts: Vec<PurchaseCountEntry>,
+    pub actor_id: String,
+    pub idempotency_key: String,
+}
+
+/// What a whole count sheet came to: one result per line, in the order sent.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PurchaseCountBatchResult {
+    pub receipt_id: uuid::Uuid,
+    pub items: Vec<PurchaseCountResult>,
+}
+
+/// The bay takes back its own count while nobody has decided on it (0950).
+///
+/// Every count named must still be waiting for review, and all of them must
+/// be of one order — a count sheet is one order's lines, and it is recalled
+/// whole or not at all. The counts are not deleted: each stays in the order's
+/// history as RECALLED, and the line is owed a count again.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PurchaseCountRecallRequest {
+    pub count_ids: Vec<uuid::Uuid>,
+    /// Why, when the checker says. Optional: "I counted it wrong" is the
+    /// reason nearly every time.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub reason: Option<String>,
+    /// Who is recalling; the cloud replaces it with the signed-in caller.
+    #[serde(default)]
+    pub actor_id: String,
+    pub idempotency_key: String,
+}
+
+/// A count the bay took back: what it said, so the sheet can be counted again
+/// from it, and who took it back when.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct RecalledCount {
+    pub count_id: uuid::Uuid,
+    pub po_line_id: uuid::Uuid,
+    pub receipt_id: uuid::Uuid,
+    pub counted_quantity: i64,
+    pub wrong_quantity: i64,
+    #[serde(default)]
+    pub counted_unit_code: Option<String>,
+    #[serde(default)]
+    pub counted_unit_quantity: Option<String>,
+    pub counted_by: String,
+    pub counted_at: chrono::DateTime<chrono::Utc>,
+    pub recalled_by: String,
+    pub recalled_at: chrono::DateTime<chrono::Utc>,
+    #[serde(default)]
+    pub reason: Option<String>,
+    /// What the recalled count said per variant (0963), so the sheet opens
+    /// with every variant's own figure. Empty when it was counted as a whole.
+    #[serde(default)]
+    pub variants: Vec<PurchaseCountVariant>,
+}
+
+/// What a recall did: the counts, as they were, now RECALLED.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
+pub struct PurchaseCountRecallResult {
+    pub po_number: String,
+    pub items: Vec<RecalledCount>,
+}
+
 /// One open line a DC still owes a supplier delivery against.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
@@ -1791,6 +1988,18 @@ pub struct PurchaseWorkLine {
     /// again: their reason (empty when they gave none). The bay shows "Count
     /// again" with it instead of a fresh line.
     pub recount_reason: Option<String>,
+    /// Set when the bay recalled this line's last count before anybody
+    /// decided on it (0950): what that count said, so the sheet opens with
+    /// the checker's own numbers to correct. Absent on a node that cannot
+    /// recall.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "RecalledCount | null"))]
+    pub recalled: Option<RecalledCount>,
+    /// The colours × sizes the line was ordered in (0398), each counted on
+    /// its own (owner, 2026-10-10). Empty for a line not split into variants,
+    /// and on a DC server, which counts the line as a whole.
+    #[serde(default)]
+    pub variants: Vec<PurchaseWorkVariant>,
 }
 
 /// One receipt line's excess on a purchase return (`0068`).
@@ -2010,6 +2219,20 @@ pub struct PurchaseCountAwaitingVerification {
     /// The unit the line's stock is kept in — PCS, or GRAM/CM for goods kept
     /// by weight or length (0653). Null on orders sent before it: PCS.
     pub stock_unit_code: Option<String>,
+    /// The count variant by variant, when the line was ordered in variants
+    /// and counted per variant (0963). Empty for a count taken as a whole.
+    #[serde(default)]
+    pub variants: Vec<PurchaseReviewVariant>,
+}
+
+/// A limited-coupon hold as head office granted it, recorded by the node that
+/// relayed the request (`migrations/sqlite/0078`).
+#[derive(Clone, Debug)]
+pub struct CouponHoldRecord {
+    pub authorization_id: String,
+    pub code: String,
+    pub checkout_id: String,
+    pub expires_at: Option<DateTime<Utc>>,
 }
 
 /// A voucher hold as head office granted it, recorded by the node that relayed

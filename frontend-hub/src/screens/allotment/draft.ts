@@ -6,8 +6,9 @@ export const DRAFT_KEY = "central.new-allotment.draft"
 /// How a new allotment was started from an old one.
 export type AllotFrom = {
   /// `topup` adds to what an allotment promised; `reallot` is what a cancelled
-  /// allotment gave back, to be given again.
-  readonly mode: "topup" | "reallot"
+  /// allotment gave back, to be given again; `edit` is MD changing a cloud-run
+  /// allotment in place, in the same grid (9 Oct 2026).
+  readonly mode: "topup" | "reallot" | "edit"
   /// The allotment it comes from.
   readonly id: string
 }
@@ -21,7 +22,9 @@ export function allotFromValue(mode: AllotFrom["mode"], id: string): string {
 export function allotFromOf(value: string | undefined): AllotFrom | null {
   if (value === undefined) return null
   const [mode, id] = value.split("~")
-  return (mode === "topup" || mode === "reallot") && id ? { mode, id } : null
+  return (mode === "topup" || mode === "reallot" || mode === "edit") && id
+    ? { mode, id }
+    : null
 }
 
 /// Write numbers into the draft New allotment opens with. A cell is a SKU and

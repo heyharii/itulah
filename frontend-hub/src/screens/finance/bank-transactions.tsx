@@ -12,13 +12,15 @@ import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Day } from "@/components/ui/day"
+import { Fab } from "@/components/ui/fab"
 import { Field, Input, Money, Select, Textarea } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Status } from "@/components/ui/pill"
 import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
-import { count, day, money } from "@/lib/format"
+import { count, day, dayMonth, money, monthYear } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   bankStatementLines,
   financeKeys,
@@ -32,6 +34,7 @@ import {
   todayIso,
 } from "@/screens/finance/chart"
 import { useUnitName } from "@/screens/finance/hooks"
+import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
 import { AccountPicker, UnitSelect } from "@/screens/finance/parts"
 import { Code, Grid, Note, Td, Th } from "@/screens/finance-final/parts"
 import { useStatements } from "@/screens/finance-lab-2/hooks"
@@ -65,6 +68,7 @@ export function BankTransactions() {
   const [needle, setNeedle] = useState("")
   const [uploading, setUploading] = useState(false)
   const [openLine, setOpenLine] = useState<MergedLine | null>(null)
+  const phone = useLayout() === "phone"
 
   const statements = useStatements()
   const unitName = useUnitName()
@@ -202,6 +206,7 @@ export function BankTransactions() {
   return (
     <PageContent>
       <PageHeader
+        className="max-md:hidden"
         crumb="Finance · Banking"
         title="Bank Transactions"
         actions={
@@ -210,13 +215,15 @@ export function BankTransactions() {
           </Button>
         }
       />
+      <Fab label="Upload statement" onClick={() => setUploading(true)} />
 
       <div className="flex flex-col gap-4">
         <Toolbar>
           <Input
             value={needle}
             onChange={(event) => setNeedle(event.target.value)}
-            aria-label="Search"
+            aria-label="Search bank transactions"
+            placeholder="Search bank transactions"
             className="h-control w-64"
           />
           <Select
@@ -238,7 +245,7 @@ export function BankTransactions() {
             onChange={(next) => setStatus(next as typeof status)}
             className="h-control w-40"
           >
-            <option value="">Every status</option>
+            <option value="">All statuses</option>
             <option value="UNRECONCILED">Unreconciled</option>
             <option value="RECONCILED">Reconciled</option>
           </Select>
@@ -248,7 +255,7 @@ export function BankTransactions() {
             onChange={setMonth}
             className="h-control w-36"
           >
-            <option value="">Every month</option>
+            <option value="">All months</option>
             {MONTHS.map((one, index) => (
               <option key={one} value={String(index + 1).padStart(2, "0")}>
                 {one}
@@ -261,7 +268,7 @@ export function BankTransactions() {
             onChange={setYear}
             className="h-control w-32"
           >
-            <option value="">Every year</option>
+            <option value="">All years</option>
             {years.map((one) => (
               <option key={one} value={one}>
                 {one}
@@ -298,6 +305,60 @@ export function BankTransactions() {
                       : "Nothing to show."}
                 </EmptyState>
               </Card>
+            ) : phone ? (
+              <div className="flex flex-col gap-2.5">
+                {shown.map((row, index) => {
+                  const monthKey = row.line.value_date.slice(0, 7)
+                  const first =
+                    index === 0 ||
+                    shown[index - 1].line.value_date.slice(0, 7) !== monthKey
+                  const { line } = row
+                  const reconciled = line.unallocated_minor === 0
+                  const reference =
+                    line.reference !== null && !INTERNAL.test(line.reference)
+                      ? line.reference
+                      : null
+                  const note = [
+                    line.party_name,
+                    reference,
+                    banksShown > 1 ? (row.bank ?? row.accountName) : null,
+                  ].filter((part) => part !== null && part !== "")
+                  return (
+                    <Fragment key={line.line_id}>
+                      {first && (
+                        <h3 className="px-1 pt-2 text-[0.9375rem] font-semibold text-ink first:pt-0">
+                          {monthYear(monthKey, true)}
+                        </h3>
+                      )}
+                      <PhoneList
+                        rows={[
+                          {
+                            key: line.line_id,
+                            title: line.description,
+                            line:
+                              note.length > 0 ? note.join(" · ") : undefined,
+                            lead:
+                              line.credit_minor > 0 ? (
+                                <CardFigure
+                                  value={money(line.credit_minor)}
+                                  caption="in"
+                                />
+                              ) : (
+                                <CardFigure
+                                  value={money(line.debit_minor)}
+                                  caption="out"
+                                />
+                              ),
+                            foot: day(line.value_date),
+                            action: <StatusDot reconciled={reconciled} />,
+                            onOpen: () => setOpenLine(row),
+                          },
+                        ]}
+                      />
+                    </Fragment>
+                  )
+                })}
+              </div>
             ) : (
               <Card className="overflow-hidden">
                 <Grid>
@@ -393,10 +454,7 @@ interface MergedLine {
 /// The month a run of lines belongs to, once, instead of a year on every
 /// date.
 function MonthRow({ month }: { month: string }) {
-  const label = new Date(`${month}-01T00:00:00`).toLocaleDateString("en-GB", {
-    month: "long",
-    year: "numeric",
-  })
+  const label = monthYear(month, true)
   return (
     <tr>
       <td
@@ -437,10 +495,7 @@ function TransactionRow({
       className="cursor-pointer transition-colors hover:bg-soft"
     >
       <Td className="py-4 pr-8 whitespace-nowrap text-body">
-        {new Date(`${line.value_date}T00:00:00`).toLocaleDateString("en-GB", {
-          day: "2-digit",
-          month: "short",
-        })}
+        {dayMonth(line.value_date)}
       </Td>
       <Td className="max-w-0 py-4">
         <span className="block truncate text-ink" title={line.description}>
@@ -830,7 +885,7 @@ function UploadSheet({
             <Field
               label="Lines"
               required
-              hint="One per row: date, description, reference, debit, credit. Commas, semicolons or tabs — paste the rekening koran CSV as it comes."
+              hint="One per row: date, description, reference, debit, credit. Commas, semicolons or tabs — paste the bank statement CSV as it comes."
             >
               <Textarea
                 rows={8}

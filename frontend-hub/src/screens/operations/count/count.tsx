@@ -4,12 +4,16 @@ import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Card } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { PageHeader } from "@/components/ui/page-header"
+import { Pill } from "@/components/ui/pill"
 import { EmptyState } from "@/components/ui/states"
 import { dc, poolsAnswer } from "@/lib/api"
 import { count as figure, day, label as humanise } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
+import { CardFigure, CardName } from "@/components/ui/phone-cards"
 import { ROOMY } from "@/screens/operations/roomy"
 import { TwoLines } from "@/screens/operations/two-lines"
 import { keys } from "@/lib/operations/keys"
@@ -22,7 +26,7 @@ const countKeys = {
   one: (id: string) => ["dc", "official-counts", id] as const,
 }
 
-/// **Count** — the counts the Gudang is asked for.
+/// **Count** — the counts the warehouse is asked for.
 ///
 /// Counted with the handheld only (owner, 1 Oct 2026): a sweep reads every
 /// tag in the pool and the handheld submits it to the count — no number is
@@ -38,21 +42,88 @@ interface Row {
 
 /// No. · Count · Pool · What · Why · Asked · Status. The prototype's Due is the
 /// day the count was asked for here: the node carries no deadline.
-function columnsFor(): ColumnDef<TableSetup, Row>[] {
+/// `phone`: the card's own columns exist on a phone only, so a desk's and a
+/// tablet's columns are exactly what they were.
+function columnsFor(phone: boolean): ColumnDef<TableSetup, Row>[] {
+  const cards: ColumnDef<TableSetup, Row>[] = [
+    // Four columns that exist only on a card (`cardLead`; a phone): the pool
+    // over why it was asked, how many articles are in it, who asked and when,
+    // and whether it still waits for a handheld.
+    {
+      id: "head",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "title" },
+      accessorFn: (row) => row.pool,
+      cell: ({ row }) => (
+        <CardName
+          name={row.original.pool}
+          line={humanise(row.original.summary.reason)}
+        />
+      ),
+    },
+    {
+      id: "lead",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "lead" },
+      accessorFn: (row) => row.summary.scope.sku_codes.length,
+      cell: ({ row }) => {
+        const skus = row.original.summary.scope.sku_codes.length
+        return skus === 0 ? (
+          <CardFigure value="All" caption="articles" />
+        ) : (
+          <CardFigure
+            value={figure(skus)}
+            caption={skus === 1 ? "article" : "articles"}
+          />
+        )
+      },
+    },
+    {
+      id: "foot",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "foot" },
+      accessorFn: (row) => row.due,
+      cell: ({ row }) => (
+        <span>
+          {row.original.summary.created_by} · {row.original.due}
+        </span>
+      ),
+    },
+    {
+      id: "where",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { align: "right", card: "status" },
+      accessorFn: (row) => (row.toCount ? 1 : 0),
+      cell: ({ row }) => (
+        <Pill tone={row.original.toCount ? "warn" : "neutral"}>
+          {row.original.toCount ? "To count" : "Counted"}
+        </Pill>
+      ),
+    },
+  ]
+
   return [
     {
       id: "no",
       header: "No.",
       size: 70,
       enableSorting: false,
-      meta: { align: "right", priority: 2 },
+      meta: { align: "right", priority: 2, card: "hide" },
       cell: ({ row }) => <span className="text-mute">{row.index + 1}</span>,
     },
     {
       id: "count",
       header: "Count",
       size: 170,
-      meta: { card: "id" },
+      meta: { card: "hide" },
       accessorFn: (row) => row.summary.count_id,
       cell: ({ row }) => (
         <TwoLines
@@ -69,25 +140,36 @@ function columnsFor(): ColumnDef<TableSetup, Row>[] {
       accessorKey: "pool",
       header: "Pool",
       size: 220,
-      meta: { card: "title" },
+      meta: { card: "hide" },
       cell: ({ row }) => (
         <span className="font-medium text-ink">{row.original.pool}</span>
       ),
     },
-    { accessorKey: "what", header: "What", size: 170, meta: { priority: 2 } },
+    {
+      accessorKey: "what",
+      header: "What",
+      size: 170,
+      meta: { priority: 2, card: "hide" },
+    },
     {
       id: "why",
       header: "Why",
       size: 200,
-      meta: { priority: 3 },
+      meta: { priority: 3, card: "hide" },
       accessorFn: (row) => row.summary.reason,
       cell: ({ row }) => humanise(row.original.summary.reason),
     },
-    { accessorKey: "due", header: "Asked", size: 130, meta: { priority: 3 } },
+    {
+      accessorKey: "due",
+      header: "Asked",
+      size: 130,
+      meta: { priority: 3, card: "hide" },
+    },
     {
       id: "status",
       header: "Status",
       size: 140,
+      meta: { card: "hide" },
       cell: ({ row }) => (
         <span className="inline-flex items-center gap-2">
           <span
@@ -97,12 +179,15 @@ function columnsFor(): ColumnDef<TableSetup, Row>[] {
         </span>
       ),
     },
+    ...(phone ? cards : []),
   ]
 }
 
 export function Count() {
   const [sorting, setSorting] = useState<SortingState>([])
-  const columns = useMemo(() => columnsFor(), [])
+  const [typed, setTyped] = useState("")
+  const phone = useLayout() === "phone"
+  const columns = useMemo(() => columnsFor(phone), [phone])
 
   const list = useQuery({
     queryKey: countKeys.all,
@@ -115,6 +200,7 @@ export function Count() {
     queryFn: ({ signal }) => poolsAnswer(signal),
   })
 
+  const needle = typed.trim().toLowerCase()
   const rows = useMemo<Row[]>(() => {
     const label = new Map(
       (pools.data?.items ?? []).map((pool) => [pool.id, pool.label])
@@ -131,8 +217,15 @@ export function Count() {
           toCount: summary.status === "ACTIVE",
         }
       })
+      .filter(
+        (row) =>
+          needle === "" ||
+          row.pool.toLowerCase().includes(needle) ||
+          humanise(row.summary.reason).toLowerCase().includes(needle) ||
+          row.summary.created_by.toLowerCase().includes(needle)
+      )
       .sort((a, b) => Number(b.toCount) - Number(a.toCount))
-  }, [list.data, pools.data])
+  }, [list.data, pools.data, needle])
 
   const table = useTable(
     useMemo(
@@ -151,7 +244,11 @@ export function Count() {
   return (
     <PageContent>
       <PageHeader title="Count" />
-      <Card className="overflow-hidden">
+      <DockTools
+        search={{ value: typed, onChange: setTyped, label: "Search counts" }}
+        sort={dockSortOf(table)}
+      />
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(list, {
           loading: "Reading the counts…",
           render: () =>
@@ -159,10 +256,14 @@ export function Count() {
               <EmptyState>Nothing to count.</EmptyState>
             ) : (
               <DataTable<Row>
+                refresh={[list]}
                 table={table}
                 touch
                 pageScroll
                 className={ROOMY}
+                cardSort={false}
+                cardsApart
+                cardLead
               />
             ),
         })}

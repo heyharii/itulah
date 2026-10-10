@@ -31,7 +31,7 @@ import { useReportScope } from "@/screens/executive/scope"
 import { useTrade } from "@/screens/executive/sales"
 import { cn } from "@/lib/utils"
 
-/// Ringkasan — the company on one page: what it sold, what it kept, what it
+/// Overview — the company on one page: what it sold, what it kept, what it
 /// holds, and which shops moved it.
 
 export function ExecutiveOverview() {
@@ -44,51 +44,51 @@ export function ExecutiveOverview() {
   const total = trade.query.data?.total
 
   return (
-    <ReportPage title="Ringkasan" scope={scope}>
+    <ReportPage title="Overview" scope={scope}>
       <Figures>
         <Figure
-          label="Penjualan bersih"
+          label="Net sales"
           value={total ? rupiah(total.net) : "…"}
           now={total?.net}
           before={total?.before}
         />
         <Figure
-          label="Transaksi"
+          label="Transactions"
           value={total ? count(total.sales) : "…"}
           now={total?.sales}
           before={total?.salesBefore}
         />
         <Figure
-          label="Laba kotor"
+          label="Gross profit"
           value={profit.data ? rupiah(profit.data.now.gross_profit_minor) : "—"}
           now={profit.data?.now.gross_profit_minor}
           before={profit.data?.before.gross_profit_minor}
         />
         <Figure
-          label="Kas & bank"
+          label="Cash & bank"
           value={
             cash.data && unit !== null ? rupiah(cashAt(cash.data, unit)) : "—"
           }
-          note={`Saldo per ${scope.asOfLabel}`}
+          note={`Balance as of ${scope.asOfLabel}`}
         />
       </Figures>
 
       <div className="grid gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <Card className="overflow-hidden">
           <Head
-            title="Penjualan bersih"
+            title="Net sales"
             to="/executive/stores"
-            link="Kinerja toko"
+            link="Store performance"
           />
           <div className="px-[1.125rem] pb-4">
             {queryState(trade.query, {
-              loading: "Membaca penjualan…",
+              loading: "Reading the sales…",
               render: ({ chart, total }) => (
                 <>
                   <LineSeries
                     rows={chart}
                     dataKey="now"
-                    label="Periode ini"
+                    label="This period"
                     ghost={{
                       dataKey: "before",
                       labelOf: (row) =>
@@ -101,7 +101,7 @@ export function ExecutiveOverview() {
                   />
                   <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 border-t border-hairline pt-3 text-[0.875rem] text-body">
                     <span>
-                      Rata-rata struk{" "}
+                      Average sale{" "}
                       <strong className="font-medium text-ink tabular-nums">
                         {total.sales === 0
                           ? "—"
@@ -109,14 +109,14 @@ export function ExecutiveOverview() {
                       </strong>
                     </span>
                     <span>
-                      Unit terjual{" "}
+                      Pcs sold{" "}
                       <strong className="font-medium text-ink tabular-nums">
                         {count(total.units)}
                       </strong>
                     </span>
                     <span className="ml-auto flex items-center gap-3 text-mute">
-                      <Legend tone="accent">Periode ini</Legend>
-                      <Legend tone="ghost">Periode lalu</Legend>
+                      <Legend tone="accent">This period</Legend>
+                      <Legend tone="ghost">Previous period</Legend>
                     </span>
                   </div>
                 </>
@@ -126,29 +126,25 @@ export function ExecutiveOverview() {
         </Card>
 
         <Card className="overflow-hidden">
-          <Head title="Laba" to="/executive/finance" link="Kas & laba" />
+          <Head title="Profit" to="/executive/finance" link="Cash & profit" />
           <div className="px-[1.125rem] pb-3">
             {queryState(profit, {
-              loading: "Membaca buku…",
+              loading: "Reading the books…",
               refused: <Refused />,
               render: ({ now, before }) => {
                 const rows = [
-                  ["Penjualan", now.revenue_minor, before.revenue_minor],
+                  ["Sales", now.revenue_minor, before.revenue_minor],
                   [
-                    "Laba kotor",
+                    "Gross profit",
                     now.gross_profit_minor,
                     before.gross_profit_minor,
                   ],
                   [
-                    "Laba usaha",
+                    "Operating profit",
                     now.net_operating_profit_minor,
                     before.net_operating_profit_minor,
                   ],
-                  [
-                    "Laba bersih",
-                    now.net_profit_minor,
-                    before.net_profit_minor,
-                  ],
+                  ["Net profit", now.net_profit_minor, before.net_profit_minor],
                 ] as const
                 return (
                   <>
@@ -174,14 +170,14 @@ export function ExecutiveOverview() {
                       )
                     })}
                     <p className="mt-2 text-[0.875rem] text-mute">
-                      Margin kotor{" "}
+                      Gross margin{" "}
                       <span className="font-medium text-ink">
                         {percent(
                           ratio(now.gross_profit_minor, now.revenue_minor)
                         )}
                       </span>
                       <span className="mx-1.5 text-faint">·</span>
-                      Margin bersih{" "}
+                      Net margin{" "}
                       <span className="font-medium text-ink">
                         {percent(
                           ratio(now.net_profit_minor, now.revenue_minor)
@@ -198,23 +194,27 @@ export function ExecutiveOverview() {
 
       {scope.store === undefined && (
         <Card className="mt-3 overflow-hidden">
-          <Head title="Toko" to="/executive/stores" link="Semua angka toko" />
+          <Head
+            title="Stores"
+            to="/executive/stores"
+            link="All store figures"
+          />
           <div className="overflow-x-auto px-[1.125rem] pb-3">
             {queryState(trade.query, {
-              loading: "Membaca toko…",
+              loading: "Reading the stores…",
               render: ({ stores, total }) =>
                 stores.length === 0 ? (
                   <EmptyState>
-                    Belum ada toko yang berjualan di periode ini.
+                    No store has sold anything in this period yet.
                   </EmptyState>
                 ) : (
                   <MiniTable
                     head={[
-                      "Toko",
-                      "Penjualan Bersih",
-                      "Perubahan",
-                      "Kontribusi",
-                      "Transaksi",
+                      "Store",
+                      "Net Sales",
+                      "Change",
+                      "Share",
+                      "Transactions",
                     ]}
                     style={{ minWidth: "34rem" }}
                   >
@@ -274,7 +274,7 @@ export function Legend({
   children: React.ReactNode
 }) {
   return (
-    <span className="flex items-center gap-1.5 text-[0.875rem]">
+    <span className="flex items-center gap-1.5 text-[0.875rem] whitespace-nowrap">
       <span
         aria-hidden
         className={cn(
@@ -292,7 +292,7 @@ export function Legend({
 export function Refused() {
   return (
     <p className="py-6 text-center text-[0.875rem] text-mute">
-      Angka buku hanya untuk supervisor ke atas.
+      Book figures are for supervisors and above.
     </p>
   )
 }

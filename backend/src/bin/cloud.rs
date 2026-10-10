@@ -103,6 +103,21 @@ fn start_node_work(state: &AppState) {
     let db = state.db.clone();
     jobs::spawn(db.clone(), AUTH_POLICY, auth_policy_pass);
     jobs::spawn(db.clone(), catalog_job(), catalog_pass);
+    jobs::spawn(
+        db.clone(),
+        Job {
+            key: "articles.issue",
+            label: "Issue queued article setups",
+            every: std::time::Duration::from_secs(2),
+        },
+        |pool, mut pass| async move {
+            match postgres::process_setup_issue_queue(&pool).await {
+                Ok(count) => pass.did(count),
+                Err(error) => pass.problem(error.to_string()),
+            }
+            pass
+        },
+    );
     jobs::spawn(db.clone(), FLEET_SWEEP, fleet_sweep_pass);
     jobs::spawn(db.clone(), EXCEPTIONS, exception_pass);
     jobs::spawn(db.clone(), AGEING, ageing_pass);
@@ -116,11 +131,20 @@ fn start_node_work(state: &AppState) {
         );
     }
     jobs::spawn(db.clone(), SALE_DAY, sale_day_pass);
+    // The Sales screens' one summary: store days the triggers marked are
+    // recomputed from the raw lines, and once a day the summary is checked
+    // against them. See `postgres::sales_rollup` and `0930`.
+    jobs::spawn(db.clone(), SALES_ROLLUP, sales_rollup_pass);
+    jobs::spawn(db.clone(), SALES_RECONCILE, sales_reconcile_pass);
+    jobs::spawn(db.clone(), STORE_STOCK, store_stock_pass);
     jobs::spawn(db.clone(), POSTINGS, postings_pass);
     jobs::spawn(db.clone(), RECURRING_BILLS, recurring_bills_pass);
     jobs::spawn(db.clone(), JOURNAL_REPEAT, journal_repeat_pass);
     jobs::spawn(db.clone(), CASH_REPEAT, cash_repeat_pass);
     jobs::spawn(db.clone(), INTEGRITY, integrity_pass);
+    // The Inventory Control screen's stored answer, refreshed here and read
+    // by the route in milliseconds. See `postgres::control` and `0949`.
+    jobs::spawn(db.clone(), CONTROL_STATE, control_state_pass);
     // The clock's own HR work: the accrual a policy has earned, the
     // carry-forward a cap put a deadline on, next week's roster carried from
     // this week's plan, and the nudges. See `postgres::schedule` and `0363`.
@@ -498,6 +522,83 @@ async fn prepaid_month_end_pass(pool: sqlx::PgPool, mut pass: Pass) -> Pass {
 /// receivables and cost of sales in one transaction. A day that cannot post
 /// stays unposted and the next pass retries it — and is now written down as a
 /// problem, with the store and the date, rather than only warned about.
+const SALES_ROLLUP: Job = Job {
+    key: "sales.rollup",
+    label: "Sum sales per store day",
+    every: std::time::Duration::from_secs(10),
+};
+
+async fn sales_rollup_pass(pool: sqlx::PgPool, mut pass: Pass) -> Pass {
+    match postgres::sales_rollup_drain(&pool, std::time::Duration::from_secs(8)).await {
+        Ok(drained) => {
+            pass.did(drained.days);
+            if drained.days > 0 {
+                pass.note("rows", drained.rows);
+                pass.note("waiting", drained.waiting);
+            }
+        }
+        Err(error) => pass.problem(error.to_string()),
+    }
+    pass
+}
+
+const STORE_STOCK: Job = Job {
+    key: "sales.stock",
+    label: "Keep store stock per SKU",
+    every: std::time::Duration::from_secs(30),
+};
+
+async fn store_stock_pass(pool: sqlx::PgPool, mut pass: Pass) -> Pass {
+    match postgres::store_stock_refresh(&pool).await {
+        Ok(true) => pass.did(1),
+        Ok(false) => {}
+        Err(error) => pass.problem(error.to_string()),
+    }
+    pass
+}
+
+const SALES_RECONCILE: Job = Job {
+    key: "sales.reconcile",
+    label: "Check the sales summary against the till",
+    every: HOUR,
+};
+
+static SALES_RECONCILED_ON: std::sync::Mutex<Option<chrono::NaiveDate>> =
+    std::sync::Mutex::new(None);
+
+async fn sales_reconcile_pass(pool: sqlx::PgPool, mut pass: Pass) -> Pass {
+    let today = chrono::Utc::now().date_naive();
+    let done = SALES_RECONCILED_ON
+        .lock()
+        .map(|last| *last == Some(today))
+        .unwrap_or(false);
+    if done {
+        return pass;
+    }
+    // The last five weeks: today's figures are still arriving, and a month
+    // close reads the month before.
+    let from = today - chrono::Duration::days(35);
+    match postgres::sales_rollup_reconcile(&pool, from, today - chrono::Duration::days(1)).await {
+        Ok(drift) => {
+            if let Ok(mut last) = SALES_RECONCILED_ON.lock() {
+                *last = Some(today);
+            }
+            pass.note("drifted_days", drift.len());
+            if let Some(first) = drift.first() {
+                tracing::warn!(
+                    days = drift.len(),
+                    first_day = %first.business_date,
+                    first_site = %first.site_id,
+                    "sales summary disagreed with the till; marked for recomputation"
+                );
+                pass.did(drift.len() as u64);
+            }
+        }
+        Err(error) => pass.problem(error.to_string()),
+    }
+    pass
+}
+
 const SALE_DAY: Job = Job {
     key: "sale_day",
     label: "Post completed sales days",
@@ -592,7 +693,9 @@ async fn postings_pass(pool: sqlx::PgPool, mut pass: Pass) -> Pass {
                     %error,
                     "goods receipt awaits correction before it can post"
                 );
-                pass.problem(format!("goods receipt {receipt} awaits correction: {error}"));
+                pass.problem(format!(
+                    "goods receipt {receipt} awaits correction: {error}"
+                ));
             }
         }
         Err(error) => {
@@ -782,6 +885,35 @@ async fn integrity_pass(pool: sqlx::PgPool, mut pass: Pass) -> Pass {
             tracing::error!(%as_of,%error,"the integrity run failed");
             pass.problem(format!("control equations for {as_of}: {error}"));
         }
+    }
+    pass
+}
+
+/// Keep the Inventory Control screen's answer written down (0949).
+///
+/// The screen asks whether the ledger and what is drawn from it still agree,
+/// and the honest answer folds every movement fact against the projection —
+/// a minute on the load estate's 8.8 million facts, on every open, for
+/// numbers that describe the estate's integrity and change when the ledger
+/// changes, not when the page is opened. This pass recomputes the
+/// whole-ledger answer on a connection of its own, the statement clock off
+/// (`SET LOCAL statement_timeout = 0`: the fold may outlast the database's
+/// two minutes on two vCPUs), and upserts the one row the route reads.
+/// Fifteen minutes — four folds an hour is a few percent of the estate, and
+/// `computed_at` beside the numbers says how old they are.
+const CONTROL_STATE: Job = Job {
+    key: "inventory.control",
+    label: "Keep the control screen's answer",
+    every: std::time::Duration::from_secs(15 * 60),
+};
+
+async fn control_state_pass(pool: sqlx::PgPool, mut pass: Pass) -> Pass {
+    match postgres::refresh_control_state(&pool).await {
+        Ok(status) => {
+            pass.did(1);
+            pass.note("ledger_health", status.ledger_health);
+        }
+        Err(error) => pass.problem(error.to_string()),
     }
     pass
 }

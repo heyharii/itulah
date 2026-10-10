@@ -239,11 +239,18 @@ pub(crate) async fn apply_lines(
 ) -> Result<Vec<Uuid>, AppError> {
     let mut ids = Vec::with_capacity(command.lines.len());
     let mut unit_subjects = std::collections::BTreeSet::new();
-    for line in &command.lines {
-        let (id, is_unit) = apply_line(tx, command, line, idempotency_key, digest).await?;
-        ids.push(id);
-        if is_unit {
-            unit_subjects.insert(line.subject_id.0);
+    if let Some((movement_ids, units)) =
+        apply_tagging_identification_batch(tx, command, idempotency_key, digest).await?
+    {
+        ids = movement_ids;
+        unit_subjects.extend(units);
+    } else {
+        for line in &command.lines {
+            let (id, is_unit) = apply_line(tx, command, line, idempotency_key, digest).await?;
+            ids.push(id);
+            if is_unit {
+                unit_subjects.insert(line.subject_id.0);
+            }
         }
     }
     refresh_projection_positions(tx, &command.lines).await?;
@@ -278,6 +285,137 @@ pub(crate) async fn apply_lines(
         .await?;
     }
     Ok(ids)
+}
+
+/// The native Gudang identifies one received lot into distinct EPC units.
+/// Lock and validate those subjects together before appending the same ledger
+/// facts. Other movement shapes retain the sequential validation path.
+async fn apply_tagging_identification_batch(
+    tx: &mut Transaction<'_, Postgres>,
+    command: &MovementCommand,
+    idempotency_key: &str,
+    digest: &str,
+) -> Result<Option<(Vec<Uuid>, Vec<Uuid>)>, AppError> {
+    if command.cause != MovementCause::Identification
+        || command.reference_type.as_deref() != Some("TAGGING_JOB")
+        || command.lines.len() < 2
+    {
+        return Ok(None);
+    }
+    let lot = &command.lines[0];
+    let units = &command.lines[1..];
+    if !lot.from.is_company()
+        || lot.to.id() != "system/identification"
+        || i64::try_from(units.len()).ok() != Some(lot.quantity)
+        || units
+            .iter()
+            .any(|line| line.from != lot.to || !line.to.is_company() || line.quantity != 1)
+    {
+        return Ok(None);
+    }
+    let subject_ids: std::collections::BTreeSet<_> =
+        command.lines.iter().map(|line| line.subject_id.0).collect();
+    if subject_ids.len() != command.lines.len() {
+        return Ok(None);
+    }
+    let subject_ids: Vec<_> = subject_ids.into_iter().collect();
+    let subjects = sqlx::query(
+        "SELECT id, subject_type, quantity FROM inventory_subject
+         WHERE id = ANY($1) ORDER BY id FOR UPDATE",
+    )
+    .bind(&subject_ids)
+    .fetch_all(&mut **tx)
+    .await?;
+    if subjects.len() != subject_ids.len() {
+        return Err(AppError::NotFound("inventory subject".into()));
+    }
+    for subject in &subjects {
+        let id: Uuid = subject.get("id");
+        let kind: String = subject.get("subject_type");
+        if (id == lot.subject_id.0 && kind != "QUANTITY")
+            || (id != lot.subject_id.0 && kind != "UNIT")
+        {
+            return Ok(None);
+        }
+        if kind == "UNIT" && subject.get::<i64, _>("quantity") != 1 {
+            return Err(AppError::Validation(
+                "UNIT/EPC movement quantity must equal 1".into(),
+            ));
+        }
+    }
+    let balance = ledger_balance(tx, lot.subject_id.0, &lot.from.id()).await?;
+    if balance < lot.quantity {
+        return Err(AppError::Conflict(format!(
+            "insufficient authoritative ledger balance at {}: balance {balance}, requested {}",
+            lot.from.id(),
+            lot.quantity
+        )));
+    }
+    let unit_ids: Vec<_> = units.iter().map(|line| line.subject_id.0).collect();
+    let placed: Option<Uuid> = sqlx::query_scalar(
+        "WITH delta AS (
+             SELECT subject_id, to_place_id AS place_id, quantity AS quantity
+             FROM movement WHERE subject_id = ANY($1)
+             UNION ALL
+             SELECT subject_id, from_place_id, -quantity
+             FROM movement WHERE subject_id = ANY($1)
+         ), balance AS (
+             SELECT subject_id, place_id, SUM(quantity) AS quantity
+             FROM delta GROUP BY subject_id, place_id
+         )
+         SELECT balance.subject_id FROM balance
+         JOIN inventory_place place ON place.id = balance.place_id
+         WHERE place.is_company AND balance.quantity > 0 LIMIT 1",
+    )
+    .bind(&unit_ids)
+    .fetch_optional(&mut **tx)
+    .await?;
+    if placed.is_some() {
+        return Err(AppError::Conflict(
+            "UNIT/EPC already has a current company placement".into(),
+        ));
+    }
+    let movement_ids: Vec<_> = command.lines.iter().map(|_| Uuid::new_v4()).collect();
+    let rows: Vec<_> = command
+        .lines
+        .iter()
+        .zip(&movement_ids)
+        .enumerate()
+        .map(|(index, (line, id))| {
+            json!({
+                "line_index": index,
+                "movement_id": id,
+                "subject_id": line.subject_id.0,
+                "quantity": line.quantity,
+                "from_place_id": line.from.id(),
+                "to_place_id": line.to.id(),
+            })
+        })
+        .collect();
+    sqlx::query(
+        "INSERT INTO movement
+             (movement_id, movement_group_id, subject_id, quantity,
+              from_place_id, to_place_id, cause, reference_type, reference_id,
+              idempotency_key, payload_digest, actor_id, occurred_at)
+         SELECT line.movement_id, $2, line.subject_id, line.quantity,
+                line.from_place_id, line.to_place_id, $3, $4, $5, $6, $7, $8, $9
+         FROM jsonb_to_recordset($1::jsonb) AS line(
+              line_index integer, movement_id uuid, subject_id uuid,
+              quantity bigint, from_place_id text, to_place_id text)
+         ORDER BY line.line_index",
+    )
+    .bind(Value::Array(rows))
+    .bind(command.movement_group_id.0)
+    .bind(command.cause.as_str())
+    .bind(&command.reference_type)
+    .bind(&command.reference_id)
+    .bind(idempotency_key)
+    .bind(digest)
+    .bind(&command.actor_id)
+    .bind(command.occurred_at)
+    .execute(&mut **tx)
+    .await?;
+    Ok(Some((movement_ids, unit_ids)))
 }
 
 async fn apply_line(
@@ -357,7 +495,7 @@ async fn refresh_projection_positions(
         "WITH affected AS (
              SELECT * FROM jsonb_to_recordset($1::jsonb)
                  AS row(subject_id uuid,place_id text)
-         ), balance AS (
+         ), balance AS MATERIALIZED (
              SELECT affected.subject_id,affected.place_id,
                     COALESCE(SUM(CASE WHEN movement.to_place_id=affected.place_id
                                       THEN movement.quantity
@@ -369,32 +507,16 @@ async fn refresh_projection_positions(
               AND (movement.from_place_id=affected.place_id OR movement.to_place_id=affected.place_id)
              GROUP BY affected.subject_id,affected.place_id
          )
+         , removed AS (
+             DELETE FROM inventory_projection projection USING balance
+             WHERE projection.subject_id=balance.subject_id AND projection.place_id=balance.place_id
+               AND balance.quantity<=0
+             RETURNING projection.subject_id
+         )
          INSERT INTO inventory_projection(subject_id,place_id,quantity,last_fact_sequence,updated_at)
          SELECT subject_id,place_id,quantity,sequence,now() FROM balance WHERE quantity>0
          ON CONFLICT(subject_id,place_id) DO UPDATE
          SET quantity=EXCLUDED.quantity,last_fact_sequence=EXCLUDED.last_fact_sequence,updated_at=now()",
-    )
-    .bind(Value::Array(payload.clone()))
-    .execute(&mut **tx)
-    .await?;
-    sqlx::query(
-        "WITH affected AS (
-             SELECT * FROM jsonb_to_recordset($1::jsonb)
-                 AS row(subject_id uuid,place_id text)
-         ), live AS (
-             SELECT affected.subject_id,affected.place_id,
-                    COALESCE(SUM(CASE WHEN movement.to_place_id=affected.place_id
-                                      THEN movement.quantity
-                                      WHEN movement.from_place_id=affected.place_id
-                                      THEN -movement.quantity ELSE 0 END),0)::bigint quantity
-             FROM affected LEFT JOIN movement
-               ON movement.subject_id=affected.subject_id
-              AND (movement.from_place_id=affected.place_id OR movement.to_place_id=affected.place_id)
-             GROUP BY affected.subject_id,affected.place_id
-         )
-         DELETE FROM inventory_projection projection USING live
-         WHERE projection.subject_id=live.subject_id AND projection.place_id=live.place_id
-           AND live.quantity<=0",
     )
     .bind(Value::Array(payload))
     .execute(&mut **tx)
@@ -456,7 +578,10 @@ async fn validate_outbound_allotment_line_provenance(
     let from = line.from.id();
     let to = line.to.id();
     // The outbound area of any site, by role (0610).
-    let from_outbound = line.from.pool().is_some_and(|pool| pool.role().is_outbound());
+    let from_outbound = line
+        .from
+        .pool()
+        .is_some_and(|pool| pool.role().is_outbound());
     let to_outbound = line.to.pool().is_some_and(|pool| pool.role().is_outbound());
     if !from_outbound && !to_outbound {
         return Ok(());
@@ -484,7 +609,8 @@ async fn validate_outbound_allotment_line_provenance(
             &provenance.get::<String, _>("allotment_type"),
         )
         .map_err(|error| AppError::Conflict(error.to_string()))?;
-        if !route.goes_to_a_site() || provenance.get::<String, _>("destination_type") == "SUPPLIER" {
+        if !route.goes_to_a_site() || provenance.get::<String, _>("destination_type") == "SUPPLIER"
+        {
             return Err(AppError::Conflict(
                 "outbound movement requires an allotment line bound for a site of ours".into(),
             ));
@@ -731,34 +857,53 @@ struct MovementCursor {
 }
 
 /// Every place one `pool_id` covers — the pool's own two, and for an outbound
-/// ROLLUP every leaf at the same stage.
-///
-/// Binds: `$2` the pool or NULL.
+/// ROLLUP every leaf at the same stage. `bind` is the position the pool id
+/// sits at, because the page spells its match at fixed positions while the
+/// facets spell only the filters that are set.
 ///
 /// A set, computed ONCE per query, rather than a question asked of each row.
 /// That is the whole difference between a pool-filtered ledger read that works
-/// and one that does not: it depends only on `$2`, so PostgreSQL evaluates it
-/// as a hashed `SubPlan` and every posting is then a hash probe. Written as a
-/// correlated `EXISTS` over `m.from_place_id`/`m.to_place_id` instead — which
-/// reads more naturally and is what this started as — the planner has to
-/// re-run it per row, and the counting half went to 4.2 seconds over 404,647
-/// buffers at 106,100 movements. As a set: 82 ms over 3,907.
+/// and one that does not: it depends only on the one bind, so PostgreSQL
+/// evaluates it as a hashed `SubPlan` and every posting is then a hash probe.
+/// Written as a correlated `EXISTS` over `m.from_place_id`/`m.to_place_id`
+/// instead — which reads more naturally and is what this started as — the
+/// planner has to re-run it per row, and the counting half went to 4.2 seconds
+/// over 404,647 buffers at 106,100 movements. As a set: 82 ms over 3,907.
 ///
 /// Spelled once and used for both sides of the posting. A movement is
 /// double-entry, so a pool matches EITHER end of it and a transfer between two
 /// pools appears once in each rather than twice in one.
-const MOVEMENT_SCOPE_PLACES: &str = r#"
+fn movement_scope_places(bind: usize) -> String {
+    format!(
+        r#"
     SELECT place.id FROM inventory_place place
     JOIN operational_pool op ON op.id=place.pool_id
-    WHERE op.id=$2 OR EXISTS (
+    WHERE op.id=${bind} OR EXISTS (
         SELECT 1 FROM operational_pool scope
-        WHERE scope.id=$2 AND scope.destination_store_id IS NULL AND scope.outbound_stage IS NOT NULL
+        WHERE scope.id=${bind} AND scope.destination_store_id IS NULL AND scope.outbound_stage IS NOT NULL
           AND op.is_placement AND op.outbound_stage=scope.outbound_stage
           AND op.site_id=scope.site_id)
-"#;
+"#
+    )
+}
 
-/// WHICH movements a scope matches, defined once — for the page and for the
-/// counting half.
+/// The needle's predicate over one movement row — the tag, the SKU code, who
+/// posted it, the two place ids and the reference. `bind` is the position the
+/// pattern sits at: the page wraps it in a null-check so one text serves every
+/// call, the facets in brackets, since their text carries only set filters.
+fn movement_needle_clause(bind: usize) -> String {
+    format!(
+        r#"m.actor_id ILIKE ${bind} OR m.from_place_id ILIKE ${bind} OR m.to_place_id ILIKE ${bind}
+       OR m.reference_id ILIKE ${bind}
+       OR EXISTS (SELECT 1 FROM inventory_subject s LEFT JOIN sku sk ON sk.id=s.sku_id
+                   WHERE s.id=m.subject_id AND (s.epc ILIKE ${bind} OR sk.sku_code ILIKE ${bind}))"#
+    )
+}
+
+/// WHICH movements a scope matches — the page's half of it, with every filter
+/// wrapped in a null-check so ONE text serves every call. The counting half
+/// spells the same clauses plainer, without the null-checks, because its text
+/// is already built per call; see [`movement_facets`].
 ///
 /// Binds: `$1` a subject or NULL, `$2` a pool or NULL, `$3` the search pattern
 /// or NULL.
@@ -772,7 +917,7 @@ const MOVEMENT_SCOPE_PLACES: &str = r#"
 ///
 /// Every clause is a predicate on ONE `movement` row against something the
 /// planner can prepare once: the pool's places as a hashed set (see
-/// [`MOVEMENT_SCOPE_PLACES`]), the subject's tag and SKU code as an `EXISTS`
+/// [`movement_scope_places`]), the subject's tag and SKU code as an `EXISTS`
 /// the row's own primary key answers. No join in the `FROM`, and that is not a
 /// stylistic preference — a `WHERE … OR` short-circuits on a NULL bind, so an
 /// UNFILTERED read never touches those tables at all, where a join is paid for
@@ -791,14 +936,12 @@ fn movement_match() -> String {
 FROM movement m
 WHERE ($1::uuid IS NULL OR m.subject_id=$1)
   AND ($2::text IS NULL
-       OR m.from_place_id IN ({MOVEMENT_SCOPE_PLACES})
-       OR m.to_place_id IN ({MOVEMENT_SCOPE_PLACES}))
-  AND ($3::text IS NULL
-       OR m.actor_id ILIKE $3 OR m.from_place_id ILIKE $3 OR m.to_place_id ILIKE $3
-       OR m.reference_id ILIKE $3
-       OR EXISTS (SELECT 1 FROM inventory_subject s LEFT JOIN sku sk ON sk.id=s.sku_id
-                   WHERE s.id=m.subject_id AND (s.epc ILIKE $3 OR sk.sku_code ILIKE $3)))
-"#
+       OR m.from_place_id IN ({pool})
+       OR m.to_place_id IN ({pool}))
+  AND ($3::text IS NULL OR {needle})
+"#,
+        pool = movement_scope_places(2),
+        needle = movement_needle_clause(3),
     )
 }
 
@@ -827,7 +970,10 @@ LEFT JOIN allotment legacy ON m.reference_type='ALLOTMENT' AND m.reference_id=le
     )
 }
 
-/// The movement list's filters, spelled once for the page and for the facets.
+/// The movement list's filters, spelled once for the page. The facets count
+/// `searched` before these apply, and where they need one — the total, with
+/// both a cause and an actor ticked — they spell the equality themselves; see
+/// [`movement_facets`].
 const MOVEMENT_FILTERS: &str = "
      WHERE ($4::text IS NULL OR cause=$4)
        AND ($5::text IS NULL OR actor_id=$5)
@@ -959,40 +1105,106 @@ pub async fn movements_page(pool: &PgPool, scope: MovementScope) -> Result<Movem
 ///
 /// Per-value counts read the SEARCHED set, ignoring which cause is currently
 /// ticked; the total reads the FILTERED one, because it describes the list on
-/// screen.
+/// screen. Both are columns of `movement` itself, so the counting half never
+/// pays for the page's decoration.
 ///
-/// It selects `cause` and `actor_id` off [`movement_match`] and nothing else.
-/// Both are columns of `movement` itself, so an unfiltered count is one scan of
-/// one table — where counting over the page's row definition dragged five joins
-/// and nineteen columns through every row of the ledger and spilled the result
-/// to a temp file to do it. Same rows counted, 225 ms against 45.
+/// The text is built per call — one plain clause per filter that is actually
+/// set, one bind for each — rather than the page's null-checked spellings,
+/// which exist so one text can serve every call. That is what lets an
+/// UNFILTERED count be planned as an index-only scan: `$1 IS NULL OR
+/// m.subject_id=$1` references `subject_id`, so a plan for it cannot read the
+/// cause index alone even when the bind is NULL and the clause folds away.
+/// With the clause simply absent, each half plans alone: the per-cause counts
+/// walk `movement_cause_idx` in the grouping's own order and aggregate as
+/// they go, the per-actor counts walk `movement_actor_idx` the same way, and
+/// neither sorts, materialises nor touches the heap.
+///
+/// When nothing narrows the search — the ledger opened plain, the shape the
+/// load estate times at 8.8 million rows — `searched` IS every posting there
+/// is, and materialising that many (cause, actor_id) pairs to read them back
+/// twice or three times over was the whole cost of the screen. NOT
+/// MATERIALIZED drops the copy. When a subject, a pool or a needle does
+/// narrow the search, the slice is small and one scan shared by every reader
+/// is the cheaper shape, which is what materialising gives, so that is when
+/// it is kept.
+///
+/// The total needs asking for only when a cause AND an actor are both
+/// ticked. The facets count `searched` before the filters apply, so with one
+/// value ticked the row for it IS the filtered total, with none ticked the
+/// sum of the per-cause counts is, and two ticked values intersect — no
+/// single facet holds that, and one counted branch asks.
 async fn movement_facets(
     pool: &PgPool,
     scope: &MovementScope,
     needle: Option<&str>,
 ) -> Result<(i64, MovementFacets), AppError> {
-    let matched = movement_match();
+    let mut clauses: Vec<String> = Vec::new();
+    let mut bind = 0usize;
+    if scope.subject_id.is_some() {
+        bind += 1;
+        clauses.push(format!("m.subject_id=${bind}"));
+    }
+    if scope.pool_id.is_some() {
+        bind += 1;
+        let places = movement_scope_places(bind);
+        clauses.push(format!(
+            "(m.from_place_id IN ({places}) OR m.to_place_id IN ({places}))"
+        ));
+    }
+    if needle.is_some() {
+        bind += 1;
+        clauses.push(format!("({})", movement_needle_clause(bind)));
+    }
+    let both_ticked = scope.cause.is_some() && scope.actor_id.is_some();
+    let (cause_bind, actor_bind) = if both_ticked {
+        bind += 1;
+        let cause_bind = bind;
+        bind += 1;
+        (cause_bind, bind)
+    } else {
+        (0, 0)
+    };
+    let narrowed = !clauses.is_empty();
+    let materialisation = if narrowed { "" } else { "NOT MATERIALIZED " };
+    let where_sql = if narrowed {
+        format!(" WHERE {}", clauses.join(" AND "))
+    } else {
+        String::new()
+    };
+    let counted = if both_ticked {
+        format!(
+            " UNION ALL
+         SELECT 'all', '', COUNT(*)::bigint FROM searched
+          WHERE cause=${cause_bind} AND actor_id=${actor_bind}"
+        )
+    } else {
+        String::new()
+    };
     let sql = format!(
-        "WITH searched AS (SELECT m.cause,m.actor_id {matched}), kept AS (
-             SELECT * FROM searched {MOVEMENT_FILTERS}
-         )
+        "WITH searched AS {materialisation}(SELECT m.cause,m.actor_id FROM movement m{where_sql})
          SELECT 'cause' AS kind, cause AS value, COUNT(*)::bigint AS n
            FROM searched GROUP BY cause
           UNION ALL
-         SELECT 'actor', actor_id, COUNT(*)::bigint FROM searched GROUP BY actor_id
-          UNION ALL
-         SELECT 'all', '', COUNT(*)::bigint FROM kept"
+         SELECT 'actor', actor_id, COUNT(*)::bigint FROM searched GROUP BY actor_id{counted}"
     );
-    let rows = sqlx::query(&sql)
-        .bind(scope.subject_id)
-        .bind(&scope.pool_id)
-        .bind(needle)
-        .bind(&scope.cause)
-        .bind(&scope.actor_id)
-        .fetch_all(pool)
-        .await?;
+    let mut query = sqlx::query(&sql);
+    if let Some(subject) = scope.subject_id {
+        query = query.bind(subject);
+    }
+    if let Some(pool_id) = &scope.pool_id {
+        query = query.bind(pool_id);
+    }
+    if let Some(pattern) = needle {
+        query = query.bind(pattern);
+    }
+    if both_ticked {
+        query = query
+            .bind(scope.cause.as_deref())
+            .bind(scope.actor_id.as_deref());
+    }
+    let rows = query.fetch_all(pool).await?;
 
-    let mut total = 0i64;
+    let mut counted_total: Option<i64> = None;
     let mut facets = MovementFacets {
         causes: Vec::new(),
         actors: Vec::new(),
@@ -1007,12 +1219,32 @@ async fn movement_facets(
         match kind.as_str() {
             "cause" => facets.causes.push(facet),
             "actor" => facets.actors.push(facet),
-            _ => total = facet.count,
+            _ => counted_total = Some(facet.count),
         }
     }
     for list in [&mut facets.causes, &mut facets.actors] {
         rank_facets(list);
     }
+    let total = match counted_total {
+        Some(count) => count,
+        None => match (&scope.cause, &scope.actor_id) {
+            (Some(cause), None) => facets
+                .causes
+                .iter()
+                .find(|facet| facet.value == *cause)
+                .map(|facet| facet.count)
+                .unwrap_or(0),
+            (None, Some(actor)) => facets
+                .actors
+                .iter()
+                .find(|facet| facet.value == *actor)
+                .map(|facet| facet.count)
+                .unwrap_or(0),
+            (None, None) => facets.causes.iter().map(|facet| facet.count).sum(),
+            // The counted branch above runs whenever both are ticked.
+            (Some(_), Some(_)) => unreachable!("the total is counted when both filters are set"),
+        },
+    };
     Ok((total, facets))
 }
 

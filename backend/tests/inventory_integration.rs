@@ -1600,6 +1600,108 @@ async fn allotment_is_a_concurrency_safe_commitment_and_pick_is_atomic(pool: PgP
     assert_eq!(replay["status"], "MATCH");
 }
 
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn allotment_batch_preserves_stock_across_skus_and_destinations(pool: PgPool) {
+    let initial_allocations: i64 = sqlx::query_scalar("SELECT count(*) FROM allotment")
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("allotments: {e}"));
+    let available = infrastructure::get_availability(&pool, AvailabilityQuery::default())
+        .await
+        .unwrap_or_else(|e| panic!("availability: {e}"));
+    let candidates: Vec<_> = available["items"]
+        .as_array()
+        .unwrap_or_else(|| panic!("items"))
+        .iter()
+        .filter_map(|item| {
+            let quantity = item["on_hand_qty"].as_i64()?;
+            (quantity > 2).then(|| {
+                (
+                    Uuid::parse_str(item["sku_id"].as_str().unwrap_or_default())
+                        .unwrap_or_else(|e| panic!("sku: {e}")),
+                    quantity,
+                )
+            })
+        })
+        .take(2)
+        .collect();
+    assert_eq!(candidates.len(), 2);
+    let line = |sku_id, quantity, destination: &str| CreateAllotmentLineInput {
+        source_site_id: "dc".into(),
+        source_pool_id: "dc.warehouse".into(),
+        destination_type: DestinationType::Store,
+        destination_id: destination.into(),
+        sku_id,
+        quantity,
+    };
+    let request = |lines, key: &str| CreateAllotmentRequest {
+        allotment_type: AllotmentType::ToStore,
+        lines,
+        notes: None,
+        actor_id: "allotment-planner".into(),
+        idempotency_key: key.into(),
+    };
+    let created = infrastructure::create_allotment(
+        &pool,
+        request(
+            candidates
+                .iter()
+                .map(|(sku, _)| line(*sku, 1, "store-01"))
+                .collect(),
+            "batch-distinct-skus",
+        ),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("create: {e}"));
+    for row in created["lines"]
+        .as_array()
+        .unwrap_or_else(|| panic!("lines"))
+    {
+        let sku = Uuid::parse_str(row["sku_id"].as_str().unwrap_or_default())
+            .unwrap_or_else(|e| panic!("sku: {e}"));
+        let expected = candidates
+            .iter()
+            .find(|(id, _)| *id == sku)
+            .unwrap_or_else(|| panic!("unknown sku"))
+            .1;
+        assert_eq!(
+            row["on_hand_qty_before"], expected,
+            "several SKUs at one pool must not multiply stock"
+        );
+    }
+    let (sku, quantity) = candidates[0];
+    let before = fact_count(&pool).await;
+    let error = infrastructure::create_allotment(
+        &pool,
+        request(
+            vec![
+                line(sku, quantity - 1, "store-01"),
+                line(sku, 1, "store-02"),
+            ],
+            "batch-over-promised",
+        ),
+    )
+    .await
+    .err()
+    .unwrap_or_else(|| panic!("must refuse combined allocation beyond remaining stock"));
+    assert!(
+        error
+            .to_string()
+            .contains("fact-derived available quantity"),
+        "{error}"
+    );
+    assert_eq!(fact_count(&pool).await, before);
+    let allocations: i64 = sqlx::query_scalar("SELECT count(*) FROM allotment")
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("allotments: {e}"));
+    assert_eq!(
+        allocations,
+        initial_allocations + 1,
+        "the refused batch must roll back all lines and events"
+    );
+}
+
 /// A clearance on a whole style clears every size of it, at the centre too.
 ///
 /// The companion to the shop-side test of the same name. The engine matches an

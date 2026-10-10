@@ -271,7 +271,7 @@ function LocationEditForm({
         <Banner tone="bad">{save.error.message}</Banner>
       )}
       <div className="grid grid-cols-2 gap-4">
-        <Field label="Site type" aside="store, Gudang, office, staff house">
+        <Field label="Site type" aside="store, warehouse, office, staff house">
           <Input
             value={form.kind ?? ""}
             onChange={(event) => set("kind", event.target.value)}

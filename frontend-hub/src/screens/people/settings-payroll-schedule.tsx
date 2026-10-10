@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
+import { Fab } from "@/components/ui/fab"
 import { Button } from "@/components/ui/button"
 import { Day } from "@/components/ui/day"
 import { Field, Input, Select } from "@/components/ui/field"
@@ -33,6 +35,7 @@ const PRORATE_LABEL: Record<string, string> = {
 /// from a date, so a month already paid keeps the schedule it was paid under.
 export function PayrollScheduleSettings() {
   const canWrite = useCanWrite()
+  const phone = useLayout() === "phone"
   const schedules = useQuery({
     queryKey: payKeys.schedules(),
     queryFn: ({ signal }) => payrollSchedules(signal),
@@ -41,11 +44,13 @@ export function PayrollScheduleSettings() {
 
   return (
     <PageContent>
+      {canWrite && <Fab label="New schedule" onClick={() => sheet.show()} />}
       <PageHeader
         crumb="People"
         title="Payroll Schedule"
         sub="When the attendance month closes, when pay goes out, and how a part month is prorated."
         actions={
+          !phone &&
           canWrite && (
             <Button variant="primary" onClick={() => sheet.show()}>
               New schedule

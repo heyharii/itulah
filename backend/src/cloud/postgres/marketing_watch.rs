@@ -131,12 +131,11 @@ pub async fn watch_commercial_usage(
     }
 
     if state.last_sent.is_none() {
-        let sent: Option<DateTime<Utc>> = sqlx::query_scalar(
-            "SELECT max(issued_at) FROM sync_command WHERE command_type = $1",
-        )
-        .bind(crate::cloud::domain::COMMAND_COMMERCIAL_USAGE)
-        .fetch_one(pool)
-        .await?;
+        let sent: Option<DateTime<Utc>> =
+            sqlx::query_scalar("SELECT max(issued_at) FROM sync_command WHERE command_type = $1")
+                .bind(crate::cloud::domain::COMMAND_COMMERCIAL_USAGE)
+                .fetch_one(pool)
+                .await?;
         state.last_sent = Some(sent);
     }
     let changed = state.sent_uses != Some(total_uses);
@@ -205,7 +204,10 @@ const CAPPED_USAGE: &str = "
 /// One transaction per counted thing: its alert rows and its notice commit
 /// together, so a notice that failed leaves no alert behind to say it was sent.
 async fn record_crossings(pool: &PgPool, since: DateTime<Utc>) -> Result<usize, AppError> {
-    let rows = sqlx::query(CAPPED_USAGE).bind(since).fetch_all(pool).await?;
+    let rows = sqlx::query(CAPPED_USAGE)
+        .bind(since)
+        .fetch_all(pool)
+        .await?;
     let mut announced = 0;
     for row in rows {
         let kind: String = row.get("kind");
@@ -293,12 +295,11 @@ async fn head_office_and(
 ) -> Result<Vec<String>, AppError> {
     let mut recipients = infrastructure::recipients_with_role(tx, &["ADMIN"]).await?;
     if let Some(owner) = owner.map(str::trim).filter(|owner| !owner.is_empty()) {
-        let active: Option<String> = sqlx::query_scalar(
-            "SELECT username FROM app_user WHERE active AND username = $1",
-        )
-        .bind(owner)
-        .fetch_optional(&mut **tx)
-        .await?;
+        let active: Option<String> =
+            sqlx::query_scalar("SELECT username FROM app_user WHERE active AND username = $1")
+                .bind(owner)
+                .fetch_optional(&mut **tx)
+                .await?;
         if let Some(username) = active {
             if !recipients.contains(&username) {
                 recipients.push(username);
@@ -319,7 +320,10 @@ fn subject_of(kind: &str, key: &str) -> Option<(&'static str, String)> {
 }
 
 fn subject_label(kind: &str, key: &str, name: Option<&str>) -> String {
-    let name = name.map(str::trim).filter(|name| !name.is_empty()).unwrap_or(key);
+    let name = name
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or(key);
     match kind {
         "RULE" => format!("Promotion \u{201c}{name}\u{201d}"),
         "CAMPAIGN" => format!("Campaign \u{201c}{name}\u{201d}"),
@@ -422,7 +426,11 @@ async fn rollout_failed(pool: &PgPool) -> Result<Value, AppError> {
         let version: i64 = row.get("version");
         let book: String = row.get("book_name");
         let error: Option<String> = row.get("last_error");
-        let body = match error.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
+        let body = match error
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+        {
             Some(text) => format!("v{version} \u{201c}{book}\u{201d}. The shop said: {text}"),
             None => format!("v{version} \u{201c}{book}\u{201d}. The shop gave no reason."),
         };
@@ -487,8 +495,12 @@ async fn rollout_stalled(pool: &PgPool, now: DateTime<Utc>) -> Result<Value, App
         // this book is not reported again when a second one joins it.
         let mut fresh: Vec<(String, String)> = Vec::new();
         for (origin_id, shop) in shops {
-            if claim_run(pool, jobs::ROLLOUT_STALLED, &format!("{publication_id}:{origin_id}"))
-                .await?
+            if claim_run(
+                pool,
+                jobs::ROLLOUT_STALLED,
+                &format!("{publication_id}:{origin_id}"),
+            )
+            .await?
             {
                 fresh.push((origin_id, shop));
             }
@@ -570,7 +582,11 @@ async fn usage_stale(
         let issued_at: DateTime<Utc> = row.get("issued_at");
         let minutes = (now - issued_at).num_minutes();
         let blocked: Option<String> = row.get("blocked_reason");
-        let body = match blocked.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
+        let body = match blocked
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+        {
             Some(reason) => format!(
                 "It stopped on a message from head office {minutes} minutes ago: {reason}. \
                  Until that is cleared it is enforcing old promotion counts and holds no \
@@ -634,7 +650,9 @@ async fn guardrails(pool: &PgPool) -> Result<Value, AppError> {
             Ok(_) => checked += 1,
             // A campaign no published book carries is not running, and a rail
             // on it has nothing to measure. Said in the detail, not raised.
-            Err(error) => skipped.push(json!({ "campaign_id": campaign_id, "why": error.to_string() })),
+            Err(error) => {
+                skipped.push(json!({ "campaign_id": campaign_id, "why": error.to_string() }))
+            }
         }
     }
 
@@ -667,7 +685,9 @@ async fn guardrails(pool: &PgPool) -> Result<Value, AppError> {
         let reading = guardrail_reading(&measure, threshold, observed);
         let outcome = match action.as_str() {
             "PAUSED" => " The campaign has been paused and every shop told.",
-            "PAUSE_FAILED" => " The rail says to stop the campaign, and the pause could NOT be sent.",
+            "PAUSE_FAILED" => {
+                " The rail says to stop the campaign, and the pause could NOT be sent."
+            }
             _ => "",
         };
         if raise_once(
@@ -704,7 +724,11 @@ fn guardrail_reading(measure: &str, threshold: i64, observed: i64) -> String {
             watch::describe(Measure::Budget, value)
         }
     };
-    format!("{what} is {} against a line of {}", draw(observed), draw(threshold))
+    format!(
+        "{what} is {} against a line of {}",
+        draw(observed),
+        draw(threshold)
+    )
 }
 
 /// The promotions and campaigns that start or end tomorrow, one notice for

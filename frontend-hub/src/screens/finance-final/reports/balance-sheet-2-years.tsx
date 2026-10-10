@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { fileSafe, type ExportSheet } from "@/lib/export-xlsx"
 import { day, money } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { financeKeys, statement } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
 import { Code, Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
@@ -24,6 +25,10 @@ import { YearMonthControl } from "@/screens/finance-final/reports/two-year-contr
 import { periodResult } from "@/screens/finance/chart"
 import { useUnitName } from "@/screens/finance/hooks"
 import { UnitSelect } from "@/screens/finance/parts"
+import {
+  PhoneStatement,
+  type StatementLine,
+} from "@/screens/finance/phone-parts"
 import { ReportFilters, ReportSummary } from "@/screens/finance/report"
 import type { Statement } from "@itulah/contract"
 
@@ -44,6 +49,7 @@ import type { Statement } from "@itulah/contract"
 /// sheet prints them (liabilities and equity flipped to read positive), so a
 /// growing liability shows a positive change like a growing asset does.
 export function BalanceSheetTwoYears() {
+  const phone = useLayout() === "phone"
   const [unit, setUnit] = useState("")
   const [year, setYear] = useState(() => new Date().getFullYear())
   const [monthDraft, setMonthDraft] = useState<number | null>(null)
@@ -129,7 +135,13 @@ export function BalanceSheetTwoYears() {
       <PageHeader
         crumb="Finance · Financial Reports"
         title="Balance Sheet 2 Years"
-        actions={<ExportButton build={build} disabled={rows === null} />}
+        // On a phone Export is a row of the Filters sheet, not a button at the
+        // top of the page.
+        actions={
+          phone ? undefined : (
+            <ExportButton build={build} disabled={rows === null} />
+          )
+        }
       />
 
       <ReportFilters note={note}>
@@ -148,6 +160,7 @@ export function BalanceSheetTwoYears() {
           }}
           onMonth={setMonthDraft}
         />
+        {phone && <ExportButton build={build} disabled={rows === null} />}
       </ReportFilters>
 
       {queryState(now, {
@@ -242,6 +255,7 @@ function Body({
   thisEnd: string
   lastEnd: string
 }) {
+  const phone = useLayout() === "phone"
   const out = sheet.out_of_balance_minor ?? 0
   const outBefore = prior.out_of_balance_minor ?? 0
   const at = (code: string) =>
@@ -290,71 +304,103 @@ function Body({
         ]}
       />
 
-      <Grid>
-        <thead>
-          <tr>
-            <Th width="26rem">Account</Th>
-            <Th align="right" width="11.5rem">
-              {day(thisEnd)}
-            </Th>
-            <Th align="right" width="11.5rem">
-              {day(lastEnd)}
-            </Th>
-            <Th align="right" width="11.5rem">
-              Change
-            </Th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows
-            .filter((row) => row.kind !== "total")
-            .map((row) => {
-              const bold = row.kind !== "line"
-              const figure = bold ? "font-medium text-ink" : undefined
-              return (
-                <tr
-                  key={row.key}
-                  className={
-                    row.kind === "derived"
-                      ? "border-t border-hairline-strong"
-                      : row.kind === "section"
-                        ? "bg-soft"
-                        : undefined
-                  }
-                >
-                  <Td className={figure}>
-                    <span
-                      className="flex items-baseline gap-1.5"
-                      style={{ paddingLeft: indentOf(row.level) }}
-                    >
-                      {row.code !== "" && <Code>{row.code}</Code>}
-                      <span className="min-w-0">{row.name}</span>
-                    </span>
-                  </Td>
-                  <Td align="right" className={figure}>
-                    {signed(row.now)}
-                  </Td>
-                  <Td align="right" className={figure}>
-                    {signed(row.before)}
-                  </Td>
-                  <Td align="right" className={figure}>
-                    {signed(change(row))}
-                  </Td>
-                </tr>
-              )
-            })}
-          {rows
-            .filter((row) => row.kind === "total")
-            .map((row) => (
-              <TotalRow key={row.key}>
-                <Td>{row.name}</Td>
-                <Td align="right">{signed(row.now)}</Td>
-                <Td align="right">{signed(row.before)}</Td>
-                <Td align="right">{signed(change(row))}</Td>
-              </TotalRow>
-            ))}
-        </tbody>
-      </Grid>
+      {phone ? (
+        <PhoneStatement lines={phoneLines(rows, thisEnd, lastEnd)} />
+      ) : (
+        <Grid>
+          <thead>
+            <tr>
+              <Th width="26rem">Account</Th>
+              <Th align="right" width="11.5rem">
+                {day(thisEnd)}
+              </Th>
+              <Th align="right" width="11.5rem">
+                {day(lastEnd)}
+              </Th>
+              <Th align="right" width="11.5rem">
+                Change
+              </Th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows
+              .filter((row) => row.kind !== "total")
+              .map((row) => {
+                const bold = row.kind !== "line"
+                const figure = bold ? "font-medium text-ink" : undefined
+                return (
+                  <tr
+                    key={row.key}
+                    className={
+                      row.kind === "derived"
+                        ? "border-t border-hairline-strong"
+                        : row.kind === "section"
+                          ? "bg-soft"
+                          : undefined
+                    }
+                  >
+                    <Td className={figure}>
+                      <span
+                        className="flex items-baseline gap-1.5"
+                        style={{ paddingLeft: indentOf(row.level) }}
+                      >
+                        {row.code !== "" && <Code>{row.code}</Code>}
+                        <span className="min-w-0">{row.name}</span>
+                      </span>
+                    </Td>
+                    <Td align="right" className={figure}>
+                      {signed(row.now)}
+                    </Td>
+                    <Td align="right" className={figure}>
+                      {signed(row.before)}
+                    </Td>
+                    <Td align="right" className={figure}>
+                      {signed(change(row))}
+                    </Td>
+                  </tr>
+                )
+              })}
+            {rows
+              .filter((row) => row.kind === "total")
+              .map((row) => (
+                <TotalRow key={row.key}>
+                  <Td>{row.name}</Td>
+                  <Td align="right">{signed(row.now)}</Td>
+                  <Td align="right">{signed(row.before)}</Td>
+                  <Td align="right">{signed(change(row))}</Td>
+                </TotalRow>
+              ))}
+          </tbody>
+        </Grid>
+      )}
     </>
   )
+}
+
+/// The sheet as a phone reads it: this year-end on each line, last year-end and
+/// the change in the sheet a tap opens.
+function phoneLines(
+  rows: readonly Line[],
+  thisEnd: string,
+  lastEnd: string
+): StatementLine[] {
+  return rows.map((row) => ({
+    key: row.key,
+    kind:
+      row.kind === "total"
+        ? "total"
+        : row.kind === "section" || row.kind === "derived"
+          ? "section"
+          : "line",
+    code: row.code === "" ? undefined : row.code,
+    name: row.name,
+    level: row.level,
+    figure: signed(row.now),
+    tone: (row.now ?? 0) < 0 ? "bad" : undefined,
+    facts: [
+      { label: day(thisEnd), value: signed(row.now) },
+      { label: day(lastEnd), value: signed(row.before) },
+      { label: "Change", value: signed(change(row)) },
+    ],
+  }))
 }

@@ -227,7 +227,7 @@ export function StructuresCard() {
   })
   const retire = useMutation({
     mutationFn: (which: string) =>
-      retireSalaryStructure(which, "tidak dipakai lagi"),
+      retireSalaryStructure(which, "no longer used"),
     onSuccess: done,
     onError: (error: Error) => setFailed(error.message),
   })
@@ -535,7 +535,7 @@ export function ComponentsCard() {
     onError: (error: Error) => setFailed(error.message),
   })
   const retire = useMutation({
-    mutationFn: (code: string) => retireComponent(code, "tidak dipakai lagi"),
+    mutationFn: (code: string) => retireComponent(code, "no longer used"),
     onSuccess: refresh,
     onError: (error: Error) => setFailed(error.message),
   })

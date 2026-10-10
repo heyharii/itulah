@@ -115,7 +115,9 @@ export function NumberPad({
               </Drawer.Title>
               <Drawer.Close
                 aria-label="Close"
-                className="grid size-8 shrink-0 place-items-center rounded-inner text-line-ico transition-colors hover:bg-soft-2 hover:text-ink"
+                // 44, a thumb's least (D1); pulled up and right so the
+                // visible × stays where the 32px one stood.
+                className="-mt-2 -mr-2 grid size-11 shrink-0 place-items-center rounded-inner text-line-ico transition-colors hover:bg-soft-2 hover:text-ink"
               >
                 <X className="size-4" />
               </Drawer.Close>
@@ -155,7 +157,7 @@ export function NumberPad({
             <div className="flex justify-end border-t border-hairline px-4 py-3">
               <Button
                 variant="primary"
-                className="h-9 w-full"
+                className="h-11 w-full"
                 onClick={() => onOpenChange(false)}
               >
                 Done

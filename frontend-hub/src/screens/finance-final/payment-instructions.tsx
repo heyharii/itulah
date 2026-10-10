@@ -153,7 +153,7 @@ export function PaymentInstructions() {
         />
         <Toolbar.Spacer />
         <span className="text-[0.875rem] text-mute">
-          {site === "" ? "every site" : <SiteName id={site} />}
+          {site === "" ? "all sites" : <SiteName id={site} />}
         </span>
       </Toolbar>
 
@@ -304,7 +304,7 @@ export function PaymentInstructions() {
               approved ask goes straight to <b>Paid</b> when a posted payment
               names it. (2) Does a shop ever pay an approved instruction out of
               the day&rsquo;s takings on head office&rsquo;s word? The policy
-              allows it &ldquo;sewaktu-waktu dan kondisional&rdquo;, and if it
+              allows it &ldquo;at any time and conditionally&rdquo;, and if it
               stays, an instruction needs a <Code>settled_by</Code> saying which
               of the two happened — because paying from takings moves that
               evening&rsquo;s banking, and a deposit short for a reason nobody

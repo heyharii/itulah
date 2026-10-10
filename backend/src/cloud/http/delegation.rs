@@ -19,8 +19,12 @@ pub async fn list(
     Extension(principal): Extension<Principal>,
 ) -> Result<Json<Vec<DelegationView>>, AppError> {
     Ok(Json(
-        infrastructure::delegations(&state.db, &principal.username, principal.role >= Role::Admin)
-            .await?,
+        infrastructure::delegations(
+            &state.db,
+            &principal.username,
+            principal.role >= Role::Admin,
+        )
+        .await?,
     ))
 }
 
@@ -50,7 +54,12 @@ pub async fn create(
             "only somebody who decides things has decisions to hand over".into(),
         ));
     }
-    let delegator = match body.delegator.as_deref().map(str::trim).filter(|d| !d.is_empty()) {
+    let delegator = match body
+        .delegator
+        .as_deref()
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+    {
         Some(other) if other != principal.username => {
             if principal.role < Role::Admin {
                 return Err(AppError::Forbidden(
@@ -72,8 +81,12 @@ pub async fn create(
     )
     .await?;
     Ok(Json(
-        infrastructure::delegations(&state.db, &principal.username, principal.role >= Role::Admin)
-            .await?,
+        infrastructure::delegations(
+            &state.db,
+            &principal.username,
+            principal.role >= Role::Admin,
+        )
+        .await?,
     ))
 }
 
@@ -82,11 +95,20 @@ pub async fn revoke(
     Extension(principal): Extension<Principal>,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<DelegationView>>, AppError> {
-    infrastructure::revoke_delegation(&state.db, &id, &principal.username, principal.role >= Role::Admin)
-        .await?;
+    infrastructure::revoke_delegation(
+        &state.db,
+        &id,
+        &principal.username,
+        principal.role >= Role::Admin,
+    )
+    .await?;
     Ok(Json(
-        infrastructure::delegations(&state.db, &principal.username, principal.role >= Role::Admin)
-            .await?,
+        infrastructure::delegations(
+            &state.db,
+            &principal.username,
+            principal.role >= Role::Admin,
+        )
+        .await?,
     ))
 }
 
@@ -106,7 +128,8 @@ pub fn is_delegable(method: &str, path: &str) -> bool {
                 && (path.ends_with("/approve") || path.ends_with("/reject")))
                 || (path.starts_with("/api/v1/expense-claims/")
                     && (path.ends_with("/decision") || path.ends_with("/returnal")))
-                || (path.starts_with("/api/v1/attendance-corrections/") && path.ends_with("/decision"))
+                || (path.starts_with("/api/v1/attendance-corrections/")
+                    && path.ends_with("/decision"))
         }
         _ => false,
     }
@@ -122,9 +145,7 @@ pub struct EssModulesView {
 
 /// Which modules the employee app offers. Anybody signed in may read it —
 /// through `me`, which every employee reaches.
-pub async fn ess_modules(
-    State(state): State<AppState>,
-) -> Result<Json<EssModulesView>, AppError> {
+pub async fn ess_modules(State(state): State<AppState>) -> Result<Json<EssModulesView>, AppError> {
     Ok(Json(EssModulesView {
         modules: infrastructure::ess_modules(&state.db).await?,
     }))
@@ -144,7 +165,9 @@ pub async fn set_ess_modules(
     Json(body): Json<SetEssModulesBody>,
 ) -> Result<Json<EssModulesView>, AppError> {
     if principal.role < Role::Admin {
-        return Err(AppError::Forbidden("the employee app is head office's to shape".into()));
+        return Err(AppError::Forbidden(
+            "the employee app is head office's to shape".into(),
+        ));
     }
     let by = crate::cloud::domain::Authorization::try_new(
         &principal.username,

@@ -94,7 +94,9 @@ impl Principal {
 
     /// The site a relayed call may reach, and no other; `None` when unbound.
     pub fn bound_site(&self) -> Option<&str> {
-        self.relayed.as_ref().map(|binding| binding.site_id.as_str())
+        self.relayed
+            .as_ref()
+            .map(|binding| binding.site_id.as_str())
     }
 
     /// The `site` filter a list may run with.
@@ -191,6 +193,12 @@ fn is_public(path: &str) -> bool {
     if path.starts_with("/api/v1/sync/vouchers/") {
         return true;
     }
+    // A limited coupon's hold, relayed the same way by the same node and for the
+    // same reason (`/api/v1/sync/coupons/{code}/(authorize|release)`): proven
+    // per origin by `x-sync-key` inside the handler.
+    if path.starts_with("/api/v1/sync/coupons/") {
+        return true;
+    }
     // The warehouse's print bridge (`cloud::dc::print_bridge`): a machine in
     // the Gudang with no account, answering to PRINT_BRIDGE_KEY inside the
     // handler.
@@ -280,7 +288,12 @@ pub async fn require_auth(
         let method = request.method().as_str().to_owned();
         let path = request.uri().path().to_owned();
         let principal = relayed_principal(&state, &method, &path, request.headers()).await?;
-        gate_role_with(&method, &path, principal.role, &permission_overrides(&state).await)?;
+        gate_role_with(
+            &method,
+            &path,
+            principal.role,
+            &permission_overrides(&state).await,
+        )?;
         // No CSRF check: there is no cookie here to ride, only the node's key.
         let request = with_principal(request, principal).await?;
         return Ok(next.run(request).await);
@@ -384,8 +397,9 @@ pub async fn require_auth(
 
 /// The role overrides Finance set (0472), read through a short cache so the
 /// gate does not query on every request. A change clears it.
-static PERMISSION_CACHE: std::sync::RwLock<Option<(std::time::Instant, Vec<(String, String, Role)>)>> =
-    std::sync::RwLock::new(None);
+static PERMISSION_CACHE: std::sync::RwLock<
+    Option<(std::time::Instant, Vec<(String, String, Role)>)>,
+> = std::sync::RwLock::new(None);
 
 pub fn forget_permission_overrides() {
     if let Ok(mut cache) = PERMISSION_CACHE.write() {
@@ -425,7 +439,9 @@ async fn permission_overrides(state: &AppState) -> Vec<(String, String, Role)> {
 fn needed_role(method: &str, path: &str, overrides: &[(String, String, Role)]) -> Role {
     overrides
         .iter()
-        .filter(|(m, prefix, _)| (m == "*" || m.eq_ignore_ascii_case(method)) && path.starts_with(prefix.as_str()))
+        .filter(|(m, prefix, _)| {
+            (m == "*" || m.eq_ignore_ascii_case(method)) && path.starts_with(prefix.as_str())
+        })
         .max_by_key(|(m, prefix, _)| (prefix.len(), m != "*"))
         .map(|(_, _, role)| *role)
         .unwrap_or_else(|| required_role(method, path))
@@ -451,7 +467,10 @@ fn gate_role_with(
 /// "not yours" before somebody acts rather than after, by the same rule the
 /// gate applies — Finance's overrides included.
 pub async fn gate_allows(state: &AppState, method: &str, path: &str, role: Role) -> bool {
-    role_allows(needed_role(method, path, &permission_overrides(state).await), role)
+    role_allows(
+        needed_role(method, path, &permission_overrides(state).await),
+        role,
+    )
 }
 
 /// Attach the principal, after holding any `actor_id` in the body to it.
@@ -587,12 +606,7 @@ async fn relayed_principal(
 }
 
 /// `me`, for any principal. Also what accepting an invitation answers.
-pub fn cloud_me(
-    username: String,
-    display_name: String,
-    role: Role,
-    job: &JobGrant,
-) -> CloudMe {
+pub fn cloud_me(username: String, display_name: String, role: Role, job: &JobGrant) -> CloudMe {
     CloudMe {
         username,
         display_name,
@@ -721,7 +735,8 @@ pub async fn edge_sso_ticket(
     if origin_id.is_empty() || origin_id.len() > 128 {
         return Err(AppError::Validation("invalid DC origin_id".into()));
     }
-    let user_id = infrastructure::edge_sso_subject(&state.db, origin_id, &principal.username).await?;
+    let user_id =
+        infrastructure::edge_sso_subject(&state.db, origin_id, &principal.username).await?;
     let seed = crate::security::sso::signing_seed_from_env()
         .map_err(AppError::Configuration)?
         .ok_or_else(|| {
@@ -738,8 +753,8 @@ pub async fn edge_sso_ticket(
         exp: issued_at + EDGE_SSO_TICKET_TTL_SECONDS,
         jti: Uuid::new_v4().to_string(),
     };
-    let ticket = crate::security::sso::issue_ticket(&claims, &seed)
-        .map_err(AppError::Configuration)?;
+    let ticket =
+        crate::security::sso::issue_ticket(&claims, &seed).map_err(AppError::Configuration)?;
     let mut response = Json(json!({ "ticket": ticket })).into_response();
     prevent_auth_caching(&mut response);
     Ok(response)

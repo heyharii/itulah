@@ -1,6 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useVirtualizer } from "@tanstack/react-virtual"
-import { ArrowLeft, ChevronLeft, ChevronRight, X } from "lucide-react"
+import {
+  ArrowLeft,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  X,
+} from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { useNavigate } from "@tanstack/react-router"
@@ -8,19 +14,22 @@ import { useShopName } from "@/components/operations/outbound-papers"
 import { Button } from "@/components/ui/button"
 import { ConfirmButton } from "@/components/ui/dialog"
 import { type FacetValue } from "@/components/ui/facets"
-import { Banner, EmptyState, Receipt } from "@/components/ui/states"
-import { Thumbnail } from "@/components/ui/thumbnail"
-import { useColourwayFill } from "@/lib/colourway-fill"
-import { count } from "@/lib/format"
+import { Banner, EmptyState, Problem, Receipt } from "@/components/ui/states"
+import { PickerSheet } from "@/components/ui/picker-sheet"
+import { count, quantity } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
+import { useAppNavigate } from "@/lib/navigate"
+import { amendAllotment } from "@/lib/operations/changes"
+import { keys as opsKeys } from "@/lib/operations/keys"
 import { toast } from "@/lib/toast"
 import {
   allotmentDetail,
-  createAllotment,
+  createAllotmentBatch,
   fleetPools,
   idempotencyKey,
   inventoryKeys,
   poolAvailability,
+  type AllotmentLine,
   type AvailabilityItem,
   type CreateAllotmentLine,
   type CreateAllotmentResult,
@@ -40,8 +49,10 @@ import {
   type AllotmentKind,
 } from "@/screens/inventory/shared"
 import { termLabel } from "@/screens/procurement/shared"
+import { ArticleThumb, colourDigitOf } from "./article-thumb"
 import { ArticleMeta } from "./to-allot"
 import { useAllotSelection, useSupplierOf } from "./to-allot-data"
+import { changeOf, floorOf, targetOf } from "./amend-data"
 import { DRAFT_KEY, allotFromOf } from "./draft"
 import {
   applyPatch,
@@ -172,6 +183,16 @@ type MatrixRow =
       readonly item: AvailabilityItem
     }
 
+/// Whether a SKU row starts a colourway: the row above is the article's own,
+/// or another colour.
+function leads(above: MatrixRow | undefined, item: AvailabilityItem): boolean {
+  return (
+    above === undefined ||
+    above.kind === "article" ||
+    above.item.colour !== item.colour
+  )
+}
+
 /// What this screen raises, and the only thing it raises.
 ///
 /// The type used to be a picker, and the other two values made the matrix a
@@ -197,17 +218,30 @@ const SKU_ROW = 56
 /// seam the rows scroll through.
 ///
 /// **A phone shows one store at a time** (`NewAllotment` hands the matrix a
-/// single destination and a row of chips to change it), and drops the Stock
+/// single destination and a store picker to change it), and drops the Stock
 /// column — the gutter on the right already says what is left. That is what
-/// makes the four tracks fit a 375px screen: 10rem + 5rem + 5.5rem = 20.5rem.
+/// makes the four tracks fit a 375px screen: 12rem + 5rem + 5.5rem = 22.5rem.
 /// Before, the frozen left and right blocks took the whole box and the store
 /// columns scrolled through a 30px gap between them.
-const IDENTITY = "w-[10rem] shrink-0 px-2 md:w-[17.5rem] md:px-3"
+const IDENTITY = "w-[12rem] shrink-0 px-2 md:w-[17.5rem] md:px-3"
 const FREE = "w-[4.5rem] shrink-0 px-2 text-right md:w-[5rem] max-md:hidden"
-const STUCK = "sticky left-[11.5rem] z-10 md:left-[17.5rem]"
+const STUCK = "sticky left-[12rem] z-10 md:left-[17.5rem]"
 const COLUMN = "w-[5rem] shrink-0 px-2 md:w-[7rem]"
 
+/// New allotment, or an allotment MD edits in the same grid (owner, 9 Oct
+/// 2026: "tombol edit buka grid yg sama dengan new allotment"). An edit comes
+/// as `?allotFrom=edit~<id>`; every other start is the new-allotment page.
 export function NewAllotment() {
+  const startedFrom = useSheet("allotFrom")
+  const restart = allotFromOf(startedFrom.value)
+  return restart?.mode === "edit" ? (
+    <EditAllotment id={restart.id} />
+  ) : (
+    <NewAllotmentGrid />
+  )
+}
+
+function NewAllotmentGrid() {
   const client = useQueryClient()
   const actor = useActor()
 
@@ -367,7 +401,7 @@ export function NewAllotment() {
     [fleet.data, shop]
   )
 
-  /// A phone draws one store's column at a time and a row of chips to change
+  /// A phone draws one store's column at a time and a store picker to change
   /// it: thirteen 7rem columns cannot share 339px with the frozen blocks.
   /// Every store is still a destination — the typed numbers, the totals and
   /// the quick fill all read `destinations`, not what is on screen.
@@ -378,7 +412,10 @@ export function NewAllotment() {
 
   /// The columns drawn: every store, since a re-allot may move goods
   /// anywhere.
-  const columns = phone && storeHere !== undefined ? [storeHere] : destinations
+  const columns = useMemo(
+    () => (phone && storeHere !== undefined ? [storeHere] : destinations),
+    [phone, storeHere, destinations]
+  )
 
   /// What is actually in this pool.
   ///
@@ -807,7 +844,7 @@ export function NewAllotment() {
     }
     lay(
       patch,
-      `Filled ${count(filled)} ${filled === 1 ? "SKU" : "SKUs"} · ${count(given)} pcs`
+      `Filled ${count(filled)} ${filled === 1 ? "SKU" : "SKUs"} · ${quantity(given)}`
     )
   }
   /// Empties these cells, with the same Undo a fill has.
@@ -815,7 +852,7 @@ export function NewAllotment() {
     const patch: Patch = Object.fromEntries(keys.map((key) => [key, 0]))
     const gone = keys.reduce((total, key) => total + (cells[key] ?? 0), 0)
     if (gone === 0) return
-    lay(patch, `Cleared ${count(gone)} pcs`)
+    lay(patch, `Cleared ${quantity(gone)}`)
   }
   const clearShownUndoable = () =>
     clearKeys(
@@ -843,10 +880,11 @@ export function NewAllotment() {
   /// own row the moment it is finished, or every finished one at once from the
   /// footer — each still its own allotment.
   ///
-  /// Sent one after another, and each article's cells are cleared the moment
+  /// Bounded requests carry articles in order; each article's cells clear when
   /// its allotment exists: if the fourth is refused, the first three are
   /// already raised and gone from the grid, and saving again sends only what
   /// is left — never a second copy of the rest.
+  const retryKeys = useRef(new Map<string, { payload: string; key: string }>())
   const [progress, setProgress] = useState<{
     done: number
     total: number
@@ -861,14 +899,12 @@ export function NewAllotment() {
           left[0].item.article_name.localeCompare(right[0].item.article_name)
         )
       setProgress({ done: 0, total: batches.length })
-      for (const [index, batch] of batches.entries()) {
-        setProgress({ done: index, total: batches.length })
-        const name = batch[0].item.article_name
-        const result = await withTimeout(
-          createAllotment({
+      for (let offset = 0; offset < batches.length; offset += 10) {
+        const chunk = batches.slice(offset, offset + 10)
+        setProgress({ done: offset, total: batches.length })
+        const requests = chunk.map((batch) => {
+          const payload = {
             type: KIND,
-            // The identity each line carries is for this screen to read, not
-            // for the server: it already knows what a SKU is.
             lines: batch.map((line) => ({
               source_site_id: line.source_site_id,
               source_pool_id: line.source_pool_id,
@@ -879,40 +915,70 @@ export function NewAllotment() {
             })),
             notes: note,
             actor_id: actor,
-            idempotency_key: idempotencyKey(),
-          }),
-          SAVE_TIMEOUT
-        ).catch((error: unknown) => {
-          // Stops here: what is after this article is not sent, and the
-          // message says which article it was.
-          throw new Error(
-            `${name}: ${error instanceof Error ? error.message : "the allotment was refused."}`
-          )
+          }
+          const articleId = batch[0].item.article_id
+          const fingerprint = JSON.stringify(payload)
+          const previous = retryKeys.current.get(articleId)
+          const key =
+            previous?.payload === fingerprint ? previous.key : idempotencyKey()
+          retryKeys.current.set(articleId, { payload: fingerprint, key })
+          return { ...payload, idempotency_key: key }
         })
-        const sent = new Set(batch.map((line) => line.sku_id))
-        setCells((current) =>
-          Object.fromEntries(
-            Object.entries(current).filter(
-              ([key]) => !sent.has(key.split("\u0000")[0])
+        const response = await withTimeout(
+          createAllotmentBatch(requests),
+          SAVE_TIMEOUT * chunk.length
+        )
+        for (const [index, result] of response.items.entries()) {
+          const batch = chunk[index]
+          const sent = new Set(batch.map((line) => line.sku_id))
+          setCells((current) =>
+            Object.fromEntries(
+              Object.entries(current).filter(
+                ([key]) => !sent.has(key.split("\u0000")[0])
+              )
             )
           )
-        )
-        const article = batch[0].item
-        saved.current.add(article.article_id)
-        setRaised((current) =>
-          new Map(current).set(article.article_id, {
-            result,
-            article: article.article_name,
-            articleId: article.article_id,
-            supplierId: supplierOf(article).id,
-          })
-        )
+          const article = batch[0].item
+          retryKeys.current.delete(article.article_id)
+          setProgress({ done: offset + index + 1, total: batches.length })
+          saved.current.add(article.article_id)
+          setRaised((current) =>
+            new Map(current).set(article.article_id, {
+              result,
+              article: article.article_name,
+              articleId: article.article_id,
+              supplierId: supplierOf(article).id,
+            })
+          )
+        }
+        if (response.failed_index !== null) {
+          const name =
+            chunk[response.failed_index]?.[0].item.article_name ?? "Allotment"
+          throw new Error(
+            `${name}: ${response.problem ?? "the allotment was refused."}`
+          )
+        }
       }
     },
-    onSettled: () => {
+    onSettled: (_result, _error, articleIds) => {
       setProgress(null)
       client.invalidateQueries({ queryKey: inventoryKeys.allotments() })
-      client.invalidateQueries({ queryKey: ["inventory", "availability"] })
+      // Availability is keyed per source pool — and per pool again under
+      // "whole", the matrix's held read — so only the pools this save drew
+      // from need to answer again.
+      const sourcePools = new Set(
+        articleIds.flatMap((id) =>
+          (standing.get(id)?.lines ?? []).map((line) => line.source_pool_id)
+        )
+      )
+      for (const sourcePool of sourcePools) {
+        client.invalidateQueries({
+          queryKey: ["inventory", "availability", sourcePool],
+        })
+        client.invalidateQueries({
+          queryKey: ["inventory", "availability", "whole", sourcePool],
+        })
+      }
       client.invalidateQueries({ queryKey: inventoryKeys.fleet() })
     },
   })
@@ -1205,7 +1271,7 @@ export function NewAllotment() {
           )}
         </div>
         {phone && destinations.length > 1 && storeHere !== undefined && (
-          <StoreChips
+          <StorePicker
             stores={destinations}
             on={storeHere.id}
             totals={perDestination}
@@ -1239,6 +1305,572 @@ export function NewAllotment() {
             onDone={walk.queue.length > 0 ? undefined : finish}
             onClear={clearShownUndoable}
           />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/// An allotment, edited in the grid it was made in (MD, 9 Oct 2026).
+///
+/// The same matrix as New allotment — SKUs down, stores across — opened on
+/// the allotment's own article and filled with what each line is now, net.
+/// A cell goes up, or down to what is already sent and no further; a blank
+/// cell typed into is a store or a SKU the allotment did not have. Save is
+/// ONE amend: the lines that changed and the lines added, so the allotment
+/// keeps its number and the warehouse sees "Edited" on the cards it has.
+///
+/// Not the per-article Submit of a new allotment: an allotment that exists is
+/// one document already, and half-saving it would leave it in two states.
+function EditAllotment({ id }: { id: string }) {
+  const client = useQueryClient()
+  const goto = useAppNavigate()
+  const phone = useLayout() === "phone"
+  const shop = useShopName()
+
+  const detail = useQuery({
+    queryKey: inventoryKeys.allotment(id),
+    queryFn: ({ signal }) => allotmentDetail(id, signal),
+  })
+  const fleet = useQuery({
+    queryKey: inventoryKeys.fleet(),
+    queryFn: ({ signal }) => fleetPools(signal),
+  })
+  const vocabulary = useQuery({
+    queryKey: procurementKeys.vocabulary(),
+    queryFn: ({ signal }) => catalogueVocabulary(signal),
+    staleTime: 30 * 60 * 1000,
+  })
+  const record = detail.data
+  const lines = useMemo(() => record?.lines ?? [], [record])
+  /// Where the allotment takes from: every line of it leaves the same pool.
+  const source = lines[0]?.source_pool_id ?? ""
+  const stock = useQuery({
+    queryKey: inventoryKeys.poolAvailability(source, true),
+    queryFn: ({ signal }) => poolAvailability(source, { held: true }, signal),
+    enabled: source !== "",
+  })
+
+  const destinations = useMemo<Destination[]>(
+    () =>
+      sitesOf(fleet.data?.items ?? [], "STORE").map((site) => {
+        const naming = storeNaming(site.site_name, shop(site.site_id))
+        return {
+          id: site.site_id,
+          type: "STORE" as const,
+          name:
+            naming.label === ""
+              ? site.site_name
+              : `${naming.code} · ${naming.label}`,
+          ...naming,
+        }
+      }),
+    [fleet.data, shop]
+  )
+  const [chosenStore, setChosenStore] = useState<string | null>(null)
+  const storeHere =
+    destinations.find((one) => one.id === chosenStore) ?? destinations[0]
+  const columns = useMemo(
+    () => (phone && storeHere !== undefined ? [storeHere] : destinations),
+    [phone, storeHere, destinations]
+  )
+
+  /// Each cell as the grid opened: its line, what it is now and what of it is
+  /// already sent.
+  const original = useMemo(() => {
+    const found = new Map<
+      string,
+      { line: AllotmentLine; target: number; floor: number }
+    >()
+    for (const line of lines)
+      found.set(cellKey(line.sku_id, line.destination_id), {
+        line,
+        target: targetOf(line),
+        floor: floorOf(line),
+      })
+    return found
+  }, [lines])
+  const floors = useMemo(
+    () =>
+      new Map(
+        [...original]
+          .filter(([, one]) => one.floor > 0)
+          .map(([key, one]) => [key, one.floor])
+      ),
+    [original]
+  )
+  /// What the allotment already holds of each SKU: the pool counts it as
+  /// taken, so it is free to this allotment on top of the pool's free stock.
+  const extra = useMemo(() => {
+    const held = new Map<string, number>()
+    for (const one of original.values())
+      held.set(one.line.sku_id, (held.get(one.line.sku_id) ?? 0) + one.target)
+    return held
+  }, [original])
+
+  /// The cells, from the allotment the first time it arrives and never again:
+  /// a refetch must not wipe what MD is typing.
+  const [cells, setCells] = useState<Readonly<Record<string, number>> | null>(
+    null
+  )
+  if (cells === null && record !== undefined) {
+    setCells(
+      Object.fromEntries(
+        [...original]
+          .filter(([, one]) => one.target > 0)
+          .map(([key, one]) => [key, one.target])
+      )
+    )
+  }
+  const typed = cells ?? {}
+
+  /// The allotment's article(s), every SKU of them the pool holds, and every
+  /// SKU of the allotment whether the pool still holds it or not — a line
+  /// already picked or sent in full still has its row, to go down to what
+  /// is sent or up again.
+  const groups = useMemo<ArticleGroup[]>(() => {
+    const articles = new Set(lines.map((line) => line.article_id))
+    const items = new Map<string, AvailabilityItem>()
+    for (const item of stock.data?.items ?? [])
+      if (articles.has(item.article_id)) items.set(item.sku_id, item)
+    for (const line of lines) {
+      if (items.has(line.sku_id)) continue
+      const sibling = [...items.values()].find(
+        (one) => one.article_id === line.article_id
+      )
+      items.set(line.sku_id, {
+        sku_id: line.sku_id,
+        sku_code: line.sku_code,
+        article_id: line.article_id,
+        article_code: line.article_code,
+        article_name: line.article_name,
+        division_code: sibling?.division_code ?? null,
+        image_url: line.image_url ?? sibling?.image_url ?? null,
+        tags: sibling?.tags ?? [],
+        purchase_order_ids: sibling?.purchase_order_ids ?? [],
+        colour: line.colour,
+        size: line.size,
+        stock_qty: 0,
+        allotted_qty: 0,
+        on_hand_qty: 0,
+        missing_qty: 0,
+      })
+    }
+    const byArticle = new Map<string, AvailabilityItem[]>()
+    for (const item of items.values()) {
+      const bucket = byArticle.get(item.article_id)
+      if (bucket) bucket.push(item)
+      else byArticle.set(item.article_id, [item])
+    }
+    return [...byArticle.values()]
+      .map((skus) => {
+        const sorted = [...skus].sort((left, right) =>
+          left.sku_code.localeCompare(right.sku_code)
+        )
+        const first = sorted[0]
+        return {
+          id: first.article_id,
+          code: first.article_code,
+          name: first.article_name,
+          division: first.division_code,
+          image: first.image_url,
+          divisionName: first.division_code
+            ? termLabel(vocabulary.data?.divisions, first.division_code)
+            : "",
+          tags: first.tags,
+          tagNames: first.tags.map((tag) =>
+            termLabel(vocabulary.data?.tags, tag)
+          ),
+          stock: sorted.reduce((total, one) => total + one.stock_qty, 0),
+          free: sorted.reduce(
+            (total, one) =>
+              total + one.on_hand_qty + (extra.get(one.sku_id) ?? 0),
+            0
+          ),
+          skus: sorted,
+        } satisfies ArticleGroup
+      })
+      .sort((left, right) => left.name.localeCompare(right.name))
+  }, [lines, stock.data, extra, vocabulary.data])
+
+  const [shut, setShut] = useState<ReadonlySet<string>>(new Set())
+  const toggle = useCallback((article: string) => {
+    setShut((current) => {
+      const next = new Set(current)
+      if (next.has(article)) next.delete(article)
+      else next.add(article)
+      return next
+    })
+  }, [])
+  const [focus, setFocus] = useState<string | null>(null)
+  const rows = useMemo<MatrixRow[]>(
+    () =>
+      groups.flatMap((group) => [
+        { kind: "article" as const, key: `a:${group.id}`, group },
+        ...(shut.has(group.id)
+          ? []
+          : group.skus.map((item) => ({
+              kind: "sku" as const,
+              key: `s:${item.sku_id}`,
+              group,
+              item,
+            }))),
+      ]),
+    [groups, shut]
+  )
+
+  const perDestination = useMemo(() => {
+    const totals = new Map<string, number>()
+    for (const [key, quantity] of Object.entries(typed)) {
+      const destination = key.split("\u0000")[1]
+      totals.set(destination, (totals.get(destination) ?? 0) + quantity)
+    }
+    return totals
+  }, [typed])
+
+  const setCell = useCallback(
+    (key: string, quantity: number) => {
+      const kept = Math.max(floors.get(key) ?? 0, quantity)
+      setCells((current) => {
+        if (current === null) return current
+        if (kept <= 0) {
+          if (current[key] === undefined) return current
+          const rest = { ...current }
+          delete rest[key]
+          return rest
+        }
+        if (current[key] === kept) return current
+        return { ...current, [key]: kept }
+      })
+    },
+    [floors]
+  )
+
+  // Quick fill, as on a new allotment, never under what is already sent.
+  const columnIds = useMemo(() => columns.map((one) => one.id), [columns])
+  const laid = useRef(0)
+  const lay = (patch: Patch, said: string) => {
+    const held: Patch = Object.fromEntries(
+      Object.entries(patch).map(([key, quantity]) => [
+        key,
+        Math.max(quantity, floors.get(key) ?? 0),
+      ])
+    )
+    const undo = undoOf(typed, held)
+    setCells((current) =>
+      current === null ? current : applyPatch(current, held)
+    )
+    const at = ++laid.current
+    toast.success(said, {
+      id: "quick-fill",
+      position: "top-center",
+      duration: 8000,
+      action: {
+        label: "Undo",
+        onClick: () => {
+          if (laid.current !== at) return
+          laid.current += 1
+          setCells((current) =>
+            current === null ? current : applyPatch(current, undo)
+          )
+        },
+      },
+    })
+  }
+  const fill: ArticleFill = {
+    stores: columns.map((one) => ({
+      id: one.id,
+      code: one.code,
+      label: one.label,
+    })),
+    onFill: (group, plan) => {
+      const fillRows: FillRow[] = group.skus.map((item) => ({
+        skuId: item.sku_id,
+        free: item.on_hand_qty + (extra.get(item.sku_id) ?? 0),
+      }))
+      const patch =
+        plan.kind === "one"
+          ? fillAllToOne(fillRows, columnIds, plan.store)
+          : fillEven(
+              fillRows,
+              columnIds,
+              plan.kind === "chosen" ? plan.stores : columnIds
+            )
+      const { skus: filled, pieces: given } = patchTotals(patch)
+      if (filled === 0) {
+        toast("Nothing to fill")
+        return
+      }
+      lay(
+        patch,
+        `Filled ${count(filled)} ${filled === 1 ? "SKU" : "SKUs"} · ${quantity(given)}`
+      )
+    },
+    onClear: (group) => {
+      const keys = group.skus.flatMap((item) =>
+        columnIds
+          .map((column) => cellKey(item.sku_id, column))
+          .filter((key) => (typed[key] ?? 0) > (floors.get(key) ?? 0))
+      )
+      if (keys.length === 0) return
+      lay(
+        Object.fromEntries(keys.map((key) => [key, 0])),
+        `Cleared down to what is sent`
+      )
+    },
+    typed: (group) =>
+      group.skus.some((item) =>
+        columnIds.some(
+          (column) => (typed[cellKey(item.sku_id, column)] ?? 0) > 0
+        )
+      ),
+  }
+
+  /// What Save sends: every line whose cell differs from what it was, and
+  /// every typed cell that is not a line yet.
+  const change = useMemo(() => {
+    const changed: { allotment_line_id: string; to: number }[] = []
+    let was = 0
+    /// What Save costs the warehouse, before it is pressed (owner, 10 Oct
+    /// 2026): pieces to pick (raised lines and new lines), pieces taken out,
+    /// and of those the ones sitting in sealed cartons, which `changeOf`
+    /// derives exactly. The rest of the taken-out pieces are "not packed
+    /// yet": some still on the racks, some picked and waiting in the pick
+    /// area, and the line carries no figure to tell them apart, so they are
+    /// not split here.
+    let plus = 0
+    let minus = 0
+    let fromCartons = 0
+    for (const [key, one] of original) {
+      was += one.target
+      const now = Math.max(typed[key] ?? 0, one.floor)
+      if (now !== one.target) {
+        changed.push({ allotment_line_id: one.line.id, to: now })
+        if (now > one.target) plus += now - one.target
+        else {
+          minus += one.target - now
+          fromCartons += changeOf(one.line, now)?.owed ?? 0
+        }
+      }
+    }
+    const add: {
+      sku_id: string
+      destination_id: string
+      quantity: number
+      source_pool_id: string
+    }[] = []
+    for (const [key, quantity] of Object.entries(typed)) {
+      if (quantity <= 0 || original.has(key)) continue
+      plus += quantity
+      const [skuId, destinationId] = key.split("\u0000")
+      add.push({
+        sku_id: skuId,
+        destination_id: destinationId,
+        quantity,
+        source_pool_id: source,
+      })
+    }
+    const now = Object.values(typed).reduce((total, one) => total + one, 0)
+    return { lines: changed, add, was, now, plus, minus, fromCartons }
+  }, [original, typed, source])
+
+  /// A SKU asked past what is free to this allotment.
+  const overdrawn = useMemo(() => {
+    const asked = new Map<string, number>()
+    for (const [key, quantity] of Object.entries(typed)) {
+      const sku = key.split("\u0000")[0]
+      asked.set(sku, (asked.get(sku) ?? 0) + quantity)
+    }
+    return groups
+      .flatMap((group) => group.skus)
+      .filter(
+        (item) =>
+          (asked.get(item.sku_id) ?? 0) >
+          item.on_hand_qty + (extra.get(item.sku_id) ?? 0)
+      )
+  }, [typed, groups, extra])
+
+  const changes = change.lines.length + change.add.length
+  const retry = useRef<{ payload: string; key: string } | null>(null)
+  const save = useMutation({
+    mutationFn: () => {
+      const payload = { lines: change.lines, add: change.add }
+      const fingerprint = JSON.stringify(payload)
+      const key =
+        retry.current?.payload === fingerprint
+          ? retry.current.key
+          : idempotencyKey()
+      retry.current = { payload: fingerprint, key }
+      return amendAllotment(id, { idempotency_key: key, ...payload })
+    },
+    onSuccess: (result) => {
+      retry.current = null
+      client.invalidateQueries({ queryKey: inventoryKeys.allotments() })
+      client.invalidateQueries({ queryKey: inventoryKeys.fleet() })
+      client.invalidateQueries({
+        queryKey: ["inventory", "availability", source],
+      })
+      client.invalidateQueries({
+        queryKey: ["inventory", "availability", "whole", source],
+      })
+      client.invalidateQueries({ queryKey: opsKeys.owed() })
+      client.invalidateQueries({ queryKey: opsKeys.picklistsToPick() })
+      toast.success(
+        result.owed_total > 0
+          ? `${result.allotment_number} saved · ${quantity(result.owed_total)} the warehouse moves back`
+          : `${result.allotment_number} saved`
+      )
+      goto("/allotment", { key: "allotment", value: id })
+    },
+  })
+  const back = () => goto("/allotment", { key: "allotment", value: id })
+
+  const gridScroll = useRef<HTMLDivElement>(null)
+  const [foot, setFoot] = useState(0)
+  const footRef = useCallback((node: HTMLDivElement | null) => {
+    if (node === null) return
+    const observer = new ResizeObserver(() => setFoot(node.offsetHeight))
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
+
+  const blocked =
+    record === undefined
+      ? null
+      : record.activation_target_origin_id !== null
+        ? "This allotment is run by its DC; edit it from the allotment."
+        : record.cancellation !== null
+          ? "This allotment is cancelled."
+          : null
+
+  const summary =
+    changes === 0
+      ? "No changes yet"
+      : [
+          change.lines.length > 0 &&
+            `${count(change.lines.length)} ${change.lines.length === 1 ? "line" : "lines"} changed`,
+          change.add.length > 0 &&
+            `${count(change.add.length)} ${change.add.length === 1 ? "line" : "lines"} added`,
+          change.plus > 0 && `+${count(change.plus)} to pick`,
+          change.minus > 0 && `−${count(change.minus)} removed`,
+          change.fromCartons > 0 &&
+            `${count(change.fromCartons)} in cartons move back`,
+        ]
+          .filter(Boolean)
+          .join(" · ")
+
+  return (
+    <div className="flex h-full min-h-0 min-w-0 flex-col px-3 pt-3 pb-3 [--form-box:2.75rem] md:px-4 min-[100rem]:pt-4 min-[100rem]:[--form-box:2.9375rem]">
+      <div className="shrink-0 px-1">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-x-8 gap-y-2 rounded-card bg-soft px-4 py-3">
+          <div className="min-w-0">
+            <h1 className="truncate text-[1.25rem] leading-tight font-semibold text-ink">
+              Edit {record?.allotment_number ?? "allotment"}
+            </h1>
+            {groups.length > 0 && (
+              <p className="mt-0.5 text-[0.875rem] text-mute tabular-nums">
+                {groups.map((group) => group.name).join(", ")}
+              </p>
+            )}
+          </div>
+          {changes > 0 ? (
+            <ConfirmButton
+              label={
+                <>
+                  <ArrowLeft />
+                  Back
+                </>
+              }
+              title="Discard the changes?"
+              description="The allotment stays as it was."
+              confirmLabel="Discard"
+              tone="danger"
+              onConfirm={back}
+            />
+          ) : (
+            <Button onClick={back}>
+              <ArrowLeft />
+              Back
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-card border border-hairline bg-canvas shadow-soft">
+        {phone && destinations.length > 1 && storeHere !== undefined && (
+          <StorePicker
+            stores={destinations}
+            on={storeHere.id}
+            totals={perDestination}
+            onPick={setChosenStore}
+          />
+        )}
+        {blocked !== null ? (
+          <div className="flex-1 p-4 md:p-5">
+            <EmptyState>{blocked}</EmptyState>
+          </div>
+        ) : record === undefined || cells === null || stock.isPending ? (
+          detail.isError ? (
+            <div className="flex-1 p-4 md:p-5">
+              <Problem error={detail.error} />
+            </div>
+          ) : (
+            <div className="flex-1 p-4 md:p-5">
+              <EmptyState>Reading the allotment…</EmptyState>
+            </div>
+          )
+        ) : (
+          <Matrix
+            rows={rows}
+            destinations={columns}
+            cells={typed}
+            perDestination={perDestination}
+            standing={new Map()}
+            raised={new Map()}
+            shut={shut}
+            focused={focus}
+            saving={null}
+            scrollRef={gridScroll}
+            foot={foot}
+            fill={fill}
+            onToggle={toggle}
+            onCell={setCell}
+            onFocus={(article) => setFocus(article)}
+            onSave={() => undefined}
+            floors={floors}
+            extra={extra}
+          />
+        )}
+        <div
+          ref={footRef}
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-30 px-3 pb-3 md:px-4 md:pb-5"
+        >
+          <div className="pointer-events-auto mx-auto flex w-full max-w-5xl flex-wrap items-center gap-x-6 gap-y-2 rounded-card border border-hairline-strong bg-canvas px-4 py-3 shadow-[0_10px_32px_-8px_rgb(0_0_0/0.22)]">
+            <dl className="flex flex-wrap items-baseline gap-x-5 gap-y-1">
+              <Figure label="Was" value={`${count(change.was)} pcs`} />
+              <Figure label="Now" value={`${count(change.now)} pcs`} />
+            </dl>
+            <span
+              className={cn(
+                "text-[0.875rem]",
+                overdrawn.length > 0 ? "text-bad-fg" : "text-mute"
+              )}
+            >
+              {overdrawn.length > 0
+                ? `Too many: ${listOf(overdrawn.map((item) => item.sku_code))}`
+                : summary}
+            </span>
+            <Button
+              variant="primary"
+              className="ml-auto"
+              pending={save.isPending}
+              disabled={changes === 0 || overdrawn.length > 0}
+              onClick={() => save.mutate()}
+            >
+              Save changes
+            </Button>
+            <Problem error={save.error} className="basis-full" />
+          </div>
         </div>
       </div>
     </div>
@@ -1343,10 +1975,15 @@ const HEADER = "h-[4.75rem]"
 /// them still line up.
 const TOOLBAR = "flex h-[4rem] shrink-0 items-center px-4"
 
-/// A phone's way across the stores: one chip each, the one on screen filled,
-/// and what has been typed for a store said on its chip so a store with
-/// numbers in it can be found without opening every one.
-function StoreChips({
+/// A phone's way across the stores: the one on screen, named with what has been
+/// typed for it, and a sheet of all of them (each with its own total, and a
+/// search over thirteen) behind a tap. Arrows beside it step to the next store
+/// without opening anything, which is how a store is walked through when the
+/// quantities come store by store.
+///
+/// It was a chip each in a row: thirteen of them ran 941px inside a 388px card,
+/// scrolled sideways with the scrollbar hidden, and nothing said so.
+function StorePicker({
   stores,
   on,
   totals,
@@ -1357,38 +1994,75 @@ function StoreChips({
   totals: ReadonlyMap<string, number>
   onPick: (id: string) => void
 }) {
+  const [open, setOpen] = useState(false)
+  const index = Math.max(
+    0,
+    stores.findIndex((store) => store.id === on)
+  )
+  const here = stores[index]
+  const total = totals.get(here.id) ?? 0
+  const step = (by: -1 | 1) => onPick(stores[index + by].id)
+  const arrow =
+    "grid size-11 shrink-0 place-items-center rounded-inner border border-hairline text-body transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.94] disabled:opacity-40 disabled:active:scale-100"
   return (
-    <div
-      role="tablist"
-      aria-label="Store"
-      className="flex shrink-0 [scrollbar-width:none] gap-2 overflow-x-auto px-4 pb-3 [&::-webkit-scrollbar]:hidden"
-    >
-      {stores.map((store) => {
-        const total = totals.get(store.id) ?? 0
-        const here = store.id === on
-        return (
-          <button
-            key={store.id}
-            type="button"
-            role="tab"
-            aria-selected={here}
-            onClick={() => onPick(store.id)}
-            className={cn(
-              "flex h-11 shrink-0 items-center gap-2 rounded-inner border px-3 text-[0.9375rem] whitespace-nowrap transition-colors",
-              here
-                ? "border-ink bg-soft-2 font-medium text-ink"
-                : "border-hairline text-body"
-            )}
-          >
-            {store.code}
-            {total > 0 && (
-              <span className="font-medium text-accent tabular-nums">
-                {count(total)}
+    <div className="flex shrink-0 items-center gap-2 px-4 pb-3">
+      <button
+        type="button"
+        aria-label="Previous store"
+        disabled={index === 0}
+        onClick={() => step(-1)}
+        className={arrow}
+      >
+        <ChevronLeft className="size-5" />
+      </button>
+      <button
+        type="button"
+        aria-haspopup="dialog"
+        aria-label={`Store: ${here.name}`}
+        onClick={() => setOpen(true)}
+        className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-inner border border-ink bg-soft-2 px-3 text-left text-[0.9375rem] font-medium text-ink transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.98]"
+      >
+        <span className="min-w-0 flex-1 truncate">{here.name}</span>
+        {total > 0 && (
+          <span className="font-medium text-accent tabular-nums">
+            {count(total)}
+          </span>
+        )}
+        <ChevronDown className="size-4 shrink-0 text-line-ico" />
+      </button>
+      <button
+        type="button"
+        aria-label="Next store"
+        disabled={index === stores.length - 1}
+        onClick={() => step(1)}
+        className={arrow}
+      >
+        <ChevronRight className="size-5" />
+      </button>
+      <PickerSheet
+        open={open}
+        onOpenChange={setOpen}
+        title="Store"
+        selected={[here.id]}
+        onPick={onPick}
+        options={stores.map((store) => {
+          const typed = totals.get(store.id) ?? 0
+          return {
+            value: store.id,
+            text: store.name,
+            label: (
+              <span className="flex items-center gap-3">
+                <span className="min-w-0 flex-1 truncate">{store.name}</span>
+                {typed > 0 && (
+                  <span className="font-medium text-accent tabular-nums">
+                    {count(typed)}
+                  </span>
+                )}
               </span>
-            )}
-          </button>
-        )
-      })}
+            ),
+          }
+        })}
+      />
     </div>
   )
 }
@@ -1415,6 +2089,8 @@ function Matrix({
   onCell,
   onFocus,
   onSave,
+  floors,
+  extra,
 }: {
   rows: readonly MatrixRow[]
   destinations: readonly Destination[]
@@ -1434,6 +2110,12 @@ function Matrix({
   onCell: (key: string, quantity: number) => void
   onFocus: (article: string, destination: string | null) => void
   onSave: (article: string) => void
+  /// Editing an allotment: the least each cell may hold (pieces already sent),
+  /// by cell key.
+  floors?: ReadonlyMap<string, number>
+  /// Editing an allotment: what it already holds of each SKU, by SKU — free to
+  /// it on top of what the pool has left, because the pool counts it as taken.
+  extra?: ReadonlyMap<string, number>
 }) {
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -1564,8 +2246,11 @@ function Matrix({
                 ) : (
                   <SkuRow
                     item={row.item}
+                    lead={leads(rows[slot.index - 1], row.item)}
                     destinations={destinations}
                     cells={cells}
+                    floors={floors}
+                    extra={extra}
                     onCell={onCell}
                     onFocus={(destination) =>
                       onFocus(row.item.article_id, destination)
@@ -1612,7 +2297,6 @@ function ArticleRow({
   onToggle: () => void
   onSave: () => void
 }) {
-  const colourFill = useColourwayFill()
   const subtotal = (destinationId: string) =>
     group.skus.reduce(
       (total, sku) => total + (cells[cellKey(sku.sku_id, destinationId)] ?? 0),
@@ -1630,26 +2314,36 @@ function ArticleRow({
           focused ? "bg-accent-bg" : "bg-soft"
         )}
       >
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-expanded={open}
-          className="flex h-full min-w-0 flex-1 items-center gap-3 text-left max-md:gap-1.5"
-        >
-          <ChevronRight
-            className={cn(
-              "size-4 shrink-0 text-mute transition-transform duration-150",
-              open && "rotate-90"
-            )}
-          />
-          <Thumbnail
+        {/* The photograph is a button of its own (a tap shows it full size),
+            so the fold is two buttons round it rather than one that holds it. */}
+        <div className="flex h-full min-w-0 flex-1 items-center gap-3 max-md:gap-1.5">
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={open}
+            aria-label={`${open ? "Fold" : "Open"} ${group.name}`}
+            className="grid h-full shrink-0 place-items-center"
+          >
+            <ChevronRight
+              className={cn(
+                "size-4 text-mute transition-transform duration-150",
+                open && "rotate-90"
+              )}
+            />
+          </button>
+          <ArticleThumb
             url={group.image}
             name={group.name}
             division={group.division}
-            colours={colourFill(group.skus[0]?.colour)}
-            className="size-11 shrink-0 rounded-inner max-md:hidden"
+            colour={group.skus[0]?.colour}
+            articleCode={group.code}
           />
-          <span className="min-w-0 flex-1">
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={open}
+            className="h-full min-w-0 flex-1 text-left"
+          >
             <span
               className={cn(
                 "block truncate text-[0.875rem] font-medium",
@@ -1660,8 +2354,8 @@ function ArticleRow({
             </span>
             <ArticleMeta group={group} />
             <ArticleRule standing={standing} />
-          </span>
-        </button>
+          </button>
+        </div>
         <QuickFillMenu
           article={group.name}
           stores={fill.stores}
@@ -1797,14 +2491,22 @@ function ArticleState({
 /// One SKU, and the boxes it is spread across.
 function SkuRow({
   item,
+  lead,
   destinations,
   cells,
+  floors,
+  extra,
   onCell,
   onFocus,
 }: {
   item: AvailabilityItem
+  /// The first row of its colourway: the one that carries the photograph, so a
+  /// size run of six is one picture and not six.
+  lead: boolean
   destinations: readonly Destination[]
   cells: Readonly<Record<string, number>>
+  floors?: ReadonlyMap<string, number>
+  extra?: ReadonlyMap<string, number>
   onCell: (key: string, quantity: number) => void
   onFocus: (destination: string) => void
 }) {
@@ -1815,8 +2517,10 @@ function SkuRow({
   )
   /// What the pool can still promise of this SKU: its stock less what other
   /// allotments have already taken, which is the quantity the server checks
-  /// each line against.
-  const free = item.on_hand_qty
+  /// each line against. An allotment being edited also has what it already
+  /// holds of the SKU.
+  const own = extra?.get(item.sku_id) ?? 0
+  const free = item.on_hand_qty + own
   const left = free - allotted
 
   return (
@@ -1824,18 +2528,34 @@ function SkuRow({
       <div
         className={cn(
           IDENTITY,
-          "sticky left-0 z-10 flex flex-col justify-center gap-0.5 bg-canvas pl-6 md:pl-[4.75rem]"
+          "sticky left-0 z-10 flex items-center gap-2 bg-canvas pl-[1.875rem] md:gap-3 md:pl-10"
         )}
       >
-        <span className="text-cell text-ink max-md:line-clamp-2 md:truncate">
-          {[item.colour, item.size].filter(Boolean).join(" · ") || "—"}
-        </span>
-        {/* The SKU number, which is what a label and a picker read. Gone on a
-            phone, where the frozen column is 11.5rem and the colour and size
-            are all it can hold. */}
-        <span className="truncate text-[0.875rem] text-mute tabular-nums max-md:hidden">
-          {item.sku_code}
-        </span>
+        {/* The box is there on every row, so the names line up whether or not
+            this row carries the picture. */}
+        {lead ? (
+          <ArticleThumb
+            url={item.image_url}
+            name={item.article_name}
+            division={item.division_code}
+            colour={item.colour}
+            articleCode={item.article_code}
+            digit={colourDigitOf(item.article_code, item.sku_code)}
+          />
+        ) : (
+          <span aria-hidden className="size-8 shrink-0" />
+        )}
+        <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
+          <span className="text-cell text-ink max-md:line-clamp-2 md:truncate">
+            {[item.colour, item.size].filter(Boolean).join(" · ") || "—"}
+          </span>
+          {/* The SKU number, which is what a label and a picker read. Gone on
+              a phone, where the frozen column is 12rem and the colour and size
+              are all it can hold. */}
+          <span className="truncate text-[0.875rem] text-mute tabular-nums max-md:hidden">
+            {item.sku_code}
+          </span>
+        </div>
       </div>
       <div
         className={cn(
@@ -1845,9 +2565,11 @@ function SkuRow({
           free > 0 ? "text-body" : "text-faint"
         )}
         title={
-          free === item.stock_qty
-            ? undefined
-            : `${count(item.stock_qty)} in the pool, ${count(item.stock_qty - free)} already spoken for`
+          extra !== undefined
+            ? `${count(item.on_hand_qty)} free in the pool, ${count(own)} already on this allotment`
+            : free === item.stock_qty
+              ? undefined
+              : `${count(item.stock_qty)} in the pool, ${count(item.stock_qty - free)} already spoken for`
         }
       >
         {count(free)}
@@ -1863,6 +2585,7 @@ function SkuRow({
             // the other stores in the row have already taken. A row shares one
             // pile of garments, so the ceiling is the row's and not the cell's.
             most={Math.max(0, free - (allotted - here))}
+            least={floors?.get(key) ?? 0}
             label={`${item.sku_code} to ${destination.name}`}
             row={item.sku_id}
             col={destination.id}
@@ -1940,6 +2663,7 @@ function moveByArrows(event: React.KeyboardEvent<HTMLElement>) {
 function Cell({
   value,
   most,
+  least = 0,
   label,
   row,
   col,
@@ -1953,6 +2677,9 @@ function Cell({
   /// The largest number this box may hold — what is left of the SKU's free
   /// stock once the rest of its row has taken theirs.
   most: number
+  /// The smallest: pieces of this line already sent, when an allotment is
+  /// edited. Typing under it holds at it.
+  least?: number
   label: string
   onChange: (quantity: number) => void
   onFocus: () => void
@@ -1975,14 +2702,16 @@ function Cell({
         aria-label={label}
         value={value === 0 ? "" : String(value)}
         title={
-          most === 0
-            ? "Nothing of this SKU is left free in the pool"
-            : undefined
+          least > 0
+            ? `${count(least)} already sent: it cannot go lower`
+            : most === 0
+              ? "Nothing of this SKU is left free in the pool"
+              : undefined
         }
         onChange={(event) => {
           const digits = event.target.value.replace(/\D/g, "")
           const typed = digits === "" ? 0 : Number(digits)
-          const kept = Math.min(typed, most)
+          const kept = Math.max(least, Math.min(typed, Math.max(most, least)))
           if (kept !== typed) {
             setCapped(true)
             clearTimeout(flash.current)
@@ -2187,7 +2916,7 @@ function Summary({
               <Figure label="Articles" value={count(articles)} />
               <Figure label="SKUs" value={count(skus)} />
             </div>
-            <Figure label="Pieces" value={count(pieces)} />
+            <Figure label="Pcs" value={count(pieces)} />
             <Figure label="Lines" value={count(lines)} />
             <Figure label="Stores" value={count(places)} />
           </dl>

@@ -7,6 +7,8 @@
 /// page that sums its own visible rows reports a different answer while it is
 /// still loading.
 
+import { monthYear } from "@/lib/format"
+
 /// The eight root classes, in the client's own words.
 ///
 /// Hard-coded rather than fetched: they are the spine of every report and have
@@ -121,10 +123,7 @@ export function todayIso(): string {
 /// "September 2026" — in English, like the rest of the hub's copy; printed
 /// documents keep Indonesian through their own formatters.
 export function monthLabel(year: number, month: number): string {
-  return new Date(year, month - 1, 1).toLocaleDateString("en-US", {
-    month: "long",
-    year: "numeric",
-  })
+  return monthYear(new Date(year, month - 1, 1), true)
 }
 
 /// A month the server named by its first day — `2026-08-01` — read as a month.

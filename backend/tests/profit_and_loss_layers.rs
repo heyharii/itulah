@@ -347,10 +347,12 @@ async fn sales_by_division_reads_like_the_7soft_summary(pool: PgPool) {
     .execute(&pool)
     .await
     .unwrap_or_else(|error| panic!("divisions: {error}"));
-    sqlx::query("INSERT INTO tag (code, label) VALUES ('T_KAOS', 'Kaos uji') ON CONFLICT DO NOTHING")
-        .execute(&pool)
-        .await
-        .unwrap_or_else(|error| panic!("tag: {error}"));
+    sqlx::query(
+        "INSERT INTO tag (code, label) VALUES ('T_KAOS', 'Kaos uji') ON CONFLICT DO NOTHING",
+    )
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("tag: {error}"));
 
     let blouse = an_article(&pool, "TW-001", "T_WANITA").await;
     let shirt = an_article(&pool, "TP-001", "T_PRIA").await;
@@ -365,14 +367,69 @@ async fn sales_by_division_reads_like_the_7soft_summary(pool: PgPool) {
     a_receipt(&pool, shirt, 5, 30_000).await;
 
     // 15 Sep, mid-morning WIB. Two blouses with 20,000 off the pair.
-    a_till_sale(&pool, 1, STORE, "2026-09-15T03:00:00Z", "TW-001-M", 2, 100_000, 180_000, "COMPLETED").await;
-    a_till_sale(&pool, 2, STORE, "2026-09-15T03:05:00Z", "TP-001-M", 1, 80_000, 80_000, "COMPLETED").await;
+    a_till_sale(
+        &pool,
+        1,
+        STORE,
+        "2026-09-15T03:00:00Z",
+        "TW-001-M",
+        2,
+        100_000,
+        180_000,
+        "COMPLETED",
+    )
+    .await;
+    a_till_sale(
+        &pool,
+        2,
+        STORE,
+        "2026-09-15T03:05:00Z",
+        "TP-001-M",
+        1,
+        80_000,
+        80_000,
+        "COMPLETED",
+    )
+    .await;
     // Taken back at the till: PEMBATALAN PENJUALAN, never in a row.
-    a_till_sale(&pool, 3, STORE, "2026-09-15T03:10:00Z", "TW-001-M", 1, 100_000, 100_000, "VOIDED").await;
+    a_till_sale(
+        &pool,
+        3,
+        STORE,
+        "2026-09-15T03:10:00Z",
+        "TW-001-M",
+        1,
+        100_000,
+        100_000,
+        "VOIDED",
+    )
+    .await;
     // Another unit's shop.
-    a_till_sale(&pool, 4, "store-02", "2026-09-15T04:00:00Z", "TP-001-M", 1, 80_000, 80_000, "COMPLETED").await;
+    a_till_sale(
+        &pool,
+        4,
+        "store-02",
+        "2026-09-15T04:00:00Z",
+        "TP-001-M",
+        1,
+        80_000,
+        80_000,
+        "COMPLETED",
+    )
+    .await;
     // 1 Oct 00:30 WIB is still 30 Sep in UTC; it belongs to October.
-    a_till_sale(&pool, 5, STORE, "2026-09-30T17:30:00Z", "TP-001-M", 1, 80_000, 80_000, "COMPLETED").await;
+    a_till_sale(
+        &pool,
+        5,
+        STORE,
+        "2026-09-30T17:30:00Z",
+        "TP-001-M",
+        1,
+        80_000,
+        80_000,
+        "COMPLETED",
+    )
+    .await;
 
     let from = NaiveDate::from_ymd_opt(2026, 9, 1).unwrap_or_else(|| panic!("from"));
     let to = NaiveDate::from_ymd_opt(2026, 9, 30).unwrap_or_else(|| panic!("to"));
@@ -495,13 +552,12 @@ async fn sales_by_tag_counts_an_article_under_its_tags_of_the_day(pool: PgPool) 
         .await
         .unwrap_or_else(|error| panic!("put back: {error}"));
     tx.commit().await.unwrap_or_else(|e| panic!("commit: {e}"));
-    let periods: Vec<(Option<DateTime<Utc>>,)> = sqlx::query_as(
-        "SELECT valid_to FROM article_tag_period WHERE article_id = $1",
-    )
-    .bind(shirt)
-    .fetch_all(&pool)
-    .await
-    .unwrap_or_else(|error| panic!("periods: {error}"));
+    let periods: Vec<(Option<DateTime<Utc>>,)> =
+        sqlx::query_as("SELECT valid_to FROM article_tag_period WHERE article_id = $1")
+            .bind(shirt)
+            .fetch_all(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("periods: {error}"));
     assert_eq!(periods, vec![(None,)], "an unchanged tag is not cut in two");
 
     // The plain article is filed under Kaos from 20 Sep: what it sold on the
@@ -523,11 +579,66 @@ async fn sales_by_tag_counts_an_article_under_its_tags_of_the_day(pool: PgPool) 
     a_receipt(&pool, blouse, 10, 60_000).await;
     a_receipt(&pool, shirt, 5, 30_000).await;
 
-    a_till_sale(&pool, 1, STORE, "2026-09-15T03:00:00Z", "TW-001-M", 2, 100_000, 180_000, "COMPLETED").await;
-    a_till_sale(&pool, 2, STORE, "2026-09-15T03:05:00Z", "TP-001-M", 1, 80_000, 80_000, "COMPLETED").await;
-    a_till_sale(&pool, 3, STORE, "2026-09-15T03:10:00Z", "TX-001-M", 1, 50_000, 50_000, "COMPLETED").await;
-    a_till_sale(&pool, 4, STORE, "2026-09-15T03:15:00Z", "TW-001-M", 1, 100_000, 100_000, "VOIDED").await;
-    a_till_sale(&pool, 5, STORE, "2026-09-25T03:00:00Z", "TX-001-M", 1, 50_000, 50_000, "COMPLETED").await;
+    a_till_sale(
+        &pool,
+        1,
+        STORE,
+        "2026-09-15T03:00:00Z",
+        "TW-001-M",
+        2,
+        100_000,
+        180_000,
+        "COMPLETED",
+    )
+    .await;
+    a_till_sale(
+        &pool,
+        2,
+        STORE,
+        "2026-09-15T03:05:00Z",
+        "TP-001-M",
+        1,
+        80_000,
+        80_000,
+        "COMPLETED",
+    )
+    .await;
+    a_till_sale(
+        &pool,
+        3,
+        STORE,
+        "2026-09-15T03:10:00Z",
+        "TX-001-M",
+        1,
+        50_000,
+        50_000,
+        "COMPLETED",
+    )
+    .await;
+    a_till_sale(
+        &pool,
+        4,
+        STORE,
+        "2026-09-15T03:15:00Z",
+        "TW-001-M",
+        1,
+        100_000,
+        100_000,
+        "VOIDED",
+    )
+    .await;
+    a_till_sale(
+        &pool,
+        5,
+        STORE,
+        "2026-09-25T03:00:00Z",
+        "TX-001-M",
+        1,
+        50_000,
+        50_000,
+        "COMPLETED",
+    )
+    .await;
 
     let from = NaiveDate::from_ymd_opt(2026, 9, 1).unwrap_or_else(|| panic!("from"));
     let to = NaiveDate::from_ymd_opt(2026, 9, 30).unwrap_or_else(|| panic!("to"));
@@ -536,7 +647,11 @@ async fn sales_by_tag_counts_an_article_under_its_tags_of_the_day(pool: PgPool) 
         .await
         .unwrap_or_else(|error| panic!("sales by tag: {error}"));
     let codes: Vec<&str> = all.rows.iter().map(|row| row.code.as_str()).collect();
-    assert_eq!(codes, ["T_BASIC", "T_KAOS", ""], "biggest net first, untagged last");
+    assert_eq!(
+        codes,
+        ["T_BASIC", "T_KAOS", ""],
+        "biggest net first, untagged last"
+    );
     let basic = &all.rows[0];
     assert_eq!(basic.name, "Basic uji");
     assert_eq!(basic.articles, 2);
@@ -547,10 +662,16 @@ async fn sales_by_tag_counts_an_article_under_its_tags_of_the_day(pool: PgPool) 
     assert_eq!(kaos.articles, 2);
     assert_eq!(kaos.quantity, 3);
     assert_eq!(kaos.discount_minor, 20_000);
-    assert_eq!(kaos.net_minor, 230_000, "the blouse, and the plain one from the 20th");
+    assert_eq!(
+        kaos.net_minor, 230_000,
+        "the blouse, and the plain one from the 20th"
+    );
     let untagged = &all.rows[2];
     assert_eq!(untagged.name, "Untagged");
-    assert_eq!(untagged.net_minor, 50_000, "the 15 Sep sale keeps its tags of the day");
+    assert_eq!(
+        untagged.net_minor, 50_000,
+        "the 15 Sep sale keeps its tags of the day"
+    );
     assert_eq!(all.total.quantity, 5, "every line once, not once per tag");
     assert_eq!(all.total.net_minor, 360_000);
     assert_eq!(all.total.cost_minor, 150_000);
@@ -573,7 +694,11 @@ async fn sales_by_tag_counts_an_article_under_its_tags_of_the_day(pool: PgPool) 
 
     // A month steps by day: two trading days.
     assert_eq!(all.step, "day");
-    let days: Vec<String> = all.step_totals.iter().map(|s| s.starts.to_string()).collect();
+    let days: Vec<String> = all
+        .step_totals
+        .iter()
+        .map(|s| s.starts.to_string())
+        .collect();
     assert_eq!(days, ["2026-09-15", "2026-09-25"]);
     assert_eq!(all.step_totals[0].net_minor, 310_000);
     let kaos_25 = all
@@ -583,9 +708,16 @@ async fn sales_by_tag_counts_an_article_under_its_tags_of_the_day(pool: PgPool) 
         .unwrap_or_else(|| panic!("Kaos on the 25th"));
     assert_eq!(kaos_25.net_minor, 50_000);
 
-    let pria = cloud::sales_breakdown(&pool, cloud::BreakdownBy::Tag, from, to, None, Some("T_PRIA"))
-        .await
-        .unwrap_or_else(|error| panic!("one division: {error}"));
+    let pria = cloud::sales_breakdown(
+        &pool,
+        cloud::BreakdownBy::Tag,
+        from,
+        to,
+        None,
+        Some("T_PRIA"),
+    )
+    .await
+    .unwrap_or_else(|error| panic!("one division: {error}"));
     let codes: Vec<&str> = pria.rows.iter().map(|row| row.code.as_str()).collect();
     assert_eq!(codes, ["T_BASIC", "T_KAOS", ""]);
     assert_eq!(pria.total.net_minor, 180_000);
@@ -593,13 +725,24 @@ async fn sales_by_tag_counts_an_article_under_its_tags_of_the_day(pool: PgPool) 
 
     // The same window by division and by store: partitions, so the rows add
     // up to the total.
-    let divisions = cloud::sales_breakdown(&pool, cloud::BreakdownBy::Division, from, to, None, None)
-        .await
-        .unwrap_or_else(|error| panic!("by division: {error}"));
+    let divisions =
+        cloud::sales_breakdown(&pool, cloud::BreakdownBy::Division, from, to, None, None)
+            .await
+            .unwrap_or_else(|error| panic!("by division: {error}"));
     // 180,000 each: a tie falls to the name.
-    let codes: Vec<&str> = divisions.rows.iter().map(|row| row.code.as_str()).collect();
+    // The migrations' demo shelves hold unclassified stock: a group with
+    // stock and no sales is still a row, after the ones that sold.
+    let codes: Vec<&str> = divisions
+        .rows
+        .iter()
+        .filter(|row| row.net_minor != 0)
+        .map(|row| row.code.as_str())
+        .collect();
     assert_eq!(codes, ["T_PRIA", "T_WANITA"]);
-    assert_eq!(divisions.rows.iter().map(|row| row.net_minor).sum::<i64>(), 360_000);
+    assert_eq!(
+        divisions.rows.iter().map(|row| row.net_minor).sum::<i64>(),
+        360_000
+    );
     let stores = cloud::sales_breakdown(&pool, cloud::BreakdownBy::Store, from, to, None, None)
         .await
         .unwrap_or_else(|error| panic!("by store: {error}"));
@@ -610,12 +753,143 @@ async fn sales_by_tag_counts_an_article_under_its_tags_of_the_day(pool: PgPool) 
         .unwrap_or_else(|| panic!("the store's row"));
     assert_eq!(here.net_minor, 360_000);
 
+    // The Sales Explorer reads the same summary (0930): the same total, the
+    // divisions as sold, each shop's cell, and no store day that disagrees
+    // with the till lines.
+    let explorer = cloud::sales_explorer(
+        &pool,
+        &cloud::ExplorerQuery {
+            from,
+            to,
+            group: Some("division".into()),
+            matrix: Some(true),
+            stock: Some(true),
+            compare: Some("previous".into()),
+            ..Default::default()
+        },
+        true,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("explorer: {error}"));
+    assert_eq!(explorer.total.sales_minor, 360_000);
+    assert_eq!(explorer.total.qty, 5);
+    assert_eq!(explorer.total.discount_minor, 20_000);
+    assert_eq!(explorer.total.cost_minor, Some(150_000));
+    // The plain article never had a receipt: its two pieces are uncosted,
+    // and profit is read over the costed pieces only (260,000 − 150,000).
+    assert_eq!(explorer.total.uncosted_qty, 2);
+    assert_eq!(explorer.total.uncosted_minor, 100_000);
+    assert_eq!(explorer.total.profit_minor, Some(110_000));
+    let keys: Vec<&str> = explorer.rows.iter().map(|row| row.key.as_str()).collect();
+    assert_eq!(keys, ["T_PRIA", "T_WANITA"], "sold rows only, stock beside them");
+    assert_eq!(explorer.rows[1].label, "Divisi Wanita");
+    assert_eq!(explorer.rows[1].figures.sales_minor, 180_000);
+    assert_eq!(explorer.rows[1].cells.len(), 1);
+    assert_eq!(explorer.rows[1].cells[0].site_id, STORE);
+    assert_eq!(explorer.compare_to, Some(from - chrono::Duration::days(1)));
+    let by_tag = cloud::sales_explorer(
+        &pool,
+        &cloud::ExplorerQuery {
+            from,
+            to,
+            group: Some("tag".into()),
+            ..Default::default()
+        },
+        true,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("explorer by tag: {error}"));
+    assert_eq!(
+        by_tag.total.qty, 5,
+        "tags overlap; the total counts every piece once"
+    );
+    let kaos = by_tag
+        .rows
+        .iter()
+        .find(|row| row.key == "T_KAOS")
+        .unwrap_or_else(|| panic!("Kaos in the explorer"));
+    assert_eq!(kaos.figures.sales_minor, 230_000);
+
+    // The SKU and colour keys hold their stock on the shelves (0931), not
+    // the article rollup: both read it for the page's rows only, colour
+    // through the join its stock key owns, and a whole month off the SKU
+    // summary (0937). Colour is a fixed fact of the article, so it is
+    // written here, after the sales, and the same figures come back by it.
+    sqlx::query(
+        "INSERT INTO article_colour (article_id, colour_digit, label, colour_code) VALUES
+             ($1, '1', 'Red', 'RED'), ($2, '1', 'Blue', 'BLUE'),
+             ($3, '1', 'Black', 'BLACK')",
+    )
+    .bind(blouse)
+    .bind(plain)
+    .bind(shirt)
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("article colours: {error}"));
+    sqlx::query("UPDATE sku SET colour_digit = '1' WHERE article_id = ANY($1)")
+        .bind(vec![blouse, plain, shirt])
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("sku colours: {error}"));
+    let by_sku = cloud::sales_explorer(
+        &pool,
+        &cloud::ExplorerQuery {
+            from,
+            to,
+            group: Some("sku".into()),
+            stock: Some(true),
+            ..Default::default()
+        },
+        true,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("explorer by sku: {error}"));
+    let sku_keys: Vec<&str> = by_sku.rows.iter().map(|row| row.key.as_str()).collect();
+    assert_eq!(
+        sku_keys,
+        ["TW-001-M", "TX-001-M", "TP-001-M"],
+        "biggest sales first"
+    );
+    assert_eq!(by_sku.rows[0].figures.sales_minor, 180_000);
+    assert_eq!(
+        by_sku.total.qty, 5,
+        "SKUs partition the window's sales, stock beside them"
+    );
+    let by_colour = cloud::sales_explorer(
+        &pool,
+        &cloud::ExplorerQuery {
+            from,
+            to,
+            group: Some("colour".into()),
+            stock: Some(true),
+            ..Default::default()
+        },
+        true,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("explorer by colour: {error}"));
+    let colour_keys: Vec<&str> = by_colour.rows.iter().map(|row| row.key.as_str()).collect();
+    assert_eq!(colour_keys, ["RED", "BLUE", "BLACK"], "biggest sales first");
+    assert_eq!(by_colour.rows[2].label, "Black");
+    assert_eq!(
+        by_colour.total.qty, 5,
+        "colours partition the window's sales"
+    );
+    let drift = cloud::sales_rollup_reconcile(&pool, from, to)
+        .await
+        .unwrap_or_else(|error| panic!("reconcile: {error}"));
+    assert!(drift.is_empty(), "summary = till lines: {drift:?}");
+
     // By article and by SKU: identities, so partitions too.
     let articles = cloud::sales_breakdown(&pool, cloud::BreakdownBy::Article, from, to, None, None)
         .await
         .unwrap_or_else(|error| panic!("by article: {error}"));
     assert_eq!(articles.rows[0].code, "TW-001");
-    assert_eq!(articles.rows_total, 3);
+    assert_eq!(
+        articles.rows.iter().filter(|row| row.net_minor != 0).count(),
+        3,
+        "three sold; the demo shelves' articles follow with stock only"
+    );
     assert!(articles.has_stock);
     let skus = cloud::sales_breakdown(&pool, cloud::BreakdownBy::Sku, from, to, None, None)
         .await
@@ -670,9 +944,10 @@ async fn sales_by_tag_counts_an_article_under_its_tags_of_the_day(pool: PgPool) 
     assert_eq!(paid.total.net_minor, 360_000);
 
     // No campaign touched these lines.
-    let campaigns = cloud::sales_breakdown(&pool, cloud::BreakdownBy::Campaign, from, to, None, None)
-        .await
-        .unwrap_or_else(|error| panic!("by campaign: {error}"));
+    let campaigns =
+        cloud::sales_breakdown(&pool, cloud::BreakdownBy::Campaign, from, to, None, None)
+            .await
+            .unwrap_or_else(|error| panic!("by campaign: {error}"));
     assert_eq!(campaigns.rows.len(), 1);
     assert_eq!(campaigns.rows[0].name, "No campaign");
 }
@@ -704,8 +979,30 @@ async fn a_day_costs_every_size_of_an_article(pool: PgPool) {
         .unwrap_or_else(|error| panic!("second sku: {error}"));
     a_receipt(&pool, blouse, 10, 50_000).await;
 
-    a_till_sale(&pool, 1, STORE, "2026-09-15T03:00:00Z", "TW-002-M", 2, 100_000, 200_000, "COMPLETED").await;
-    a_till_sale(&pool, 2, STORE, "2026-09-15T03:05:00Z", "TW-002-L", 3, 100_000, 300_000, "COMPLETED").await;
+    a_till_sale(
+        &pool,
+        1,
+        STORE,
+        "2026-09-15T03:00:00Z",
+        "TW-002-M",
+        2,
+        100_000,
+        200_000,
+        "COMPLETED",
+    )
+    .await;
+    a_till_sale(
+        &pool,
+        2,
+        STORE,
+        "2026-09-15T03:05:00Z",
+        "TW-002-L",
+        3,
+        100_000,
+        300_000,
+        "COMPLETED",
+    )
+    .await;
 
     let business_date = NaiveDate::from_ymd_opt(2026, 9, 15).unwrap_or_else(|| panic!("date"));
     let document = cloud::sales_posting_generate(

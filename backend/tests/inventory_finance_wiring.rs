@@ -398,7 +398,7 @@ async fn a_price_correction_splits_between_stock_and_cost_of_sales(pool: PgPool)
     assert_eq!(
         lines,
         vec![
-            ("1029".into(), 800, 0),  // 4 of 10 on hand  → inventory
+            ("1029".into(), 800, 0),   // 4 of 10 on hand  → inventory
             ("1058".into(), 2_000, 0), // head office Dr Piutang Atas Barang
             ("2002".into(), 0, 2_000), // head office Cr supplier payable
             ("2029".into(), 0, 2_000), // shop Cr Hutang Atas Barang

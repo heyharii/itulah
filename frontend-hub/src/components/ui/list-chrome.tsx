@@ -1251,6 +1251,7 @@ export function ListOptionsSheet({
   openAt,
   onOpenAtChange,
   hideTrigger = false,
+  actions,
 }: {
   /// What the filter is applied to.
   readonly model: FilterState
@@ -1283,6 +1284,14 @@ export function ListOptionsSheet({
   readonly onOpenAtChange?: (page: "menu" | "filter" | "sort" | null) => void
   /// No button of its own: it is opened from elsewhere.
   readonly hideTrigger?: boolean
+  /// Things the screen can do to the list as a whole — "Sync usage to stores",
+  /// "Export" — as rows at the foot of the menu, under a rule: the place for an
+  /// act that is not a choice, and not at the top of the page (owner,
+  /// 2026-10-06). Each closes the sheet, then runs.
+  readonly actions?: readonly {
+    readonly label: string
+    readonly onClick: () => void
+  }[]
 }) {
   const [openOwn, setOpenOwn] = useState(false)
   const controlled = openAt !== undefined
@@ -1484,6 +1493,24 @@ export function ListOptionsSheet({
                     <ChevronRight className="size-4 shrink-0 text-line-ico" />
                   </button>
                 )}
+                {actions !== undefined && actions.length > 0 && (
+                  <>
+                    <div className="mx-3 my-1.5 h-px bg-hairline" />
+                    {actions.map((one) => (
+                      <button
+                        key={one.label}
+                        type="button"
+                        onClick={() => {
+                          setOpen(false)
+                          one.onClick()
+                        }}
+                        className={cn(ROW, "font-medium text-accent")}
+                      >
+                        {one.label}
+                      </button>
+                    ))}
+                  </>
+                )}
               </>
             )}
 
@@ -1546,14 +1573,16 @@ export function ListOptionsSheet({
                 )
               })}
 
-            {page === "sort" && orders === undefined && choices !== undefined && (
-              <SheetSortRows
-                choices={choices}
-                withDefault={sortChoices !== undefined}
-                rowClass={ROW}
-                onDone={() => setOpen(false)}
-              />
-            )}
+            {page === "sort" &&
+              orders === undefined &&
+              choices !== undefined && (
+                <SheetSortRows
+                  choices={choices}
+                  withDefault={sortChoices !== undefined}
+                  rowClass={ROW}
+                  onDone={() => setOpen(false)}
+                />
+              )}
           </div>
         </MorphHeight>
       </BottomSheet>
@@ -1564,7 +1593,10 @@ export function ListOptionsSheet({
 /// The sort a list offers, as a list of named orders: the one in force and
 /// its direction, and `""` for the list's own order.
 export interface SortChoices {
-  readonly options: readonly { readonly value: string; readonly label: string }[]
+  readonly options: readonly {
+    readonly value: string
+    readonly label: string
+  }[]
   readonly value: string
   readonly desc: boolean
   readonly onChange: (value: string, desc: boolean) => void
@@ -1818,7 +1850,7 @@ export function SheetFieldOptions({
           className={cn(
             "flex items-center gap-2 px-3",
             pill
-              ? "h-10 rounded-full bg-soft-2"
+              ? "h-11 rounded-full bg-soft-2"
               : "mx-2 mb-2 h-11 rounded-inner border border-hairline-2 bg-soft focus-within:border-accent"
           )}
         >

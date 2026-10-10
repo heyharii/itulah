@@ -15,7 +15,7 @@ import {
   YAxis,
 } from "recharts"
 
-import { money } from "@/lib/format"
+import { money, compactFormat } from "@/lib/format"
 
 /// A chart the model composed, drawn in this app's grammar.
 ///
@@ -72,10 +72,7 @@ const MAX_SLICES = 6
 
 /// Axis ticks only. Full precision belongs in the tooltip and in the table
 /// underneath; an axis exists to say roughly how tall a bar is.
-const compact = new Intl.NumberFormat("id-ID", {
-  notation: "compact",
-  maximumFractionDigits: 1,
-})
+const compact = compactFormat()
 
 /// One chart, or nothing.
 ///

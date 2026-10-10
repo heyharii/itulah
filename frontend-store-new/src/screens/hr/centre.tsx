@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button"
+import { LoadingState } from "@/components/ui/states"
 import { ApiError } from "@itulah/contract/client"
 
 /// The three-way render a Query does, for an answer that came from **head
@@ -29,13 +30,7 @@ export function centreState<T>(
   },
 ): React.ReactNode {
   if (query.isPending) {
-    return (
-      <div className="mx-auto max-w-[28em] px-4 py-12 text-center">
-        <p className="text-meta text-body">
-          {options.loading ?? "Loading…"}
-        </p>
-      </div>
-    )
+    return <LoadingState>{options.loading ?? "Reading…"}</LoadingState>
   }
   if (query.isError) {
     // A refusal is an answer, not a failure: head office looked at who is

@@ -7,6 +7,7 @@ import { PageContent } from "@/components/shell/app-shell"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { PageHeader } from "@/components/ui/page-header"
+import { Pill } from "@/components/ui/pill"
 import { MiniTable } from "@/components/ui/rows"
 import { Sheet } from "@/components/ui/sheet"
 import { EmptyState } from "@/components/ui/states"
@@ -21,6 +22,8 @@ import {
 import { printedOf, useRuns } from "@/screens/operations/tagging/print-run"
 import { dc } from "@/lib/api"
 import { count, day } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
+import { CardFigure, CardName } from "@/components/ui/phone-cards"
 import { ROOMY } from "@/screens/operations/roomy"
 import { SupplierName } from "@/screens/procurement/supplier-name"
 import { keys } from "@/lib/operations/keys"
@@ -97,6 +100,7 @@ function printedIn(
 export function Tagging() {
   const sheet = useSheet("job")
   const [tab, setTab] = useState<"todo" | "done">("todo")
+  const phone = useLayout() === "phone"
 
   const jobs = useQuery({
     queryKey: keys.taggingJobs(),
@@ -110,21 +114,99 @@ export function Tagging() {
   const done = groups.filter(finished)
   const rows = tab === "todo" ? todo : done
 
-  const columns = useMemo<ColumnDef<TableSetup, Group>[]>(
-    () => [
+  const columns = useMemo<ColumnDef<TableSetup, Group>[]>(() => {
+    const cards: ColumnDef<TableSetup, Group>[] = [
+      // Four columns that exist only on a card (`cardLead`; a phone): the
+      // supplier over the PO, how many labels it needs, its SKUs and delivery
+      // and what is already printed, and the one button.
+      {
+        id: "head",
+        header: "",
+        enableHiding: false,
+        enableSorting: false,
+        meta: { card: "title" },
+        cell: ({ row }) => (
+          <CardName
+            name={
+              row.original.supplier === null ? (
+                row.original.label
+              ) : (
+                <SupplierName code={null} name={row.original.supplier} />
+              )
+            }
+            code={
+              row.original.supplier === null ? undefined : row.original.label
+            }
+          />
+        ),
+      },
+      {
+        id: "lead",
+        header: "",
+        enableHiding: false,
+        enableSorting: false,
+        meta: { card: "lead" },
+        cell: ({ row }) => (
+          <CardFigure
+            value={count(row.original.labels)}
+            caption={row.original.labels === 1 ? "pc" : "pcs"}
+          />
+        ),
+      },
+      {
+        id: "foot",
+        header: "",
+        enableHiding: false,
+        enableSorting: false,
+        meta: { card: "foot" },
+        cell: ({ row }) => {
+          const printed = printedIn(row.original, runs)
+          return (
+            <span className="tabular-nums">
+              {count(row.original.skus)}{" "}
+              {row.original.skus === 1 ? "SKU" : "SKUs"}
+              {row.original.delivered_at !== null &&
+                ` · ${day(row.original.delivered_at)}`}
+              {printed > 0 && ` · ${count(printed)} printed`}
+            </span>
+          )
+        },
+      },
+      {
+        id: "act",
+        header: "",
+        enableHiding: false,
+        enableSorting: false,
+        meta: { align: "right", card: "status" },
+        cell: ({ row }) => {
+          const left = row.original.labels - printedIn(row.original, runs)
+          return left > 0 ? (
+            <PrintAllButton
+              jobs={row.original.jobs}
+              runs={runs}
+              left={left}
+              card
+            />
+          ) : (
+            <Pill tone="ok">Printed</Pill>
+          )
+        },
+      },
+    ]
+    return [
       {
         id: "no",
         header: "No.",
         size: 70,
         enableSorting: false,
-        meta: { align: "right", priority: 2 },
+        meta: { align: "right", priority: 2, card: "hide" },
         cell: ({ row }) => <span className="text-mute">{row.index + 1}</span>,
       },
       {
         id: "po",
         header: "PO",
         size: 190,
-        meta: { card: "id" },
+        meta: { card: "hide" },
         cell: ({ row }) => (
           <span className="font-mono text-id text-ink">
             {row.original.label}
@@ -135,7 +217,7 @@ export function Tagging() {
         id: "supplier",
         header: "Supplier",
         size: 260,
-        meta: { card: "title" },
+        meta: { card: "hide" },
         cell: ({ row }) => (
           <span className="block truncate text-text">
             <SupplierName code={null} name={row.original.supplier} />
@@ -146,7 +228,7 @@ export function Tagging() {
         id: "delivery",
         header: "Delivery",
         size: 140,
-        meta: { priority: 3 },
+        meta: { priority: 3, card: "hide" },
         cell: ({ row }) =>
           row.original.delivered_at === null ? (
             <span className="text-mute">—</span>
@@ -158,14 +240,14 @@ export function Tagging() {
         id: "skus",
         header: "SKU",
         size: 90,
-        meta: { align: "right", priority: 2 },
+        meta: { align: "right", priority: 2, card: "hide" },
         cell: ({ row }) => count(row.original.skus),
       },
       {
         id: "labels",
-        header: "Labels",
+        header: "Pcs",
         size: 110,
-        meta: { align: "right", card: "metric" },
+        meta: { align: "right", card: "hide" },
         cell: ({ row }) => (
           <span className="font-medium text-ink">
             {count(row.original.labels)}
@@ -176,7 +258,7 @@ export function Tagging() {
         id: "printed",
         header: "Printed",
         size: 110,
-        meta: { align: "right", priority: 2 },
+        meta: { align: "right", priority: 2, card: "hide" },
         cell: ({ row }) => {
           const printed = printedIn(row.original, runs)
           return printed === 0 ? (
@@ -189,7 +271,7 @@ export function Tagging() {
       {
         id: "print",
         header: "",
-        meta: { card: "status", grow: 160 },
+        meta: { card: "hide", grow: 160 },
         cell: ({ row }) => {
           const left = row.original.labels - printedIn(row.original, runs)
           return left > 0 ? (
@@ -202,9 +284,9 @@ export function Tagging() {
           ) : null
         },
       },
-    ],
-    [runs]
-  )
+      ...(phone ? cards : []),
+    ]
+  }, [runs, phone])
 
   const table = useTable(
     useMemo(
@@ -236,7 +318,7 @@ export function Tagging() {
         ]}
       />
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(jobs, {
           loading: "Reading the print queue…",
           render: () =>
@@ -246,12 +328,16 @@ export function Tagging() {
               </EmptyState>
             ) : (
               <DataTable<Group>
+                refresh={[jobs]}
                 table={table}
                 touch
                 onRowClick={(row) => sheet.open(row.key)}
                 isSelected={(row) => row.key === sheet.value}
                 pageScroll
                 className={ROOMY}
+                cardSort={false}
+                cardsApart
+                cardLead
               />
             ),
         })}
@@ -319,7 +405,7 @@ export function PoSheet({
               { label: "Article", align: "left" },
               { label: "Color", align: "left" },
               { label: "Size", align: "left" },
-              "Labels",
+              "Pcs",
               "Printed",
               "",
             ]}

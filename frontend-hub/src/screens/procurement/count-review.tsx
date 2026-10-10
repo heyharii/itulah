@@ -3,20 +3,18 @@ import { Drawer } from "@base-ui/react/drawer"
 import { useForm } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
-  ArrowLeft,
   Check,
   CircleAlert,
   CircleCheck,
   FileText,
-  RotateCcw,
   Upload,
   X,
 } from "lucide-react"
 import { Fragment, useCallback, useEffect, useRef, useState } from "react"
 
 import { Button } from "@/components/ui/button"
-import { ConfirmButton, SavedDialog } from "@/components/ui/dialog"
-import { Checkbox, Field, Input, Money, Textarea } from "@/components/ui/field"
+import { ConfirmButton } from "@/components/ui/dialog"
+import { Field, Input, Money } from "@/components/ui/field"
 import { Switch } from "@/components/ui/form"
 import { Pill } from "@/components/ui/pill"
 import { PhoneDrawer } from "@/components/ui/phone-drawer"
@@ -27,6 +25,7 @@ import { useNameOfLogin } from "@/lib/queries/hr-employees"
 import { recordKeys } from "@/lib/queries/records"
 import { count, label, money, recentMoment } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
+import { pullIn, useSaid, type PullIn } from "@/lib/pull-in"
 import { useEdgeActor, useEdgeNodeIdentity } from "@/lib/edge-session"
 import { keys } from "@/lib/operations/keys"
 import { setBenchActor, useBenchActor } from "@/lib/operations/bench"
@@ -50,6 +49,11 @@ import { useSupplierName } from "@/screens/procurement/supplier-name"
 import { useCountsAwaiting } from "@/screens/procurement/count-review-state"
 import { OperationsGate } from "@/screens/operations/gate"
 import { TwoLines } from "@/screens/operations/two-lines"
+import {
+  VariantPhoto,
+  variantKey,
+  variantLabel,
+} from "@/screens/procurement/variant-photo"
 import { idempotencyKey } from "@itulah/contract/client"
 import type {
   InvoiceDocumentView,
@@ -58,9 +62,9 @@ import type {
 
 /// **Review count** — the buyer's half of a delivery.
 ///
-/// Ops › Receiving only COUNTS (blind, at the Gudang). Whoever raised the PO
+/// Ops › Receiving only COUNTS (blind, at the warehouse). Whoever raised the PO
 /// reviews that count, here, from Procurement › Purchase orders: the order's row
-/// and its sheet carry "Review count" once the Gudang has counted something.
+/// and its sheet carry "Review count" once the warehouse has counted something.
 ///
 /// The count is read from the DC, so it needs the warehouse sign-in. The
 /// dialog stands inside `OperationsGate`, which exchanges the Central session
@@ -138,10 +142,6 @@ export function CountReview({
   po: string | null
   onClose: () => void
 }) {
-  /// The write the review made, held in the receipt dialog until it is read.
-  /// State lives here — CountReview stays mounted between openings — because
-  /// the body it comes from unmounts the moment the review closes.
-  const [saved, setSaved] = useState<string | null>(null)
   const [flag, setFlag] = useState<"ok" | "warn" | null>(null)
   const phone = useLayout() === "phone"
   const Parts: { Title: React.ElementType; Close: React.ElementType } = phone
@@ -185,7 +185,7 @@ export function CountReview({
       <ReviewBody
         po={po}
         onClose={onClose}
-        onSaved={setSaved}
+        onSaved={(saved) => void pullIn(saved)}
         onFlag={setFlag}
       />
     </OperationsGate>
@@ -194,46 +194,36 @@ export function CountReview({
   // A phone reviews in a sheet from the bottom, as every other overlay there.
   if (phone) {
     return (
-      <PhoneDrawer
-        open={po !== null}
-        onOpenChange={(next) => !next && onClose()}
-        tall
-      >
-        {head}
-        {body}
-        <SavedDialog
-          open={saved !== null}
-          onOpenChange={(next) => {
-            if (!next) setSaved(null)
-          }}
-          title={saved ?? ""}
-        />
-      </PhoneDrawer>
+      <>
+        <PhoneDrawer
+          open={po !== null}
+          onOpenChange={(next) => !next && onClose()}
+          tall
+        >
+          {head}
+          {body}
+        </PhoneDrawer>
+      </>
     )
   }
 
   return (
-    <BaseDialog.Root
-      open={po !== null}
-      onOpenChange={(next) => !next && onClose()}
-    >
-      <BaseDialog.Portal>
-        <BaseDialog.Backdrop className="fixed inset-0 z-40 bg-[var(--scrim)] transition-opacity duration-(--t-sheet) ease-(--ease-out) data-[ending-style]:opacity-0 data-[ending-style]:duration-(--t-exit) data-[starting-style]:opacity-0" />
-        {/* A sheet, like the order it is opened from: full height, so five or
+    <>
+      <BaseDialog.Root
+        open={po !== null}
+        onOpenChange={(next) => !next && onClose()}
+      >
+        <BaseDialog.Portal>
+          <BaseDialog.Backdrop className="fixed inset-0 z-40 bg-[var(--scrim)] transition-opacity duration-(--t-sheet) ease-(--ease-out) data-[ending-style]:opacity-0 data-[ending-style]:duration-(--t-exit) data-[starting-style]:opacity-0" />
+          {/* A sheet, like the order it is opened from: full height, so five or
           ten articles read as a page instead of a cramped window. */}
-        <BaseDialog.Popup className="fixed top-5 right-5 bottom-5 z-40 flex w-[clamp(27.5rem,72vw,56rem)] max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-shell border border-hairline bg-canvas shadow-float transition-[translate,opacity] duration-(--t-sheet) ease-(--ease-drawer) outline-none data-[ending-style]:translate-x-[calc(100%+1.25rem)] data-[ending-style]:duration-(--t-exit) data-[starting-style]:translate-x-[calc(100%+1.25rem)] motion-reduce:data-[ending-style]:translate-x-0 motion-reduce:data-[ending-style]:opacity-0 motion-reduce:data-[starting-style]:translate-x-0 motion-reduce:data-[starting-style]:opacity-0">
-          {head}
-          {body}
-          <SavedDialog
-            open={saved !== null}
-            onOpenChange={(next) => {
-              if (!next) setSaved(null)
-            }}
-            title={saved ?? ""}
-          />
-        </BaseDialog.Popup>
-      </BaseDialog.Portal>
-    </BaseDialog.Root>
+          <BaseDialog.Popup className="fixed top-5 right-5 bottom-5 z-40 flex w-[clamp(27.5rem,72vw,56rem)] max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-shell border border-hairline bg-canvas shadow-float transition-[translate,opacity] duration-(--t-sheet) ease-(--ease-drawer) outline-none data-[ending-style]:translate-x-[calc(100%+1.25rem)] data-[ending-style]:duration-(--t-exit) data-[starting-style]:translate-x-[calc(100%+1.25rem)] motion-reduce:data-[ending-style]:translate-x-0 motion-reduce:data-[ending-style]:opacity-0 motion-reduce:data-[starting-style]:translate-x-0 motion-reduce:data-[starting-style]:opacity-0">
+            {head}
+            {body}
+          </BaseDialog.Popup>
+        </BaseDialog.Portal>
+      </BaseDialog.Root>
+    </>
   )
 }
 
@@ -245,7 +235,7 @@ function ReviewBody({
 }: {
   po: string
   onClose: () => void
-  onSaved: (said: string) => void
+  onSaved: (saved: PullIn) => void
   onFlag: (flag: "ok" | "warn" | null) => void
 }) {
   const queue = useQuery({
@@ -333,7 +323,7 @@ function Review({
   po: string
   live: readonly Count[]
   onClose: () => void
-  onSaved: (said: string) => void
+  onSaved: (saved: PullIn) => void
   onFlag: (flag: "ok" | "warn" | null) => void
 }) {
   const actor = useEdgeActor()
@@ -368,6 +358,10 @@ function Review({
       ...line.tags.map((tag) => label(tag)),
     ].join(" \u00b7 ")
   }
+  /// The line's own picture, for a variant without photographs of its own.
+  const imageOf = (row: Count) =>
+    detail.data?.lines.find((one) => one.po_line_id === row.po_line_id)
+      ?.image_url ?? null
   const nameOf = useSupplierName()
   const supplier =
     order === undefined || order.supplier_name === null
@@ -375,10 +369,7 @@ function Review({
       : nameOf(order.supplier_id, order.supplier_name)
   const cancelled = order?.lifecycle === "CANCELLED"
 
-  const [mode, setMode] = useState<"decide" | "recount">("decide")
-  const [hideMatched, setHideMatched] = useState(true)
-  const [picked, setPicked] = useState<ReadonlySet<string>>(new Set())
-  const [why, setWhy] = useState("")
+  const [hideMatched, setHideMatched] = useState(false)
   // What was accepted, kept after the counts leave the queue: the buyer is
   // still owed the invoice box, and a retry still needs the rows.
   const [frozen, setFrozen] = useState<readonly Count[] | null>(null)
@@ -397,7 +388,6 @@ function Review({
   // takes a receipt line's whole excess.
   const overQty = overs.reduce((sum, row) => sum + gap(row), 0)
   const wrongQty = wrongRows.reduce((sum, row) => sum + wrongOf(row), 0)
-  const totalOwed = rows.reduce((sum, row) => sum + owed(row), 0)
   const totalWrong = rows.reduce((sum, row) => sum + wrongOf(row), 0)
   // A column's total is the sum of its rows: what was counted, as counted.
   const totalCounted = rows.reduce((sum, row) => sum + correct(row), 0)
@@ -414,9 +404,8 @@ function Review({
   const offCount = rows.filter(
     (row) => gap(row) !== 0 || wrongOf(row) > 0
   ).length
-  // Matched lines can be set aside to read only what is off; never while
-  // counting again, which needs every line to tick.
-  const canHide = mode === "decide" && offCount > 0 && offCount < rows.length
+  // Matched lines can be set aside to read only what is off.
+  const canHide = offCount > 0 && offCount < rows.length
   const visible =
     canHide && hideMatched
       ? rows.filter((row) => gap(row) !== 0 || wrongOf(row) > 0)
@@ -533,26 +522,40 @@ function Review({
       if (replaced) {
         void client.invalidateQueries({ queryKey: supplierReturnKeys.all })
       }
-      // Both facts — accepted and received — in the one receipt; the invoice
-      // block under it is the working surface (owner, 2026-10-02).
-      onSaved(
-        `${lines(targets.length)} received${replaced ? " · replacement recorded" : ""}`
-      )
-      setAccepted(targets)
-      onClose()
+      // The button says it, the sheet closes, the order's row takes it in
+      // (owner, 2026-10-10: pull in + toast).
+      void acceptSaid.say("Received").then(() => {
+        setAccepted(targets)
+        onClose()
+        onSaved({
+          from: acceptSaid.start(),
+          rowId: order?.purchase_order_id,
+          pill: lines(targets.length),
+          title: `${lines(targets.length)} received${replaced ? " · replacement recorded" : ""}`,
+          description: po,
+        })
+      })
     },
     onError: () => refresh(),
   })
 
+  /// Recount goes straight back to the counter (owner, 2026-10-10: "recount
+  /// langsung ke recount"): no ticking, no reason to type. The lines that are
+  /// off go back, or every line when none is.
+  const acceptSaid = useSaid()
+  const recountSaid = useSaid()
   const recount = useMutation({
     mutationFn: async () => {
-      const targets = rows.filter((row) => picked.has(row.count_id))
+      // Kept on screen while the queue refetches, so the button can say it.
+      setFrozen(rows)
+      const off = rows.filter((row) => gap(row) !== 0 || wrongOf(row) > 0)
+      const targets = off.length > 0 ? off : rows
       for (const row of targets) {
         await dc.verifyPurchase({
           count_id: row.count_id,
           verifier_actor_id: actor,
           decision: "Recount",
-          note: why.trim(),
+          note: "Count again",
           invoiced_price_minor: null,
           idempotency_key: keyFor(`Recount:${row.count_id}`),
         })
@@ -562,24 +565,18 @@ function Review({
     onSuccess: (n) => {
       minted.current.clear()
       refresh()
-      onSaved(`${lines(n)} sent back to count`)
-      onClose()
+      void recountSaid.say("Sent to count").then(() => {
+        onClose()
+        onSaved({
+          from: recountSaid.start(),
+          rowId: order?.purchase_order_id,
+          pill: lines(n),
+          title: `${lines(n)} sent back to count`,
+          description: po,
+        })
+      })
     },
   })
-
-  const toggle = (id: string) =>
-    setPicked((was) => {
-      const next = new Set(was)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-
-  const startRecount = () => {
-    const off = rows.filter((row) => gap(row) !== 0)
-    setPicked(new Set((off.length > 0 ? off : rows).map((r) => r.count_id)))
-    setMode("recount")
-  }
 
   // After accepting: the supplier's paper, which the DC will only take against
   // goods that were accepted. Then Done.
@@ -614,9 +611,23 @@ function Review({
     return <p className="p-6 text-body">Nothing to review.</p>
   }
 
-  const recounting = mode === "recount"
-  const allPicked =
-    rows.length > 0 && rows.every((row) => picked.has(row.count_id))
+  /// A labelled button beside the one that accepts, not an icon (owner,
+  /// 2026-10-08: "bikin sebelah submit, jangan icon"): sending lines back to
+  /// be counted again is a decision about this count, so it reads as one.
+  const recountButton = (
+    <Button
+      variant="ghost"
+      pending={recount.isPending}
+      said={recountSaid.said}
+      disabled={unnamed || rows.length === 0 || accept.isPending}
+      onClick={(event) => {
+        recountSaid.mark(event.currentTarget)
+        recount.mutate()
+      }}
+    >
+      Recount
+    </Button>
+  )
 
   return (
     <>
@@ -705,24 +716,9 @@ function Review({
               return (
                 <li
                   key={row.count_id}
-                  onClick={() => recounting && toggle(row.count_id)}
-                  className={cn(
-                    "flex flex-col gap-3 rounded-card border border-hairline p-4",
-                    recounting && "cursor-pointer"
-                  )}
+                  className="flex flex-col gap-3 rounded-card border border-hairline p-4"
                 >
                   <div className="flex items-start gap-3">
-                    {recounting && (
-                      <span onClick={(event) => event.stopPropagation()}>
-                        <Checkbox
-                          label={
-                            <span className="sr-only">{`Count ${row.article_code} again`}</span>
-                          }
-                          checked={picked.has(row.count_id)}
-                          onChange={() => toggle(row.count_id)}
-                        />
-                      </span>
-                    )}
                     <span className="w-5 shrink-0 pt-0.5 text-right text-body text-mute tabular-nums">
                       {index + 1}
                     </span>
@@ -763,29 +759,66 @@ function Review({
                       </dd>
                     </div>
                   </dl>
+                  {/* Counted per variant (owner, 2026-10-10): each variant
+                    under the line, its figures under the line's headings. */}
+                  {(row.variants ?? []).length > 0 && (
+                    <div className="flex flex-col gap-3 border-t border-hairline pt-3">
+                      {(row.variants ?? []).map((variant) => {
+                        const name = variantLabel(row.article_name, variant)
+                        return (
+                          <div
+                            key={variantKey(variant)}
+                            className="flex flex-col gap-2"
+                          >
+                            <div className="flex min-w-0 items-center gap-3">
+                              <VariantPhoto
+                                urls={variant.image_urls}
+                                fallback={imageOf(row)}
+                                name={name}
+                              />
+                              <span className="line-clamp-2 min-w-0 text-[0.9375rem] text-body">
+                                {name}
+                              </span>
+                            </div>
+                            <dl className="grid grid-cols-3 gap-3 text-[0.9375rem]">
+                              <div className="flex flex-col">
+                                <dt className="sr-only">Ordered</dt>
+                                <dd className="text-body tabular-nums">
+                                  {pcs(variant.outstanding_quantity)}
+                                </dd>
+                              </div>
+                              <div className="flex flex-col">
+                                <dt className="sr-only">Counted</dt>
+                                <dd className="text-body tabular-nums">
+                                  {pcs(variant.counted_quantity)}
+                                </dd>
+                              </div>
+                              <div className="flex flex-col">
+                                <dt className="sr-only">Difference</dt>
+                                <dd className="font-medium">
+                                  <VariantDiff
+                                    diff={
+                                      variant.counted_quantity -
+                                      variant.outstanding_quantity
+                                    }
+                                  />
+                                </dd>
+                              </div>
+                            </dl>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
                 </li>
               )
             })}
-            <li className="flex items-center justify-between rounded-card bg-soft-2 px-4 py-3.5 text-[0.9375rem]">
-              <span className="font-medium text-body">Total</span>
-              <span className="font-semibold text-ink tabular-nums">
-                {[
-                  pcs(totalCounted),
-                  shortQty > 0 ? `${pcs(shortQty)} short` : null,
-                  extraQty > 0 ? `${pcs(extraQty)} extra` : null,
-                  shortQty === 0 && extraQty === 0 ? "matches" : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </span>
-            </li>
           </ul>
 
           <div className="hidden overflow-clip rounded-card border border-hairline md:block">
             <div className="overflow-clip">
               <table className="w-full table-fixed border-collapse">
                 <colgroup>
-                  {recounting && <col className="w-[3.5rem]" />}
                   <col className="w-[3.5rem]" />
                   <col />
                   <col className="w-[8rem] lg:w-[10rem]" />
@@ -794,24 +827,6 @@ function Review({
                 </colgroup>
                 <thead>
                   <tr>
-                    {recounting && (
-                      <th className={cn(HEAD, "text-center")}>
-                        <Checkbox
-                          label={
-                            <span className="sr-only">Tick every line</span>
-                          }
-                          checked={allPicked}
-                          disabled={rows.length === 0}
-                          onChange={(next) =>
-                            setPicked(
-                              next
-                                ? new Set(rows.map((row) => row.count_id))
-                                : new Set()
-                            )
-                          }
-                        />
-                      </th>
-                    )}
                     <th className={cn(HEAD, "text-right")}>No.</th>
                     <th className={HEAD}>Article</th>
                     <th className={HEAD}>Ordered Quantity</th>
@@ -824,104 +839,97 @@ function Review({
                     const index = rows.indexOf(row)
                     const diff = gap(row)
                     return (
-                      <tr
-                        key={row.count_id}
-                        onClick={() => recounting && toggle(row.count_id)}
-                        className={cn(
-                          "h-16 border-t border-hairline transition-colors",
-                          recounting && "cursor-pointer hover:bg-soft"
-                        )}
-                      >
-                        {recounting && (
-                          <td
-                            className={cn(CELL, "text-center")}
-                            onClick={(event) => event.stopPropagation()}
-                          >
-                            <Checkbox
-                              label={
-                                <span className="sr-only">{`Count ${row.article_code} again`}</span>
-                              }
-                              checked={picked.has(row.count_id)}
-                              onChange={() => toggle(row.count_id)}
-                            />
+                      <Fragment key={row.count_id}>
+                        <tr className="h-16 border-t border-hairline">
+                          <td className={cn(CELL, NUM, "text-right text-mute")}>
+                            {index + 1}
                           </td>
-                        )}
-                        <td className={cn(CELL, NUM, "text-right text-mute")}>
-                          {index + 1}
-                        </td>
-                        <td className={CELL}>
-                          <div
-                            title={row.article_name}
-                            className="min-w-0 py-1"
-                          >
-                            <div className="line-clamp-2 leading-[1.4] font-medium text-ink">
-                              {row.article_name}
+                          <td className={CELL}>
+                            <div
+                              title={row.article_name}
+                              className="min-w-0 py-1"
+                            >
+                              <div className="line-clamp-2 leading-[1.4] font-medium text-ink">
+                                {row.article_name}
+                              </div>
+                              <div className="mt-1 truncate text-[0.875rem] leading-[1.4] text-mute">
+                                {kindOf(row)}
+                              </div>
                             </div>
-                            <div className="mt-1 truncate text-[0.875rem] leading-[1.4] text-mute">
-                              {kindOf(row)}
-                            </div>
-                          </div>
-                        </td>
-                        <td className={cn(CELL, NUM)}>
-                          <Qty pieces={owed(row)} row={row} />
-                        </td>
-                        <td className={cn(CELL, NUM)}>
-                          <Qty pieces={correct(row)} row={row} />
-                        </td>
-                        <td className={cn(CELL, NUM, "font-medium")}>
-                          {diff === 0 ? (
-                            <span className="inline-flex items-center gap-1.5 text-ok-fg">
-                              <Check className="size-4" />
-                              Matches
-                            </span>
-                          ) : diff < 0 ? (
-                            <span className="inline-block rounded-inner bg-bad-bg px-2.5 py-1 whitespace-nowrap text-bad-fg">
-                              {`−${inUnit(-diff, row)}`}
-                            </span>
-                          ) : (
-                            <span className="inline-block rounded-inner bg-bad-bg px-2.5 py-1 whitespace-nowrap text-bad-fg">
-                              {`+${inUnit(diff, row)}`}
-                            </span>
-                          )}
-                        </td>
-                      </tr>
+                          </td>
+                          <td className={cn(CELL, NUM)}>
+                            <Qty pieces={owed(row)} row={row} />
+                          </td>
+                          <td className={cn(CELL, NUM)}>
+                            <Qty pieces={correct(row)} row={row} />
+                          </td>
+                          <td className={cn(CELL, NUM, "font-medium")}>
+                            {diff === 0 ? (
+                              <span className="inline-flex items-center gap-1.5 text-ok-fg">
+                                <Check className="size-4" />
+                                Matches
+                              </span>
+                            ) : diff < 0 ? (
+                              <span className="inline-block rounded-inner bg-bad-bg px-2.5 py-1 whitespace-nowrap text-bad-fg">
+                                {`−${inUnit(-diff, row)}`}
+                              </span>
+                            ) : (
+                              <span className="inline-block rounded-inner bg-bad-bg px-2.5 py-1 whitespace-nowrap text-bad-fg">
+                                {`+${inUnit(diff, row)}`}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                        {/* Counted per variant (owner, 2026-10-10): the line's
+                        variants under it, in the same columns. The line above
+                        stays the one that is accepted or closed short. */}
+                        {(row.variants ?? []).map((variant) => {
+                          const name = variantLabel(row.article_name, variant)
+                          return (
+                            <tr
+                              key={variantKey(variant)}
+                              className="border-t border-hairline"
+                            >
+                              <td className={CELL} />
+                              <td className={CELL}>
+                                <div className="flex min-w-0 items-center gap-3">
+                                  <VariantPhoto
+                                    urls={variant.image_urls}
+                                    fallback={imageOf(row)}
+                                    name={name}
+                                  />
+                                  <span
+                                    title={name}
+                                    className="line-clamp-2 min-w-0 text-body"
+                                  >
+                                    {name}
+                                  </span>
+                                </div>
+                              </td>
+                              <td className={cn(CELL, NUM)}>
+                                {pcs(variant.outstanding_quantity)}
+                              </td>
+                              <td className={cn(CELL, NUM)}>
+                                {pcs(variant.counted_quantity)}
+                              </td>
+                              <td className={cn(CELL, NUM, "font-medium")}>
+                                <VariantDiff
+                                  diff={
+                                    variant.counted_quantity -
+                                    variant.outstanding_quantity
+                                  }
+                                />
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </Fragment>
                     )
                   })}
                 </tbody>
                 <tfoot>
-                  <tr className="border-t border-hairline bg-soft-2">
-                    {recounting && <td className={CELL} />}
-                    <td className={CELL} />
-                    <td
-                      className={cn(
-                        CELL,
-                        "font-medium whitespace-nowrap text-body"
-                      )}
-                    >
-                      Total
-                    </td>
-                    <td className={NUM_TOTAL}>{pcs(totalOwed)}</td>
-                    <td className={NUM_TOTAL}>{pcs(totalCounted)}</td>
-                    <td className={cn(NUM_TOTAL, "font-medium text-bad-fg")}>
-                      {/* Short and extra apart: an extra on one line is not
-                        ours, so it never makes up a short on another. */}
-                      {shortQty === 0 && extraQty === 0 ? (
-                        <span className="text-body">—</span>
-                      ) : (
-                        <span className="flex flex-col leading-tight">
-                          {shortQty > 0 && (
-                            <span>{`${pcs(shortQty)} short`}</span>
-                          )}
-                          {extraQty > 0 && (
-                            <span>{`${pcs(extraQty)} extra`}</span>
-                          )}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
                   {totalWrong > 0 && (
                     <tr className="border-t border-hairline bg-soft-2">
-                      {recounting && <td className={CELL} />}
                       <td className={CELL} />
                       <td
                         className={cn(
@@ -948,41 +956,26 @@ function Review({
           </div>
         </div>
 
-        {recounting ? (
-          <div className="flex flex-col gap-3">
-            <h3 className="text-[1rem] font-semibold text-ink">
-              Why should it be counted again?
-            </h3>
-            <Textarea
-              value={why}
-              autoFocus
-              rows={3}
-              aria-label="Why should it be counted again?"
-              onChange={(event) => setWhy(event.target.value)}
-            />
+        {/* What happens to the pieces, under the table and at the right
+          (owner, 2026-10-10): Accepted goes into stock, To Be Returned
+          goes back to the supplier. A return takes a line's whole excess,
+          so the extra on a line with not-as-ordered pieces goes with
+          them. */}
+        {(wrongRows.length > 0 || cleanOvers.length > 0) && (
+          // A totals box flush with the table's right edge, as wide as what
+          // it says (owner, 2026-10-10).
+          <div className="flex justify-end">
+            <dl className="grid w-full grid-cols-[1fr_auto] gap-x-10 gap-y-2 rounded-card border border-hairline bg-soft px-4 py-2.5 text-[0.9375rem] tabular-nums md:w-auto md:grid-cols-[auto_auto]">
+              <dt className="text-ink">Total Accepted</dt>
+              <dd className="text-right font-semibold text-ink">
+                {pcs(totalCounted - overQty)}
+              </dd>
+              <dt className="text-ink">To Be Returned</dt>
+              <dd className="text-right font-semibold text-bad-fg">
+                {pcs(wrongQty + overQty)}
+              </dd>
+            </dl>
           </div>
-        ) : (
-          <>
-            {/* What happens to the pieces, under the table and at the right
-              (owner, 2026-10-10): Accepted goes into stock, To Be Returned
-              goes back to the supplier. A return takes a line's whole excess,
-              so the extra on a line with not-as-ordered pieces goes with
-              them. */}
-            {(wrongRows.length > 0 || cleanOvers.length > 0) && (
-              <div className="flex justify-end">
-                <dl className="grid w-full grid-cols-[1fr_auto] gap-x-10 gap-y-2 rounded-card border border-hairline bg-soft px-4 py-2.5 text-[0.9375rem] tabular-nums md:w-auto md:grid-cols-[auto_auto]">
-                  <dt className="text-ink">Total Accepted</dt>
-                  <dd className="text-right font-semibold text-ink">
-                    {pcs(totalCounted - overQty)}
-                  </dd>
-                  <dt className="text-ink">To Be Returned</dt>
-                  <dd className="text-right font-semibold text-bad-fg">
-                    {pcs(wrongQty + overQty)}
-                  </dd>
-                </dl>
-              </div>
-            )}
-          </>
         )}
 
         <Problem error={accept.error ?? recount.error} />
@@ -993,92 +986,63 @@ function Review({
           right (the owner, 2026-10-05: "jangan dibedakan"). It wraps only when
           the buttons cannot share the width. */}
       <div className="flex flex-wrap items-center gap-2 border-t border-hairline px-4 py-3 md:gap-3 md:px-6 md:py-4 [&_button]:h-9">
-        {recounting ? (
+        <span className="flex-1" />
+        {/* A short count's one decision is the button itself: no choice to
+          set and then confirm. Primary is the one that keeps the order
+          open; closing it short is the deliberate other. */}
+        {shorts.length > 0 ? (
           <>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setMode("decide")
-                recount.reset()
+            {/* Closing short cannot be undone, so it asks, in a dialog. Keeping
+              the order open asks nothing: the rest can still be closed
+              later. */}
+            {/* Recount always first, at the left of the three (owner,
+              2026-10-10); Close Short in red; the primary last. */}
+            {recountButton}
+            <ConfirmButton
+              label="Close Short"
+              tone="danger"
+              title="Close This Short?"
+              description={`${pcs(shortQty)} will be removed from the order, and the PO completes as received. This can't be undone.`}
+              confirmLabel="Close Short"
+              reason={{ label: "Reason for Closing", optional: true }}
+              disabled={unnamed || rows.length === 0 || accept.isPending}
+              pending={accept.isPending}
+              onConfirm={(reason) => {
+                closeReason.current = reason
+                return accept.mutateAsync("close")
               }}
-            >
-              <ArrowLeft />
-              Back
-            </Button>
-            <span className="flex-1 text-body">
-              {`${count(picked.size)} of ${lines(rows.length)} ticked`}
-            </span>
+            />
             <Button
               variant="primary"
-              pending={recount.isPending}
-              disabled={picked.size === 0 || why.trim() === ""}
-              onClick={() => recount.mutate()}
+              pending={accept.isPending}
+              title={`${pcs(shortQty)} stay open on the order`}
+              disabled={unnamed || rows.length === 0}
+              said={acceptSaid.said}
+              onClick={(event) => {
+                acceptSaid.mark(event.currentTarget)
+                accept.mutate("keep")
+              }}
             >
-              {`Send ${lines(picked.size)} back to count`}
+              {!accept.isPending && <Check />}
+              {accept.isPending ? "Submitting…" : "Partial Receive"}
             </Button>
           </>
         ) : (
           <>
-            {/* An icon on every screen, as Print is on the order: three
-              labelled buttons are wider than a phone, and the one that is
-              not a decision about this count's outcome gives way. */}
+            {recountButton}
             <Button
-              variant="soft"
-              size="icon"
-              aria-label="Recount"
-              title="Recount"
-              className="size-9! px-0!"
-              disabled={unnamed || rows.length === 0 || accept.isPending}
-              onClick={startRecount}
+              variant="primary"
+              pending={accept.isPending}
+              disabled={unnamed || rows.length === 0}
+              said={acceptSaid.said}
+              onClick={(event) => {
+                acceptSaid.mark(event.currentTarget)
+                accept.mutate("keep")
+              }}
             >
-              <RotateCcw />
+              {!accept.isPending && <Check />}
+              {accept.isPending ? "Submitting…" : "Submit"}
             </Button>
-            <span className="flex-1" />
-            {/* A short count's one decision is the button itself: no choice to
-              set and then confirm. Primary is the one that keeps the order
-              open; closing it short is the deliberate other. */}
-            {shorts.length > 0 ? (
-              <>
-                {/* Closing short cannot be undone, so it asks, in a dialog. Keeping
-                  the order open asks nothing: the rest can still be closed
-                  later. */}
-                <ConfirmButton
-                  label="Close Short"
-                  variant="soft"
-                  tone="danger"
-                  title="Close This Short?"
-                  description={`${pcs(shortQty)} will be removed from the order, and the PO completes as received. This can't be undone.`}
-                  confirmLabel="Close Short"
-                  reason={{ label: "Reason for Closing", optional: true }}
-                  disabled={unnamed || rows.length === 0 || accept.isPending}
-                  pending={accept.isPending}
-                  onConfirm={(reason) => {
-                    closeReason.current = reason
-                    return accept.mutateAsync("close")
-                  }}
-                />
-                <Button
-                  variant="primary"
-                  pending={accept.isPending}
-                  title={`${pcs(shortQty)} stay open on the order`}
-                  disabled={unnamed || rows.length === 0}
-                  onClick={() => accept.mutate("keep")}
-                >
-                  {!accept.isPending && <Check />}
-                  {accept.isPending ? "Submitting…" : "Partial Receive"}
-                </Button>
-              </>
-            ) : (
-              <Button
-                variant="primary"
-                pending={accept.isPending}
-                disabled={unnamed || rows.length === 0}
-                onClick={() => accept.mutate("keep")}
-              >
-                {!accept.isPending && <Check />}
-                {accept.isPending ? "Submitting…" : "Submit"}
-              </Button>
-            )}
           </>
         )}
       </div>
@@ -1516,6 +1480,22 @@ async function closeRestShort(
         `${row.article_name} was accepted, but head office has not received it yet — close it short from the order once it shows as received.`
       )
   }
+}
+
+/// A variant's difference, signed, as the line's is drawn: "−3 pcs", "+2 pcs".
+function VariantDiff({ diff }: { diff: number }) {
+  if (diff === 0)
+    return (
+      <span className="inline-flex items-center gap-1.5 text-ok-fg">
+        <Check className="size-4" />
+        Matches
+      </span>
+    )
+  return (
+    <span className="inline-block rounded-inner bg-bad-bg px-2.5 py-1 whitespace-nowrap text-bad-fg">
+      {diff < 0 ? `−${pcs(-diff)}` : `+${pcs(diff)}`}
+    </span>
+  )
 }
 
 /// A quantity in pieces, said in the line's order unit: 185 pcs of a KODI

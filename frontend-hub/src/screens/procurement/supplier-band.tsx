@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react"
 
-import { count } from "@/lib/format"
+import { count, quantity } from "@/lib/format"
 import { useIdentity } from "@/lib/session"
 import { cn } from "@/lib/utils"
 
@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils"
 /// strip, which a desk keeps as cards, in the header band the order book has.
 ///
 ///  "Hi Rina, **4 suppliers** are active and 2 are not. 8 orders are open,
-///   21.060 pcs, Rp 4,0 billion."
+///   21.060 pcs, Rp 4,0 B."
 ///
 /// The band is the white of the top bar carried down under the title, with the
 /// bar's own rule dropped while it is in view (`top-bar.tsx` reads
@@ -27,7 +27,7 @@ export function SupplierBand({
   inactive: number | undefined
   orders: number | undefined
   pieces: number | undefined
-  /// "Rp 4,0 billion", already short.
+  /// "Rp 4,0 B", already short.
   value: string | undefined
   className?: string
 }) {
@@ -82,7 +82,7 @@ export function SupplierBand({
           .{" "}
           {orders === 0
             ? "No order is open."
-            : `${count(orders)} ${orders === 1 ? "order is" : "orders are"} open, ${count(pieces)} pcs, ${value}.`}
+            : `${count(orders)} ${orders === 1 ? "order is" : "orders are"} open, ${quantity(pieces)}, ${value}.`}
         </span>
       )}
     </p>

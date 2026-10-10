@@ -54,10 +54,26 @@ fn status() -> NodeStatus {
             pending_facts: 3,
             oldest_pending_at: Some(now - Duration::seconds(20)),
             queue: Some(vec![
-                QueuedFacts { kind: "SALES".into(), count: 2, oldest_at: Some(now - Duration::seconds(20)) },
-                QueuedFacts { kind: "STOCK".into(), count: 1, oldest_at: Some(now - Duration::seconds(5)) },
-                QueuedFacts { kind: "ATTENDANCE".into(), count: 0, oldest_at: None },
-                QueuedFacts { kind: "OTHER".into(), count: 0, oldest_at: None },
+                QueuedFacts {
+                    kind: "SALES".into(),
+                    count: 2,
+                    oldest_at: Some(now - Duration::seconds(20)),
+                },
+                QueuedFacts {
+                    kind: "STOCK".into(),
+                    count: 1,
+                    oldest_at: Some(now - Duration::seconds(5)),
+                },
+                QueuedFacts {
+                    kind: "ATTENDANCE".into(),
+                    count: 0,
+                    oldest_at: None,
+                },
+                QueuedFacts {
+                    kind: "OTHER".into(),
+                    count: 0,
+                    oldest_at: None,
+                },
             ]),
             newest_acked_at: Some(now - Duration::seconds(30)),
             ..SyncFacts::default()
@@ -94,11 +110,15 @@ async fn a_silent_server_is_one_incident_told_once_and_closed_when_it_speaks(poo
     cloud::record_heartbeat(&pool, ORIGIN, &status())
         .await
         .unwrap_or_else(|error| panic!("heartbeat: {error}"));
-    let first = cloud::fleet_sweep(&pool).await.unwrap_or_else(|error| panic!("sweep: {error}"));
+    let first = cloud::fleet_sweep(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("sweep: {error}"));
     assert!(first.parts > 0);
     assert_eq!(first.opened, 0, "a healthy store opens nothing");
 
-    let page = cloud::fleet_status_page(&pool).await.unwrap_or_else(|error| panic!("page: {error}"));
+    let page = cloud::fleet_status_page(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("page: {error}"));
     let row = page
         .stores
         .iter()
@@ -116,8 +136,14 @@ async fn a_silent_server_is_one_incident_told_once_and_closed_when_it_speaks(poo
         .execute(&pool)
         .await
         .unwrap_or_else(|error| panic!("age: {error}"));
-    cloud::fleet_sweep(&pool).await.unwrap_or_else(|error| panic!("sweep: {error}"));
-    assert_eq!(told(&pool, "node.attention").await, 0, "not before red_after_minutes");
+    cloud::fleet_sweep(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("sweep: {error}"));
+    assert_eq!(
+        told(&pool, "node.attention").await,
+        0,
+        "not before red_after_minutes"
+    );
     sqlx::query(
         "UPDATE fleet_component SET since = now() - interval '10 minutes'
           WHERE subject = $1 AND component = 'server'",
@@ -126,10 +152,18 @@ async fn a_silent_server_is_one_incident_told_once_and_closed_when_it_speaks(poo
     .execute(&pool)
     .await
     .unwrap_or_else(|error| panic!("age the colour: {error}"));
-    let opened = cloud::fleet_sweep(&pool).await.unwrap_or_else(|error| panic!("sweep: {error}"));
+    let opened = cloud::fleet_sweep(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("sweep: {error}"));
     assert_eq!((opened.opened, opened.notified), (1, 1));
-    let again = cloud::fleet_sweep(&pool).await.unwrap_or_else(|error| panic!("sweep: {error}"));
-    assert_eq!((again.opened, again.notified), (0, 0), "once per incident, not per sweep");
+    let again = cloud::fleet_sweep(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("sweep: {error}"));
+    assert_eq!(
+        (again.opened, again.notified),
+        (0, 0),
+        "once per incident, not per sweep"
+    );
     assert_eq!(told(&pool, "node.attention").await, 1);
 
     let (open, total) = cloud::fleet_incidents(
@@ -147,16 +181,19 @@ async fn a_silent_server_is_one_incident_told_once_and_closed_when_it_speaks(poo
         .as_str()
         .and_then(|id| id.parse().ok())
         .unwrap_or_else(|| panic!("an id"));
-    let acknowledged = cloud::fleet_acknowledge_incident(&pool, incident_id, "ho-admin", Some("on it"))
-        .await
-        .unwrap_or_else(|error| panic!("acknowledge: {error}"));
+    let acknowledged =
+        cloud::fleet_acknowledge_incident(&pool, incident_id, "ho-admin", Some("on it"))
+            .await
+            .unwrap_or_else(|error| panic!("acknowledge: {error}"));
     assert_eq!(acknowledged["state"], "ACKNOWLEDGED");
 
     // The server speaks again: closed, and said so once.
     cloud::record_heartbeat(&pool, ORIGIN, &status())
         .await
         .unwrap_or_else(|error| panic!("heartbeat: {error}"));
-    let recovered = cloud::fleet_sweep(&pool).await.unwrap_or_else(|error| panic!("sweep: {error}"));
+    let recovered = cloud::fleet_sweep(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("sweep: {error}"));
     assert_eq!(recovered.resolved, 1);
     assert_eq!(told(&pool, "node.recovered").await, 1);
 }
@@ -167,10 +204,18 @@ async fn sync_is_queues_and_named_commands_not_a_percentage(pool: PgPool) {
     cloud::record_heartbeat(&pool, ORIGIN, &status())
         .await
         .unwrap_or_else(|error| panic!("heartbeat: {error}"));
-    cloud::ask_node(&pool, ORIGIN, "node.backup", json!({ "reason": "before the update" }), "ho-admin")
+    cloud::ask_node(
+        &pool,
+        ORIGIN,
+        "node.backup",
+        json!({ "reason": "before the update" }),
+        "ho-admin",
+    )
+    .await
+    .unwrap_or_else(|error| panic!("ask: {error}"));
+    let sync = cloud::fleet_sync(&pool)
         .await
-        .unwrap_or_else(|error| panic!("ask: {error}"));
-    let sync = cloud::fleet_sync(&pool).await.unwrap_or_else(|error| panic!("sync: {error}"));
+        .unwrap_or_else(|error| panic!("sync: {error}"));
     let store = sync["stores"]
         .as_array()
         .and_then(|stores| stores.iter().find(|store| store["site_id"] == ORIGIN))
@@ -190,7 +235,10 @@ async fn settings_are_refused_where_the_table_would_refuse_them(pool: PgPool) {
         .settings;
     settings.quiet_from = Some("22:00".into());
     let refused = cloud::fleet_update_settings(&pool, &settings, "ho-admin").await;
-    assert!(matches!(refused, Err(AppError::Validation(_))), "{refused:?}");
+    assert!(
+        matches!(refused, Err(AppError::Validation(_))),
+        "{refused:?}"
+    );
     settings.quiet_until = Some("06:00".into());
     settings.red_after_minutes = 10;
     let saved = cloud::fleet_update_settings(&pool, &settings, "ho-admin")

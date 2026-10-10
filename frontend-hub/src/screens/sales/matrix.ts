@@ -66,7 +66,7 @@ export const SALES_KINDS: readonly {
   { kind: "gross_minor", label: "Takings", hint: "Gross, tax in" },
   { kind: "sales_count", label: "Transactions", hint: "Completed sales" },
   { kind: "average_minor", label: "Avg transaction", hint: "ATV" },
-  { kind: "units_sold", label: "Units", hint: "Pieces sold" },
+  { kind: "units_sold", label: "Units", hint: "Pcs sold" },
   { kind: "items_per_sale", label: "Units per sale", hint: "UPT" },
 ]
 

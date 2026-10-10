@@ -4,7 +4,9 @@ import { Check, X } from "lucide-react"
 import { useEffect, useEffectEvent, useRef, useState } from "react"
 
 import { Button } from "@/components/ui/button"
+import { type ButtonStyle } from "@/components/ui/button-style"
 import { Field, Textarea } from "@/components/ui/field"
+import { pendingLabel } from "@/components/ui/pending-label"
 import { PhoneDrawer } from "@/components/ui/phone-drawer"
 import { Problem } from "@/components/ui/states"
 import { useLayout } from "@/lib/layout"
@@ -17,7 +19,9 @@ import { cn } from "@/lib/utils"
 /// textarea in it. Required unless `optional` says so: a reason the server
 /// records is almost always one it refuses when blank.
 export interface Reason {
-  readonly label: string
+  /// "Reason" unless the question needs another word — one label everywhere
+  /// (the 6 Oct 2026 audit found "Why", "Reason", "Reason for Closing").
+  readonly label?: string
   /// Under the box — where the reason ends up, who reads it.
   readonly hint?: React.ReactNode
   readonly optional?: boolean
@@ -33,8 +37,14 @@ export interface Reason {
 /// gets a sentence saying what it will do before it does it.
 ///
 /// It floats on the **white veil** like every other overlay — never a dark
-/// dim. Actions sit in the header-right, primary first; there is no footer row
-/// of buttons.
+/// dim. Its foot is the sheet foot's: `[Cancel, quiet] [the act's verb]`, side
+/// by side on every width (44px each on a phone), destructive acts in the
+/// danger style, and the verb says what it is doing while the write is on its
+/// way ("Voiding sale…").
+///
+/// The title is a question in sentence case ("Void this sale?"), the confirm is
+/// the same verb as the button that asked, the cancel is "Cancel" — unless the
+/// answer would be read as the act itself ("Keep editing").
 export function Dialog({
   open,
   onOpenChange,
@@ -52,8 +62,9 @@ export function Dialog({
   onOpenChange: (open: boolean) => void
   title: React.ReactNode
   /// What the action will do, said plainly, in one or two sentences. Not a
-  /// warning triangle and not "are you sure" — those say nothing.
-  children: React.ReactNode
+  /// warning triangle and not "are you sure" — those say nothing. Left out
+  /// when the title already says it all.
+  children?: React.ReactNode
   confirm: React.ReactNode
   cancel?: React.ReactNode
   /// `danger` for anything that destroys or cannot be walked back.
@@ -89,12 +100,14 @@ export function Dialog({
       <Parts.Title className="text-card-title font-semibold text-ink">
         {title}
       </Parts.Title>
-      <div className="mt-2 text-[0.875rem] leading-relaxed text-body">
-        {children}
-      </div>
+      {children !== undefined && children !== null && children !== false && (
+        <div className="mt-2 text-[0.875rem] leading-relaxed text-body">
+          {children}
+        </div>
+      )}
       {reason !== undefined && (
         <Field
-          label={reason.label}
+          label={reason.label ?? "Reason"}
           required={reason.optional !== true}
           hint={reason.hint}
           className="mt-4"
@@ -108,15 +121,17 @@ export function Dialog({
         </Field>
       )}
       <Problem error={problem ?? null} className="mt-4" />
-      <div className="mt-5 flex justify-end gap-2 max-md:flex-col-reverse max-md:[&>*]:w-full">
-        <Parts.Close render={<Button variant="ghost">{cancel}</Button>} />
+      {/* Side by side on every width, Cancel quiet and the act last — the
+          sheet foot's own order. A thumb gets 44px, the desk 36. */}
+      <div className="mt-5 flex justify-end gap-2 max-md:[&>*]:h-11 max-md:[&>*]:flex-1">
+        <Parts.Close render={<Button variant="quiet">{cancel}</Button>} />
         <Button
           variant={tone === "danger" ? "danger" : "primary"}
           pending={pending}
           disabled={missing}
           onClick={() => onConfirm(said.trim())}
         >
-          {confirm}
+          {pending ? pendingLabel(confirm) : confirm}
         </Button>
       </div>
     </>
@@ -414,7 +429,25 @@ export function Panel({
   )
 }
 
-/// A button that asks before it acts.
+/// A button that asks before it acts — the ONE confirmation for anything that
+/// cannot be walked back (void a sale, reverse an entry, block a sign-in, close
+/// a period). Six screens had built their own: a different casing, different
+/// button words, and some of them no question at all.
+///
+///  - The question is a sentence-case title ("Void this sale?"), under it one
+///    short line saying what happens; the buttons are "Cancel" and the act's
+///    verb — the same words as the button that asked (`confirmLabel` defaults
+///    to `label`).
+///  - `tone="danger"` is for the irreversible, and it dresses the trigger the
+///    same way (the `danger` variant) unless a `variant` is given: the button
+///    that starts something permanent never looks like one that does not.
+///  - It waits on the write (return the mutation's promise): the dialog stays
+///    open and pending until it settles, shuts when it succeeds, and says why
+///    when it fails, right under the question. A phone gets the question as a
+///    drawer from the bottom, the foot's buttons 44px.
+///  - `variant` and `size` take every look the Button has, so the same
+///    confirmation serves a sheet's foot (`default`), a table row (`sm`) and a
+///    record card (`tint` + `card`).
 ///
 /// The open/closed state of a confirmation is genuinely transient — nobody
 /// links to it, nobody reloads into it, and a half-pressed Seal that survived
@@ -428,7 +461,7 @@ export function ConfirmButton({
   confirmLabel,
   cancelLabel,
   tone = "primary",
-  variant = "ghost",
+  variant,
   size,
   disabled = false,
   pending = false,
@@ -437,15 +470,22 @@ export function ConfirmButton({
   className,
 }: {
   label: React.ReactNode
+  /// The question, in sentence case: "Void this sale?".
   title: React.ReactNode
-  description: React.ReactNode
-  confirmLabel: React.ReactNode
+  /// What happens, in a line or two. Left out when the title says it all.
+  description?: React.ReactNode
+  /// The act's verb — the button's own label unless it needs saying more
+  /// fully ("Void sale" under a trigger that says "Void").
+  confirmLabel?: React.ReactNode
   /// The way out; "Cancel" unless that would read like the action itself.
   cancelLabel?: React.ReactNode
+  /// `danger` for anything that destroys or cannot be walked back.
   tone?: "primary" | "danger"
-  variant?: "primary" | "ghost" | "soft" | "quiet" | "danger"
-  /// `sm` for a verb at the end of a table row, beside its neighbours'.
-  size?: "default" | "sm"
+  /// The trigger's look. Ghost for an ordinary act, `danger` when `tone` is.
+  variant?: ButtonStyle["variant"]
+  /// `sm` for a verb at the end of a table row, `card` + `tint` on a record
+  /// card, the default in a sheet's foot.
+  size?: ButtonStyle["size"]
   disabled?: boolean
   pending?: boolean
   reason?: Reason
@@ -466,7 +506,7 @@ export function ConfirmButton({
           started is waited on HERE — on the button that asked for it, which
           otherwise sat there looking pressable while the seal went out. */}
       <Button
-        variant={variant}
+        variant={variant ?? (tone === "danger" ? "danger" : "ghost")}
         size={size}
         disabled={disabled}
         pending={pending || waiting}
@@ -482,7 +522,7 @@ export function ConfirmButton({
           setFailure(null)
         }}
         title={title}
-        confirm={confirmLabel}
+        confirm={confirmLabel ?? label}
         cancel={cancelLabel}
         tone={tone}
         pending={pending || waiting}

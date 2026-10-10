@@ -239,6 +239,28 @@ pub async fn sales_breakdown(
     ))
 }
 
+/// The Sales Explorer (owner, 8 Oct 2026): the sales summary read any way
+/// the screen asks. Roles come later (owner: "abaikan permissions dulu"):
+/// everyone signed in sees every figure, cost included, and the switch for
+/// hiding cost stays in the read.
+pub async fn sales_explorer(
+    State(state): State<AppState>,
+    Query(query): Query<infrastructure::ExplorerQuery>,
+) -> Result<Json<infrastructure::SalesExplorer>, AppError> {
+    Ok(Json(
+        infrastructure::sales_explorer(&state.db, &query, true).await?,
+    ))
+}
+
+/// What the explorer's filters can choose from.
+pub async fn sales_explorer_options(
+    State(state): State<AppState>,
+) -> Result<Json<infrastructure::ExplorerOptions>, AppError> {
+    Ok(Json(
+        infrastructure::sales_explorer_options(&state.db, true).await?,
+    ))
+}
+
 #[derive(Debug, Deserialize)]
 pub struct DimensionQuery {
     pub dimension: String,
@@ -354,5 +376,13 @@ pub fn routes(router: Router<AppState>) -> Router<AppState> {
             get(sales_by_division),
         )
         .route("/api/v1/reports/sales/breakdown", get(sales_breakdown))
-        .route("/api/v1/finance/reports/dimension-results", get(dimension_results))
+        .route("/api/v1/reports/sales/explorer", get(sales_explorer))
+        .route(
+            "/api/v1/reports/sales/explorer/options",
+            get(sales_explorer_options),
+        )
+        .route(
+            "/api/v1/finance/reports/dimension-results",
+            get(dimension_results),
+        )
 }

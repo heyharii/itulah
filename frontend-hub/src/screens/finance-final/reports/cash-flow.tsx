@@ -8,11 +8,16 @@ import { PageHeader } from "@/components/ui/page-header"
 import { EmptyState } from "@/components/ui/states"
 import { monthStamp, type ExportSheet } from "@/lib/export-xlsx"
 import { money } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { financeKeys, statement } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
 import { Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
 import { useUnitName, useWindow } from "@/screens/finance/hooks"
 import { UnitName, UnitSelect, WindowControl } from "@/screens/finance/parts"
+import {
+  PhoneStatement,
+  type StatementLine,
+} from "@/screens/finance/phone-parts"
 import { ReportFilters, ReportSummary } from "@/screens/finance/report"
 import type { Statement } from "@itulah/contract"
 
@@ -28,6 +33,7 @@ import type { Statement } from "@itulah/contract"
 /// file under an activity is shown under "Not classified" rather than guessed
 /// into one.
 export function CashFlow() {
+  const phone = useLayout() === "phone"
   const range = useWindow()
   const [unit, setUnit] = useState("")
 
@@ -82,7 +88,7 @@ export function CashFlow() {
       filename: `Cash-Flow-${monthStamp(range.to)}`,
       sheet: "Cash Flow",
       title: "Cash Flow",
-      subtitle: `${range.chip} · ${unit === "" ? "every unit" : unitName(unit)}`,
+      subtitle: `${range.chip} · ${unit === "" ? "all units" : unitName(unit)}`,
       columns: [
         { header: "Code", kind: "text", width: 12 },
         { header: "Account", kind: "text", width: 48 },
@@ -99,8 +105,12 @@ export function CashFlow() {
       <PageHeader
         crumb="Finance · Financial Reports"
         title="Cash Flow"
+        // On a phone Export is a row of the Filters sheet, not a button at the
+        // top of the page.
         actions={
-          <ExportButton build={build} disabled={flow.data === undefined} />
+          phone ? undefined : (
+            <ExportButton build={build} disabled={flow.data === undefined} />
+          )
         }
       />
 
@@ -109,7 +119,7 @@ export function CashFlow() {
           <>
             {range.chip}
             {unit === "" ? (
-              " · every unit"
+              " · all units"
             ) : (
               <>
                 {" · "}
@@ -126,6 +136,9 @@ export function CashFlow() {
           aria-label="Unit"
         />
         <WindowControl range={range} />
+        {phone && (
+          <ExportButton build={build} disabled={flow.data === undefined} />
+        )}
       </ReportFilters>
 
       {queryState(flow, {
@@ -137,6 +150,7 @@ export function CashFlow() {
 }
 
 function Body({ flow }: { flow: Statement }) {
+  const phone = useLayout() === "phone"
   const sections = flow.sections.filter((section) => section.lines.length > 0)
   const net = flow.sections.reduce(
     (sum, section) => sum + section.total_minor,
@@ -159,6 +173,8 @@ function Body({ flow }: { flow: Statement }) {
         <Card>
           <EmptyState>No cash moved in this window.</EmptyState>
         </Card>
+      ) : phone ? (
+        <PhoneStatement lines={phoneLines(sections, net)} />
       ) : (
         <Card className="overflow-hidden">
           <Grid>
@@ -184,6 +200,42 @@ function Body({ flow }: { flow: Statement }) {
       )}
     </>
   )
+}
+
+/// The statement as a phone reads it: each activity a band with its net, its
+/// accounts under it, and the net change in cash to close.
+function phoneLines(
+  sections: readonly Statement["sections"][number][],
+  net: number
+): StatementLine[] {
+  const lines: StatementLine[] = []
+  for (const section of sections) {
+    lines.push({
+      key: section.root_class,
+      kind: "section",
+      name: section.title,
+      figure: signed(section.total_minor),
+      tone: section.total_minor < 0 ? "bad" : undefined,
+    })
+    for (const line of section.lines) {
+      lines.push({
+        key: `${section.root_class}:${line.account_code}`,
+        code: line.account_code,
+        name: line.name,
+        level: 1,
+        figure: signed(line.amount_minor),
+        tone: line.amount_minor < 0 ? "bad" : undefined,
+      })
+    }
+  }
+  lines.push({
+    key: "net",
+    kind: "total",
+    name: "Net change in cash",
+    figure: signed(net),
+    tone: net < 0 ? "bad" : undefined,
+  })
+  return lines
 }
 
 function SectionRows({ section }: { section: Statement["sections"][number] }) {

@@ -1,15 +1,19 @@
-import { ArrowLeft, Plus, SendHorizontal } from "lucide-react"
+import { Check, Plus, Search, SendHorizontal, X } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 
 import { CentralGate } from "@/components/central-gate"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Input } from "@/components/ui/field"
+import { Fab } from "@/components/ui/fab"
+import { Field, Input } from "@/components/ui/field"
 import { Screen } from "@/components/ui/screen"
 import { Segmented } from "@/components/ui/segmented"
+import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
 import { describe } from "@/lib/errors"
-import { count } from "@/lib/format"
+import { count, dateText } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   useConversations,
   useMarkRead,
@@ -20,7 +24,7 @@ import {
 } from "@/lib/queries/discuss"
 import { useIdentity } from "@/lib/session"
 import { cn } from "@/lib/utils"
-import { Notices } from "@/screens/news"
+import { Notices, TabSwitch, tabStatus, type DiscussTab } from "@/screens/news"
 import type { ChatConversation, ChatMessage } from "@itulah/contract"
 
 /// Where this shop talks to head office: Chat (people and groups) and Notices
@@ -30,8 +34,6 @@ import type { ChatConversation, ChatMessage } from "@itulah/contract"
 /// module; this app lives beside a counter with a customer in front of it, so
 /// unread shows on the tab and the conversation rows and nowhere over the
 /// screen somebody is working in.
-type Tab = "chat" | "notices"
-
 export function Discuss() {
   return (
     <CentralGate what="Discuss">
@@ -41,121 +43,198 @@ export function Discuss() {
 }
 
 function DiscussTabs() {
-  const [tab, setTab] = useState<Tab>("chat")
+  const [tab, setTab] = useState<DiscussTab>("chat")
   const conversations = useConversations()
   const unread = (conversations.data ?? []).reduce(
     (sum, c) => sum + (c.muted ? 0 : c.unread_count),
     0,
   )
-  const tabs = (
-    <Segmented<Tab>
-      value={tab}
-      onChange={setTab}
-      className="md:w-auto [&>button]:px-3.5 [&>button]:whitespace-nowrap pointer-coarse:[&>button]:h-tap md:pointer-fine:[&>button]:h-8"
-      options={[
-        { value: "chat", label: unread > 0 ? `Chat · ${count(unread)}` : "Chat" },
-        { value: "notices", label: "Notices" },
-      ]}
+
+  if (tab === "notices")
+    return <Notices tab={tab} onTab={setTab} unread={unread} />
+  return (
+    <Chat
+      tab={tab}
+      onTab={setTab}
+      unread={unread}
+      conversations={conversations}
     />
   )
+}
 
-  if (tab === "notices") return <Notices lead={tabs} />
+/// The conversations, and the one open.
+///
+/// Phone: the list is the page — nothing above it but the title — with Chat /
+/// Notices as the dock's status chip, the search beside it and "+" for a new
+/// chat. A conversation opens as a sheet (the thread, its composer pinned in
+/// the foot), the same way a record does everywhere else. Desk: the list and
+/// the thread side by side.
+function Chat({
+  tab,
+  onTab,
+  unread,
+  conversations,
+}: {
+  tab: DiscussTab
+  onTab: (tab: DiscussTab) => void
+  unread: number
+  conversations: ReturnType<typeof useConversations>
+}) {
+  const phone = useLayout() === "phone"
+  const [openId, setOpenId] = useState<string | null>(null)
+  const [starting, setStarting] = useState(false)
+  const [query, setQuery] = useState("")
+  const all = conversations.data ?? []
+  const needle = query.trim().toLowerCase()
+  const rooms =
+    needle === ""
+      ? all
+      : all.filter((room) =>
+          `${room.title} ${room.preview ?? ""} ${room.members
+            .map((member) => member.display_name)
+            .join(" ")}`
+            .toLowerCase()
+            .includes(needle),
+        )
+  const current = all.find((c) => c.conversation_id === openId) ?? null
+
+  const list = conversations.isPending ? (
+    <LoadingState>Reading the conversations…</LoadingState>
+  ) : conversations.isError ? (
+    <div className="p-3">
+      <Banner tone="bad">{describe(conversations.error)}</Banner>
+    </div>
+  ) : rooms.length === 0 ? (
+    <EmptyState>
+      {needle === ""
+        ? "No conversations yet."
+        : "No conversation matches that."}
+    </EmptyState>
+  ) : (
+    <ul>
+      {rooms.map((room) => (
+        <RoomRow
+          key={room.conversation_id}
+          room={room}
+          on={room.conversation_id === openId}
+          onOpen={() => setOpenId(room.conversation_id)}
+        />
+      ))}
+    </ul>
+  )
 
   return (
-    <Screen actions={tabs}>
-      <div className="mb-4 md:hidden">{tabs}</div>
-      <Chat conversations={conversations} />
+    <Screen
+      actions={
+        <>
+          <TabSwitch tab={tab} onTab={onTab} unread={unread} />
+          <Button variant="primary" onClick={() => setStarting(true)}>
+            <Plus />
+            New chat
+          </Button>
+        </>
+      }
+    >
+      <DockTools
+        status={tabStatus(tab, onTab, unread)}
+        search={{ value: query, onChange: setQuery, label: "Search chats" }}
+      />
+      <Fab label="New chat" onClick={() => setStarting(true)} />
+
+      {phone ? (
+        <>
+          <Card className="overflow-hidden">{list}</Card>
+          <Sheet
+            open={current !== null}
+            onOpenChange={(open) => !open && setOpenId(null)}
+            title={current?.title ?? ""}
+            caption={current === null ? undefined : memberLine(current)}
+            footer={
+              current === null ? undefined : (
+                <Composer conversationId={current.conversation_id} />
+              )
+            }
+          >
+            {current !== null && (
+              <ThreadBody key={current.conversation_id} room={current} />
+            )}
+          </Sheet>
+        </>
+      ) : (
+        <Card className="grid h-[calc(100dvh-10rem)] min-h-[26rem] grid-cols-[20rem_minmax(0,1fr)]">
+          <div className="flex min-h-0 flex-col border-r border-hairline">
+            <div className="border-b border-hairline p-3">
+              <label className="relative block">
+                <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-line-ico" />
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Search chats"
+                  aria-label="Search chats"
+                  className="h-9 w-full rounded-inner border border-hairline-2 bg-canvas pr-8 pl-8 text-[0.875rem] text-ink outline-none placeholder:text-body hover:border-hairline-strong focus:border-accent"
+                />
+                {query !== "" && (
+                  <button
+                    type="button"
+                    onClick={() => setQuery("")}
+                    aria-label="Clear the search"
+                    className="absolute top-1/2 right-1 grid size-7 -translate-y-1/2 place-items-center rounded-inner text-line-ico hover:bg-soft-2 hover:text-ink"
+                  >
+                    <X className="size-4" />
+                  </button>
+                )}
+              </label>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto">{list}</div>
+          </div>
+          <div className="min-h-0 min-w-0">
+            {current !== null ? (
+              <div className="flex h-full min-h-0 flex-col">
+                <div className="border-b border-hairline px-4 py-2.5">
+                  <p className="truncate text-cell font-medium text-ink">
+                    {current.title}
+                  </p>
+                  {current.kind === "GROUP" && (
+                    <p className="truncate text-pill text-mute">
+                      {memberLine(current)}
+                    </p>
+                  )}
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+                  <ThreadBody key={current.conversation_id} room={current} />
+                </div>
+                <div className="border-t border-hairline p-3">
+                  <Composer conversationId={current.conversation_id} />
+                </div>
+              </div>
+            ) : (
+              <div className="flex h-full items-center justify-center">
+                <EmptyState>
+                  Pick a conversation or start a new chat.
+                </EmptyState>
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
+
+      <NewChat
+        open={starting}
+        onOpenChange={setStarting}
+        onStarted={(room) => {
+          setStarting(false)
+          setOpenId(room.conversation_id)
+        }}
+      />
     </Screen>
   )
 }
 
-function Chat({
-  conversations,
-}: {
-  conversations: ReturnType<typeof useConversations>
-}) {
-  const [openId, setOpenId] = useState<string | null>(null)
-  const [starting, setStarting] = useState(false)
-  const rooms = conversations.data ?? []
-  const current = rooms.find((c) => c.conversation_id === openId) ?? null
-
-  // On a phone the list is the screen until somebody picks a conversation.
-  const showThread = current !== null && !starting
-
-  return (
-    <Card className="grid h-[calc(100dvh-14rem)] min-h-[26rem] md:grid-cols-[20rem_minmax(0,1fr)]">
-      <div
-        className={cn(
-          "flex min-h-0 flex-col border-hairline md:border-r",
-          (showThread || starting) && "max-md:hidden",
-        )}
-      >
-        <div className="flex items-center justify-between gap-2 border-b border-hairline px-4 py-2.5">
-          <span className="text-cell font-medium text-ink">Conversations</span>
-          <Button
-            variant="ghost"
-            className="h-8 px-2.5 text-meta pointer-coarse:h-tap"
-            onClick={() => setStarting(true)}
-          >
-            <Plus />
-            New chat
-          </Button>
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          {conversations.isPending ? (
-            <LoadingState>Asking head office…</LoadingState>
-          ) : conversations.isError ? (
-            <div className="p-3">
-              <Banner tone="bad">{describe(conversations.error)}</Banner>
-            </div>
-          ) : rooms.length === 0 ? (
-            <EmptyState>No conversations yet.</EmptyState>
-          ) : (
-            <ul>
-              {rooms.map((room) => (
-                <RoomRow
-                  key={room.conversation_id}
-                  room={room}
-                  on={room.conversation_id === openId && !starting}
-                  onOpen={() => {
-                    setStarting(false)
-                    setOpenId(room.conversation_id)
-                  }}
-                />
-              ))}
-            </ul>
-          )}
-        </div>
-      </div>
-
-      <div
-        className={cn(
-          "min-h-0 min-w-0",
-          !showThread && !starting && "max-md:hidden",
-        )}
-      >
-        {starting ? (
-          <NewChat
-            onCancel={() => setStarting(false)}
-            onStarted={(room) => {
-              setStarting(false)
-              setOpenId(room.conversation_id)
-            }}
-          />
-        ) : current !== null ? (
-          <Thread
-            key={current.conversation_id}
-            room={current}
-            onBack={() => setOpenId(null)}
-          />
-        ) : (
-          <div className="flex h-full items-center justify-center max-md:hidden">
-            <EmptyState>Pick a conversation or start a new chat.</EmptyState>
-          </div>
-        )}
-      </div>
-    </Card>
-  )
+/// A group's people, by name — the line under a thread's title.
+function memberLine(room: ChatConversation): string | undefined {
+  return room.kind === "GROUP"
+    ? room.members.map((m) => m.display_name).join(", ")
+    : undefined
 }
 
 function RoomRow({
@@ -175,7 +254,7 @@ function RoomRow({
         onClick={onOpen}
         className={cn(
           "flex w-full items-start gap-3 px-4 py-3 text-left transition-colors pointer-coarse:min-h-tap",
-          on ? "bg-soft" : "hover:bg-soft",
+          on ? "bg-soft" : "hover:bg-soft active:bg-soft",
         )}
       >
         <div className="min-w-0 flex-1">
@@ -201,7 +280,7 @@ function RoomRow({
                   : room.preview}
             </span>
             {unread && (
-              <span className="shrink-0 rounded-full bg-accent px-2 text-pill font-medium text-white tabular-nums">
+              <span className="shrink-0 rounded-full bg-accent px-2 text-pill font-medium text-on-dark tabular-nums">
                 {count(room.unread_count)}
               </span>
             )}
@@ -212,13 +291,11 @@ function RoomRow({
   )
 }
 
-function Thread({
-  room,
-  onBack,
-}: {
-  room: ChatConversation
-  onBack: () => void
-}) {
+/// The thread's lines: the messages of one conversation, the day they were
+/// written over each first one, and the read mark moved while it is on screen.
+/// It does not scroll itself — the phone's sheet or the desk's pane around it
+/// does.
+function ThreadBody({ room }: { room: ChatConversation }) {
   const me = useIdentity().data?.username
   const thread = useThread(room.conversation_id)
   const markRead = useMarkRead()
@@ -243,58 +320,34 @@ function Thread({
   }, [latest])
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center gap-2 border-b border-hairline px-3 py-2.5 md:px-4">
-        <Button
-          variant="quiet"
-          aria-label="Back to conversations"
-          className="-ml-1 h-8 px-2 md:hidden pointer-coarse:h-tap"
-          onClick={onBack}
-        >
-          <ArrowLeft />
-        </Button>
-        <div className="min-w-0">
-          <p className="truncate text-cell font-medium text-ink">{room.title}</p>
-          {room.kind === "GROUP" && (
-            <p className="truncate text-pill text-mute">
-              {room.members.map((m) => m.display_name).join(", ")}
-            </p>
-          )}
-        </div>
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 md:px-5">
-        {thread.isPending ? (
-          <LoadingState>Loading…</LoadingState>
-        ) : thread.isError ? (
-          <Banner tone="bad">{describe(thread.error)}</Banner>
-        ) : messages.length === 0 ? (
-          <EmptyState>Say hello.</EmptyState>
-        ) : (
-          <ul className="flex flex-col gap-1.5">
-            {messages.map((m, i) => (
-              <Bubble
-                key={m.message_id}
-                message={m}
-                mine={m.author === me}
-                showName={
-                  room.kind === "GROUP" &&
-                  m.author !== me &&
-                  messages[i - 1]?.author !== m.author
-                }
-                newDay={
-                  i === 0 ||
-                  dayOf(messages[i - 1].sent_at) !== dayOf(m.sent_at)
-                }
-              />
-            ))}
-          </ul>
-        )}
-        <div ref={end} />
-      </div>
-
-      <Composer conversationId={room.conversation_id} />
-    </div>
+    <>
+      {thread.isPending ? (
+        <LoadingState>Reading the conversation…</LoadingState>
+      ) : thread.isError ? (
+        <Banner tone="bad">{describe(thread.error)}</Banner>
+      ) : messages.length === 0 ? (
+        <EmptyState>Say hello.</EmptyState>
+      ) : (
+        <ul className="flex flex-col gap-1.5">
+          {messages.map((m, i) => (
+            <Bubble
+              key={m.message_id}
+              message={m}
+              mine={m.author === me}
+              showName={
+                room.kind === "GROUP" &&
+                m.author !== me &&
+                messages[i - 1]?.author !== m.author
+              }
+              newDay={
+                i === 0 || dayOf(messages[i - 1].sent_at) !== dayOf(m.sent_at)
+              }
+            />
+          ))}
+        </ul>
+      )}
+      <div ref={end} />
+    </>
   )
 }
 
@@ -354,6 +407,8 @@ function Bubble({
   )
 }
 
+/// The box a message is written in — pinned under the thread: the phone
+/// sheet's foot, the desk pane's foot.
 function Composer({ conversationId }: { conversationId: string }) {
   const [text, setText] = useState("")
   // Minted once per message, kept across a failed attempt, replaced on success.
@@ -375,7 +430,7 @@ function Composer({ conversationId }: { conversationId: string }) {
   }
 
   return (
-    <div className="border-t border-hairline p-3">
+    <div>
       {send.isError && (
         <Banner tone="bad" className="mb-2">
           {describe(send.error)}
@@ -400,12 +455,13 @@ function Composer({ conversationId }: { conversationId: string }) {
               submit()
             }
           }}
-          className="max-h-32 min-h-12 w-full resize-none rounded-inner bg-soft-2 px-4 py-3 text-[1rem] text-ink outline-none placeholder:text-mute"
+          // 16px: iOS zooms the page into any field set smaller.
+          className="max-h-32 min-h-11 w-full resize-none rounded-inner bg-soft-2 px-3.5 py-2.5 text-[1rem] text-ink outline-none placeholder:text-mute"
         />
         <Button
           variant="primary"
           aria-label="Send"
-          className="size-12 px-0"
+          className="relative size-9 px-0 after:absolute after:-inset-1 after:content-['']"
           disabled={body === "" || send.isPending}
           onClick={submit}
         >
@@ -416,15 +472,20 @@ function Composer({ conversationId }: { conversationId: string }) {
   )
 }
 
+/// Start a conversation: with one person, or a named group. A sheet at every
+/// width — it is a task, not a place to stay — with `[Cancel] [Start chat]` in
+/// the foot.
 function NewChat({
-  onCancel,
+  open,
+  onOpenChange,
   onStarted,
 }: {
-  onCancel: () => void
+  open: boolean
+  onOpenChange: (open: boolean) => void
   onStarted: (room: ChatConversation) => void
 }) {
   const me = useIdentity().data?.username
-  const people = usePeople(true)
+  const people = usePeople(open)
   const start = useStartChat()
   const [kind, setKind] = useState<"DIRECT" | "GROUP">("DIRECT")
   const [title, setTitle] = useState("")
@@ -454,22 +515,52 @@ function NewChat({
     )
 
   const ready =
-    kind === "DIRECT" ? picked.length === 1 : picked.length >= 1 && title.trim() !== ""
+    kind === "DIRECT"
+      ? picked.length === 1
+      : picked.length >= 1 && title.trim() !== ""
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center gap-2 border-b border-hairline px-3 py-2.5 md:px-4">
-        <Button
-          variant="quiet"
-          aria-label="Cancel"
-          className="-ml-1 h-8 px-2 pointer-coarse:h-tap"
-          onClick={onCancel}
-        >
-          <ArrowLeft />
-        </Button>
-        <p className="text-cell font-medium text-ink">New chat</p>
-      </div>
-      <div className="flex flex-col gap-3 p-3 md:p-4">
+    <Sheet
+      open={open}
+      onOpenChange={(next) => {
+        onOpenChange(next)
+        if (!next) {
+          start.reset()
+          setPicked([])
+          setTitle("")
+          setQuery("")
+        }
+      }}
+      title="New chat"
+      footer={
+        <div className="flex flex-col gap-3">
+          {start.isError && <Banner tone="bad">{describe(start.error)}</Banner>}
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="quiet" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              pending={start.isPending}
+              disabled={!ready}
+              onClick={() =>
+                start.mutate(
+                  {
+                    kind,
+                    title: kind === "GROUP" ? title.trim() : null,
+                    participants: [...picked],
+                  },
+                  { onSuccess: onStarted },
+                )
+              }
+            >
+              {start.isPending ? "Starting…" : "Start chat"}
+            </Button>
+          </div>
+        </div>
+      }
+    >
+      <div className="flex flex-col gap-5">
         <Segmented<"DIRECT" | "GROUP">
           value={kind}
           onChange={(next) => {
@@ -482,87 +573,55 @@ function NewChat({
           ]}
         />
         {kind === "GROUP" && (
+          <Field label="Group name" required>
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+          </Field>
+        )}
+        <Field label="People">
           <Input
-            value={title}
-            aria-label="Group name"
-            placeholder="Group name"
-            onChange={(e) => setTitle(e.target.value)}
+            value={query}
+            aria-label="Search people"
+            placeholder="Search people"
+            onChange={(e) => setQuery(e.target.value)}
           />
-        )}
-        <Input
-          value={query}
-          aria-label="Search people"
-          placeholder="Search people"
-          onChange={(e) => setQuery(e.target.value)}
-        />
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto border-t border-hairline">
-        {people.isPending ? (
-          <LoadingState>Loading…</LoadingState>
-        ) : people.isError ? (
-          <div className="p-3">
+        </Field>
+        <div className="-mx-1">
+          {people.isPending ? (
+            <LoadingState>Reading the people…</LoadingState>
+          ) : people.isError ? (
             <Banner tone="bad">{describe(people.error)}</Banner>
-          </div>
-        ) : choices.length === 0 ? (
-          <EmptyState>Nobody found.</EmptyState>
-        ) : (
-          <ul>
-            {choices.map((u) => {
-              const on = picked.includes(u.username)
-              return (
-                <li
-                  key={u.username}
-                  className="border-b border-hairline last:border-b-0"
-                >
-                  <button
-                    type="button"
-                    aria-pressed={on}
-                    onClick={() => toggle(u.username)}
-                    className={cn(
-                      "flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-cell pointer-coarse:min-h-tap",
-                      on ? "bg-soft font-medium text-ink" : "text-body hover:bg-soft",
-                    )}
-                  >
-                    {u.name}
-                    <span
-                      aria-hidden
+          ) : choices.length === 0 ? (
+            <EmptyState>Nobody found.</EmptyState>
+          ) : (
+            <ul>
+              {choices.map((u) => {
+                const on = picked.includes(u.username)
+                return (
+                  <li key={u.username}>
+                    <button
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => toggle(u.username)}
                       className={cn(
-                        "size-2 rounded-full",
-                        on ? "bg-accent" : "bg-hairline-strong",
+                        "flex min-h-11 w-full items-center justify-between gap-3 rounded-inner px-3 text-left text-cell transition-colors",
+                        on
+                          ? "font-medium text-accent"
+                          : "text-body hover:bg-soft-2 hover:text-ink",
                       )}
-                    />
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
-        )}
+                    >
+                      <span className="min-w-0 flex-1 truncate">{u.name}</span>
+                      <Check
+                        className={cn("size-4 shrink-0", !on && "opacity-0")}
+                      />
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
       </div>
-      <div className="border-t border-hairline p-3">
-        {start.isError && (
-          <Banner tone="bad" className="mb-2">
-            {describe(start.error)}
-          </Banner>
-        )}
-        <Button
-          variant="primary"
-          block
-          disabled={!ready || start.isPending}
-          onClick={() =>
-            start.mutate(
-              {
-                kind,
-                title: kind === "GROUP" ? title.trim() : null,
-                participants: [...picked],
-              },
-              { onSuccess: onStarted },
-            )
-          }
-        >
-          {start.isPending ? "Starting…" : "Start chat"}
-        </Button>
-      </div>
-    </div>
+    </Sheet>
   )
 }
 
@@ -571,6 +630,7 @@ function dayOf(iso: string): string {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
 }
 
+/// "Today", "Yesterday", then the house date — `06 Oct 2026`.
 function dayLabel(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ""
@@ -579,13 +639,14 @@ function dayLabel(iso: string): string {
   yesterday.setDate(today.getDate() - 1)
   if (dayOf(iso) === dayOf(today.toISOString())) return "Today"
   if (dayOf(iso) === dayOf(yesterday.toISOString())) return "Yesterday"
-  return d.toLocaleDateString("en-GB", { day: "numeric", month: "long" })
+  return dateText(d, { day: "2-digit", month: "short", year: "numeric" })
 }
 
+/// The minute, 24-hour.
 function clock(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ""
-  return d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })
+  return dateText(d, { hour: "2-digit", minute: "2-digit", hour12: false })
 }
 
 /// Today as a time, otherwise the day — for the conversation list.
@@ -594,5 +655,5 @@ function shortWhen(iso: string): string {
   if (Number.isNaN(d.getTime())) return ""
   return dayOf(iso) === dayOf(new Date().toISOString())
     ? clock(iso)
-    : d.toLocaleDateString("en-GB", { day: "numeric", month: "short" })
+    : dateText(d, { day: "2-digit", month: "short", year: "numeric" })
 }

@@ -10,6 +10,7 @@ import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Day } from "@/components/ui/day"
 import { Panel } from "@/components/ui/dialog"
+import { Fab } from "@/components/ui/fab"
 import {
   Checkbox,
   Field,
@@ -31,6 +32,7 @@ import {
   NoMatch,
 } from "@/components/ui/states"
 import { count, day, label, money, moment, toneFor } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   financeKeys,
   listBills,
@@ -54,6 +56,7 @@ import {
   useMoneyAccountChoices,
   useSupplierName,
 } from "@/screens/finance/hooks"
+import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
 import {
   AccountMeaning,
   SupplierName,
@@ -143,6 +146,7 @@ export function Payments() {
   // (`?payment=`) opens the payment it names.
   const reading = useSheet("payment")
   const [composing, setComposing] = useState(false)
+  const phone = useLayout() === "phone"
 
   // Unit, status and the search all go on the wire and the key carries all
   // three. A register narrowed in the browser is a slice of whatever pages it
@@ -180,7 +184,10 @@ export function Payments() {
 
   return (
     <PageContent>
+      {/* A phone: the search is one of the Filters, "Record payment" the
+          round +. */}
       <PageHeader
+        className="max-md:hidden"
         crumb="Finance · Payments"
         title="Payment Entry"
         actions={
@@ -188,6 +195,8 @@ export function Payments() {
             <Input
               value={needle}
               onChange={(event) => setNeedle(event.target.value)}
+              aria-label="Search payments"
+              placeholder="Search payments"
               className="h-control w-48"
             />
             <Button variant="primary" onClick={() => setComposing(true)}>
@@ -196,8 +205,16 @@ export function Payments() {
           </>
         }
       />
+      <Fab label="Record payment" onClick={() => setComposing(true)} />
 
       <Toolbar>
+        <Input
+          value={needle}
+          onChange={(event) => setNeedle(event.target.value)}
+          aria-label="Search payments"
+          placeholder="Search payments"
+          className="h-control md:hidden"
+        />
         <UnitSelect
           value={unit}
           onChange={setUnit}
@@ -211,14 +228,14 @@ export function Payments() {
             className="h-control w-40"
             aria-label="Status"
           >
-            <option value="">Draft and posted</option>
+            <option value="">All statuses</option>
             <option value="DRAFT">Draft</option>
             <option value="POSTED">Posted</option>
           </Select>
         </span>
         <Toolbar.Spacer />
         <span className="text-[0.875rem] text-mute">
-          {unit === "" ? "Every unit" : <UnitName id={unit} />}
+          {unit === "" ? "All units" : <UnitName id={unit} />}
           {status !== "" && ` · ${label(status)}`}
           {` · ${count(matched)} ${matched === 1 ? "payment" : "payments"}`}
         </span>
@@ -244,6 +261,40 @@ export function Payments() {
               </EmptyState>
             ) : rows.length === 0 ? (
               <NoMatch what="payments" onClear={() => setNeedle("")} />
+            ) : phone ? (
+              <>
+                <PhoneList
+                  rows={rows.map((row) => ({
+                    key: row.payment_id,
+                    title: <Parties payment={row} />,
+                    code: row.payment_number,
+                    lead: <CardFigure value={money(row.total_minor)} />,
+                    foot: (
+                      <span className="flex flex-col">
+                        <span>
+                          {day(row.payment_date)} · {label(row.method)}
+                        </span>
+                        <AccountMeaning
+                          meaning={row.account_key}
+                          qualifier={row.account_qualifier}
+                          code={row.account_code}
+                          name={row.account_name}
+                        />
+                        {row.reference !== null && (
+                          <span className="truncate">{row.reference}</span>
+                        )}
+                      </span>
+                    ),
+                    action: (
+                      <Status tone={toneFor(row.status)}>
+                        {label(row.status)}
+                      </Status>
+                    ),
+                    onOpen: () => reading.open(row.payment_id),
+                  }))}
+                />
+                <LoadMore query={payments} />
+              </>
             ) : (
               <>
                 <Grid>

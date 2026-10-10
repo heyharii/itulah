@@ -18,18 +18,20 @@ export function kindLabel(kind: CountKind): string {
   return KINDS[kind] ?? kind
 }
 
-/// What a count's state is called here: still to do, sent, or closed.
+/// What a count's state is called here — still to do, sent, or closed — and the
+/// tone that says it (`Status` in a list, `Pill` in a sheet's head). Sent is in
+/// motion: it is waiting on head office.
 export function statusOf(status: CountStatus): {
   readonly word: string
-  readonly dot: string
+  readonly tone: "warn" | "info" | "done"
 } {
   switch (status) {
     case "ACTIVE":
-      return { word: "To count", dot: "bg-warn" }
+      return { word: "To count", tone: "warn" }
     case "SUBMITTED":
     case "ADJUSTMENT_PENDING":
-      return { word: "Sent", dot: "bg-body" }
+      return { word: "Sent", tone: "info" }
     default:
-      return { word: "Closed", dot: "bg-mute" }
+      return { word: "Closed", tone: "done" }
   }
 }

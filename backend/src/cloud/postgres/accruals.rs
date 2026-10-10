@@ -148,11 +148,13 @@ pub async fn settle_accrual(
         .execute(&mut *tx)
         .await?;
 
-    let current = sqlx::query(&format!("SELECT * FROM ({ACCRUALS}) x WHERE x.entry_id = $1"))
-        .bind(entry_id)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or_else(|| AppError::NotFound("accrual".into()))?;
+    let current = sqlx::query(&format!(
+        "SELECT * FROM ({ACCRUALS}) x WHERE x.entry_id = $1"
+    ))
+    .bind(entry_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| AppError::NotFound("accrual".into()))?;
     let current = to_row(&current)?;
     if current.status != "OPEN" {
         return Err(AppError::Conflict(format!(
@@ -224,10 +226,12 @@ pub async fn settle_accrual(
     .execute(&mut *tx)
     .await?;
 
-    let row = sqlx::query(&format!("SELECT * FROM ({ACCRUALS}) x WHERE x.entry_id = $1"))
-        .bind(entry_id)
-        .fetch_one(&mut *tx)
-        .await?;
+    let row = sqlx::query(&format!(
+        "SELECT * FROM ({ACCRUALS}) x WHERE x.entry_id = $1"
+    ))
+    .bind(entry_id)
+    .fetch_one(&mut *tx)
+    .await?;
     tx.commit().await?;
     to_row(&row)
 }

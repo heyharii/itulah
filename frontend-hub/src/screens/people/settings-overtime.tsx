@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { Field, Input } from "@/components/ui/field"
@@ -26,7 +27,7 @@ import { setOvertimeCaps } from "@/lib/queries/hr-time-settings"
 import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
 import { KEPMEN_102 } from "@/screens/people/overtime-presets"
-import { ListCard, SheetFooter } from "@/screens/people/settings-kit"
+import { CardFoot, ListCard, SheetFooter } from "@/screens/people/settings-kit"
 import { useOpener } from "@/screens/people/settings-lib"
 import type { OvertimePolicyView } from "@itulah/contract"
 
@@ -43,6 +44,7 @@ const WEEKS = [
 /// at 2×, 3× and 4× by tier).
 export function OvertimeSettings() {
   const canWrite = useCanWrite()
+  const phone = useLayout() === "phone"
   const policy = useQuery({
     queryKey: overtimeKeys.policy(),
     queryFn: ({ signal }) => readOvertimePolicy(signal),
@@ -70,6 +72,7 @@ export function OvertimeSettings() {
         title="Overtime"
         sub="The most overtime that may be ordered, the working week it is counted against, and how each hour is paid."
         actions={
+          !phone &&
           canWrite && (
             <>
               {missing.length > 0 && catalogue.isSuccess && (
@@ -120,9 +123,26 @@ export function OvertimeSettings() {
             ),
           })}
         </div>
+        {canWrite && (
+          <CardFoot label="Set caps" onClick={() => caps.show()}>
+            <Button variant="tint" size="card" onClick={() => week.show()}>
+              Working week
+            </Button>
+          </CardFoot>
+        )}
       </Card>
 
-      <ListCard title="Kepmenaker 102/2004 overtime pay">
+      <ListCard
+        title="Kepmenaker 102/2004 overtime pay"
+        foot={
+          canWrite && missing.length > 0 && catalogue.isSuccess ? (
+            <CardFoot
+              label={`Define ${missing.length} missing`}
+              onClick={() => define.show()}
+            />
+          ) : undefined
+        }
+      >
         <MiniTable
           head={[
             "Component",

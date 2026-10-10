@@ -363,8 +363,7 @@ pub async fn financing_installment_pay(
     }
     if interest > 0 {
         lines.push(
-            PostingLine::debit(&interest_key, &unit, interest)
-                .with_qualifier(&interest_qualifier),
+            PostingLine::debit(&interest_key, &unit, interest).with_qualifier(&interest_qualifier),
         );
     }
     lines.push(

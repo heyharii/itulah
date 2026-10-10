@@ -106,22 +106,29 @@ pub fn last_run(connection: &Connection) -> Option<crate::sync::node_status::Bac
             },
         )
         .ok()
-        .map(|(attempt, ok, error, bytes)| crate::sync::node_status::BackupFacts {
-            last_attempt_at: parse(attempt),
-            last_ok_at: parse(ok),
-            last_error: error,
-            last_bytes: bytes.and_then(|b| u64::try_from(b).ok()),
-        })
+        .map(
+            |(attempt, ok, error, bytes)| crate::sync::node_status::BackupFacts {
+                last_attempt_at: parse(attempt),
+                last_ok_at: parse(ok),
+                last_error: error,
+                last_bytes: bytes.and_then(|b| u64::try_from(b).ok()),
+            },
+        )
 }
 
 fn copy(connection: &Arc<Mutex<Connection>>, data_dir: &Path) -> Result<PathBuf, String> {
     let dir = folder(data_dir);
     std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
-    let path = dir.join(format!("store-{}.sqlite3", Local::now().format("%Y%m%d-%H%M")));
+    let path = dir.join(format!(
+        "store-{}.sqlite3",
+        Local::now().format("%Y%m%d-%H%M")
+    ));
     let partial = path.with_extension("partial");
     let _ = std::fs::remove_file(&partial);
     {
-        let guard = connection.lock().map_err(|_| "database lock poisoned".to_owned())?;
+        let guard = connection
+            .lock()
+            .map_err(|_| "database lock poisoned".to_owned())?;
         guard
             .execute("VACUUM INTO ?1", [partial.to_string_lossy().as_ref()])
             .map_err(|error| error.to_string())?;
@@ -152,8 +159,9 @@ fn prune(dir: &Path) {
 pub fn spawn(connection: Arc<Mutex<Connection>>, data_dir: PathBuf) {
     tokio::spawn(async move {
         loop {
-            let due = latest(&data_dir)
-                .map_or(true, |(_, at)| Utc::now() - at > chrono::Duration::hours(24));
+            let due = latest(&data_dir).map_or(true, |(_, at)| {
+                Utc::now() - at > chrono::Duration::hours(24)
+            });
             if due && crate::edge::pace::factor() == 1 && !crate::edge::power::on_battery() {
                 let connection = connection.clone();
                 let dir = data_dir.clone();

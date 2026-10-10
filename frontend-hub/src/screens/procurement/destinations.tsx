@@ -4,16 +4,17 @@ import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Card } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
-import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
 import { count } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   listPurchaseOrders,
   procurementKeys,
@@ -21,7 +22,9 @@ import {
 } from "@/lib/queries/procurement"
 import { queryState } from "@/lib/query-state"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { cn } from "@/lib/utils"
 import { LinkButton } from "@/screens/procurement/controls"
+import { owedOn } from "@/screens/procurement/shared"
 
 /// Destinations — where a delivery can actually go, and what is already on its
 /// way there.
@@ -51,6 +54,7 @@ const columns: ColumnDef<TableSetup, DestinationRow>[] = [
     accessorKey: "label",
     header: "Destination",
     size: 260,
+    meta: { card: "hide" },
     cell: ({ row }) => (
       <span className="flex flex-col">
         <span className="font-medium text-ink">{row.original.label}</span>
@@ -68,7 +72,7 @@ const columns: ColumnDef<TableSetup, DestinationRow>[] = [
     // making different decisions, and the list says which is which — and it is
     // the one question worth asking a two-value column, because "only the
     // warehouses" is how a container is routed.
-    meta: { filter: { kind: "option" } },
+    meta: { card: "hide", filter: { kind: "option" } },
     cell: ({ row }) => (
       <Tag tone={row.original.node_role === "DC" ? "accent" : "neutral"}>
         {row.original.node_role}
@@ -82,14 +86,22 @@ const columns: ColumnDef<TableSetup, DestinationRow>[] = [
     // Zero is the interesting end of this column, not the top: a destination
     // nothing has ever been routed to is either a shop nobody supplies direct
     // or a site somebody forgot, and `is 0` is the only way to ask which.
-    meta: { align: "right", filter: { kind: "number", unit: "orders" } },
+    meta: {
+      align: "right",
+      card: "hide",
+      filter: { kind: "number", unit: "orders" },
+    },
     cell: ({ row }) => count(row.original.orders),
   },
   {
     accessorKey: "outstanding",
     header: "Units Still Owed",
     size: 160,
-    meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
+    meta: {
+      align: "right",
+      card: "hide",
+      filter: { kind: "number", unit: "pcs" },
+    },
     // The decision metric: a destination with a lot in flight is where the
     // receiving effort is about to land.
     cell: ({ row }) => (
@@ -102,6 +114,77 @@ const columns: ColumnDef<TableSetup, DestinationRow>[] = [
       >
         {count(row.original.outstanding)}
       </span>
+    ),
+  },
+  // Four columns that exist only on a card (a phone): the place over its site
+  // id, what is still owed to it as the figure the card leads with, how many
+  // orders are routed there, and what kind of place it is.
+  {
+    id: "head",
+    accessorFn: (row) => row.label,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <span className="flex min-w-0 flex-col gap-1">
+        <span className="min-w-0 text-[1rem] font-semibold break-words text-ink">
+          {row.original.label}
+        </span>
+        <span className="font-mono text-[0.875rem] font-normal text-mute">
+          {row.original.site_id}
+        </span>
+      </span>
+    ),
+  },
+  {
+    id: "lead",
+    accessorFn: (row) => row.outstanding,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "lead" },
+    cell: ({ row }) => (
+      <span className="flex flex-col items-end tabular-nums">
+        <span
+          className={cn(
+            "text-[1.5rem] leading-tight font-semibold tracking-tight",
+            row.original.outstanding > 0 ? "text-warn-fg" : "text-mute"
+          )}
+        >
+          {count(row.original.outstanding)}
+        </span>
+        <span className="text-[0.875rem] text-mute">pcs owed</span>
+      </span>
+    ),
+  },
+  {
+    id: "foot",
+    accessorFn: (row) => row.orders,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => (
+      <span>
+        <span className="text-ink tabular-nums">
+          {count(row.original.orders)}
+        </span>{" "}
+        {row.original.orders === 1 ? "order" : "orders"} routed here
+      </span>
+    ),
+  },
+  {
+    id: "kind",
+    accessorFn: (row) => row.node_role,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { align: "right", card: "status" },
+    cell: ({ row }) => (
+      <Tag tone={row.original.node_role === "DC" ? "accent" : "neutral"}>
+        {row.original.node_role}
+      </Tag>
     ),
   },
 ]
@@ -132,10 +215,9 @@ export function Destinations() {
         label: destination.label,
         node_role: destination.node_role,
         orders: routed.length,
-        outstanding: routed.reduce(
-          (sum, order) => sum + order.outstanding_stock_units,
-          0
-        ),
+        // What is still owed on the orders still open, as Outstanding counts
+        // it: a cancelled order or one closed short is not in flight.
+        outstanding: routed.reduce((sum, order) => sum + owedOn(order), 0),
       }
     })
   }, [destinations.data, orders.data])
@@ -143,6 +225,9 @@ export function Destinations() {
   const warehouses = rows.filter((row) => row.node_role === "DC").length
 
   const filters = useFilters(columns)
+  const phone = useLayout() === "phone"
+  /// What the phone's dock field typed: a place's name or its site id.
+  const [query, setQuery] = useState("")
 
   const table = useTable(
     useMemo(
@@ -151,10 +236,22 @@ export function Destinations() {
         data: rows,
         columns: filters.columns,
         getRowId: (row: DestinationRow) => row.site_id,
-        state: { columnFilters: filters.columnFilters, sorting },
+        state: {
+          columnFilters: filters.columnFilters,
+          globalFilter: phone ? query : "",
+          sorting,
+          // The card's own columns are drawn on a phone and never on a desk.
+          columnVisibility: {
+            head: phone,
+            lead: phone,
+            foot: phone,
+            kind: phone,
+          },
+        },
         onSortingChange: setSorting,
+        onGlobalFilterChange: setQuery,
       }),
-      [rows, filters.columns, filters.columnFilters, sorting]
+      [rows, filters.columns, filters.columnFilters, query, sorting, phone]
     )
   )
 
@@ -164,10 +261,14 @@ export function Destinations() {
         crumb="Procurement"
         title="Destinations"
         sub="Sites a purchase order can name, and what is already on its way to each."
+        // The phone's bar and dock carry the way on: only the title and the
+        // figures stand at the top.
         actions={
-          <LinkButton to="/procurement/outstanding">
-            What is still owed
-          </LinkButton>
+          phone ? undefined : (
+            <LinkButton to="/procurement/outstanding">
+              What is still owed
+            </LinkButton>
+          )
         }
       />
 
@@ -184,11 +285,23 @@ export function Destinations() {
           the table: a strip that moved with the chips would be a second,
           quieter answer to "how many places can a delivery go", and the
           question this screen exists to answer is the unnarrowed one. */}
-      <Toolbar>
+      <div className="mb-3.5 flex flex-wrap items-center gap-[0.4375rem] max-md:hidden">
         <FilterPanel model={filters} table={table} />
-      </Toolbar>
+      </div>
+      <DockTools
+        search={{
+          value: query,
+          onChange: setQuery,
+          label: "Search Destinations",
+        }}
+        filter={{
+          count: filters.filters.length,
+          panel: { model: filters, table },
+        }}
+        sort={dockSortOf(table)}
+      />
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(destinations, {
           loading: "Asking where a delivery can go…",
           render: () =>
@@ -199,9 +312,13 @@ export function Destinations() {
               </EmptyState>
             ) : (
               <DataTable<DestinationRow>
+                refresh={[destinations, orders]}
                 table={table}
                 empty="No destination matches the filters in force."
                 className="max-h-[calc(100dvh-20rem)]"
+                cardSort={false}
+                cardsApart
+                cardLead
               />
             ),
         })}

@@ -575,8 +575,8 @@ pub fn service_months(from: NaiveDate, to: NaiveDate) -> i64 {
     if to < from {
         return 0;
     }
-    let mut months = i64::from(to.year() - from.year()) * 12
-        + i64::from(to.month()) - i64::from(from.month());
+    let mut months =
+        i64::from(to.year() - from.year()) * 12 + i64::from(to.month()) - i64::from(from.month());
     if to.day() < from.day() {
         months -= 1;
     }

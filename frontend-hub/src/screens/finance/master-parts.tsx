@@ -3,7 +3,9 @@ import { Link2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input, Select } from "@/components/ui/field"
+import { Sheet } from "@/components/ui/sheet"
 import { count } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { useAssetClasses, useLocations } from "@/screens/finance/hooks"
 import {
   PARTY_GROUPS,
@@ -32,17 +34,20 @@ export function LinkAccountsButton({
   label?: string
 }) {
   const open = useOpenAccountLinks()
+  // On a phone it is the one button a record's card carries in its foot: the
+  // tint of the other cards' buttons, a word and no icon.
+  const phone = useLayout() === "phone"
   return (
     <Button
-      size="sm"
-      variant="quiet"
+      size={phone ? "card" : "sm"}
+      variant={phone ? "tint" : "quiet"}
       onClick={(event) => {
         // A master row usually opens its own editor on click; this must not.
         event.stopPropagation()
         open({ role, source_type: sourceType, source_id: sourceId })
       }}
     >
-      <Link2 />
+      {!phone && <Link2 />}
       {label}
     </Button>
   )
@@ -63,7 +68,7 @@ export function Reach({ units }: { units: number }) {
     )
   return (
     <span className="text-ok-fg tabular-nums">
-      {total === null ? `${count(units)} units` : "Every unit"}
+      {total === null ? `${count(units)} units` : "All units"}
     </span>
   )
 }
@@ -247,12 +252,41 @@ export function MasterLayout({
 export function EditorCard({
   title,
   onClose,
+  pinLast = true,
   children,
 }: {
   title: React.ReactNode
   onClose: () => void
+  /// Whether, on a phone, the form's last block (its buttons) stays at the foot
+  /// of the sheet while the fields scroll. Off where the last block is more
+  /// form.
+  pinLast?: boolean
   children: React.ReactNode
 }) {
+  // On a phone the editor is the sheet the row opens, not a card under the
+  // list where nobody would see it. Its last block — the buttons — stays at
+  // the foot of the sheet while the fields scroll.
+  if (useLayout() === "phone") {
+    return (
+      <Sheet
+        open
+        onOpenChange={(next) => {
+          if (!next) onClose()
+        }}
+        title={title}
+      >
+        <div
+          className={
+            pinLast
+              ? "flex flex-col gap-3 [&>:last-child]:sticky [&>:last-child]:bottom-0 [&>:last-child]:z-[1] [&>:last-child]:-mx-4 [&>:last-child]:mt-1 [&>:last-child]:border-t [&>:last-child]:border-hairline [&>:last-child]:bg-canvas [&>:last-child]:px-4 [&>:last-child]:py-3"
+              : "flex flex-col gap-3"
+          }
+        >
+          {children}
+        </div>
+      </Sheet>
+    )
+  }
   return (
     <Card className="flex flex-col gap-3 p-4">
       <div className="flex items-center justify-between gap-2">

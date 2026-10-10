@@ -278,35 +278,39 @@ pub async fn ask(
     let division = tidy_division(request.division.as_deref())?;
     let tags = tidy_tags(&request.tags)?;
     let mut tx = state.db.begin().await?;
-    let known = sqlx::query("SELECT 1 FROM goods_receipt_line WHERE receipt_line_id = $1 FOR SHARE")
-        .bind(request.receipt_line_id)
-        .fetch_optional(&mut *tx)
-        .await?;
+    let known =
+        sqlx::query("SELECT 1 FROM goods_receipt_line WHERE receipt_line_id = $1 FOR SHARE")
+            .bind(request.receipt_line_id)
+            .fetch_optional(&mut *tx)
+            .await?;
     if known.is_none() {
         return Err(AppError::NotFound("that delivery line".into()));
     }
-    let open: Option<Uuid> = sqlx::query_scalar(
-        "SELECT check_id FROM quantity_check
-          WHERE receipt_line_id = $1 AND status = 'REQUESTED'
-          ORDER BY requested_at DESC LIMIT 1",
+    // One open check per delivery line is the table's rule (0942): two askers
+    // at the same moment end up with the same check, not two.
+    let inserted: Option<Uuid> = sqlx::query_scalar(
+        "INSERT INTO quantity_check
+            (receipt_line_id, article_name, requested_by, expected, division_code, tags)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (receipt_line_id) WHERE status = 'REQUESTED' DO NOTHING
+         RETURNING check_id",
     )
     .bind(request.receipt_line_id)
+    .bind(&name)
+    .bind(&principal.username)
+    .bind(&expected)
+    .bind(&division)
+    .bind(&tags)
     .fetch_optional(&mut *tx)
     .await?;
-    let check_id = match open {
+    let check_id = match inserted {
         Some(id) => id,
         None => {
             sqlx::query_scalar(
-                "INSERT INTO quantity_check
-                    (receipt_line_id, article_name, requested_by, expected, division_code, tags)
-                 VALUES ($1, $2, $3, $4, $5, $6) RETURNING check_id",
+                "SELECT check_id FROM quantity_check
+                  WHERE receipt_line_id = $1 AND status = 'REQUESTED'",
             )
             .bind(request.receipt_line_id)
-            .bind(&name)
-            .bind(&principal.username)
-            .bind(&expected)
-            .bind(&division)
-            .bind(&tags)
             .fetch_one(&mut *tx)
             .await?
         }
@@ -323,17 +327,6 @@ pub async fn ask(
     .bind(&expected)
     .bind(&division)
     .bind(&tags)
-    .execute(&mut *tx)
-    .await?;
-    // Asking again while one is open refreshes it: the warehouse sees the
-    // newest name and grid, not the first ones asked.
-    sqlx::query(
-        "UPDATE quantity_check SET article_name = $2, expected = $3
-          WHERE check_id = $1 AND status = 'REQUESTED'",
-    )
-    .bind(check_id)
-    .bind(&name)
-    .bind(&expected)
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;

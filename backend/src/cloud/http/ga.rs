@@ -39,18 +39,19 @@ use crate::cloud::{
     application::{AppError, AppState},
     domain::{role_allows, GaBuildSchema, Role},
     postgres::{
-        self as infrastructure, AccountSuggestion, ApproveGaRepairRequest, ArchiveGaContractRequest,
-        DecideGaDisposalRequest, GaAssetEvent, GaAssetHub, GaAssetPage, GaAssetRow, GaAssetScope,
-        GaContractHub, GaContractPage, GaContractRow, GaContractType, GaDisposalPage, GaDisposalRow,
-        GaInspectionPage, GaInspectionRow, GaLocationHub, GaLocationRow, GaMaintenanceTaskPage,
-        GaMaintenanceTaskRow, GaMeterReading, GaOverview, GaRepairObject, GaRepairPage, GaRepairRow,
-        GaReplacementPage, GaReplacementRow, GaSupplyCategory, GaSupplyRequestRow, GaSupplyScope,
-        LineRefs, MoveGaRepairRequest, MoveGaReplacementRequest, MoveGaSupplyRequestRequest,
-        NoteGaAssetRequest, RecordBillLine, RecordBillRequest, RecordGaContractRequest,
-        RecordGaInspectionRequest, RecordGaRepairRequest, RecordGaReplacementRequest,
-        RecordGaSupplyRequestRequest, RecordGaTaskRequest, RecordMeterReadingRequest,
-        RegisterGaAssetRequest, RequestGaDisposalRequest, TransferGaAssetRequest,
-        UpdateGaAssetRequest, UpdateGaContractRequest, UpdateGaLocationRequest, UpdateGaRepairRequest,
+        self as infrastructure, AccountSuggestion, ApproveGaRepairRequest,
+        ArchiveGaContractRequest, DecideGaDisposalRequest, GaAssetEvent, GaAssetHub, GaAssetPage,
+        GaAssetRow, GaAssetScope, GaContractHub, GaContractPage, GaContractRow, GaContractType,
+        GaDisposalPage, GaDisposalRow, GaInspectionPage, GaInspectionRow, GaLocationHub,
+        GaLocationRow, GaMaintenanceTaskPage, GaMaintenanceTaskRow, GaMeterReading, GaOverview,
+        GaRepairObject, GaRepairPage, GaRepairRow, GaReplacementPage, GaReplacementRow,
+        GaSupplyCategory, GaSupplyRequestRow, GaSupplyScope, LineRefs, MoveGaRepairRequest,
+        MoveGaReplacementRequest, MoveGaSupplyRequestRequest, NoteGaAssetRequest, RecordBillLine,
+        RecordBillRequest, RecordGaContractRequest, RecordGaInspectionRequest,
+        RecordGaRepairRequest, RecordGaReplacementRequest, RecordGaSupplyRequestRequest,
+        RecordGaTaskRequest, RecordMeterReadingRequest, RegisterGaAssetRequest,
+        RequestGaDisposalRequest, TransferGaAssetRequest, UpdateGaAssetRequest,
+        UpdateGaContractRequest, UpdateGaLocationRequest, UpdateGaRepairRequest,
         UpdateGaTaskRequest, DEFAULT_GA_ASSET_LIMIT, DEFAULT_GA_CONTRACT_LIMIT,
         DEFAULT_GA_MAINTENANCE_LIMIT, DEFAULT_GA_SUPPLY_LIMIT,
     },
@@ -354,7 +355,9 @@ pub async fn contract_types(
         Some(site) => site,
         None => infrastructure::sites::head_office_site_id(&state.db).await?,
     };
-    Ok(Json(infrastructure::ga_contract_types(&state.db, &site).await?))
+    Ok(Json(
+        infrastructure::ga_contract_types(&state.db, &site).await?,
+    ))
 }
 
 /// Put a deal in the register. Starts DRAFT; a deal is ACTIVE when somebody
@@ -367,8 +370,7 @@ pub async fn record_contract(
     allowed(&principal, Role::Supervisor, "record a contract")?;
     let today = state.clock.now().date_naive();
     Ok(Json(
-        infrastructure::ga_contract_record(&state.db, &request, &principal.username, today)
-            .await?,
+        infrastructure::ga_contract_record(&state.db, &request, &principal.username, today).await?,
     ))
 }
 
@@ -402,8 +404,14 @@ pub async fn update_contract(
     allowed(&principal, Role::Supervisor, "correct a contract")?;
     let today = state.clock.now().date_naive();
     Ok(Json(
-        infrastructure::ga_contract_update(&state.db, contract_id, &request, &principal.username, today)
-            .await?,
+        infrastructure::ga_contract_update(
+            &state.db,
+            contract_id,
+            &request,
+            &principal.username,
+            today,
+        )
+        .await?,
     ))
 }
 
@@ -419,8 +427,14 @@ pub async fn archive_contract(
     allowed(&principal, Role::Supervisor, "archive a contract")?;
     let today = state.clock.now().date_naive();
     Ok(Json(
-        infrastructure::ga_contract_archive(&state.db, contract_id, &request, &principal.username, today)
-            .await?,
+        infrastructure::ga_contract_archive(
+            &state.db,
+            contract_id,
+            &request,
+            &principal.username,
+            today,
+        )
+        .await?,
     ))
 }
 
@@ -430,7 +444,11 @@ pub async fn meter_readings(
     Extension(principal): Extension<Principal>,
     Path(contract_id): Path<Uuid>,
 ) -> Result<Json<Vec<GaMeterReading>>, AppError> {
-    allowed(&principal, Role::Supervisor, "read a contract's meter history")?;
+    allowed(
+        &principal,
+        Role::Supervisor,
+        "read a contract's meter history",
+    )?;
     Ok(Json(
         infrastructure::ga_contract_meter_readings(&state.db, contract_id).await?,
     ))
@@ -446,8 +464,13 @@ pub async fn record_meter_reading(
 ) -> Result<Json<GaMeterReading>, AppError> {
     allowed(&principal, Role::Supervisor, "record a meter reading")?;
     Ok(Json(
-        infrastructure::ga_meter_reading_record(&state.db, contract_id, &request, &principal.username)
-            .await?,
+        infrastructure::ga_meter_reading_record(
+            &state.db,
+            contract_id,
+            &request,
+            &principal.username,
+        )
+        .await?,
     ))
 }
 
@@ -481,7 +504,11 @@ pub async fn maintenance_tasks(
     Extension(principal): Extension<Principal>,
     Query(params): Query<Vec<(String, String)>>,
 ) -> Result<Json<GaMaintenanceTaskPage>, AppError> {
-    allowed(&principal, Role::Supervisor, "read the maintenance schedule")?;
+    allowed(
+        &principal,
+        Role::Supervisor,
+        "read the maintenance schedule",
+    )?;
     refuse_unknown_parameters(&params, &["limit", "cursor", "site"])?;
     let scope = maintenance_scope(&principal, &params)?;
     let mut page = infrastructure::ga_maintenance_task_page(&state.db, scope).await?;
@@ -516,8 +543,13 @@ pub async fn update_maintenance_task(
 ) -> Result<Json<GaMaintenanceTaskRow>, AppError> {
     allowed(&principal, Role::Supervisor, "correct a maintenance task")?;
     Ok(Json(
-        infrastructure::ga_maintenance_task_update(&state.db, task_id, &request, &principal.username)
-            .await?,
+        infrastructure::ga_maintenance_task_update(
+            &state.db,
+            task_id,
+            &request,
+            &principal.username,
+        )
+        .await?,
     ))
 }
 
@@ -645,8 +677,13 @@ pub async fn approve_repair_budget(
 ) -> Result<Json<GaRepairRow>, AppError> {
     allowed(&principal, Role::Supervisor, "approve a repair's budget")?;
     Ok(Json(
-        infrastructure::ga_repair_approve_budget(&state.db, repair_id, &request, &principal.username)
-            .await?,
+        infrastructure::ga_repair_approve_budget(
+            &state.db,
+            repair_id,
+            &request,
+            &principal.username,
+        )
+        .await?,
     ))
 }
 
@@ -733,7 +770,9 @@ pub async fn disposal(
     Path(disposal_id): Path<Uuid>,
 ) -> Result<Json<GaDisposalRow>, AppError> {
     allowed(&principal, Role::Supervisor, "read a disposal")?;
-    Ok(Json(infrastructure::ga_disposal(&state.db, disposal_id).await?))
+    Ok(Json(
+        infrastructure::ga_disposal(&state.db, disposal_id).await?,
+    ))
 }
 
 /// Ask to let a thing go; the asset is marked DISPOSAL_REQUESTED.
@@ -835,8 +874,14 @@ pub async fn update_location(
     allowed(&principal, Role::Supervisor, "correct a location")?;
     let today = state.clock.now().date_naive();
     Ok(Json(
-        infrastructure::ga_location_update(&state.db, &site_id, &request, &principal.username, today)
-            .await?,
+        infrastructure::ga_location_update(
+            &state.db,
+            &site_id,
+            &request,
+            &principal.username,
+            today,
+        )
+        .await?,
     ))
 }
 
@@ -1193,7 +1238,10 @@ pub fn routes(router: Router<AppState>) -> Router<AppState> {
         // client fetches first.
         .route("/api/v1/ga/asset-builds", get(asset_builds))
         .route("/api/v1/ga/assets", get(assets).post(register_asset))
-        .route("/api/v1/ga/assets/{asset_id}", get(asset).patch(update_asset))
+        .route(
+            "/api/v1/ga/assets/{asset_id}",
+            get(asset).patch(update_asset),
+        )
         .route(
             "/api/v1/ga/assets/{asset_id}/transfer",
             post(transfer_asset),
@@ -1203,10 +1251,7 @@ pub fn routes(router: Router<AppState>) -> Router<AppState> {
         // order, as with the builds above — a register and its vocabulary
         // arrive together.
         .route("/api/v1/ga/contract-types", get(contract_types))
-        .route(
-            "/api/v1/ga/contracts",
-            get(contracts).post(record_contract),
-        )
+        .route("/api/v1/ga/contracts", get(contracts).post(record_contract))
         .route(
             "/api/v1/ga/contracts/{contract_id}",
             get(contract).patch(update_contract),

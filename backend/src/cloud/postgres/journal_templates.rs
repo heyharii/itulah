@@ -120,7 +120,9 @@ pub async fn save_journal_template(
     actor: &str,
 ) -> Result<JournalTemplate, AppError> {
     if request.name.trim().is_empty() || request.lines.is_empty() {
-        return Err(AppError::Validation("a template has a name and at least one line".into()));
+        return Err(AppError::Validation(
+            "a template has a name and at least one line".into(),
+        ));
     }
     let id = request.template_id.unwrap_or_else(Uuid::new_v4);
     let row = sqlx::query(
@@ -162,9 +164,11 @@ const REPEAT_ROWS: &str = "
       FROM journal_repeat r JOIN journal_template t ON t.template_id = r.template_id";
 
 pub async fn journal_repeats(pool: &PgPool) -> Result<Vec<JournalRepeat>, AppError> {
-    let rows = sqlx::query(&format!("{REPEAT_ROWS} ORDER BY r.is_active DESC, r.next_date"))
-        .fetch_all(pool)
-        .await?;
+    let rows = sqlx::query(&format!(
+        "{REPEAT_ROWS} ORDER BY r.is_active DESC, r.next_date"
+    ))
+    .fetch_all(pool)
+    .await?;
     rows.iter().map(to_repeat).collect()
 }
 
@@ -175,7 +179,9 @@ pub async fn save_journal_repeat(
 ) -> Result<JournalRepeat, AppError> {
     let frequency = request.frequency.trim().to_ascii_uppercase();
     if !matches!(frequency.as_str(), "MONTHLY" | "QUARTERLY" | "YEARLY") {
-        return Err(AppError::Validation("a repeat is MONTHLY, QUARTERLY or YEARLY".into()));
+        return Err(AppError::Validation(
+            "a repeat is MONTHLY, QUARTERLY or YEARLY".into(),
+        ));
     }
     let id = request.repeat_id.unwrap_or_else(Uuid::new_v4);
     sqlx::query(

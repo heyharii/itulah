@@ -6,6 +6,7 @@ import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { ConfirmButton } from "@/components/ui/dialog"
+import { Fab } from "@/components/ui/fab"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { Meter } from "@/components/ui/meter"
 import { PageHeader } from "@/components/ui/page-header"
@@ -13,6 +14,7 @@ import { Pill } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { EmptyState } from "@/components/ui/states"
 import { count, day, money } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   describeSegment,
   memberKeys,
@@ -100,6 +102,9 @@ function tone(key: string) {
 }
 
 export function Segments() {
+  // On a phone New segment is the round plus in the drawer over the bottom bar,
+  // not a button at the top.
+  const phone = useLayout() === "phone"
   const book = useQuery({
     queryKey: memberKeys.segments(),
     queryFn: ({ signal }) => memberSegments(signal),
@@ -124,11 +129,15 @@ export function Segments() {
         title="Segments"
         sub="The directory grouped by how long since somebody last came in, worked out on every read."
         actions={
-          <Button variant="primary" onClick={() => editing.open("new")}>
-            New segment
-          </Button>
+          phone ? undefined : (
+            <Button variant="primary" onClick={() => editing.open("new")}>
+              New segment
+            </Button>
+          )
         }
       />
+
+      <Fab label="New segment" onClick={() => editing.open("new")} />
 
       {queryState(book, {
         loading: "Counting the directory…",

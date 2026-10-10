@@ -26,15 +26,15 @@ use super::employment::{caller_and_reach, current_unit, reach_of, resolve};
 use crate::cloud::{
     application::{AppError, AppState},
     domain::{
-        AttendanceMonth, Correction, CorrectionEffect, CorrectionId, DayApprovals, DayEvaluation,
-        DayOffset, EmployeeId, LeaveApproval, LeaveRef, MinuteOfDay, PunchDirection, PunchTime,
-        Reach, UnitId, actions, evaluate_day, required_role_for_action, role_allows,
+        actions, evaluate_day, required_role_for_action, role_allows, AttendanceMonth, Correction,
+        CorrectionEffect, CorrectionId, DayApprovals, DayEvaluation, DayOffset, EmployeeId,
+        LeaveApproval, LeaveRef, MinuteOfDay, PunchDirection, PunchTime, Reach, UnitId,
     },
     postgres::{self as infrastructure, CorrectionRow, PunchRow},
 };
 use axum::{
-    Extension, Json,
     extract::{Path, Query, State},
+    Extension, Json,
 };
 use chrono::{DateTime, NaiveDate, Timelike, Utc};
 use serde::{Deserialize, Serialize};
@@ -1120,9 +1120,9 @@ pub async fn read_punch_readiness(
 mod tests {
     use super::*;
     use crate::cloud::domain::{
-        AttendancePolicy, DayPlan, LeaveBacking, LeavePayment, LeavePeriod, LeaveRequest,
+        actions, AttendancePolicy, DayPlan, LeaveBacking, LeavePayment, LeavePeriod, LeaveRequest,
         LeaveRequestId, LeaveRequestState, LeaveRequestWire, LeaveType, LeaveTypeCode, Minutes,
-        PolicyId, PolicyLimits, PolicyVersion, RosterDay, Shift, ShiftId, actions,
+        PolicyId, PolicyLimits, PolicyVersion, RosterDay, Shift, ShiftId,
     };
     use chrono::TimeZone;
 
@@ -1241,21 +1241,17 @@ mod tests {
             .expect("scheduled day");
         assert_eq!(with_leave.outcomes().outcomes()[0].code(), "APPROVED_LEAVE");
 
-        assert!(
-            leave_approvals_for_day(&requests, "store-08", day.date())
-                .expect("unit mismatch")
-                .leave()
-                .is_none()
-        );
-        assert!(
-            leave_approvals_for_day(
-                &requests,
-                "store-07",
-                day.date() + chrono::Duration::days(1)
-            )
-            .expect("date mismatch")
+        assert!(leave_approvals_for_day(&requests, "store-08", day.date())
+            .expect("unit mismatch")
             .leave()
-            .is_none()
-        );
+            .is_none());
+        assert!(leave_approvals_for_day(
+            &requests,
+            "store-07",
+            day.date() + chrono::Duration::days(1)
+        )
+        .expect("date mismatch")
+        .leave()
+        .is_none());
     }
 }

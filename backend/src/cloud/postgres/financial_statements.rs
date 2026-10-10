@@ -569,7 +569,11 @@ pub async fn dimension_results(
 /// run, not what it pays for the goods it sells. Cost of sales is left out on
 /// purpose — it is the stock leaving, and it already has Sales by Division —
 /// and income tax is the result of the year rather than a cost anybody chose.
-const EXPENSE_SECTIONS: [&str; 3] = ["OPERATING_EXPENSE", "OTHER_OPERATING_EXPENSE", "OTHER_EXPENSE"];
+const EXPENSE_SECTIONS: [&str; 3] = [
+    "OPERATING_EXPENSE",
+    "OTHER_OPERATING_EXPENSE",
+    "OTHER_EXPENSE",
+];
 
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]

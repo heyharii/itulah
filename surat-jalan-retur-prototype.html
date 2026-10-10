@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Surat jalan retur — prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+/* ──────────────────────────────────────────────────────────────────────────
+   Surat Jalan Retur, laid out as Hari drew it (8 Oct 2026, paper sketch):
+
+     SURAT JALAN RETUR            Tgl : …
+     WIRA                         No PO : …
+     Kepada
+     Supplier, alamat, telp.
+     ┌ No │ Item (as the PO names it, no tags) ───────── │ Quantity ┐
+     │ 1  │ Nama item di PO                               │   2.470  │
+     │ 2  │ Not as Ordered / Item Unknown                 │     100  │
+     │    │                                      Total    │   2.570  │
+     Hormat kami,
+     ( name )  — Pengirim (Person in Charge)
+
+   Three places read the same lines: the PDF, the print, and the return's detail
+   sheet — one `foldLines` model behind them (same article from several returns
+   added; every unnamed piece on one row).
+
+   Two open points to pick, as switches below: who stands under "Hormat kami", and
+   whether the supplier gets a "Penerima" signature box (the sketch has none).
+   ────────────────────────────────────────────────────────────────────────── */
+:root{
+  --ink:#20242c; --text:#394150; --body:#566070; --mute:#666f7d; --faint:#b9c0c9;
+  --canvas:#fff; --soft:#f8f8f9; --soft-2:#f0f0f2; --soft-3:#f6f6f7;
+  --hairline:#e6e6e9; --hairline-2:#dadade;
+  --accent:#2563eb; --accent-ink:#2c57bf; --accent-bg:#eef3fe;
+  --warn-bg:#fdf1dd; --warn-fg:#b45309; --ok-bg:#e8f6ee; --ok-fg:#15803d;
+  --r-card:.75rem; --r-inner:.4375rem;
+  --out:cubic-bezier(.23,1,.32,1); --drawer:cubic-bezier(.32,.72,0,1);
+  --shadow-pop:0 4px 8px rgb(24 39 60/4%),0 12px 32px rgb(24 39 60/8%);
+  --shadow-float:0 2px 6px rgb(24 39 60/5%),0 24px 64px rgb(24 39 60/16%);
+}
+*{box-sizing:border-box}
+html{font-size:16px}
+body{margin:0;font-family:Inter,system-ui,sans-serif;font-size:15px;color:var(--text);background:var(--soft-3);-webkit-font-smoothing:antialiased;font-feature-settings:"cv11","ss01"}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;text-align:left;-webkit-tap-highlight-color:transparent}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:14px}
+.num{font-variant-numeric:tabular-nums}
+
+/* prototype chrome */
+.top{position:sticky;top:0;z-index:50;background:var(--canvas);border-bottom:1px solid var(--hairline)}
+.row1{display:flex;align-items:center;gap:20px;padding:0 24px;min-height:56px;flex-wrap:wrap}
+.row1 h1{margin:0;font-size:17px;font-weight:600;color:var(--ink);letter-spacing:-.01em;white-space:nowrap}
+.tabs{display:flex;gap:2px;flex:1;flex-wrap:wrap}
+.tabs button{height:56px;padding:0 14px;font-weight:500;color:var(--body);position:relative;white-space:nowrap;transition:color 150ms var(--out)}
+.tabs button b{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:6px;background:var(--soft-2);margin-right:8px;font-size:14px;font-weight:600}
+.tabs button.on{color:var(--ink)}
+.tabs button.on b{background:var(--ink);color:#fff}
+.tabs button.on::after{content:"";position:absolute;left:14px;right:14px;bottom:-1px;height:2px;background:var(--ink);border-radius:2px}
+@media (hover:hover){.tabs button:hover{color:var(--ink)}}
+.bar2{display:flex;align-items:center;gap:16px;padding:10px 24px;border-top:1px solid var(--hairline);background:var(--soft);flex-wrap:wrap}
+.seg{display:inline-flex;background:var(--soft-2);border-radius:9px;padding:3px;flex-wrap:wrap}
+.seg button{height:32px;padding:0 14px;border-radius:7px;font-weight:500;color:var(--body);transition:background 150ms var(--out),color 150ms var(--out)}
+.seg button.on{background:var(--canvas);color:var(--ink);box-shadow:0 0 0 1px var(--hairline),0 1px 2px rgb(0 0 0/6%)}
+.lbl{color:var(--mute);font-size:14px}
+.sw{display:inline-flex;align-items:center;gap:10px;height:32px;font-weight:500;color:var(--body)}
+.sw .t{width:36px;height:22px;border-radius:99px;background:#c6c6cc;position:relative;transition:background 180ms var(--out)}
+.sw .t::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgb(0 0 0/25%);transition:transform 180ms var(--out)}
+.sw.on .t{background:var(--accent)}
+.sw.on .t::after{transform:translateX(14px)}
+.grow{flex:1}
+.wrap{max-width:1280px;margin:0 auto;padding:24px}
+.lede{margin:0 0 4px;font-size:20px;font-weight:600;letter-spacing:-.015em;color:var(--ink)}
+.says{margin:0 0 18px;color:var(--body);max-width:60rem}
+
+/* the A4 page, same CSS as return-print.ts */
+.pages{display:flex;flex-direction:column;gap:20px;align-items:center}
+.sheetA4{width:210mm;height:297mm;background:#fff;box-shadow:0 0 0 1px var(--hairline-2),var(--shadow-pop);zoom:.78;overflow:hidden;position:relative;color:#1d1f1a;font-size:13px}
+.sheetA4 .pg{padding:14mm 16mm}
+.sheetA4 .muted{color:#5b6158}
+.sheetA4 .head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;border-bottom:2px solid #1d1f1a;padding-bottom:8px}
+.sheetA4 .company{font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+.sheetA4 h1{font-size:18px;letter-spacing:.04em;margin:0 0 6px}
+.sheetA4 .meta{border-collapse:collapse;flex-shrink:0}
+.sheetA4 .meta td{padding:1px 0;vertical-align:top;height:auto;border:0;background:none}
+.sheetA4 .meta td:first-child{color:#5b6158;padding-right:10px}
+.sheetA4 .meta td:last-child{font-weight:600;max-width:62mm}
+.sheetA4 .to{margin:14px 0 12px;display:grid;grid-template-columns:auto 1fr;gap:0 10px}
+.sheetA4 .label{color:#5b6158}
+.sheetA4 table.lines{width:100%;border-collapse:collapse;margin-top:6px;border:1px solid #1d1f1a}
+.sheetA4 table.lines th{text-align:left;font-weight:500;color:#5b6158;border:1px solid #1d1f1a;padding:7px 8px;height:auto;background:none;font-size:13px}
+.sheetA4 table.lines td{border:1px solid #1d1f1a;padding:9px 8px;vertical-align:top;height:auto;font-size:13px}
+.sheetA4 table.lines .num,.sheetA4 table.lines th.num{text-align:right;white-space:nowrap;width:130px}
+.sheetA4 .it{display:flex;gap:10px}
+.sheetA4 .it .no{width:18px;flex-shrink:0}
+.sheetA4 .it .sub{color:#5b6158}
+.sheetA4 table.lines tr.total td{font-weight:600;padding:9px 8px}
+.sheetA4 table.lines tr.total td:first-child{text-align:right}
+.sheetA4 .signrow{display:flex;justify-content:space-between;align-items:flex-start;margin-top:26px;gap:28px}
+.sheetA4 .sign{width:220px}
+.sheetA4 .sign .space{height:70px}
+.sheetA4 .sign .who{font-weight:600}
+.sheetA4 .sign .role{color:#5b6158}
+.sheetA4 .recv{width:250px;border:1px solid #1d1f1a;border-radius:4px;padding:10px 12px;height:170px;display:flex;flex-direction:column}
+.sheetA4 .recv .who{font-weight:600}
+.sheetA4 .recv .space{flex:1}
+.sheetA4 .recv .line{border-top:1px solid #1d1f1a;padding-top:4px;color:#5b6158}
+.sheetA4 .recv .two{display:grid;grid-template-columns:1.6fr 1fr;gap:16px;margin-top:26px}
+.sheetA4 .recv .two .line{margin-top:0}
+.sheetA4 .pageno{position:absolute;right:16mm;bottom:10mm;color:#5b6158;font-size:12px}
+.sheetA4 .cont{color:#5b6158;margin-top:10px}
+
+/* hub record sheet, rail */
+.stage{display:flex;justify-content:center}
+.rail{width:31rem;max-width:100%;background:var(--canvas);border-radius:var(--r-card);box-shadow:0 0 0 1px var(--hairline-2),var(--shadow-float);display:flex;flex-direction:column;overflow:hidden}
+.sh{display:flex;gap:12px;align-items:flex-start;padding:18px 12px 14px 24px;border-bottom:1px solid var(--hairline)}
+.sh .t{flex:1;min-width:0}
+.sh .id{display:block;color:var(--mute);margin-bottom:2px}
+.sh h3{margin:0;font-size:18px;font-weight:600;letter-spacing:-.015em;color:var(--ink);overflow-wrap:anywhere}
+.sh .badge{display:inline-flex;align-items:center;height:26px;padding:0 10px;border-radius:7px;background:var(--warn-bg);color:var(--warn-fg);font-size:14px;font-weight:500;margin-top:8px}
+.hbtns{display:flex;gap:8px;flex-shrink:0}
+.btn{height:36px;padding:0 14px;border-radius:var(--r-inner);box-shadow:inset 0 0 0 1px var(--hairline-2);background:var(--canvas);color:var(--ink);display:inline-flex;align-items:center;justify-content:center;font-weight:500;white-space:nowrap;transition:transform 160ms var(--out),background 150ms var(--out)}
+@media (hover:hover){.btn:hover{background:var(--soft)}}
+.btn:active{transform:scale(.97)}
+.x{width:44px;height:44px;border-radius:var(--r-inner);display:grid;place-items:center;color:var(--mute);flex-shrink:0;margin:-4px 0 0;font-size:20px}
+.sb{padding:20px 24px 24px;display:flex;flex-direction:column;gap:20px}
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:0}
+.facts dt{color:var(--mute);font-size:14px;margin-bottom:2px}
+.facts dd{margin:0;color:var(--ink);overflow-wrap:anywhere}
+.facts a{color:var(--accent);font-family:"JetBrains Mono",monospace;font-size:14px}
+h4{margin:0 0 10px;font-size:16px;font-weight:600;color:var(--ink)}
+.mini{width:100%;border-collapse:collapse;border-radius:var(--r-card);box-shadow:0 0 0 1px var(--hairline);overflow:clip}
+.mini th{height:44px;text-align:left;font-weight:500;color:var(--body);padding:0 12px 0 16px;font-size:14px;background:var(--soft)}
+.mini td{padding:14px 12px 14px 16px;border-top:1px solid var(--hairline);color:var(--ink);font-weight:500;line-height:1.35}
+.mini th.r,.mini td.r{text-align:right;padding-right:16px}
+.mini tr.tot td{border-top:1px solid var(--ink);font-weight:600}
+.fold{color:var(--mute);display:flex;align-items:center;gap:8px;height:44px;border-top:1px solid var(--hairline)}
+.fold small{background:var(--soft-2);border-radius:6px;padding:0 7px;font-size:14px}
+
+/* phone */
+.phonewrap{display:flex;justify-content:center}
+.phone{position:relative;width:414px;height:860px;background:var(--soft-3);border-radius:38px;box-shadow:0 0 0 10px #17181a,0 0 0 11px #3a3c3f,var(--shadow-float);overflow:hidden}
+.phone .behind{position:absolute;inset:0;background:var(--soft-3);padding:80px 23px}
+.phone .behind i{display:block;height:110px;border-radius:10px;background:var(--canvas);box-shadow:0 0 0 1px var(--hairline);margin-bottom:12px}
+.phone .veil{position:absolute;inset:0;background:rgb(32 36 44/.32)}
+.phone .drawer{position:absolute;left:0;right:0;bottom:0;max-height:92%;background:var(--canvas);border-radius:18px 18px 0 0;display:flex;flex-direction:column;box-shadow:var(--shadow-float);animation:up 320ms var(--drawer)}
+@keyframes up{from{transform:translateY(100%)}}
+.phone .drawer::before{content:"";display:block;width:40px;height:5px;border-radius:3px;background:var(--hairline-2);margin:8px auto 0;flex-shrink:0}
+.phone .drawer .sb{overflow-y:auto;padding-bottom:20px}
+.phone .foot{border-top:1px solid var(--hairline);padding:12px 16px 20px;display:flex;gap:8px;flex-shrink:0}
+.phone .foot .btn{flex:1;height:44px}
+.phone .sh .hbtns{display:none}
+.chipnote{color:var(--mute);font-size:14px;margin-top:10px;text-align:center}
+
+/* decision */
+.dec{display:grid;gap:20px}
+.card{background:var(--canvas);border-radius:var(--r-card);box-shadow:0 0 0 1px var(--hairline);padding:20px 24px}
+.card h3{margin:0 0 12px;font-size:17px;font-weight:600;color:var(--ink)}
+.rules{margin:0;padding-left:20px;display:grid;gap:8px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media (max-width:900px){.two{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){.phone .drawer{animation:none}}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="row1"><h1>Surat jalan retur</h1><nav class="tabs" id="tabs"></nav></div>
+  <div class="bar2" id="bar2"></div>
+</header>
+<main class="wrap" id="root"></main>
+<script>
+const fmt=n=>n.toLocaleString('id-ID');
+const SCEN={
+ typical:{name:'Typical',supplier:'Indorama, PT',address:'Jl. Industri Raya No. 12, Bandung',phone:'0812-3456-7890',pic:'Rina Kusuma',pos:['PO-021026-002'],rs:'RS-00000001',
+   items:[['Kemeja Oxford Lengan Panjang',2470]],unknown:100},
+ several:{name:'Several POs',supplier:'Indorama, PT',address:'Jl. Industri Raya No. 12, Bandung',phone:'0812-3456-7890',pic:'Rina Kusuma',pos:['PO-021026-002','PO-041026-005'],rs:'RS-00000001 · RS-00000003',
+   items:[['Kemeja Oxford Lengan Panjang',2480],['Kaos Polos Crew',3]],unknown:100},
+ long:{name:'Long names',supplier:'Indorama Sejahtera Tekstil Nusantara Raya, PT',address:'Jl. Industri Raya No. 12, Kawasan Industri Terpadu Bandung Selatan, Kabupaten Bandung, Jawa Barat 40000',phone:'0812-3456-7890, 022-5551234',pic:'Raden Ayu Kusumawardhani Prabaswari',pos:['PO-021026-002','PO-041026-005','PO-051026-011'],rs:'RS-00000001',
+   items:[['Kemeja Oxford Lengan Panjang Slim Fit Premium Cotton Twill Biru Dongker',2470],['Celana Chino Stretch Pria Regular',120]],unknown:100},
+ nocontact:{name:'No address / phone',supplier:'Garmen AA, UD',address:'',phone:'',pic:'',pos:['PO-051026-003'],rs:'RS-00000004',
+   items:[['Dress Midi Linen',60]],unknown:0},
+ many:{name:'40 items',supplier:'Indorama, PT',address:'Jl. Industri Raya No. 12, Bandung',phone:'0812-3456-7890',pic:'Rina Kusuma',pos:['PO-021026-002'],rs:'RS-00000001',
+   items:Array.from({length:40},(_,i)=>['Item nomor '+(i+1)+' dengan nama cukup panjang',10+i*3]),unknown:25},
+};
+let S={tab:'doc',sc:'typical',who:'pic',recv:false};
+const cur=()=>SCEN[S.sc];
+const total=c=>c.items.reduce((a,b)=>a+b[1],0)+c.unknown;
+const sender=c=>S.who==='pic'?(c.pic||'WIRA'):'WIRA';
+const rows=c=>[...c.items,...(c.unknown>0?[['Not as Ordered',c.unknown,'Item Unknown']]:[])];
+
+function note(c){
+  const all=rows(c);const first=22,next=20;
+  const pages=[];let i=0;pages.push(all.slice(0,first));i=first;while(i<all.length){pages.push(all.slice(i,i+next));i+=next}
+  const lastTable=pages.length-1;
+  return pages.map((pr,pi)=>{
+    const start=pi===0?0:first+(pi-1)*next;
+    const last=pi===pages.length-1;
+    const head=pi===0?`<div class="head"><div><h1>SURAT JALAN RETUR</h1><div class="company">WIRA</div><div class="muted">Jl K.H. Mas Mansyur No 38 C-D</div></div>
+      <table class="meta"><tr><td>Tgl</td><td>: 08 Oct 2026</td></tr><tr><td>No PO</td><td>: ${c.pos.join(', ')}</td></tr></table></div>
+      <div class="to"><div class="label">Kepada :</div><div><div><strong>${c.supplier}</strong></div>${c.address?`<div>${c.address}</div>`:''}${c.phone?`<div>Telp. ${c.phone}</div>`:''}</div></div>`
+      :`<div class="cont">SURAT JALAN RETUR · ${c.pos.join(', ')} · lanjutan</div>`;
+    const body=pr.map((r,k)=>`<tr><td><div class="it"><span class="no">${start+k+1}</span><div>${r[0]}${r[2]?`<div class="sub">${r[2]}</div>`:''}</div></div></td><td class="num">${fmt(r[1])}</td></tr>`).join('');
+    const tot=last?`<tr class="total"><td>Total</td><td class="num">${fmt(total(c))}</td></tr>`:'';
+    const sign=last?`<div class="signrow"><div class="sign"><div>Hormat kami,</div><div class="space"></div><div class="who">( ${sender(c)} )</div><div class="role">Pengirim</div></div>
+      ${S.recv?`<div class="recv"><div class="who">${c.supplier}</div><div class="space"></div><div class="line">Tanda tangan &amp; cap penerima</div><div class="two"><div class="line">Nama</div><div class="line">Tgl</div></div></div>`:''}</div>`:'';
+    return `<div class="sheetA4"><div class="pg">${head}
+      <table class="lines"><thead><tr><th>Item</th><th class="num">Quantity</th></tr></thead><tbody>${body}${tot}</tbody></table>${sign}</div>
+      <div class="pageno">${pi+1} / ${pages.length}</div></div>`;
+  }).join('');
+}
+
+function sheetInner(c,phone){
+  const rowsH=c.items.map(r=>`<tr><td>${r[0]}</td><td class="r num">${fmt(r[1])}</td></tr>`).join('')+(c.unknown>0?`<tr><td>Not as Ordered<span style="display:block;color:var(--mute);font-weight:400">Item Unknown</span></td><td class="r num">${fmt(c.unknown)}</td></tr>`:'');
+  return `<div class="sh"><div class="t"><span class="id mono">${c.rs.split(' ')[0]}</span><h3>${c.supplier}</h3><span class="badge">Over Delivery</span></div>
+    <div class="hbtns"><button class="btn">Print</button><button class="btn">Download</button></div><button class="x" aria-label="Close">×</button></div>
+    <div class="sb"><dl class="facts"><div><dt>Person in Charge</dt><dd>${c.pic||'—'}</dd></div><div><dt>PO</dt><dd>${c.pos.map(p=>`<a>${p}</a>`).join('<br>')}</dd></div></dl>
+    <div><h4>Items</h4><table class="mini"><thead><tr><th>Item</th><th class="r">Quantity</th></tr></thead><tbody>${rowsH}<tr class="tot"><td>Total</td><td class="r num">${fmt(total(c))}</td></tr></tbody></table></div>
+    <div class="fold">› Activity <small>2</small></div></div>`;
+}
+
+const TXT={
+ doc:['PDF and print','The same page for both. Item names as the PO names them — no colour, size or tag — one row for every unnamed piece, then Total. Quantities of the same article from several returns are added. Switch the scenarios for several POs, long names, no contact and a second page.'],
+ sheet:['Return detail sheet — desk','Opens from Return PO. Print and Download stay at the head for now (the sheet kit moves them to the foot). The table is the note’s table: Item and Quantity, no SKU column, no tag chips, Value only on a return that has a price.'],
+ phone:['Return detail sheet — phone 414','Same rows in the bottom drawer; Print and Download move to the footer, 44px, as every phone sheet does.'],
+};
+function chrome(){
+  document.getElementById('tabs').innerHTML=[['doc','1','PDF / print'],['sheet','2','Sheet · desk'],['phone','3','Sheet · phone 414'],['dec','4','Decision']].map(([k,n,l])=>`<button class="${S.tab===k?'on':''}" data-tab="${k}"><b>${n}</b>${l}</button>`).join('');
+  document.getElementById('bar2').innerHTML=S.tab==='dec'?'':`
+    <span class="lbl">Example</span><div class="seg">${Object.keys(SCEN).map(k=>`<button class="${S.sc===k?'on':''}" data-sc="${k}">${SCEN[k].name}</button>`).join('')}</div>
+    ${S.tab==='doc'?`<span class="lbl">Under “Hormat kami”</span><div class="seg"><button class="${S.who==='pic'?'on':''}" data-who="pic">Person in Charge</button><button class="${S.who==='co'?'on':''}" data-who="co">WIRA</button></div>
+    <button class="sw ${S.recv?'on':''}" data-sw="recv" role="switch" aria-checked="${S.recv}"><span class="t"></span>Penerima box</button>`:''}`;
+}
+function stage(){
+  const c=cur(),root=document.getElementById('root');
+  if(S.tab==='dec'){root.innerHTML=decision();return}
+  const [t,s]=TXT[S.tab];
+  let body;
+  if(S.tab==='doc')body=`<div class="pages">${note(c)}</div>`;
+  else if(S.tab==='sheet')body=`<div class="stage"><div class="rail">${sheetInner(c)}</div></div>`;
+  else body=`<div class="phonewrap"><div class="phone"><div class="behind"><i></i><i></i><i></i><i></i></div><div class="veil"></div>
+      <div class="drawer">${sheetInner(c,true)}<div class="foot"><button class="btn">Print</button><button class="btn">Download</button></div></div></div></div>`;
+  root.innerHTML=`<p class="lede">${t}</p><p class="says">${s}</p>${body}`;
+}
+function decision(){return `<div class="dec">
+  <div class="card"><h3>What the sketch fixes</h3><ul class="rules">
+   <li>One flat table per supplier: Item as the PO names it, Quantity, then Total. No SKU, tag, subtotal per return, or “Total Items”.</li>
+   <li>Pieces nobody can name sit on one row, two lines as drawn — “Not as Ordered” and under it “Item Unknown” — and are counted in the Total.</li>
+   <li>The table is boxed, Item | Quantity, with the row number inside the Item cell; Kepada is written on the line of the supplier’s name.</li>
+   <li>Header carries Tgl and No PO (every PO on the note, comma-separated); Kepada carries the supplier’s address and telephone from the supplier book.</li></ul></div>
+  <div class="two"><div class="card"><h3>Open point 1 · who is under “Hormat kami”</h3><ul class="rules">
+   <li><b>Person in Charge</b> (built): the Gudang’s person who sends the goods, “Pengirim” under the name; WIRA when none was named.</li>
+   <li><b>WIRA</b>: the company signs, as in the first reading of the sketch.</li></ul></div>
+  <div class="card"><h3>Open point 2 · the supplier’s own box</h3><ul class="rules">
+   <li><b>Without</b> (built, as drawn): one signature, ours.</li>
+   <li><b>With “Penerima”</b>: the supplier signs, names themselves and dates it on the same page — the proof the goods left in these quantities. The old note had it.</li></ul></div></div>
+  <div class="card"><h3>Built in the app (uncommitted)</h3><ul class="rules">
+   <li>Print, PDF and the return sheet already read this layout (<span class="mono">return-print.ts</span>, <span class="mono">return-pdf.ts</span>, <span class="mono">supplier-returns.tsx</span>); this page is the same layout for you to pick the two points above.</li></ul></div></div>`}
+document.addEventListener('click',e=>{
+  const t=e.target.closest('[data-tab],[data-sc],[data-who],[data-sw]');if(!t)return;
+  if(t.dataset.tab)S.tab=t.dataset.tab;
+  if(t.dataset.sc)S.sc=t.dataset.sc;
+  if(t.dataset.who)S.who=t.dataset.who;
+  if(t.dataset.sw)S[t.dataset.sw]=!S[t.dataset.sw];
+  chrome();stage();
+});
+chrome();stage();
+</script>
+</body>
+</html>

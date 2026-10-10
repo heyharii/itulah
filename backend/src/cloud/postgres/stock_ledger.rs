@@ -701,9 +701,7 @@ fn outflow_posting(event_kind: &str) -> Option<(&'static str, &'static str, &'st
         // Damage and disposal are an expense of the goods themselves (owner
         // decision 8, stage 5): Dr 6011 Biaya Kerusakan Persediaan / Cr 1029.
         // A stock-count shortfall (LOSS) stays on 8007.
-        "WRITE_OFF" | "DISPOSAL" => {
-            Some(("INVENTORY_WRITE_OFF", "inventory_damage", "WRITE_OFF"))
-        }
+        "WRITE_OFF" | "DISPOSAL" => Some(("INVENTORY_WRITE_OFF", "inventory_damage", "WRITE_OFF")),
         // Goods going BACK to the vendor are not a cost of goods sold. The
         // debit belongs on the payable, whichever of the three ways the return
         // settles: a refund pays that debit off with cash, a debt reduction IS
@@ -1701,7 +1699,9 @@ pub async fn cost_pending_true_up(
     };
     for row in &pending {
         let flag_id: Uuid = row.try_get("flag_id")?;
-        let site_id: String = row.try_get::<Option<String>, _>("site_id")?.unwrap_or_default();
+        let site_id: String = row
+            .try_get::<Option<String>, _>("site_id")?
+            .unwrap_or_default();
         let quantity: i64 = row.try_get("quantity")?;
         let provisional: i64 = row.try_get("provisional_minor")?;
         let pool_id: String = sqlx::query_scalar(
@@ -1840,8 +1840,16 @@ pub async fn stock_transfer_post_pending(pool: &PgPool, actor: &str) -> Result<i
             continue;
         }
         for (stage, done, already) in [
-            ("DISPATCH", row.try_get::<i64, _>("dispatched")?, row.try_get::<i64, _>("booked_dispatch")?),
-            ("RECEIPT", row.try_get::<i64, _>("received")?, row.try_get::<i64, _>("booked_receipt")?),
+            (
+                "DISPATCH",
+                row.try_get::<i64, _>("dispatched")?,
+                row.try_get::<i64, _>("booked_dispatch")?,
+            ),
+            (
+                "RECEIPT",
+                row.try_get::<i64, _>("received")?,
+                row.try_get::<i64, _>("booked_receipt")?,
+            ),
         ] {
             let delta = done - already;
             if delta <= 0 {
@@ -2021,13 +2029,13 @@ pub async fn article_is_supply(
     tx: &mut Transaction<'_, Postgres>,
     article_id: Uuid,
 ) -> Result<bool, AppError> {
-    Ok(sqlx::query_scalar::<_, bool>(
-        "SELECT is_customer_supply FROM article WHERE id = $1",
+    Ok(
+        sqlx::query_scalar::<_, bool>("SELECT is_customer_supply FROM article WHERE id = $1")
+            .bind(article_id)
+            .fetch_optional(&mut **tx)
+            .await?
+            .unwrap_or(false),
     )
-    .bind(article_id)
-    .fetch_optional(&mut **tx)
-    .await?
-    .unwrap_or(false))
 }
 
 /// Raise a MULTI_COST flag once for an article whose remaining layers carry

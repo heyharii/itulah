@@ -1,9 +1,12 @@
+import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query"
+
 import { node } from "@/lib/api"
 import type { Filter } from "@/lib/filters"
 import type {
   AllotmentCloseShortRequest,
   ArticleHistory,
   MovementCause,
+  UnfilledLine,
   UnfilledList,
 } from "@itulah/contract"
 
@@ -866,6 +869,8 @@ export interface AllotmentRow extends AllotmentStages, FulfillmentStages {
   readonly destination_names?: readonly string[]
   readonly type: AllotmentType
   readonly status: AllotmentStatus
+  /// When MD cancelled it (10 Oct 2026); null for anything else.
+  readonly cancelled_at?: string | null
   /// The V1 status (§8) — Active · Completed · Closed. The only status the
   /// UI contract may show (§8); `status` above is the legacy field.
   readonly fulfillment_status: FulfillmentStatus
@@ -1037,6 +1042,16 @@ export interface AllotmentLine {
   /// rather than reconciled: the two numbers coming apart is the finding.
   readonly received_projection_consistent: boolean
   readonly received_breakdown: readonly ReceivedUnit[]
+  /// What has left the warehouse on this line, in pieces: on a delivery note
+  /// or beyond. The floor an edit cannot take the line under. Optional until
+  /// every cloud answers it (outbound cancel / edit, 9 Oct 2026).
+  readonly sent_quantity?: number
+  /// What MD wants the line to be now, net of edits and closes: `quantity`
+  /// less what MD took out, plus what MD added. The "Was" an edit shows.
+  readonly target_quantity?: number
+  /// Pieces MD took out that still sit in an unsent carton, waiting for the
+  /// warehouse to move them back.
+  readonly takeout_pending_quantity?: number
 }
 
 export type AllotmentEventType =
@@ -1085,6 +1100,17 @@ export interface AllotmentCancellation {
   readonly blocked_picked_quantity: number | null
 }
 
+/// One edit or cancel MD made on an allotment (`allotment_amendment`, 0938).
+/// The detail may carry them, oldest first or newest first — read by date.
+export interface AllotmentAmendment {
+  readonly id: string
+  readonly kind: "REDUCE" | "ADD" | "CANCEL"
+  readonly allotment_line_id?: string
+  readonly reason: string | null
+  readonly actor_id: string
+  readonly created_at: string
+}
+
 export interface AllotmentDetail extends AllotmentStages, FulfillmentStages {
   readonly id: string
   readonly allotment_number: string
@@ -1114,6 +1140,22 @@ export interface AllotmentDetail extends AllotmentStages, FulfillmentStages {
   readonly remaining_allotted: number
   readonly lines: readonly AllotmentLine[]
   readonly events: readonly AllotmentEvent[]
+  /// MD's edits and cancels, when the cloud lists them (absent from one that
+  /// does not): who, why and when behind "Cancelled" and "300 → 250".
+  readonly amendments?: readonly AllotmentAmendment[]
+  /// The warehouse saying it has seen MD's changes, one per store (10 Oct 2026:
+  /// "Got it" on the board). Absent from a cloud that does not list them.
+  readonly acknowledgements?: readonly {
+    readonly destination_id: string
+    readonly by: string
+    readonly at: string
+  }[]
+  /// The warehouse moving pieces back off MD's change (Move back), and when.
+  readonly move_backs?: readonly {
+    readonly by: string
+    readonly at: string
+    readonly pieces: number
+  }[]
   /// The true ledger effect. An edge-owned allotment can have a full set of
   /// stage counters and an empty array here, because the physical facts live
   /// on the DC node.
@@ -1182,6 +1224,39 @@ export interface CancelAllotmentResult {
   readonly requested_cancellation_quantity?: number
   readonly blocked_picked_quantity?: number | null
   readonly remaining_quantity: number
+  /// A cloud-owned cancel (outbound cancel / edit, 9 Oct 2026): what was
+  /// released at once, and what the warehouse now has to move back — picked
+  /// pieces back to the racks, packed pieces out of their cartons.
+  readonly released_total?: number
+  readonly owed_total?: number
+  readonly owed_picked?: number
+  readonly owed_packed?: number
+}
+
+/// The reasons MD gives when an allotment is cancelled or edited. One word
+/// each; the dialog asks for one when cancelling, an edit takes one or none.
+export const ALLOTMENT_CHANGE_REASONS = [
+  "Wrong quantity",
+  "Wrong store",
+  "Stock problem",
+  "Supplier",
+  "Other",
+] as const
+
+/// A line of the Still needed list: `UnfilledLine` plus what the outbound
+/// board work (9 Oct 2026) adds to it — the target, what has gone, and why the
+/// picker could not finish. Optional while the cloud lands.
+export type StillNeededLine = UnfilledLine & {
+  /// What MD wants the store to get, net.
+  readonly target?: number
+  /// Already sent: on a delivery note or beyond.
+  readonly sent?: number
+  /// A `ShortReason` code, when a picker reported one.
+  readonly short_reason?: string | null
+}
+
+export type StillNeededList = Omit<UnfilledList, "open"> & {
+  readonly open: readonly StillNeededLine[]
 }
 
 export interface ExecuteAllotmentResult {
@@ -1402,24 +1477,6 @@ export interface Observation {
   readonly antenna: string | null
 }
 
-/// The books and the reader disagree about where something is.
-///
-/// `automatic_inventory_effect` is a hardcoded `false`, and that is the load-
-/// bearing claim of the whole observation surface: a sighting is evidence, not
-/// a movement. The ledger is never silently corrected — somebody has to post a
-/// placement correction, which is why the two screens sit next to each other.
-export interface ObservationAnomaly {
-  readonly type: "PLACEMENT_MISMATCH"
-  readonly subject_id: string
-  readonly epc: string
-  readonly ledger_pool: string
-  readonly observed_pool: string
-  readonly quantity: number
-  readonly last_observed_at: string
-  readonly device_id: string
-  readonly automatic_inventory_effect: false
-}
-
 export interface RfidRead {
   readonly epc: string
   readonly antenna: string | null
@@ -1496,6 +1553,10 @@ export const inventoryKeys = {
     ["inventory", "allotments", "list", type, status] as const,
   allotment: (id: string) => ["inventory", "allotments", "detail", id] as const,
   allotmentsUnfilled: () => ["inventory", "allotments", "unfilled"] as const,
+  /// What a cancel would cost, by stage — under the allotments prefix, so an
+  /// edit or a cancel that invalidates the book drops it too.
+  allotmentWork: (id: string) =>
+    ["inventory", "allotments", "work", id] as const,
   allotmentsByStore: (storeId: string) =>
     ["inventory", "allotments", "by-store", storeId] as const,
   allotmentsByArticle: (destinationId: string) =>
@@ -1514,7 +1575,6 @@ export const inventoryKeys = {
 
   observations: (scope: SightingScope) =>
     ["inventory", "observations", scope] as const,
-  anomalies: () => ["inventory", "observation-anomalies"] as const,
 
   missing: (scope?: MissingScope) =>
     scope === undefined
@@ -1574,6 +1634,14 @@ export function fleetPools(signal?: AbortSignal) {
   return node.get<FleetPoolList>("/api/v1/inventory/fleet-pools", { signal })
 }
 
+/// The fleet read as a query: what every screen that names a pool asks first,
+/// and what the prefetcher asks for (`screens/inventory/prefetch.ts`).
+export const fleetPoolsQuery = () =>
+  queryOptions({
+    queryKey: inventoryKeys.fleet(),
+    queryFn: ({ signal }) => fleetPools(signal),
+  })
+
 export function poolDetail(id: string, signal?: AbortSignal) {
   return node.get<PoolDetail>(
     `/api/v1/inventory/pools/${encodeURIComponent(id)}`,
@@ -1623,6 +1691,33 @@ export function availability(
     { signal }
   )
 }
+
+/// The shelf the On Hand & Shortfall screen opens on.
+export const AVAILABILITY_OPENING_POOL = "dc.warehouse"
+
+/// One pool's availability a page at a time, as the screen holds it. Shared
+/// with the prefetcher, so the key and the cursor walk cannot drift.
+export const availabilityQuery = (
+  poolId: string,
+  needle: string,
+  shortfall: boolean
+) =>
+  infiniteQueryOptions({
+    queryKey: inventoryKeys.availability(poolId, needle, shortfall),
+    queryFn: ({ pageParam, signal }) =>
+      availability(
+        {
+          sourcePoolId: poolId,
+          query: needle,
+          shortfall,
+          cursor: pageParam,
+        },
+        signal
+      ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    placeholderData: (previous) => previous,
+  })
 
 /// The whole pool, not the first page of it.
 ///
@@ -1699,6 +1794,14 @@ export function listAllotments(
   )
 }
 
+/// The allotment book under a type and a status, as a query. Stock reads the
+/// whole book (`""`, `""`) for the road card, and so does its prefetcher.
+export const allotmentListQuery = (type: string, status: string) =>
+  queryOptions({
+    queryKey: inventoryKeys.allotmentList(type, status),
+    queryFn: ({ signal }) => listAllotments(type, status, signal),
+  })
+
 /// Every allotment that is over: received, and the ones closed short or
 /// cancelled, which the server only returns under `CANCELLED`. Two reads
 /// merged newest first, so a screen shows one list.
@@ -1732,7 +1835,7 @@ export function allotmentsByPool(poolId: string, signal?: AbortSignal) {
   )
 }
 
-/// Lines the Gudang cannot fill after the count, and the ones already closed
+/// Lines the warehouse cannot fill after the count, and the ones already closed
 /// short. Every open row is actionable: the server lists a line only once the
 /// RFID count has booked its pieces Missing.
 export function allotmentsUnfilled(signal?: AbortSignal) {
@@ -1801,6 +1904,14 @@ export function listCounts(signal?: AbortSignal): Promise<CountBoard> {
     }))
 }
 
+/// The count board as a query (Stock's cards and the Pools table's "last
+/// counted" column), shared with the prefetcher.
+export const countsBoardQuery = () =>
+  queryOptions({
+    queryKey: inventoryKeys.counts(),
+    queryFn: ({ signal }) => listCounts(signal),
+  })
+
 /// What the count book can be asked for.
 ///
 /// Every field is a parameter `GET /api/v1/inventory/counts` answers.
@@ -1859,6 +1970,25 @@ export function countsPage(scope: CountBookScope, signal?: AbortSignal) {
     { signal }
   )
 }
+
+/// The count book as the Counts screen opens: every status, no chips, the
+/// deepest shortage first (its `SORTS.difference`, ascending). The prefetcher
+/// asks this; if the screen's default sort moves, this moves with it.
+export const COUNTS_OPENING_SCOPE: CountBookScope = {
+  sort: "variance",
+  desc: false,
+}
+
+/// The count book a page at a time, under the question the screen built.
+export const countsBookQuery = (scope: CountBookScope) =>
+  infiniteQueryOptions({
+    queryKey: inventoryKeys.countsScoped(scope),
+    queryFn: ({ pageParam, signal }) =>
+      countsPage({ ...scope, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    placeholderData: (previous) => previous,
+  })
 
 export function countDetail(id: string, signal?: AbortSignal) {
   return node.get<CountDetail>(`/api/v1/inventory/counts/${id}`, { signal })
@@ -2025,6 +2155,19 @@ export function movementsPage(scope: MovementScope, signal?: AbortSignal) {
   )
 }
 
+/// The ledger a page at a time, under the question the screen built.
+export const movementsLedgerQuery = (scope: MovementScope) =>
+  infiniteQueryOptions({
+    queryKey: inventoryKeys.movements(scope),
+    queryFn: ({ pageParam, signal }) =>
+      movementsPage({ ...scope, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    // The previous answer stays on screen while the next is fetched. Without
+    // it every keystroke empties the table to a loading line.
+    placeholderData: (previous) => previous,
+  })
+
 /// The whole history of one article, newest first, in one answer — ordered,
 /// allotted, and every movement of its SKUs. No paging: an article is bought
 /// once, so it is short.
@@ -2042,13 +2185,13 @@ export function articleHistory(articleCode: string, signal?: AbortSignal) {
 /// dressed up as an answer. The server clamps anything above 500.
 export const MOVEMENTS_LIMIT = 100
 
-export function observationAnomalies(signal?: AbortSignal) {
-  return node
-    .get<{ items: ObservationAnomaly[] }>(
-      "/api/v1/inventory/observation-anomalies",
-      { signal }
-    )
-    .then((body) => body.items)
+/// The ledger as the Movements screen opens: no chips, newest first. `desc` is
+/// false because the server's house order on `occurred_at` is already newest
+/// first (see `movements.tsx`, where the scope is built from the sort state).
+export const MOVEMENTS_OPENING_SCOPE: MovementScope = {
+  sort: "occurred_at",
+  desc: false,
+  limit: MOVEMENTS_LIMIT,
 }
 
 /// What the missing list can be asked for — every parameter
@@ -2186,6 +2329,14 @@ export function createAllotment(request: CreateAllotmentRequest) {
     "/api/v1/inventory/allotments",
     request
   )
+}
+
+export function createAllotmentBatch(items: readonly CreateAllotmentRequest[]) {
+  return node.post<{
+    items: CreateAllotmentResult[]
+    failed_index: number | null
+    problem: string | null
+  }>("/api/v1/inventory/allotments/batch", { items })
 }
 
 /// Release what is still reserved — whole-allotment, never per line. On a

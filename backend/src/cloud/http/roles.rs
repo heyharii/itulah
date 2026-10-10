@@ -55,5 +55,7 @@ pub async fn delete(
 ) -> Result<Json<Value>, AppError> {
     require_admin(&principal)?;
     infrastructure::delete_job_role(&state.db, &code).await?;
-    Ok(Json(json!({ "code": code.trim().to_ascii_uppercase(), "deleted": true })))
+    Ok(Json(
+        json!({ "code": code.trim().to_ascii_uppercase(), "deleted": true }),
+    ))
 }

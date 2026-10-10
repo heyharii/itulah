@@ -24,6 +24,7 @@ import type {
   Rule,
   RuleStatus,
 } from "@itulah/contract"
+import { infiniteQueryOptions } from "@tanstack/react-query"
 
 import type { Filter } from "@/lib/filters"
 
@@ -1049,7 +1050,7 @@ export async function promotionCatalogue(
 /// are de-duplicated in SQL — newest publication wins per `campaign_id`, the
 /// rule `load_campaigns` applies in `pricing.rs` — so a caller gets one row per
 /// campaign and never has to decide which of four books is the live statement
-/// of the Lebaran sale.
+/// of the Eid sale.
 ///
 /// It exists because the presentation half of a campaign — banner, headline,
 /// small print — is only in the BOOK. The performance report knows what a
@@ -1375,6 +1376,48 @@ export async function offerCounts(
   return new Map(page.facets.campaigns.map((one) => [one.value, one.count]))
 }
 
+/// How many rows one page of Promotions, or of Campaigns, asks for.
+export const PROMOTION_PAGE = 100
+export const CAMPAIGN_PAGE = 100
+
+/// The Promotions list, a page at a time. The screen and its prefetcher
+/// (`screens/commercial/prefetch.ts`) both ask through this, so the key and the
+/// request cannot drift apart.
+export const promotionPagesQuery = (scope: PromotionListScope) =>
+  infiniteQueryOptions({
+    queryKey: commercialKeys.rules(scope),
+    queryFn: ({ signal, pageParam }) =>
+      promotionPage(
+        {
+          ...scope,
+          limit: PROMOTION_PAGE,
+          ...(pageParam === undefined ? {} : { cursor: pageParam }),
+        },
+        signal
+      ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    placeholderData: (previous) => previous,
+  })
+
+/// The Campaigns list, a page at a time; shared the same way.
+export const campaignPagesQuery = (scope: CampaignListScope) =>
+  infiniteQueryOptions({
+    queryKey: commercialKeys.campaignPages(scope),
+    queryFn: ({ signal, pageParam }) =>
+      campaignPage(
+        {
+          ...scope,
+          limit: CAMPAIGN_PAGE,
+          ...(pageParam === undefined ? {} : { cursor: pageParam }),
+        },
+        signal
+      ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    placeholderData: (previous) => previous,
+  })
+
 // ── writes ─────────────────────────────────────────────────────────────────
 
 /// Write the book. It is a DRAFT until somebody publishes it.
@@ -1532,7 +1575,7 @@ export function setRuleStatus(
 
 /// The same switch, one level up. Pausing a campaign pauses every rule inside
 /// it — a rule is live only when both it and its campaign are — which is what
-/// somebody means by "stop the Lebaran promo", and is the reason this exists
+/// somebody means by "stop the Eid promo", and is the reason this exists
 /// rather than six visits to `setRuleStatus`.
 ///
 /// **It no longer publishes a book.** It used to, because the node had no
@@ -1982,6 +2025,21 @@ export function priceScopeFromFilters(
   return scope
 }
 
+/// The pricelist, a page at a time, as of now. Shared by the Pricelist screen
+/// and its prefetcher so the key and the request cannot drift apart.
+export const articlePricesPagesQuery = (
+  channel: CommercialChannel,
+  scope: ArticlePriceScope
+) =>
+  infiniteQueryOptions({
+    queryKey: commercialKeys.articlePrices(channel, null, scope),
+    queryFn: ({ pageParam, signal }) =>
+      articlePrices({ channel, cursor: pageParam, ...scope }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    placeholderData: (previous) => previous,
+  })
+
 /// A sellable thing, for the pickers that author prices and promotions.
 export interface CommercialProduct {
   readonly sku_id: string
@@ -2056,9 +2114,9 @@ export interface CampaignIntent {
   /// The campaign this one is read against — a CAMPAIGN, not a period.
   ///
   /// "Versus the previous thirty days" is the wrong question for the campaigns
-  /// this shop runs: Lebaran moves about eleven days earlier each year, so the
+  /// this shop runs: Eid moves about eleven days earlier each year, so the
   /// month before it is ordinary trading and the same dates last year were not
-  /// Lebaran. Which Lebaran is the precedent for this one is a judgement, and
+  /// Eid. Which Eid is the precedent for this one is a judgement, and
   /// this is where it is recorded.
   readonly baseline_campaign_id: string | null
   readonly notes: string | null

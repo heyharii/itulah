@@ -169,6 +169,80 @@ fn version_of(value: &Value) -> i64 {
 
 // ---------------------------------------------------------------------------
 
+/// The list counts and its usage facets must agree with the underlying goods,
+/// including terms nobody has used. Sizes count SKUs; tags count articles.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn master_list_usage_matches_goods_for_each_vocabulary(pool: PgPool) {
+    ok(
+        &pool,
+        "POST",
+        "/api/v1/vocabulary/tags",
+        &[("idempotency-key", "usage-tag")],
+        Some(json!({ "code": "TEST_USAGE", "label": "Usage fixture" })),
+    )
+    .await;
+    sqlx::query(
+        "INSERT INTO article_tag (article_id, tag_code)
+         SELECT id, 'TEST_USAGE' FROM article ORDER BY article_code LIMIT 2",
+    )
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("tag two articles: {error}"));
+    for (kind, count_sql) in [
+        (
+            "divisions",
+            "SELECT count(*) FROM article WHERE division_code = $1",
+        ),
+        ("sizes", "SELECT count(*) FROM sku WHERE size_code = $1"),
+        (
+            "tags",
+            "SELECT count(DISTINCT article_id) FROM article_tag WHERE tag_code = $1",
+        ),
+    ] {
+        let list = ok(
+            &pool,
+            "GET",
+            &format!("/api/v1/vocabulary/{kind}?sort=in_use&dir=desc"),
+            &[],
+            None,
+        )
+        .await;
+        let rows = list["terms"]
+            .as_array()
+            .unwrap_or_else(|| panic!("no master terms: {list}"));
+        assert!(!rows.is_empty(), "seed supplies {kind}");
+        let mut used = 0;
+        let mut previous = i64::MAX;
+        for row in rows {
+            let expected: i64 = sqlx::query_scalar(count_sql)
+                .bind(
+                    row["code"]
+                        .as_str()
+                        .unwrap_or_else(|| panic!("no term code: {row}")),
+                )
+                .fetch_one(&pool)
+                .await
+                .unwrap_or_else(|error| panic!("usage in goods: {error}"));
+            assert_eq!(row["in_use"], expected, "{kind} usage: {row}");
+            assert!(expected <= previous, "usage sort: {list}");
+            previous = expected;
+            used += i64::from(expected > 0);
+        }
+        assert_eq!(list["total"], rows.len() as i64);
+        let facets = list["facets"]["usage"]
+            .as_array()
+            .unwrap_or_else(|| panic!("no usage facets: {list}"));
+        for (value, expected) in [("IN_USE", used), ("UNUSED", rows.len() as i64 - used)] {
+            let actual = facets
+                .iter()
+                .find(|facet| facet["value"] == value)
+                .and_then(|facet| facet["count"].as_i64())
+                .unwrap_or(0);
+            assert_eq!(actual, expected, "{kind} facet {value}: {list}");
+        }
+    }
+}
+
 /// A size is a position in a code, not a word.
 ///
 /// `03` is M on every article in the company, and the last two characters of an

@@ -3,9 +3,11 @@ import { ListFilter, Plus } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Fab } from "@/components/ui/fab"
 import { Input } from "@/components/ui/field"
 import { ChoiceMenu } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
@@ -14,6 +16,7 @@ import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { EmptyState, LoadMore } from "@/components/ui/states"
 import { buildOf, BUILDS, BUILD_VIEWS } from "@/lib/builds"
 import { count } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { gaKeys, gaAssets } from "@/lib/queries/ga"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
@@ -22,6 +25,13 @@ import { cn } from "@/lib/utils"
 import { AssetHubSheet, gaStatusWords } from "@/screens/assets/hub"
 import { RegisterAssetSheet } from "@/screens/assets/register"
 import { DisposalSheet, ReplacementSheet } from "@/screens/maintenance/hub"
+import {
+  CardName,
+  type CardSpec,
+  DESK_BAR,
+  PhoneCards,
+} from "@/components/ui/phone-cards"
+import { FilterSheet } from "@/components/ui/filter-sheet"
 import type { GaAssetRow } from "@itulah/contract"
 
 /// Assets — the things the company owns, as the people who look after them
@@ -82,6 +92,8 @@ export function Assets() {
   const [site, setSite] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const [adding, setAdding] = useState(false)
+  const [filtering, setFiltering] = useState(false)
+  const phone = useLayout() === "phone"
   // The search goes to the server, so it waits for the typing to stop: one
   // request per word rather than one per keystroke.
   const needle = useDebounced(search.trim(), 300)
@@ -138,28 +150,113 @@ export function Assets() {
           "What the company owns: where each thing is, what state it is in, and who holds it."
         }
         actions={
-          <>
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              className="h-8 w-56"
-            />
-            <Button variant="primary" onClick={() => setAdding(true)}>
-              <Plus />
-              Register asset
-            </Button>
-          </>
+          // On a phone the search, the readings and the filters are the dock's,
+          // and the one thing this page makes is its round button.
+          phone ? undefined : (
+            <>
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                className="h-8 w-56"
+              />
+              <Button variant="primary" onClick={() => setAdding(true)}>
+                <Plus />
+                Register asset
+              </Button>
+            </>
+          )
         }
       />
 
-      <Toolbar>
+      <Fab label="Register asset" onClick={() => setAdding(true)} />
+      <DockTools
+        search={{ value: search, onChange: setSearch, label: "Search assets" }}
+        filter={{
+          count:
+            (view === undefined ? 0 : 1) +
+            (condition === null ? 0 : 1) +
+            (site === null ? 0 : 1),
+          onOpen: () => setFiltering(true),
+        }}
+        status={{
+          value: book,
+          options: [
+            { value: "ALL", label: "All" },
+            { value: "DRAFT", label: "Needs details" },
+            { value: "REGISTERED", label: "Registered" },
+          ],
+          onChange: (next) => setBook(next as typeof book),
+        }}
+      />
+      <FilterSheet
+        open={filtering}
+        onOpenChange={setFiltering}
+        groups={[
+          {
+            key: "reading",
+            label: "Reading",
+            value: view?.value ?? null,
+            options: [
+              {
+                value: null,
+                label: "All",
+                count: (head?.facets.builds ?? []).reduce(
+                  (sum, one) => sum + one.count,
+                  0
+                ),
+              },
+              ...BUILD_VIEWS.map((one) => ({
+                value: one.value as string | null,
+                label: one.label,
+                count: (head?.facets.builds ?? [])
+                  .filter((build) =>
+                    one.builds.includes(
+                      build.value as (typeof one.builds)[number]
+                    )
+                  )
+                  .reduce((sum, build) => sum + build.count, 0),
+              })),
+            ],
+            onChange: (next) =>
+              next === null ? reading.close() : reading.replace(next),
+          },
+          {
+            key: "condition",
+            label: "Condition",
+            value: condition,
+            options: [
+              { value: null, label: "Any condition" },
+              ...conditions.map((one) => ({
+                value: one.value as string | null,
+                label: conditionWords(one.value),
+              })),
+            ],
+            onChange: setCondition,
+          },
+          {
+            key: "location",
+            label: "Location",
+            value: site,
+            options: [
+              { value: null, label: "All locations" },
+              ...sites.map((one) => ({
+                value: one.value as string | null,
+                label: one.label ?? one.value,
+              })),
+            ],
+            onChange: setSite,
+          },
+        ]}
+      />
+
+      <div className={DESK_BAR}>
         <BuildChips
           here={view?.value ?? null}
           counts={head?.facets.builds ?? []}
         />
-      </Toolbar>
+      </div>
 
-      <Toolbar>
+      <div className={DESK_BAR}>
         <Segmented
           options={[
             { value: "ALL" as const, label: "All" },
@@ -202,7 +299,7 @@ export function Assets() {
             {head.total === 1 ? "asset" : "assets"}
           </span>
         )}
-      </Toolbar>
+      </div>
 
       {queryState(register, {
         loading: "Loading assets…",
@@ -220,6 +317,14 @@ export function Assets() {
                 arrives, then fill in where it is and what state it is in.
               </EmptyState>
             </Card>
+          ) : phone ? (
+            <PhoneCards
+              rows={rows}
+              rowId={(row) => row.asset_id}
+              spec={ASSET_CARD}
+              onOpen={(row) => open.open(row.asset_id)}
+              more={register}
+            />
           ) : (
             <Card className="overflow-hidden">
               {/* The register scrolls INSIDE its own box rather than squashing
@@ -475,6 +580,39 @@ function AssetLine({
       </span>
     </div>
   )
+}
+
+/// An asset as a phone's card: the thing over its plate number, where it is and
+/// who holds it, how it is and whether Finance has looked at it, and the
+/// register's own status.
+const ASSET_CARD: CardSpec<GaAssetRow> = {
+  title: (row) => <CardName name={row.name} code={row.asset_number} />,
+  meta: [
+    (row) =>
+      [row.class_name, row.site_id, row.sub_location]
+        .filter((part) => part !== null && part !== "")
+        .join(" · "),
+    (row) => (row.holder === null ? null : `Held by ${row.holder}`),
+  ],
+  foot: (row) => (
+    <span>
+      {conditionWords(row.condition)}
+      {row.finance_decision === null && (
+        <span className="text-warn-fg"> · Not assessed</span>
+      )}
+    </span>
+  ),
+  action: (row) => (
+    <Pill
+      tone={
+        row.status === "DRAFT" || row.status === "DISPOSAL_REQUESTED"
+          ? "warn"
+          : "neutral"
+      }
+    >
+      {row.status === "DRAFT" ? "Needs details" : gaStatusWords(row.status)}
+    </Pill>
+  ),
 }
 
 function conditionWords(condition: string): string {

@@ -263,7 +263,10 @@ mod tests {
     #[test]
     fn state_is_read_off_the_timestamps() {
         assert_eq!(ExceptionState::of(true, true), ExceptionState::Resolved);
-        assert_eq!(ExceptionState::of(true, false), ExceptionState::Acknowledged);
+        assert_eq!(
+            ExceptionState::of(true, false),
+            ExceptionState::Acknowledged
+        );
         assert_eq!(ExceptionState::of(false, false), ExceptionState::Open);
         assert_eq!(StateFilter::parse(None), Ok(StateFilter::Open));
         assert!(StateFilter::parse(Some("closed")).is_err());

@@ -8,7 +8,9 @@ import { useCallback, useMemo, useState } from "react"
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DockTools } from "@/components/shell/dock-tools"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
+import { Fab } from "@/components/ui/fab"
 import { Field, Input } from "@/components/ui/field"
 import { SwitchPill } from "@/components/ui/form"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
@@ -18,13 +20,17 @@ import {
   ExpandingSearch,
 } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
+import { Status } from "@/components/ui/pill"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
 import { count } from "@/lib/format"
+import { cn } from "@/lib/utils"
+import { useLayout } from "@/lib/layout"
 import { toast } from "@/lib/toast"
+import { procurementKeys } from "@/lib/queries/procurement"
 import {
   createTerm,
   deleteTerm,
@@ -151,8 +157,8 @@ const TAGS: Vocabulary = {
   title: "Tags",
   sub: "Flexible labels used to describe and filter articles. An article can have multiple tags.",
   one: "tag",
-  codePlaceholder: "KEMEJA",
-  labelPlaceholder: "Kemeja",
+  codePlaceholder: "SHIRT",
+  labelPlaceholder: "Shirt",
   empty: "No tag has been declared, so nothing can be classified yet.",
   ordered: false,
   orderField: false,
@@ -191,14 +197,17 @@ function readRow(term: MasterTerm): TermRow {
 /// weight on tags. The first column takes the list's own noun — "Tag", not
 /// "Term" — since a screen that says Tag at the top and Term over the column
 /// is asking the reader to hold two words for one thing.
-function columnsOf(vocabulary: Vocabulary): ColumnDef<TableSetup, TermRow>[] {
+function columnsOf(
+  vocabulary: Vocabulary,
+  onEdit: (code: string) => void
+): ColumnDef<TableSetup, TermRow>[] {
   const columns: ColumnDef<TableSetup, TermRow>[] = [
     {
       id: "term",
       accessorFn: (row) => `${row.term.label} ${row.term.code}`,
       header: capitalise(vocabulary.one),
       size: 260,
-      meta: { grow: 260 },
+      meta: { grow: 260, card: "hide" },
       cell: ({ row }) => (
         <span
           className={
@@ -222,6 +231,7 @@ function columnsOf(vocabulary: Vocabulary): ColumnDef<TableSetup, TermRow>[] {
       accessorFn: (row) => row.term.code,
       header: "Code",
       size: 170,
+      meta: { card: "hide" },
       // Beside the label, not instead of it: the code is what an article row
       // points at and what survives a rename, so somebody reading the database
       // has to be able to find it here.
@@ -235,7 +245,7 @@ function columnsOf(vocabulary: Vocabulary): ColumnDef<TableSetup, TermRow>[] {
       accessorFn: (row) => row.order,
       header: "Order",
       size: 90,
-      meta: { align: "right" },
+      meta: { align: "right", card: "hide" },
       cell: ({ row }) => (
         <span className="text-[0.875rem] text-text tabular-nums">
           {row.original.order}
@@ -255,6 +265,7 @@ function columnsOf(vocabulary: Vocabulary): ColumnDef<TableSetup, TermRow>[] {
     // articles are one of five things that can name a tag.
     meta: {
       align: "right",
+      card: "hide",
       filter: {
         kind: "number",
         label: "In Use",
@@ -283,9 +294,115 @@ function columnsOf(vocabulary: Vocabulary): ColumnDef<TableSetup, TermRow>[] {
     header: "Action",
     size: 80,
     enableSorting: false,
-    meta: { align: "right" },
+    meta: { align: "right", card: "hide" },
     cell: ({ row }) => <RowActions label={row.original.term.label} />,
   })
+
+  // Four columns that exist only on a card (`cardLead`; a phone): the term (over
+  // its code, where the code says something the label does not), the figure
+  // the card leads with — how much it is used — and a foot with whether it is
+  // Active and an Edit button. The button opens the sheet the card's own tap
+  // opens: a card that only reads as a summary does not say it can be changed
+  // (owner, 2026-10-06). A word, not a pencil, as every other card's button.
+  columns.push(
+    {
+      id: "head",
+      accessorFn: (row) => row.term.label,
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "title" },
+      cell: ({ row }) => (
+        <span className="flex min-w-0 flex-col gap-1">
+          <span
+            className={cn(
+              "inline-flex items-center gap-2 text-[1rem] font-semibold",
+              row.original.active ? "text-ink" : "text-mute"
+            )}
+          >
+            {!row.original.active && (
+              <EyeOff
+                aria-label="Inactive"
+                className="size-4 shrink-0 text-mute"
+              />
+            )}
+            <span className="min-w-0 break-words">
+              {row.original.term.label}
+            </span>
+          </span>
+          {/* A code that is only the label in capitals (PRIA, KAOS) is said
+          twice; one that carries something — a size's 03, which is the part of
+          the SKU it stands for — is a thin line under the label, no chip
+          (owner, 2026-10-06). The sheet and the search still have them all. */}
+          {vocabulary.kind === "sizes" && (
+            <span className="font-mono text-[0.875rem] font-normal text-mute">
+              {row.original.term.code}
+            </span>
+          )}
+        </span>
+      ),
+    },
+    {
+      id: "lead",
+      accessorFn: (row) => row.term.in_use,
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "lead" },
+      cell: ({ row }) => {
+        const n = row.original.term.in_use
+        const unit = vocabulary.kind === "sizes" ? "SKU" : "article"
+        return (
+          <span className="flex flex-col items-end tabular-nums">
+            <span
+              className={cn(
+                "text-[1.5rem] leading-tight font-semibold tracking-tight",
+                n === 0 ? "text-mute" : "text-ink"
+              )}
+            >
+              {count(n)}
+            </span>
+            <span className="text-[0.875rem] text-mute">
+              {n === 1 ? unit : `${unit}s`}
+            </span>
+          </span>
+        )
+      },
+    },
+    {
+      id: "foot",
+      accessorFn: (row) => row.active,
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "foot" },
+      cell: ({ row }) => (
+        <Status tone={row.original.active ? "ok" : "neutral"}>
+          {row.original.active ? "Active" : "Inactive"}
+        </Status>
+      ),
+    },
+    {
+      id: "edit",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { align: "right", card: "status" },
+      cell: ({ row }) => (
+        <Button
+          variant="tint"
+          size="card"
+          aria-label={`Edit ${row.original.term.label}`}
+          onClick={(event) => {
+            event.stopPropagation()
+            onEdit(row.original.term.code)
+          }}
+        >
+          Edit
+        </Button>
+      ),
+    }
+  )
 
   return columns
 }
@@ -354,8 +471,13 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
     [all, tab, inUseOnly]
   )
 
-  const columns = useMemo(() => columnsOf(vocabulary), [vocabulary])
+  const edit = useCallback((code: string) => {
+    setCreating(false)
+    setEditing(code)
+  }, [])
+  const columns = useMemo(() => columnsOf(vocabulary, edit), [vocabulary, edit])
   const filters = useFilters(columns)
+  const phone = useLayout() === "phone"
 
   const table = useTable(
     useMemo(
@@ -368,11 +490,18 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
           columnFilters: filters.columnFilters,
           globalFilter: query,
           sorting,
+          // The card's own columns are drawn on a phone and never on a desk.
+          columnVisibility: {
+            head: phone,
+            lead: phone,
+            foot: phone,
+            edit: phone,
+          },
         },
         onSortingChange: setSorting,
         onGlobalFilterChange: setQuery,
       }),
-      [rows, filters.columns, filters.columnFilters, query, sorting]
+      [rows, filters.columns, filters.columnFilters, query, sorting, phone]
     )
   )
 
@@ -405,6 +534,9 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
       </KpiStrip>
 
       <SubTabs
+        // The status is the button in the drawer over the bottom bar on a
+        // phone (`DockTools`), as on the order list.
+        className="max-md:hidden"
         tabs={[
           {
             value: "ACTIVE",
@@ -426,23 +558,28 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
       {/* One line, as the order book draws it: the search and what narrows the
           list at the left, what shapes the table and what makes a new one at
           the right. */}
-      <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
-        <ExpandingSearch
-          value={query}
-          onChange={setQuery}
-          label={`Search ${vocabulary.title}`}
-        />
-        <SwitchPill
-          on={inUseOnly}
-          label="In Use"
-          onToggle={() => setInUseOnly((was) => !was)}
-        />
+      <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
+        <span className="contents max-md:hidden">
+          <ExpandingSearch
+            value={query}
+            onChange={setQuery}
+            label={`Search ${vocabulary.title}`}
+          />
+        </span>
+        <span className="contents max-md:hidden">
+          <SwitchPill
+            on={inUseOnly}
+            label="In Use"
+            onToggle={() => setInUseOnly((was) => !was)}
+          />
+        </span>
         <BarSpacer />
         <div className="hidden md:contents">
           <ColumnsMenu table={table} />
         </div>
         <Button
           variant="primary"
+          className="max-md:hidden"
           onClick={() => {
             setEditing(null)
             setCreating(true)
@@ -452,7 +589,36 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
         </Button>
       </div>
 
-      <Card className="overflow-clip">
+      <Fab
+        label={`New ${capitalise(vocabulary.one)}`}
+        onClick={() => {
+          setEditing(null)
+          setCreating(true)
+        }}
+      />
+      <DockTools
+        search={{
+          value: query,
+          onChange: setQuery,
+          label: `Search ${vocabulary.title}`,
+        }}
+        filter={{
+          count: filters.filters.length,
+          panel: { model: filters, table },
+        }}
+        sort={dockSortOf(table)}
+        status={{
+          value: tab,
+          options: [
+            { value: "ACTIVE", label: "Active", count: all.length - retired },
+            { value: "INACTIVE", label: "Inactive", count: retired },
+            { value: "ALL", label: "All", count: all.length },
+          ],
+          onChange: (next) => setTab(next as StatusTab),
+        }}
+      />
+
+      <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(terms, {
           loading: "Reading the vocabulary…",
           render: () =>
@@ -468,6 +634,7 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
               </EmptyState>
             ) : (
               <DataTable<TermRow>
+                refresh={[terms]}
                 table={table}
                 onRowClick={(row) => {
                   setCreating(false)
@@ -476,6 +643,9 @@ function VocabularyScreen({ vocabulary }: { vocabulary: Vocabulary }) {
                 isSelected={(row) => row.term.code === editing}
                 empty="Nothing matches that search."
                 pageScroll
+                cardSort={false}
+                cardsApart
+                cardLead
               />
             ),
         })}
@@ -635,9 +805,10 @@ function TermForm({
       deleteTerm(vocabulary.kind, term!.term.code, term!.term.version),
     onSuccess: () => {
       setDeleting(false)
-      void client.invalidateQueries({ queryKey: vocabularyKeys.all })
-      void client.invalidateQueries({ queryKey: ["procurement", "vocabulary"] })
-      void client.invalidateQueries({ queryKey: ["articles"] })
+      void client.invalidateQueries({
+        queryKey: vocabularyKeys.list(vocabulary.kind),
+      })
+      void client.invalidateQueries({ queryKey: procurementKeys.vocabulary() })
       onSaved()
     },
     onError: (error) => toast.error(said(error)),
@@ -669,13 +840,17 @@ function TermForm({
           )
     },
     onSuccess: () => {
-      // The whole prefix, plus the catalogue vocabulary: divisions and tags are
+      // The edited list, plus the catalogue vocabulary: divisions and tags are
       // also read through `/catalogue/vocabulary` by every filter column and
       // the setup composer, and a term renamed here that still reads the old
-      // way there is the drift these tables exist to end.
-      void client.invalidateQueries({ queryKey: vocabularyKeys.all })
-      void client.invalidateQueries({ queryKey: ["procurement", "vocabulary"] })
-      void client.invalidateQueries({ queryKey: ["articles"] })
+      // way there is the drift these tables exist to end. The articles
+      // themselves are not asked for again: their rows and their list keys
+      // carry the codes, and a rename changes only the label the two reads
+      // above answer.
+      void client.invalidateQueries({
+        queryKey: vocabularyKeys.list(vocabulary.kind),
+      })
+      void client.invalidateQueries({ queryKey: procurementKeys.vocabulary() })
       idempotency.rotate()
       onSaved()
     },

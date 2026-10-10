@@ -157,7 +157,7 @@ export function Me() {
                     {shortDate(day.date)}
                     {day.consumes_annual_leave && (
                       <span className="ml-1 text-meta font-normal text-mute">
-                        (cuti bersama)
+                        (collective leave)
                       </span>
                     )}
                   </Row>
@@ -205,7 +205,7 @@ function Letters() {
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-semibold text-ink">
               {letter.level === "TEGURAN"
-                ? "Teguran"
+                ? "Reprimand"
                 : letter.level.replace("SP", "SP ")}
             </span>
             <span className="text-[0.875rem] text-mute">
@@ -398,7 +398,7 @@ function ChangeRequests() {
                 onClick={() =>
                   withdraw.mutate({
                     requestId: request.id,
-                    reason: "ditarik oleh pemohon",
+                    reason: "withdrawn by the requester",
                   })
                 }
               >

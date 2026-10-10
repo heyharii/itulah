@@ -524,8 +524,14 @@ pub async fn store_cash_boxes(pool: &PgPool, site_id: &str) -> Result<Vec<StoreC
             account_code,
             account_name: name,
             books_minor: books,
-            last_counted_on: last.as_ref().map(|row| row.try_get("counted_on")).transpose()?,
-            last_variance_minor: last.as_ref().map(|row| row.try_get("variance")).transpose()?,
+            last_counted_on: last
+                .as_ref()
+                .map(|row| row.try_get("counted_on"))
+                .transpose()?,
+            last_variance_minor: last
+                .as_ref()
+                .map(|row| row.try_get("variance"))
+                .transpose()?,
         });
     }
     Ok(boxes)
@@ -540,7 +546,11 @@ pub async fn store_cash_count(
 ) -> Result<CashCountRow, AppError> {
     let unit_id = super::sites::unit_of_site(pool, site_id).await?;
     let account_code = box_account(pool, request.meaning.trim(), &unit_id).await?;
-    if request.notes.iter().any(|note| note.denomination_minor <= 0 || note.quantity < 0) {
+    if request
+        .notes
+        .iter()
+        .any(|note| note.denomination_minor <= 0 || note.quantity < 0)
+    {
         return Err(AppError::Validation(
             "each note or coin is a positive denomination and a count of zero or more".into(),
         ));
@@ -550,7 +560,9 @@ pub async fn store_cash_count(
         .iter()
         .map(|note| note.denomination_minor * i64::from(note.quantity))
         .sum();
-    let counted_on = request.counted_on.unwrap_or_else(|| Utc::now().date_naive());
+    let counted_on = request
+        .counted_on
+        .unwrap_or_else(|| Utc::now().date_naive());
     let books = books_at(pool, &account_code, &unit_id, counted_on).await?;
     if counted != books && request.reason.trim().is_empty() {
         return Err(AppError::Validation(format!(

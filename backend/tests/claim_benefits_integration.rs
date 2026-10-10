@@ -172,7 +172,9 @@ struct Hub {
 
 impl Hub {
     async fn open(pool: &PgPool) -> Self {
-        let _ = tracing_subscriber::fmt().with_env_filter("error").try_init();
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter("error")
+            .try_init();
         cloud::bootstrap_admin(pool, Some(ADMIN_PASSWORD), true)
             .await
             .unwrap_or_else(|error| panic!("bootstrap: {error}"));
@@ -193,18 +195,32 @@ impl Hub {
     }
 
     async fn get(&self, path: &str) -> Response {
-        send(self.app.clone(), "GET", path, read_headers(&self.cookies), None).await
+        send(
+            self.app.clone(),
+            "GET",
+            path,
+            read_headers(&self.cookies),
+            None,
+        )
+        .await
     }
 
     async fn ok(&self, path: &str, body: Value) -> Value {
         let response = self.post(path, body).await;
-        assert_eq!(response.status, StatusCode::OK, "POST {path}: {:?}", response.body);
+        assert_eq!(
+            response.status,
+            StatusCode::OK,
+            "POST {path}: {:?}",
+            response.body
+        );
         response.body
     }
 
     /// Register somebody, hire them and post them to `unit` from `from`.
     async fn staff(&self, code: &str, unit: &str, from: &str) -> String {
-        let registered = self.ok("/api/v1/employees", json!({ "employee_code": code })).await;
+        let registered = self
+            .ok("/api/v1/employees", json!({ "employee_code": code }))
+            .await;
         let id = registered["employee_id"]
             .as_str()
             .unwrap_or_else(|| panic!("employee_id: {registered:?}"))
@@ -262,7 +278,9 @@ impl Hub {
             )
             .await;
         let run_id = opened["id"].as_str().unwrap_or_default().to_owned();
-        let slips = self.get(&format!("/api/v1/payroll/runs/{run_id}/slips")).await;
+        let slips = self
+            .get(&format!("/api/v1/payroll/runs/{run_id}/slips"))
+            .await;
         assert_eq!(slips.status, StatusCode::OK, "{:?}", slips.body);
         let list = slips.body.as_array().cloned().unwrap_or_default();
         (run_id, list)
@@ -309,8 +327,15 @@ async fn file_claim(hub: &Hub, employee: &str, day: &str, amount: i64) -> (Strin
         )
         .await;
     let id = filed["claim_id"].as_str().unwrap_or_default().to_owned();
-    let line = filed["lines"][0]["line_id"].as_str().unwrap_or_default().to_owned();
-    hub.ok(&format!("/api/v1/expense-claims/{id}/submission"), json!({ "reason": "ajukan" })).await;
+    let line = filed["lines"][0]["line_id"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    hub.ok(
+        &format!("/api/v1/expense-claims/{id}/submission"),
+        json!({ "reason": "ajukan" }),
+    )
+    .await;
     (id, line)
 }
 
@@ -345,20 +370,41 @@ async fn a_claim_type_allows_so_much_a_year(pool: PgPool) {
     .await;
     let (decider, decider_csrf) = sign_in(&hub.app, "hr.decider", "decider-pass-claim-1").await;
     let decide = |id: String, line: String, amount: i64| {
-        decision(hub.app.clone(), decider.clone(), decider_csrf.clone(), id, line, amount)
+        decision(
+            hub.app.clone(),
+            decider.clone(),
+            decider_csrf.clone(),
+            id,
+            line,
+            amount,
+        )
     };
 
     let (first, first_line) = file_claim(&hub, &siti, "2026-04-06", 2_000_000).await;
-    let balances = hub.get(&format!("/api/v1/employees/{siti}/claim-balances?year=2026")).await;
-    let medis = balances.body.as_array().and_then(|r| r.iter().find(|b| b["type_code"] == "MEDIS")).cloned();
-    assert_eq!(medis.as_ref().map(|b| b["pending_minor"].clone()), Some(json!(2_000_000)));
+    let balances = hub
+        .get(&format!(
+            "/api/v1/employees/{siti}/claim-balances?year=2026"
+        ))
+        .await;
+    let medis = balances
+        .body
+        .as_array()
+        .and_then(|r| r.iter().find(|b| b["type_code"] == "MEDIS"))
+        .cloned();
+    assert_eq!(
+        medis.as_ref().map(|b| b["pending_minor"].clone()),
+        Some(json!(2_000_000))
+    );
     let approved = decide(first, first_line, 2_000_000).await;
     assert_eq!(approved.status, StatusCode::OK, "{:?}", approved.body);
 
     let (second, second_line) = file_claim(&hub, &siti, "2026-04-20", 1_500_000).await;
     let refused = decide(second.clone(), second_line.clone(), 1_500_000).await;
     assert_eq!(refused.status, StatusCode::CONFLICT, "{:?}", refused.body);
-    assert!(refused.body["error"].as_str().unwrap_or_default().contains("1000000 is"));
+    assert!(refused.body["error"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("1000000 is"));
 
     let mine = hub
         .ok(
@@ -366,9 +412,18 @@ async fn a_claim_type_allows_so_much_a_year(pool: PgPool) {
             json!({ "type_code": "MEDIS", "year": 2026, "limit_minor": 4_000_000, "reason": "operasi" }),
         )
         .await;
-    let medis = mine.as_array().and_then(|r| r.iter().find(|b| b["type_code"] == "MEDIS")).cloned();
-    assert_eq!(medis.as_ref().map(|b| b["personal"].clone()), Some(json!(true)));
-    assert_eq!(medis.as_ref().map(|b| b["left_minor"].clone()), Some(json!(2_000_000)));
+    let medis = mine
+        .as_array()
+        .and_then(|r| r.iter().find(|b| b["type_code"] == "MEDIS"))
+        .cloned();
+    assert_eq!(
+        medis.as_ref().map(|b| b["personal"].clone()),
+        Some(json!(true))
+    );
+    assert_eq!(
+        medis.as_ref().map(|b| b["left_minor"].clone()),
+        Some(json!(2_000_000))
+    );
     let now_fits = decide(second, second_line, 1_500_000).await;
     assert_eq!(now_fits.status, StatusCode::OK, "{:?}", now_fits.body);
 }

@@ -1,5 +1,7 @@
-import { Outlet, useRouter } from "@tanstack/react-router"
+import { Outlet, useRouter, useRouterState } from "@tanstack/react-router"
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -7,13 +9,25 @@ import {
   useState,
 } from "react"
 
-import { AssistantPanel } from "@/components/assistant/panel"
+/// The assistant, and every chart its answers can draw (recharts, d3), is its
+/// own chunk fetched when the panel is first opened. The panel is asked for a
+/// few times a day at most, and its ~130 KB gzipped of charting code used to
+/// sit in the entry chunk — downloaded and parsed on every URL open, including
+/// by a cashier who never asks a question (owner, 2026-10-10: "klik url-nya
+/// masih lama"). `state.ts` and `session.tsx` stay eager: ⌘J and the composer's
+/// trigger read the session without the panel's code.
+const AssistantPanel = lazy(() =>
+  import("@/components/assistant/panel").then((m) => ({
+    default: m.AssistantPanel,
+  }))
+)
 import { AssistantProvider } from "@/components/assistant/session"
 import { useAssistant } from "@/components/assistant/state"
 import { BottomBar } from "@/components/shell/bottom-bar"
 import { DockProvider, useDockRow } from "@/components/shell/dock"
 import { CommandPalette } from "@/components/shell/command-palette"
 import { NavColumn } from "@/components/shell/nav-column"
+import { PaletteOpener } from "@/components/shell/palette-opener"
 import { RailPick } from "@/components/shell/rail-pick"
 import {
   panelForDomain,
@@ -33,6 +47,12 @@ import { domains, type AppDomain } from "@/lib/navigation"
 import { useSections } from "@/lib/session"
 import { useSheetsOpen } from "@/lib/sheet-space"
 import { cn } from "@/lib/utils"
+
+/// The screens that stand alone, without the shell's navigation: they hold one
+/// task and bring their own title and a way out (owner, 10 Oct 2026: New
+/// allotment "kayak sheet satu page", no sidebar showing; the Ops allotment
+/// board full screen with an ×).
+const FOCUS_PATHS: readonly string[] = ["/allotment/new", "/operations/board"]
 
 /// The shell: rail · panel · (bar over page).
 ///
@@ -87,6 +107,12 @@ function Shell() {
   /// for a `md:`/`lg:` class instead, and the two agree because `useLayout`
   /// breaks on Tailwind's own numbers.
   const docked = atLeast(layout, "desktop")
+  /// A task that is a page of its own — the allotment grid — is given the
+  /// whole window: no rail, no screens panel, no bar. The page carries its own
+  /// title and Back, so there is nothing the chrome would add.
+  const focus = useRouterState({
+    select: (state) => FOCUS_PATHS.includes(state.location.pathname),
+  })
   /// Docked, but too narrow for the screens panel to stand beside the page
   /// (an iPad held sideways): the panel floats over it on demand.
   const compact = useCompactDesk() && docked
@@ -124,6 +150,7 @@ function Shell() {
   /// state that says WHERE instead of WHETHER.
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const openPalette = useCallback(() => setPaletteOpen(true), [])
   const [sidebarOpen, setSidebarOpen] = useState(readSidebarOpen)
   /// The floating screens panel, on a compact desk. A boolean closed by every
   /// finished navigation, like the drawer.
@@ -240,7 +267,7 @@ function Shell() {
           68px + 232px of permanent chrome on a 768px screen, to hold
           something a thumb opens once a session, is the trade the drawer
           exists to refuse. */}
-          {docked && (
+          {docked && !focus && (
             <NavColumn
               folded
               panelOpen={
@@ -254,12 +281,12 @@ function Shell() {
           {/* Full height, beside the page column: the desk bar spans only the
           page, and the panel's head (the rail brand's height) is what lines
           the three columns' lower edges up. */}
-          {docked && !compact && subSidebar !== null && sidebarOpen && (
+          {docked && !focus && !compact && subSidebar !== null && sidebarOpen && (
             <SubSidebar onFold={toggleSidebar} />
           )}
           {/* On a compact desk the panel is over the page, beside the rail: a
           scrim to tap away, and the panel in the light, with a shadow. */}
-          {compact && floatPanel !== null && (
+          {compact && !focus && floatPanel !== null && (
             <>
               <div
                 aria-hidden
@@ -278,7 +305,7 @@ function Shell() {
             sticky table headers at `top-0` still stick to the strip's edge.
             Tablet and phone keep the old bar — the drawer's button and the
             page's name live there. */}
-            {!docked && (
+            {!docked && !focus && (
               <TopBar
                 onOpenNav={phone ? undefined : () => setDrawerOpen(true)}
               />
@@ -309,12 +336,16 @@ function Shell() {
               so an animated width would have them re-deciding twelve times on
               the way. */}
               <div className="flex min-h-0 min-w-0 flex-1">
-                <PageScroller phone={phone} beside={beside} />
+                {/* The page can offer the palette a place to be found — the
+                phone's Home does, since a phone has no ⌘K. */}
+                <PaletteOpener.Provider value={openPalette}>
+                  <PageScroller phone={phone} beside={beside} />
+                </PaletteOpener.Provider>
               </div>
             </div>
           </div>
 
-          {phone && <BottomBar />}
+          {phone && !focus && <BottomBar />}
           {!docked && !phone && (
             <NavDrawer
               open={drawerOpen}
@@ -329,7 +360,9 @@ function Shell() {
           {/* Not modal: the panel is meant to be read beside the screen that
           raised the question, and a modal one would grey out the very rows
           somebody is asking about. */}
-          <AssistantPanel />
+          <Suspense fallback={null}>
+            <AssistantPanel />
+          </Suspense>
         </div>
       </DockProvider>
     </RailPick.Provider>
@@ -348,7 +381,10 @@ function PageScroller({ phone, beside }: { phone: boolean; beside: boolean }) {
         "min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain",
         phone &&
           (row
-            ? "pb-[calc(6.25rem+env(safe-area-inset-bottom,0px))]"
+            ? // The stack under the last row: the bar (53), the 8px under
+              // the drawer, and the drawer's 44px controls in their 8px rim
+              // (62) — 123, with a pixel to spare (D1).
+              "pb-[calc(7.75rem+env(safe-area-inset-bottom,0px))]"
             : "pb-[calc(3.25rem+env(safe-area-inset-bottom,0px))]"),
         beside && "pr-[29.5rem]"
       )}

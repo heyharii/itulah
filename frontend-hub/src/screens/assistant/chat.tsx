@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import { Transcript } from "@/components/assistant/chat"
 import { Composer } from "@/components/assistant/composer"
 import { Barred, BudgetSpent } from "@/components/assistant/panel"
+import { DockPortal } from "@/components/shell/dock"
 import { useAssistant } from "@/components/assistant/state"
 import { AppLink } from "@/components/ui/app-link"
 import { History } from "@/screens/assistant/history"
@@ -241,15 +242,19 @@ function NarrowBar({ title }: { title: string | null }) {
 
   return (
     <>
-      <div className="flex shrink-0 items-center gap-2 border-b border-hairline px-3 py-2">
+      {/* The way to the other chats is the dock's button, where the thumb is. */}
+      <DockPortal slot="tabs">
         <button
           type="button"
           onClick={() => setOpen(true)}
-          aria-label="Past chats"
-          className="grid size-8 shrink-0 place-items-center rounded-lg text-line-ico transition-colors hover:bg-soft-2 hover:text-ink"
+          aria-haspopup="dialog"
+          className="inline-flex h-9 max-w-full items-center gap-1.5 rounded-full bg-soft-2 pr-3.5 pl-3 text-[0.875rem] font-medium text-ink transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.97]"
         >
-          <PanelLeft className="size-[1.125rem] stroke-[1.7]" />
+          <PanelLeft className="size-4 shrink-0 text-line-ico" />
+          Past chats
         </button>
+      </DockPortal>
+      <div className="flex shrink-0 items-center gap-2 border-b border-hairline px-4 py-2.5">
         {/* The chat's own name, not the word "Assistant". A phone has no room
             for the column that would otherwise say which conversation this is,
             and the shell's bar directly above already names the node — two bars

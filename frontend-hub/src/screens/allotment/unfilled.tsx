@@ -5,29 +5,53 @@ import {
 } from "@tanstack/react-query"
 import type { ColumnDef } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import type {
-  ClosedShortLine,
-  UnfilledLine,
-  UnfilledList,
-} from "@itulah/contract"
+import type { ClosedShortLine } from "@itulah/contract"
 import { useMemo, useState } from "react"
 
+import { DockTools, type DockStatus } from "@/components/shell/dock-tools"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { ConfirmButton, SavedDialog } from "@/components/ui/dialog"
+import { BarSpacer, ExpandingSearch } from "@/components/ui/list-chrome"
 import { EmptyState } from "@/components/ui/states"
-import { count, day } from "@/lib/format"
-import { closeShortAllotment, inventoryKeys } from "@/lib/queries/inventory"
+import { count, day, quantity } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
+import { shortReasonLabel } from "@/lib/operations/changes"
+import {
+  closeShortAllotment,
+  inventoryKeys,
+  type StillNeededLine,
+  type StillNeededList,
+} from "@/lib/queries/inventory"
 import { queryState } from "@/lib/query-state"
 import { tableSetup, type TableSetup } from "@/lib/table"
 
+/// Still needed: what MD allotted that the warehouse has not been able to
+/// finish (9 Oct 2026). Each line says what MD wants (Target), what has gone
+/// (Sent) and what is still to pick (To pick) — with, under it, why the picker
+/// could not finish when one said. MD may Close remaining; there is no Wait.
+/// Closed short is the other half: what MD has already closed.
+///
+/// On a phone each line is a card (`cardLead`): the article and SKU, the store,
+/// the short reason as one quiet line, To pick as the card's figure, Target and
+/// Sent in its foot and Close remaining as the foot's one button. Search and the
+/// tab choice are the dock's.
+
 const number = (n: number) => <span className="tabular-nums">{count(n)}</span>
 
+/// A figure the cloud may not answer yet: a dash rather than a wrong zero.
+const figure = (n: number | undefined) =>
+  n === undefined ? <span className="text-faint">—</span> : number(n)
+
+/// The article over its SKU. On a card it is the title: the SKU line stays the
+/// quiet mono one it is on a desk.
 function articleCell(row: { article_name: string; sku_code: string }) {
   return (
     <span className="block min-w-0">
       <span className="block truncate text-ink">{row.article_name}</span>
-      <span className="block truncate font-mono text-mute">{row.sku_code}</span>
+      <span className="block truncate font-mono text-[0.875rem] font-normal text-mute">
+        {row.sku_code}
+      </span>
     </span>
   )
 }
@@ -50,16 +74,25 @@ function storeOf(row: {
   return row.destination_name ?? row.destination_id
 }
 
-function CloseShort({
+/// What MD wants the store to get: the target, or what was allotted on a cloud
+/// that does not answer the target yet.
+const targetOf = (row: StillNeededLine) => row.target ?? row.allotted
+
+/// Why the picker could not finish, in plain words — nothing when none said.
+const reasonOf = (row: StillNeededLine) =>
+  row.short_reason ? shortReasonLabel(row.short_reason) : ""
+
+function CloseRemaining({
   row,
   onClosed,
 }: {
-  row: UnfilledLine
+  row: StillNeededLine
   /// The close went through; the receipt is the panel's to show — this cell
   /// unmounts when the refetch moves the row out of the open list.
   onClosed: (pcs: number) => void
 }) {
   const client = useQueryClient()
+  const phone = useLayout() === "phone"
   const close = useMutation({
     mutationFn: () =>
       closeShortAllotment(row.allotment_id, {
@@ -80,12 +113,14 @@ function CloseShort({
     // the row that opens the sheet.
     <span onClick={(event) => event.stopPropagation()}>
       <ConfirmButton
-        label="Close short"
-        variant="soft"
-        size="sm"
-        title="Close short"
-        description={`${storeOf(row)} gets ${count(row.allotted - row.unfilled)} of ${count(row.allotted)}.`}
-        confirmLabel="Close short"
+        label="Close remaining"
+        // A card's foot takes the tint word button (44px to land on); a table
+        // row the small soft one.
+        variant={phone ? "tint" : "soft"}
+        size={phone ? "card" : "sm"}
+        title="Close remaining?"
+        description={`${storeOf(row)} gets ${count(targetOf(row) - row.unfilled)} of ${count(targetOf(row))}.`}
+        confirmLabel="Close remaining"
         pending={close.isPending}
         onConfirm={() => close.mutateAsync()}
       />
@@ -93,71 +128,141 @@ function CloseShort({
   )
 }
 
-function openColumns(onClosed: (pcs: number) => void): ColumnDef<
-  TableSetup,
-  UnfilledLine
->[] {
+function openColumns(
+  onClosed: (pcs: number) => void
+): ColumnDef<TableSetup, StillNeededLine>[] {
   return [
     {
       id: "no",
       header: "No.",
       size: 64,
       enableSorting: false,
+      meta: { card: "hide" },
       cell: ({ row }) => (
         <span className="text-mute tabular-nums">{row.index + 1}</span>
       ),
     },
     {
-      accessorKey: "article_name",
-      header: "Article",
-      meta: { grow: 200 },
-      cell: ({ row }) => articleCell(row.original),
+      accessorKey: "allotment_number",
+      header: "Allotment",
+      size: 150,
+      meta: { card: "id" },
+      cell: ({ row }) => allotmentCell(row.original, row.original.allotted_at),
     },
     {
       id: "store",
       header: "Store",
       size: 160,
       accessorFn: (row) => storeOf(row),
+      meta: { card: "meta" },
       cell: ({ row }) => storeOf(row.original),
     },
     {
-      accessorKey: "allotment_number",
-      header: "Allotment",
-      size: 150,
-      cell: ({ row }) => allotmentCell(row.original, row.original.allotted_at),
+      id: "sku",
+      header: "SKU",
+      accessorFn: (row) => row.article_name,
+      meta: { grow: 200, card: "title" },
+      cell: ({ row }) => articleCell(row.original),
     },
     {
-      accessorKey: "allotted",
-      header: "Allotted",
+      id: "target",
+      header: "Target",
       size: 100,
-      meta: { align: "right", card: "metric" },
-      cell: ({ row }) => number(row.original.allotted),
+      accessorFn: (row) => targetOf(row),
+      meta: { align: "right", card: "hide" },
+      cell: ({ row }) => number(targetOf(row.original)),
     },
     {
-      accessorKey: "packed",
-      header: "Packed",
+      id: "sent",
+      header: "Sent",
       size: 100,
-      meta: { align: "right", card: "metric" },
-      cell: ({ row }) => number(row.original.packed),
+      accessorFn: (row) => row.sent ?? 0,
+      meta: { align: "right", card: "hide" },
+      cell: ({ row }) => figure(row.original.sent),
     },
     {
+      // The pieces still to pick, and under them why the picker could not
+      // finish when one said.
       accessorKey: "unfilled",
-      header: "Unfilled",
-      size: 100,
-      meta: { align: "right", card: "metric" },
+      header: "To pick",
+      size: 200,
+      meta: { align: "right", card: "hide" },
+      cell: ({ row }) => {
+        const why = reasonOf(row.original)
+        return (
+          <span className="block text-right">
+            <span className="block font-medium text-warn-fg tabular-nums">
+              {count(row.original.unfilled)}
+            </span>
+            {why !== "" && (
+              <span className="block text-[0.875rem] text-mute">{why}</span>
+            )}
+          </span>
+        )
+      },
+    },
+    // Three columns that exist only on a card (a phone; `cardLead`): the short
+    // reason as one quiet line under the store, the figure the card leads with,
+    // and the foot's left side.
+    {
+      id: "reason",
+      header: "",
+      accessorFn: (row) => reasonOf(row),
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "meta" },
+      cell: ({ row }) => reasonOf(row.original),
+    },
+    {
+      id: "lead",
+      header: "",
+      accessorFn: (row) => row.unfilled,
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "lead" },
       cell: ({ row }) => (
-        <span className="font-medium text-warn-fg tabular-nums">
-          {count(row.original.unfilled)}
+        <span className="flex flex-col items-end tabular-nums">
+          <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-warn-fg">
+            {count(row.original.unfilled)}
+          </span>
+          <span className="mt-0.5 text-[0.875rem] text-mute">to pick</span>
+        </span>
+      ),
+    },
+    {
+      id: "foot",
+      header: "",
+      accessorFn: (row) => targetOf(row),
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "foot" },
+      cell: ({ row }) => (
+        <span className="tabular-nums">
+          {"Target "}
+          <span className="font-semibold text-ink">
+            {count(targetOf(row.original))}
+          </span>
+          {row.original.sent !== undefined && (
+            <>
+              {" · Sent "}
+              <span className="font-semibold text-ink">
+                {count(row.original.sent)}
+              </span>
+            </>
+          )}
         </span>
       ),
     },
     {
       id: "action",
       header: "",
-      size: 130,
+      size: 170,
       enableSorting: false,
-      meta: { align: "right" },
-      cell: ({ row }) => <CloseShort row={row.original} onClosed={onClosed} />,
+      enableHiding: false,
+      meta: { align: "right", card: "status" },
+      cell: ({ row }) => (
+        <CloseRemaining row={row.original} onClosed={onClosed} />
+      ),
     },
   ]
 }
@@ -169,58 +274,63 @@ function closedColumns(): ColumnDef<TableSetup, ClosedShortLine>[] {
       header: "No.",
       size: 64,
       enableSorting: false,
+      meta: { card: "hide" },
       cell: ({ row }) => (
         <span className="text-mute tabular-nums">{row.index + 1}</span>
       ),
     },
     {
-      accessorKey: "article_name",
-      header: "Article",
-      meta: { grow: 200 },
-      cell: ({ row }) => articleCell(row.original),
+      accessorKey: "allotment_number",
+      header: "Allotment",
+      size: 150,
+      meta: { card: "id" },
+      cell: ({ row }) => (
+        <span className="block truncate font-mono text-ink">
+          {row.original.allotment_number}
+        </span>
+      ),
     },
     {
       id: "store",
       header: "Store",
       size: 160,
       accessorFn: (row) => storeOf(row),
+      meta: { card: "meta" },
       cell: ({ row }) => storeOf(row.original),
     },
     {
-      accessorKey: "allotment_number",
-      header: "Allotment",
-      size: 150,
-      cell: ({ row }) => (
-        <span className="font-mono text-ink">
-          {row.original.allotment_number}
-        </span>
-      ),
+      id: "sku",
+      header: "SKU",
+      accessorFn: (row) => row.article_name,
+      meta: { grow: 200, card: "title" },
+      cell: ({ row }) => articleCell(row.original),
     },
     {
       accessorKey: "allotted",
       header: "Allotted",
       size: 100,
-      meta: { align: "right", card: "metric" },
+      meta: { align: "right", card: "hide" },
       cell: ({ row }) => number(row.original.allotted),
     },
     {
       accessorKey: "packed",
       header: "Packed",
       size: 100,
-      meta: { align: "right", card: "metric" },
+      meta: { align: "right", card: "hide" },
       cell: ({ row }) => number(row.original.packed),
     },
     {
       accessorKey: "closed_short",
       header: "Closed Short",
       size: 120,
-      meta: { align: "right", card: "metric" },
+      meta: { align: "right", card: "hide" },
       cell: ({ row }) => number(row.original.closed_short),
     },
     {
       accessorKey: "closed_at",
       header: "By / Date",
       size: 160,
+      meta: { card: "hide" },
       cell: ({ row }) => (
         <span className="block min-w-0">
           <span className="block truncate text-ink">
@@ -232,7 +342,53 @@ function closedColumns(): ColumnDef<TableSetup, ClosedShortLine>[] {
         </span>
       ),
     },
+    {
+      id: "lead",
+      header: "",
+      accessorFn: (row) => row.closed_short,
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "lead" },
+      cell: ({ row }) => (
+        <span className="flex flex-col items-end tabular-nums">
+          <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
+            {count(row.original.closed_short)}
+          </span>
+          <span className="mt-0.5 text-[0.875rem] text-mute">closed short</span>
+        </span>
+      ),
+    },
+    {
+      id: "foot",
+      header: "",
+      accessorFn: (row) => row.closed_at,
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "foot" },
+      cell: ({ row }) => (
+        <span>
+          {row.original.closed_by} · {day(row.original.closed_at)}
+        </span>
+      ),
+    },
   ]
+}
+
+/// Whether a line is what was searched for: its allotment, store, article or SKU.
+function matches(
+  row: {
+    allotment_number: string
+    article_name: string
+    article_code: string
+    sku_code: string
+    destination_name: string | null
+    destination_id: string
+  },
+  needle: string
+): boolean {
+  return `${row.allotment_number} ${storeOf(row)} ${row.article_name} ${row.article_code} ${row.sku_code}`
+    .toLowerCase()
+    .includes(needle)
 }
 
 /// The two tabs' body. Row click opens the allotment sheet.
@@ -240,22 +396,41 @@ export function UnfilledPanel({
   which,
   query,
   onOpen,
+  dockStatus,
 }: {
   which: "open" | "closed"
-  query: UseQueryResult<UnfilledList>
+  query: UseQueryResult<StillNeededList>
   onOpen: (allotmentId: string) => void
+  /// The page's tabs as the dock's status button, on a phone.
+  dockStatus?: DockStatus
 }) {
-  const open = useMemo(() => query.data?.open ?? [], [query.data])
-  const closed = useMemo(() => query.data?.closed ?? [], [query.data])
-  /// The close-short a press made, held in the receipt dialog until it is
-  /// read. The panel stays mounted through the refetch that moves the closed
-  /// row out of the open list — the cell that started the write does not.
-  const [closedShort, setClosedShort] = useState<number | null>(null)
-  const openColumnDefs = useMemo(
-    () => openColumns(setClosedShort),
-    []
+  const cards = useLayout() === "phone"
+  const [search, setSearch] = useState("")
+  const needle = search.trim().toLowerCase()
+  const everyOpen = query.data?.open
+  const everyClosed = query.data?.closed
+  const open = useMemo(
+    () =>
+      (everyOpen ?? []).filter((row) => needle === "" || matches(row, needle)),
+    [everyOpen, needle]
   )
+  const closed = useMemo(
+    () =>
+      (everyClosed ?? []).filter(
+        (row) => needle === "" || matches(row, needle)
+      ),
+    [everyClosed, needle]
+  )
+  /// The close a press made, held in the receipt dialog until it is read. The
+  /// panel stays mounted through the refetch that moves the closed row out of
+  /// the open list — the cell that started the write does not.
+  const [closedPcs, setClosedPcs] = useState<number | null>(null)
+  const openColumnDefs = useMemo(() => openColumns(setClosedPcs), [])
   const closedColumnDefs = useMemo(() => closedColumns(), [])
+  const visibility = useMemo(
+    () => ({ lead: cards, foot: cards, reason: cards }),
+    [cards]
+  )
 
   const openTable = useTable(
     useMemo(
@@ -263,9 +438,10 @@ export function UnfilledPanel({
         features: tableSetup,
         data: open,
         columns: openColumnDefs,
-        getRowId: (row: UnfilledLine) => row.allotment_line_id,
+        getRowId: (row: StillNeededLine) => row.allotment_line_id,
+        state: { columnVisibility: visibility },
       }),
-      [open, openColumnDefs]
+      [open, openColumnDefs, visibility]
     )
   )
   const closedTable = useTable(
@@ -276,49 +452,80 @@ export function UnfilledPanel({
         columns: closedColumnDefs,
         getRowId: (row: ClosedShortLine) =>
           `${row.allotment_line_id}-${row.closed_at}`,
+        state: { columnVisibility: { lead: cards, foot: cards } },
       }),
-      [closed, closedColumnDefs]
+      [closed, closedColumnDefs, cards]
     )
   )
 
+  const searching = needle !== ""
+
   return (
-    <Card className="overflow-clip">
-      {queryState(query, {
-        loading: "Reading the unfilled lines…",
-        render: () =>
-          which === "open" ? (
-            open.length === 0 ? (
-              <EmptyState>Nothing unfilled.</EmptyState>
+    <>
+      <DockTools
+        search={{
+          value: search,
+          onChange: setSearch,
+          label: "Search Allotments",
+        }}
+        status={dockStatus}
+      />
+      <div className="group/bar mb-5 flex min-h-[2.25rem] items-center max-md:hidden">
+        <ExpandingSearch
+          value={search}
+          onChange={setSearch}
+          label="Search allotments"
+        />
+        <BarSpacer />
+      </div>
+      <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+        {queryState(query, {
+          loading: "Reading what is still needed…",
+          render: (data) =>
+            which === "open" ? (
+              open.length === 0 ? (
+                <EmptyState>
+                  {searching && data.open.length > 0
+                    ? "No line matches."
+                    : "Nothing is still needed."}
+                </EmptyState>
+              ) : (
+                <DataTable<StillNeededLine>
+                  table={openTable}
+                  roomy
+                  pageScroll
+                  cardSort={false}
+                  cardsApart
+                  cardLead
+                  onRowClick={(row) => onOpen(row.allotment_id)}
+                />
+              )
+            ) : closed.length === 0 ? (
+              <EmptyState>
+                {searching && data.closed.length > 0
+                  ? "No line matches."
+                  : "Nothing completed."}
+              </EmptyState>
             ) : (
-              <DataTable<UnfilledLine>
-                table={openTable}
+              <DataTable<ClosedShortLine>
+                table={closedTable}
+                roomy
                 pageScroll
+                cardSort={false}
+                cardsApart
+                cardLead
                 onRowClick={(row) => onOpen(row.allotment_id)}
               />
-            )
-          ) : closed.length === 0 ? (
-            <EmptyState>Nothing closed short.</EmptyState>
-          ) : (
-            <DataTable<ClosedShortLine>
-              table={closedTable}
-              pageScroll
-              onRowClick={(row) => onOpen(row.allotment_id)}
-            />
-          ),
-      })}
+            ),
+        })}
+      </Card>
       <SavedDialog
-        open={closedShort !== null}
+        open={closedPcs !== null}
         onOpenChange={(next) => {
-          if (!next) setClosedShort(null)
+          if (!next) setClosedPcs(null)
         }}
-        title={
-          closedShort !== null && (
-            <>
-              {count(closedShort)} pcs closed short
-            </>
-          )
-        }
+        title={closedPcs !== null && <>{quantity(closedPcs)} closed</>}
       />
-    </Card>
+    </>
   )
 }

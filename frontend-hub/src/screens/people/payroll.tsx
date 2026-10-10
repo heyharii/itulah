@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
+import { Fab } from "@/components/ui/fab"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Day } from "@/components/ui/day"
@@ -44,6 +46,12 @@ import { useCanWrite } from "@/lib/session"
 import { useSheet } from "@/lib/sheets"
 import type { PayrollRunView, RunReconciliation } from "@itulah/contract"
 
+import {
+  CardButton,
+  CardMonth,
+  CardName,
+  PhoneCards,
+} from "@/components/ui/phone-cards"
 import { SlipBreakdown } from "@/screens/people/slip-view"
 
 /// Payroll runs. The place asks for its own; head office answers.
@@ -108,6 +116,7 @@ function unitName(
 export function PayrollRuns() {
   const run = useSheet("payrollRun")
   const canWrite = useCanWrite()
+  const phone = useLayout() === "phone"
   const [opening, setOpening] = useState(false)
   const [unitFilter, setUnitFilter] = useState("")
   const [stateFilter, setStateFilter] = useState("")
@@ -132,6 +141,7 @@ export function PayrollRuns() {
         title="Payroll"
         sub="One unit, one month: the place sends the run and head office approves it."
         actions={
+          !phone &&
           canWrite && (
             <Button variant="primary" onClick={() => setOpening(true)}>
               Open run
@@ -139,6 +149,7 @@ export function PayrollRuns() {
           )
         }
       />
+      {canWrite && <Fab label="Open run" onClick={() => setOpening(true)} />}
 
       <Toolbar>
         <Select
@@ -167,7 +178,7 @@ export function PayrollRuns() {
         </Select>
       </Toolbar>
 
-      <Card className="overflow-hidden px-4 py-2">
+      <Card className="overflow-hidden px-4 py-2 max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:p-0 max-md:shadow-none">
         {queryState(runs, {
           loading: "Reading the runs…",
           render: () =>
@@ -178,6 +189,43 @@ export function PayrollRuns() {
               </EmptyState>
             ) : shown.length === 0 ? (
               <EmptyState>No run matches these filters.</EmptyState>
+            ) : phone ? (
+              <PhoneCards
+                rows={shown}
+                onOpen={(row) => run.open(row.id)}
+                rowId={(row) => row.id}
+                spec={{
+                  title: (row) => (
+                    <CardName
+                      name={unitName(units, row.unit_id)}
+                      line={`Pay day ${day(row.pay_on)}`}
+                    />
+                  ),
+                  lead: (row) => <CardMonth period={row.period} />,
+                  foot: (row) => (
+                    <span className="flex flex-wrap items-center gap-1">
+                      <Pill tone={stateTone(row.state)}>
+                        {runStateLabel(row.state)}
+                      </Pill>
+                      {!row.complete && <Pill tone="warn">Incomplete</Pill>}
+                      {row.handover !== null && (
+                        <Pill
+                          tone={row.handover.state === "PAID" ? "ok" : "info"}
+                        >
+                          {handoverLabel(row.handover.state)}
+                        </Pill>
+                      )}
+                    </span>
+                  ),
+                  action: (row) => (
+                    <CardButton
+                      label="Open"
+                      ariaLabel={`Open the ${row.period} run for ${unitName(units, row.unit_id)}`}
+                      onClick={() => run.open(row.id)}
+                    />
+                  ),
+                }}
+              />
             ) : (
               <MiniTable
                 head={[
@@ -570,7 +618,7 @@ function ThrControl({ run }: { run: PayrollRunView }) {
   const [failed, setFailed] = useState<string | null>(null)
   const set = useMutation({
     mutationFn: (on: string | null) =>
-      setRunThr(run.id, on, on === null ? "THR dibatalkan" : "THR hari raya"),
+      setRunThr(run.id, on, on === null ? "THR cancelled" : "holiday THR"),
     onSuccess: () => {
       setFailed(null)
       void client.invalidateQueries({ queryKey: payKeys.runs() })

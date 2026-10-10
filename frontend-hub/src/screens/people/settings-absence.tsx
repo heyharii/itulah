@@ -4,6 +4,7 @@ import { useState } from "react"
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Day } from "@/components/ui/day"
+import { Fab } from "@/components/ui/fab"
 import { Checkbox, Field, Input } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { PickOne } from "@/components/ui/pick"
@@ -12,6 +13,7 @@ import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { Sheet } from "@/components/ui/sheet"
 import { EmptyState, Problem } from "@/components/ui/states"
 import { day } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   absenceRules,
   attendanceSettingKeys,
@@ -51,6 +53,7 @@ export function AbsenceSettings() {
     queryFn: ({ signal }) => absenceRules(signal),
   })
   const sheet = useOpener()
+  const phone = useLayout() === "phone"
 
   return (
     <PageContent>
@@ -59,6 +62,7 @@ export function AbsenceSettings() {
         title="Absence Deduction"
         sub="What a day absent costs on a payslip. Each payslip counts absences either way; the rule decides whether they cost anything."
         actions={
+          !phone &&
           canWrite && (
             <Button variant="primary" onClick={() => sheet.show()}>
               New rule
@@ -66,6 +70,7 @@ export function AbsenceSettings() {
           )
         }
       />
+      {canWrite && <Fab label="New rule" onClick={() => sheet.show()} />}
 
       <ListCard>
         {queryState(rules, {

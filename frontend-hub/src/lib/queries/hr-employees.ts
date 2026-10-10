@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 
 import { node } from "@/lib/api"
+import { APPROVAL_WORD } from "@/lib/words"
 import {
   listChangeProposals,
   listEmployees,
@@ -116,7 +117,9 @@ export function useNameOfLogin(): (username: string) => string {
     const login = username.trim().toLowerCase()
     const one = data?.find((person) => person.username?.toLowerCase() === login)
     if (one?.full_name) return one.full_name
-    return username === "" ? "—" : username.charAt(0).toUpperCase() + username.slice(1)
+    return username === ""
+      ? "—"
+      : username.charAt(0).toUpperCase() + username.slice(1)
   }
 }
 
@@ -162,15 +165,11 @@ export const CHANGE_KIND_LABEL: Readonly<Record<string, string>> = {
   SEPARATION: "Separation",
 }
 
-export const CHANGE_STATE_LABEL: Readonly<Record<string, string>> = {
-  PENDING: "Waiting",
-  APPROVED: "Approved",
-  REJECTED: "Rejected",
-  WITHDRAWN: "Withdrawn",
-}
+export const CHANGE_STATE_LABEL: Readonly<Record<string, string>> =
+  APPROVAL_WORD
 
 export const LETTER_LEVEL_LABEL: Readonly<Record<string, string>> = {
-  TEGURAN: "Teguran",
+  TEGURAN: "Reprimand",
   SP1: "SP 1",
   SP2: "SP 2",
   SP3: "SP 3",

@@ -1,12 +1,14 @@
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Field, Input, Select } from "@/components/ui/field"
 import { Toggle } from "@/components/ui/form"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
+import { BottomSheet } from "@/components/ui/picker-sheet"
 import { Segmented } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
 import { EmptyState, Problem } from "@/components/ui/states"
@@ -19,6 +21,7 @@ import {
   type ExceptionState,
 } from "@/lib/queries/exceptions"
 import { SHOW_MISSING } from "@/lib/features"
+import { useLayout } from "@/lib/layout"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { useSections } from "@/lib/session"
@@ -37,11 +40,17 @@ const STATE_OPTIONS: readonly { value: ExceptionState; label: string }[] = [
 ]
 
 export function StoreExceptions() {
+  // A phone keeps the state in the drawer over the bottom bar, the store and
+  // the kind in its Filters sheet, and reads each exception as a card.
+  const phone = useLayout() === "phone"
   const unit = useSheet("exceptions-unit")
   const kind = useSheet("exceptions-kind")
   const state = useSheet("exceptions-state")
   const settings = useSheet("exceptions-settings")
   const { bypass } = useSections()
+  // What a phone's search narrows the list by, and its Filters sheet.
+  const [query, setQuery] = useState("")
+  const [options, setOptions] = useState(false)
 
   const stateValue: ExceptionState = state.value ?? "open"
 
@@ -53,6 +62,54 @@ export function StoreExceptions() {
   })
   const summary = exceptions.data?.summary
 
+  /// What the exceptions are, counted: a tap narrows the list to one kind. A
+  /// desk draws them under the toolbar, a phone in its Filters sheet.
+  const kinds =
+    summary && summary.by_kind.some((row) => row.count > 0) ? (
+      <div
+        className={
+          phone ? "flex flex-wrap gap-1.5" : "mb-4 flex flex-wrap gap-1.5"
+        }
+      >
+        {summary.by_kind
+          .filter((row) => row.count > 0)
+          .map((row) => (
+            <button
+              key={row.kind}
+              type="button"
+              onClick={() =>
+                kind.value === row.kind ? kind.close() : kind.open(row.kind)
+              }
+            >
+              <Pill
+                tone={row.bad > 0 ? "bad" : "warn"}
+                className={
+                  kind.value === row.kind ? "ring-2 ring-accent/40" : undefined
+                }
+              >
+                {exceptionKindLabel(row.kind)} · {row.count}
+              </Pill>
+            </button>
+          ))}
+      </div>
+    ) : null
+
+  const storePicker = (
+    <Select
+      value={unit.value ?? ""}
+      onChange={(next) => (next === "" ? unit.close() : unit.open(next))}
+      aria-label="Store"
+      className="w-56 max-md:w-full"
+    >
+      <option value="">Every store</option>
+      {(summary?.by_unit ?? []).map((row) => (
+        <option key={row.unit_id} value={row.unit_id}>
+          {row.unit_name} ({row.unit_code}) · {row.count}
+        </option>
+      ))}
+    </Select>
+  )
+
   return (
     <PageContent>
       <PageHeader
@@ -60,7 +117,8 @@ export function StoreExceptions() {
         title="Exceptions"
         sub="What goes wrong in a store's own money and goods, read from the data rather than filed by hand."
         actions={
-          bypass && (
+          bypass &&
+          !phone && (
             <Button variant="ghost" onClick={() => settings.open(true)}>
               Thresholds
             </Button>
@@ -68,75 +126,96 @@ export function StoreExceptions() {
         }
       />
 
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <Segmented
-          options={STATE_OPTIONS}
-          value={stateValue}
-          onChange={(next) =>
-            next === "open" ? state.close() : state.open(next)
-          }
-        />
-        <Select
-          value={unit.value ?? ""}
-          onChange={(next) => (next === "" ? unit.close() : unit.open(next))}
-          aria-label="Store"
-          className="w-56"
-        >
-          <option value="">Every store</option>
-          {(summary?.by_unit ?? []).map((row) => (
-            <option key={row.unit_id} value={row.unit_id}>
-              {row.unit_name} ({row.unit_code}) · {row.count}
-            </option>
-          ))}
-        </Select>
-      </div>
-
-      {summary && summary.by_kind.some((row) => row.count > 0) && (
-        <div className="mb-4 flex flex-wrap gap-1.5">
-          {summary.by_kind
-            .filter((row) => row.count > 0)
-            .map((row) => (
-              <button
-                key={row.kind}
-                type="button"
-                onClick={() =>
-                  kind.value === row.kind ? kind.close() : kind.open(row.kind)
-                }
-              >
-                <Pill
-                  tone={row.bad > 0 ? "bad" : "warn"}
-                  className={
-                    kind.value === row.kind
-                      ? "ring-2 ring-accent/40"
-                      : undefined
-                  }
-                >
-                  {exceptionKindLabel(row.kind)} · {row.count}
-                </Pill>
-              </button>
-            ))}
-        </div>
+      {!phone && (
+        <>
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            <Segmented
+              options={STATE_OPTIONS}
+              value={stateValue}
+              onChange={(next) =>
+                next === "open" ? state.close() : state.open(next)
+              }
+            />
+            {storePicker}
+          </div>
+          {kinds}
+        </>
       )}
 
-      <Card className="overflow-hidden">
+      {/* On a phone the state is the status button of the drawer over the
+          bottom bar, beside a search over what is listed, and the store and
+          the kind are its ⚙ sheet. */}
+      <DockTools
+        search={{
+          value: query,
+          onChange: setQuery,
+          label: "Search Exceptions",
+        }}
+        filter={{
+          count:
+            (unit.value === undefined ? 0 : 1) +
+            (kind.value === undefined ? 0 : 1),
+          onOpen: () => setOptions(true),
+        }}
+        status={{
+          value: stateValue,
+          options: STATE_OPTIONS,
+          onChange: (next) =>
+            next === "open" ? state.close() : state.open(next),
+        }}
+      />
+      <BottomSheet open={options} onOpenChange={setOptions} title="Filters">
+        <div className="flex min-h-0 flex-col gap-4 overflow-y-auto overscroll-contain px-4 pb-4 [&>*:is(select,input,button)]:w-full">
+          {storePicker}
+          {kinds}
+        </div>
+      </BottomSheet>
+
+      {/* The thresholds, which a desk keeps in the header: at the foot of the
+          list on a phone, for an admin. */}
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(exceptions, {
           loading: "Reading exceptions…",
-          render: (page) =>
-            page.items.length === 0 ? (
+          render: (page) => {
+            const needle = phone ? query.trim().toLowerCase() : ""
+            const items =
+              needle === ""
+                ? page.items
+                : page.items.filter((item) =>
+                    `${exceptionKindLabel(item.kind)} ${item.sentence} ${item.unit_name} ${item.unit_code}`
+                      .toLowerCase()
+                      .includes(needle)
+                  )
+            return page.items.length === 0 ? (
               <EmptyState>
                 {stateValue === "open" || stateValue === "unacknowledged"
                   ? "No open exceptions — every store is on time."
                   : "Nothing matches this filter."}
               </EmptyState>
+            ) : items.length === 0 ? (
+              <EmptyState>No exception matches that search.</EmptyState>
             ) : (
-              <ul className="divide-y divide-hairline">
-                {page.items.map((item) => (
+              <ul
+                className={
+                  phone ? "flex flex-col gap-2.5" : "divide-y divide-hairline"
+                }
+              >
+                {items.map((item) => (
                   <ExceptionRow key={item.id} item={item} />
                 ))}
               </ul>
-            ),
+            )
+          },
         })}
       </Card>
+
+      {phone && bypass && (
+        <div className="mt-5 flex justify-center">
+          <Button variant="soft" onClick={() => settings.open(true)}>
+            Thresholds
+          </Button>
+        </div>
+      )}
 
       <ExceptionSettingsSheet open={settings.isOpen} onClose={settings.close} />
     </PageContent>

@@ -792,11 +792,12 @@ async fn current_status(
     tx: &mut Transaction<'_, Postgres>,
     giro_id: Uuid,
 ) -> Result<GiroState, AppError> {
-    let stored: String = sqlx::query_scalar("SELECT status FROM giro WHERE giro_id = $1 FOR UPDATE")
-        .bind(giro_id)
-        .fetch_optional(&mut **tx)
-        .await?
-        .ok_or_else(|| AppError::NotFound("giro".into()))?;
+    let stored: String =
+        sqlx::query_scalar("SELECT status FROM giro WHERE giro_id = $1 FOR UPDATE")
+            .bind(giro_id)
+            .fetch_optional(&mut **tx)
+            .await?
+            .ok_or_else(|| AppError::NotFound("giro".into()))?;
     GiroState::parse(&stored)
         .ok_or_else(|| AppError::Validation(format!("'{stored}' is not a giro state")))
 }
@@ -830,9 +831,13 @@ async fn undo_clearing(
     let from = GiroState::parse(&stored)
         .ok_or_else(|| AppError::Validation(format!("'{stored}' is not a giro state")))?;
     giro_may_unclear(from).map_err(|why| AppError::Conflict(format!("giro {number}: {why}")))?;
-    let clearing_entry_id: Uuid = row.try_get::<Option<Uuid>, _>("clearing_entry_id")?.ok_or_else(|| {
-        AppError::Conflict(format!("giro {number} is cleared but names no clearing entry"))
-    })?;
+    let clearing_entry_id: Uuid = row
+        .try_get::<Option<Uuid>, _>("clearing_entry_id")?
+        .ok_or_else(|| {
+            AppError::Conflict(format!(
+                "giro {number} is cleared but names no clearing entry"
+            ))
+        })?;
     let cleared_on: NaiveDate = row
         .try_get::<Option<NaiveDate>, _>("cleared_on")?
         .ok_or_else(|| AppError::Conflict(format!("giro {number} is cleared but names no day")))?;
@@ -1021,19 +1026,21 @@ pub async fn giro_replace(
             }
         }
         (None, Some(replacement)) => {
-            if row.try_get::<Option<Uuid>, _>("cash_document_id")?.is_none() {
+            if row
+                .try_get::<Option<Uuid>, _>("cash_document_id")?
+                .is_none()
+            {
                 return Err(AppError::Validation(format!(
                     "giro {number} was written on a supplier payment; replace it with a payment"
                 )));
             }
             let direction: String = row.try_get("direction")?;
-            let replacement_row = sqlx::query(
-                "SELECT status, kind FROM cash_document WHERE document_id = $1",
-            )
-            .bind(replacement)
-            .fetch_optional(&mut *tx)
-            .await?
-            .ok_or_else(|| AppError::NotFound("cash document".into()))?;
+            let replacement_row =
+                sqlx::query("SELECT status, kind FROM cash_document WHERE document_id = $1")
+                    .bind(replacement)
+                    .fetch_optional(&mut *tx)
+                    .await?
+                    .ok_or_else(|| AppError::NotFound("cash document".into()))?;
             let replacement_status: String = replacement_row.try_get("status")?;
             let kind: String = replacement_row.try_get("kind")?;
             if replacement_status != "POSTED" {

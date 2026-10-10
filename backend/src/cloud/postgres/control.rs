@@ -272,7 +272,7 @@ pub struct ControlScope {
 }
 
 /// One row where the ledger and the projection disagree.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct LedgerDifference {
     /// `place_id#subject_id`. The pair the projection is keyed by, and the
@@ -290,7 +290,7 @@ pub struct LedgerDifference {
 }
 
 /// One outbound rollup that does not add up to its leaves.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct RollupDifference {
     pub parent_pool_id: String,
@@ -301,7 +301,7 @@ pub struct RollupDifference {
 }
 
 /// What the difference list can be narrowed by.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct DifferenceFacets {
     pub pools: Vec<InventoryFacet>,
@@ -309,7 +309,7 @@ pub struct DifferenceFacets {
 }
 
 /// A page of differences, and how many there really are.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct DifferencePage {
     pub rows: Vec<LedgerDifference>,
@@ -327,7 +327,7 @@ pub struct DifferencePage {
 }
 
 /// A run of the replay or the repost, as the console shows it.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct ReplayRunSummary {
     pub id: Uuid,
@@ -336,7 +336,7 @@ pub struct ReplayRunSummary {
     pub ran_at: DateTime<Utc>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct RepostRunSummary {
     pub id: Uuid,
@@ -345,7 +345,7 @@ pub struct RepostRunSummary {
 }
 
 /// Whether the ledger and what is drawn from it still agree.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct ControlStatus {
     pub ledger_fact_count: i64,
@@ -365,6 +365,10 @@ pub struct ControlStatus {
     /// a dozen rows at the fleet's largest. A cursor over twelve rows is
     /// machinery nobody would ever turn.
     pub outbound_rollup_differences: Vec<RollupDifference>,
+    /// When this answer was computed. The numbers describe the estate's
+    /// integrity rather than a live second, so the route's default view is
+    /// written down by a pass and read back; this says how old it is.
+    pub computed_at: DateTime<Utc>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -430,10 +434,51 @@ fn difference_row_from(row: &sqlx::postgres::PgRow) -> Result<LedgerDifference, 
 
 /// Where the ledger and the projection disagree: searched, filtered, sorted
 /// and paged by the server.
+///
+/// The two statements the page is made of are executor-generic, the shape
+/// `replay_differences` above already set: the route runs them on the pool,
+/// and the pass that refreshes the stored answer (see
+/// `refresh_control_state` below) runs them inside one transaction of its
+/// own. Everything between the statements — the ask resolved, the cursor,
+/// the tally shortcut — is shared, so the two executions cannot drift.
 pub async fn ledger_differences_page(
     pool: &PgPool,
     scope: &ControlScope,
 ) -> Result<DifferencePage, AppError> {
+    let ask = difference_ask(scope)?;
+    let rows = difference_page_rows(pool, &ask, scope).await?;
+    let (out, next_cursor) = assembled_page(&rows, ask.limit)?;
+    let facet_rows = if ask.facets_needed(scope, &next_cursor) {
+        difference_facet_rows(pool, &ask, scope).await?
+    } else {
+        Vec::new()
+    };
+    finished_page(scope, &ask, out, next_cursor, &facet_rows)
+}
+
+/// What the difference page was asked for, resolved once for both its
+/// statements: the trimmed needle, the clamped limit, the decoded cursor,
+/// and the order the chosen sort ends in.
+struct DifferenceAsk {
+    needle: Option<String>,
+    limit: i64,
+    cursor: Option<DifferenceCursor>,
+    cols: String,
+    order: String,
+    seek: &'static str,
+}
+
+impl DifferenceAsk {
+    /// Whether the facet statement is worth running at all. Counting must be
+    /// on, and the page must not already hold the whole matched set — a
+    /// first page that came back short has no cursor to follow, and the
+    /// tally beside it is the count (see `finished_page`).
+    fn facets_needed(&self, scope: &ControlScope, next_cursor: &Option<String>) -> bool {
+        scope.count && (self.cursor.is_some() || next_cursor.is_some())
+    }
+}
+
+fn difference_ask(scope: &ControlScope) -> Result<DifferenceAsk, AppError> {
     let needle = scope
         .needle
         .as_deref()
@@ -463,7 +508,28 @@ pub async fn ledger_differences_page(
     };
     let (cols, order) = super::order_by(lead, "row_id", descending);
     let seek = if descending { "<" } else { ">" };
+    Ok(DifferenceAsk {
+        needle,
+        limit,
+        cursor,
+        cols,
+        order,
+        seek,
+    })
+}
 
+/// The page's first statement, one executor's worth: the matched set,
+/// ordered and paged. Binds: `$1` a subject or NULL, `$2` a pool or NULL,
+/// `$3` a site or NULL, `$4` the search pattern or NULL, `$5` the cursor or
+/// NULL, `$6` the limit.
+async fn difference_page_rows<'e, E>(
+    executor: E,
+    ask: &DifferenceAsk,
+    scope: &ControlScope,
+) -> Result<Vec<sqlx::postgres::PgRow>, AppError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     // `NOT MATERIALIZED`: `kept` is referenced twice — as the page and
     // inside the seek — and two references makes PostgreSQL materialise a
     // CTE, which is an optimisation fence the `ORDER BY … LIMIT` cannot be
@@ -476,66 +542,32 @@ pub async fn ledger_differences_page(
           WHERE $5::text IS NULL
              OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE row_id = $5)
           ORDER BY {order}
-          LIMIT $6"
+          LIMIT $6",
+        cols = ask.cols,
+        seek = ask.seek,
+        order = ask.order,
     );
-    let rows = sqlx::query(&sql)
+    Ok(sqlx::query(&sql)
         .bind(scope.subject_id)
         .bind(&scope.pool_id)
         .bind(&scope.site_id)
-        .bind(&needle)
-        .bind(cursor.as_ref().map(|c| c.row_id.clone()))
-        .bind(limit)
-        .fetch_all(pool)
-        .await?;
+        .bind(&ask.needle)
+        .bind(ask.cursor.as_ref().map(|c| c.row_id.clone()))
+        .bind(ask.limit)
+        .fetch_all(executor)
+        .await?)
+}
 
-    let next_cursor = match rows.last() {
-        Some(row) if rows.len() as i64 == limit => Some(super::encode_cursor(&DifferenceCursor {
-            row_id: row.try_get("row_id")?,
-        })?),
-        _ => None,
-    };
-    let out = rows
-        .iter()
-        .map(difference_row_from)
-        .collect::<Result<Vec<_>, AppError>>()?;
-
-    if !scope.count {
-        return Ok(DifferencePage {
-            rows: out,
-            next_cursor,
-            total: None,
-            facets: None,
-        });
-    }
-
-    // A first page that came back SHORT is the whole matched set, and the
-    // numbers are already in hand.
-    //
-    // Not an optimisation that trades away truth — the opposite. The facets and
-    // the total here are counted over `kept`, which is precisely the set the
-    // page was drawn from (see the note below), so when the page holds all of
-    // it, tallying the rows gives the same integers the second query would: 31
-    // ms instead of 62, and the case it fires in is the ordinary one. A healthy
-    // ledger has NO differences at all, and this route's default page is a
-    // hundred — the run where the count is worth its whole-ledger fold is the
-    // run where the projection is badly broken, which is exactly when nobody
-    // minds waiting.
-    if cursor.is_none() && next_cursor.is_none() {
-        let mut facets = DifferenceFacets {
-            pools: tally(&out, |row| row.pool_id.clone().unwrap_or_default()),
-            sites: tally(&out, |row| row.site_id.clone().unwrap_or_default()),
-        };
-        for list in [&mut facets.pools, &mut facets.sites] {
-            rank_facets(list);
-        }
-        return Ok(DifferencePage {
-            total: Some(out.len() as i64),
-            rows: out,
-            next_cursor,
-            facets: Some(facets),
-        });
-    }
-
+/// The page's second statement, which the short-page shortcut usually
+/// saves: the per-value counts and the total, over the same matched set.
+async fn difference_facet_rows<'e, E>(
+    executor: E,
+    ask: &DifferenceAsk,
+    scope: &ControlScope,
+) -> Result<Vec<sqlx::postgres::PgRow>, AppError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     // There is no wider "searched" set to count the facets over here: every
     // bind in the row definition is part of what the caller means by "which
     // ledger", and a facet counted outside the subject being investigated
@@ -550,19 +582,88 @@ pub async fn ledger_differences_page(
           UNION ALL
          SELECT 'all', '', COUNT(*)::bigint FROM kept"
     );
-    let facet_rows = sqlx::query(&facet_sql)
+    Ok(sqlx::query(&facet_sql)
         .bind(scope.subject_id)
         .bind(&scope.pool_id)
         .bind(&scope.site_id)
-        .bind(&needle)
-        .fetch_all(pool)
-        .await?;
+        .bind(&ask.needle)
+        .fetch_all(executor)
+        .await?)
+}
+
+/// The first statement's rows as the caller reads them, with the cursor to
+/// the next page — the half of the assembly that decides whether the facet
+/// statement must run.
+fn assembled_page(
+    rows: &[sqlx::postgres::PgRow],
+    limit: i64,
+) -> Result<(Vec<LedgerDifference>, Option<String>), AppError> {
+    let next_cursor = match rows.last() {
+        Some(row) if rows.len() as i64 == limit => Some(super::encode_cursor(&DifferenceCursor {
+            row_id: row.try_get("row_id")?,
+        })?),
+        _ => None,
+    };
+    let out = rows
+        .iter()
+        .map(difference_row_from)
+        .collect::<Result<Vec<_>, AppError>>()?;
+    Ok((out, next_cursor))
+}
+
+/// The finished page: the rows, the cursor, and — when counting is on — the
+/// total and the facets, from the facet statement's rows or, when the page
+/// holds the whole matched set, from the page itself.
+fn finished_page(
+    scope: &ControlScope,
+    ask: &DifferenceAsk,
+    rows: Vec<LedgerDifference>,
+    next_cursor: Option<String>,
+    facet_rows: &[sqlx::postgres::PgRow],
+) -> Result<DifferencePage, AppError> {
+    if !scope.count {
+        return Ok(DifferencePage {
+            rows,
+            next_cursor,
+            total: None,
+            facets: None,
+        });
+    }
+
+    // A first page that came back SHORT is the whole matched set, and the
+    // numbers are already in hand.
+    //
+    // Not an optimisation that trades away truth — the opposite. The facets and
+    // the total here are counted over `kept`, which is precisely the set the
+    // page was drawn from (see the note in `difference_facet_rows`), so when
+    // the page holds all of it, tallying the rows gives the same integers the
+    // second query would: 31 ms instead of 62, and the case it fires in is the
+    // ordinary one. A healthy ledger has NO differences at all, and this
+    // route's default page is a hundred — the run where the count is worth its
+    // whole-ledger fold is the run where the projection is badly broken, which
+    // is exactly when nobody minds waiting.
+    if ask.cursor.is_none() && next_cursor.is_none() {
+        let mut facets = DifferenceFacets {
+            pools: tally(&rows, |row| row.pool_id.clone().unwrap_or_default()),
+            sites: tally(&rows, |row| row.site_id.clone().unwrap_or_default()),
+        };
+        for list in [&mut facets.pools, &mut facets.sites] {
+            rank_facets(list);
+        }
+        return Ok(DifferencePage {
+            total: Some(rows.len() as i64),
+            rows,
+            next_cursor,
+            facets: Some(facets),
+        });
+    }
+
     let mut total = 0i64;
     let mut facets = DifferenceFacets {
         pools: Vec::new(),
         sites: Vec::new(),
     };
-    for row in &facet_rows {
+    for row in facet_rows {
         let kind: String = row.try_get("kind")?;
         let facet = InventoryFacet {
             value: row.try_get("value")?,
@@ -580,7 +681,7 @@ pub async fn ledger_differences_page(
     }
 
     Ok(DifferencePage {
-        rows: out,
+        rows,
         next_cursor,
         total: Some(total),
         facets: Some(facets),
@@ -613,14 +714,145 @@ fn tally(
 
 /// Whether the ledger and everything drawn from it still agree.
 ///
-/// The five reads run CONCURRENTLY. They were serial, and nothing ever asked
-/// them to be: none reads another's answer, none is in a transaction, and they
-/// were already four separate statements against a twenty-connection pool, so
-/// running them together loses no consistency that running them in a row was
-/// buying. What it buys is the wall clock — this route's cost is the SLOWEST of
-/// them rather than the sum. On a ledger whose projection has diverged in every
-/// row, which is the case this screen exists for, that is 126 ms against 62.
+/// `GET /api/v1/inventory/control`. The whole answer — every movement fact
+/// folded against the projection, and counted — is a minute on the load
+/// estate, which is a strange price for a screen whose numbers describe the
+/// estate's integrity rather than a live second: they change when the
+/// ledger or a replay changes, not when the page is opened. So the
+/// whole-ledger answer is written down by a pass
+/// (`refresh_control_state` below, every fifteen minutes) and served from
+/// the row in milliseconds, `computed_at` beside it saying how old it is.
+///
+/// An ask that narrows or pages the difference list — a site, a pool, a
+/// search, a cursor — is an investigation rather than the screen's
+/// headline, and still computes live: the store holds one answer, the
+/// whole ledger's. A database too fresh for the pass to have visited
+/// computes too, and writes the answer down, so the second open already
+/// reads.
 pub async fn control_status(pool: &PgPool, scope: ControlScope) -> Result<ControlStatus, AppError> {
+    if let Some(stored) = read_control_state(pool).await? {
+        if let Some(answer) = stored.reduced_to(&scope)? {
+            return Ok(answer);
+        }
+    }
+    let answer = compute_control_status(pool, &scope).await?;
+    if is_the_stored_ask(&scope) {
+        // The fallback's write is not the screen's to fail on: the pass
+        // owns the row, and says so on the System screen when it cannot.
+        if let Err(error) = store_control_state(pool, &answer).await {
+            tracing::warn!(%error, "the control answer could not be written down");
+        }
+    }
+    Ok(answer)
+}
+
+/// Whether the ask narrows the difference list to a question other than the
+/// whole ledger's — a site, a pool, a subject, a search. A blank search is
+/// no search; the page statement trims it away.
+fn narrowed(scope: &ControlScope) -> bool {
+    scope.site_id.is_some()
+        || scope.pool_id.is_some()
+        || scope.subject_id.is_some()
+        || scope
+            .needle
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|text| !text.is_empty())
+}
+
+/// Whether this is the ask the pass writes down: the whole ledger, house
+/// order, the first page of a hundred, counted. Every other shape —
+/// narrowed, searched, sorted another way, paged, or with the counting
+/// lever off — computes live.
+fn is_the_stored_ask(scope: &ControlScope) -> bool {
+    !narrowed(scope)
+        && scope.sort.is_none()
+        && !scope.desc
+        && scope.cursor.is_none()
+        && scope.limit.is_none()
+        && scope.count
+}
+
+impl ControlStatus {
+    /// The stored answer as this ask would have received it computed live,
+    /// or `None` when the ask is not one the stored row can honestly
+    /// answer.
+    ///
+    /// The row holds the whole ledger in house order, counted, with the
+    /// first page of a hundred. An ask that is exactly that gets it
+    /// verbatim. An ask that is the same but for a SHORTER first page, or
+    /// with the counting lever off, is the same numbers with the page cut:
+    /// the rows are a prefix of the stored page in the same order, a page
+    /// that came back short of the limit carries no cursor, and counting
+    /// off means the total and the facets are simply not said — all
+    /// exactly as live. An ask that narrows, searches, pages past the first
+    /// page, sorts another way, or asks for a longer page than the store
+    /// holds computes live instead.
+    fn reduced_to(mut self, scope: &ControlScope) -> Result<Option<ControlStatus>, AppError> {
+        if narrowed(scope)
+            || scope.cursor.is_some()
+            || scope.desc
+            || matches!(
+                scope.sort.as_deref(),
+                Some("difference") | Some("ledger") | Some("projection")
+            )
+        {
+            return Ok(None);
+        }
+        let limit = scope
+            .limit
+            .unwrap_or(DIFFERENCE_DEFAULT_LIMIT)
+            .clamp(1, DIFFERENCE_MAX_LIMIT);
+        let stored = &self.differences;
+        if limit > stored.rows.len() as i64 && stored.next_cursor.is_some() {
+            // A page longer than the stored one would read rows the store
+            // never fetched.
+            return Ok(None);
+        }
+        let rows = if (limit as usize) < stored.rows.len() {
+            stored.rows[..limit as usize].to_vec()
+        } else {
+            stored.rows.clone()
+        };
+        // The cursor the live page would carry: a full page points past its
+        // last row, a short one has nothing to follow.
+        let next_cursor = if rows.len() as i64 == limit {
+            let last = rows.last().expect("a full page has a last row");
+            Some(super::encode_cursor(&DifferenceCursor {
+                row_id: last.id.clone(),
+            })?)
+        } else {
+            None
+        };
+        let (total, facets) = if scope.count {
+            (stored.total, stored.facets.clone())
+        } else {
+            (None, None)
+        };
+        self.differences = DifferencePage {
+            rows,
+            next_cursor,
+            total,
+            facets,
+        };
+        self.projection_difference_count = total;
+        Ok(Some(self))
+    }
+}
+
+/// The control answer computed now — the route's live path, and its
+/// first-ever fallback. The five reads run CONCURRENTLY. They were serial,
+/// and nothing ever asked them to be: none reads another's answer, none is
+/// in a transaction, and they were already four separate statements against
+/// a twenty-connection pool, so running them together loses no consistency
+/// that running them in a row was buying. What it buys is the wall clock —
+/// this route's cost is the SLOWEST of them rather than the sum. On a
+/// ledger whose projection has diverged in every row, which is the case
+/// this screen exists for, that is 126 ms against 62.
+async fn compute_control_status(
+    pool: &PgPool,
+    scope: &ControlScope,
+) -> Result<ControlStatus, AppError> {
     // The rollup check reads the same three-field scope the difference list
     // does, rather than the empty one this route used to hand it.
     let rollup_scope = ReplayScope {
@@ -629,35 +861,95 @@ pub async fn control_status(pool: &PgPool, scope: ControlScope) -> Result<Contro
         subject_id: scope.subject_id,
     };
     let (fact_count, differences, outbound_rollup_rows, replay, repost) = tokio::try_join!(
-        async {
-            Ok::<i64, AppError>(
-                sqlx::query("SELECT count(*)::bigint count FROM movement")
-                    .fetch_one(pool)
-                    .await?
-                    .get::<i64, _>("count"),
-            )
-        },
-        ledger_differences_page(pool, &scope),
+        control_fact_count(pool),
+        ledger_differences_page(pool, scope),
         outbound_stage_rollup_differences(pool, &rollup_scope),
-        async {
-            Ok::<_, AppError>(
-                sqlx::query(
-                    "SELECT id,status,difference_count,ran_at FROM replay_run ORDER BY ran_at DESC LIMIT 1",
-                )
-                .fetch_optional(pool)
-                .await?,
-            )
-        },
-        async {
-            Ok::<_, AppError>(
-                sqlx::query(
-                    "SELECT id,projection_rows,ran_at FROM repost_run ORDER BY ran_at DESC LIMIT 1",
-                )
-                .fetch_optional(pool)
-                .await?,
-            )
-        },
+        last_replay_run(pool),
+        last_repost_run(pool),
     )?;
+    assemble_control_status(fact_count, differences, outbound_rollup_rows, replay, repost)
+}
+
+/// The same answer on one connection, serially, for the pass that refreshes
+/// the stored row. `SET LOCAL statement_timeout` covers only the statements
+/// of its own transaction, so the pass runs the reads inside one rather
+/// than across the pool — the wall clock is the sum instead of the
+/// slowest, which a background pass pays gladly: the whole-ledger fold can
+/// outlast the database's two-minute statement clock on two vCPUs, and
+/// this is the one place allowed to.
+async fn compute_control_status_on(
+    connection: &mut sqlx::postgres::PgConnection,
+    scope: &ControlScope,
+) -> Result<ControlStatus, AppError> {
+    let rollup_scope = ReplayScope {
+        site_id: scope.site_id.clone(),
+        pool_id: scope.pool_id.clone(),
+        subject_id: scope.subject_id,
+    };
+    let ask = difference_ask(scope)?;
+    let rows = difference_page_rows(&mut *connection, &ask, scope).await?;
+    let (page_rows, next_cursor) = assembled_page(&rows, ask.limit)?;
+    let facet_rows = if ask.facets_needed(scope, &next_cursor) {
+        difference_facet_rows(&mut *connection, &ask, scope).await?
+    } else {
+        Vec::new()
+    };
+    let differences = finished_page(scope, &ask, page_rows, next_cursor, &facet_rows)?;
+    assemble_control_status(
+        control_fact_count(&mut *connection).await?,
+        differences,
+        outbound_stage_rollup_differences(&mut *connection, &rollup_scope).await?,
+        last_replay_run(&mut *connection).await?,
+        last_repost_run(&mut *connection).await?,
+    )
+}
+
+/// The ledger's size — on this screen the one number that is only ever a
+/// count of every fact.
+async fn control_fact_count<'e, E>(executor: E) -> Result<i64, AppError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    Ok(sqlx::query("SELECT count(*)::bigint count FROM movement")
+        .fetch_one(executor)
+        .await?
+        .get::<i64, _>("count"))
+}
+
+/// The last replay, as the console's summary line reads it.
+async fn last_replay_run<'e, E>(executor: E) -> Result<Option<sqlx::postgres::PgRow>, AppError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    Ok(sqlx::query(
+        "SELECT id,status,difference_count,ran_at FROM replay_run ORDER BY ran_at DESC LIMIT 1",
+    )
+    .fetch_optional(executor)
+    .await?)
+}
+
+/// The last repost, the same way.
+async fn last_repost_run<'e, E>(executor: E) -> Result<Option<sqlx::postgres::PgRow>, AppError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    Ok(sqlx::query(
+        "SELECT id,projection_rows,ran_at FROM repost_run ORDER BY ran_at DESC LIMIT 1",
+    )
+    .fetch_optional(executor)
+    .await?)
+}
+
+/// The five reads turned into the answer — the half both executions share,
+/// so a serial pass and a concurrent route cannot disagree about what the
+/// numbers mean.
+fn assemble_control_status(
+    fact_count: i64,
+    differences: DifferencePage,
+    outbound_rollup_rows: Vec<Value>,
+    replay: Option<sqlx::postgres::PgRow>,
+    repost: Option<sqlx::postgres::PgRow>,
+) -> Result<ControlStatus, AppError> {
     let outbound_rollup_differences = outbound_rollup_rows
         .iter()
         .map(|row| {
@@ -728,7 +1020,73 @@ pub async fn control_status(pool: &PgPool, scope: ControlScope) -> Result<Contro
             .transpose()?,
         differences,
         outbound_rollup_differences,
+        computed_at: Utc::now(),
     })
+}
+
+// ── the stored control answer (0949) ────────────────────────────────────────
+//
+// One row, the shape 0931 gave the store-stock refresh: a pass keeps it, a
+// route reads it. The pass recomputes the whole-ledger answer on a
+// connection of its own with the statement clock off, and upserts the row
+// in the same transaction, so `payload` and `computed_at` are always from
+// one run.
+
+/// Recompute the stored answer and write it down. What the pass runs.
+pub async fn refresh_control_state(pool: &PgPool) -> Result<ControlStatus, AppError> {
+    let mut tx = pool.begin().await?;
+    // The whole-ledger fold is the one read allowed past the database's
+    // two-minute statement clock, the same exemption `assistant.rs` gives
+    // its own long questions — and it may need it: 8.8 million facts on
+    // two vCPUs is a minute when the estate is quiet and more than two
+    // when it is not.
+    sqlx::query("SET LOCAL statement_timeout = 0")
+        .execute(&mut *tx)
+        .await?;
+    let scope = ControlScope {
+        count: true,
+        ..ControlScope::default()
+    };
+    let status = compute_control_status_on(&mut tx, &scope).await?;
+    store_control_state(&mut *tx, &status).await?;
+    tx.commit().await?;
+    Ok(status)
+}
+
+/// The stored row as it was written, or `None` on a database the pass has
+/// not visited yet.
+async fn read_control_state(pool: &PgPool) -> Result<Option<ControlStatus>, AppError> {
+    let Some(row) =
+        sqlx::query("SELECT payload, computed_at FROM inventory_control_state WHERE singleton")
+            .fetch_optional(pool)
+            .await?
+    else {
+        return Ok(None);
+    };
+    let mut status: ControlStatus = serde_json::from_value(row.try_get("payload")?)?;
+    // The column is the authority: the pass's own transaction stamped it.
+    status.computed_at = row.try_get("computed_at")?;
+    Ok(Some(status))
+}
+
+/// Write the stored row. Executor-generic so the pass writes it in the
+/// transaction it computed in and the route's first-ever fallback writes it
+/// on the pool — one statement, one spelling.
+async fn store_control_state<'e, E>(executor: E, status: &ControlStatus) -> Result<(), AppError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    sqlx::query(
+        "INSERT INTO inventory_control_state (singleton, payload, computed_at)
+         VALUES (true, $1, $2)
+         ON CONFLICT (singleton) DO UPDATE
+            SET payload = EXCLUDED.payload, computed_at = EXCLUDED.computed_at",
+    )
+    .bind(serde_json::to_value(status)?)
+    .bind(status.computed_at)
+    .execute(executor)
+    .await?;
+    Ok(())
 }
 
 pub async fn corrupt_projection_for_test(

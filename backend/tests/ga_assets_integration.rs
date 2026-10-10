@@ -42,12 +42,7 @@ fn an_asset(number: &str, class: &str, specs: Value) -> cloud::RegisterGaAssetRe
     }
 }
 
-async fn register(
-    pool: &PgPool,
-    number: &str,
-    class: &str,
-    specs: Value,
-) -> cloud::GaAssetRow {
+async fn register(pool: &PgPool, number: &str, class: &str, specs: Value) -> cloud::GaAssetRow {
     cloud::ga_asset_register(pool, &an_asset(number, class, specs), ACTOR)
         .await
         .unwrap_or_else(|error| panic!("register {number}: {error}"))
@@ -152,7 +147,10 @@ async fn filed_against(pool: &PgPool, document_id: Uuid, asset_id: Uuid) {
 /// entry committed on its own is an entry with no lines and is refused.
 async fn a_disposal_entry(pool: &PgPool) -> Uuid {
     let entry_id = Uuid::new_v4();
-    let mut tx = pool.begin().await.unwrap_or_else(|error| panic!("tx: {error}"));
+    let mut tx = pool
+        .begin()
+        .await
+        .unwrap_or_else(|error| panic!("tx: {error}"));
     sqlx::query("INSERT INTO fiscal_period (year, month, status) VALUES (2026, 9, 'OPEN') ON CONFLICT DO NOTHING")
         .execute(&mut *tx)
         .await
@@ -266,7 +264,13 @@ async fn the_register_carries_the_upkeep_columns_with_their_defaults(pool: PgPoo
 /// convention and a register that can be edited in place is not a register.
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn an_asset_history_is_appended_and_the_database_refuses_to_edit_it(pool: PgPool) {
-    let asset = register(&pool, "AST-8002", "AIR_CONDITIONER", json!({"make": "Daikin"})).await;
+    let asset = register(
+        &pool,
+        "AST-8002",
+        "AIR_CONDITIONER",
+        json!({"make": "Daikin"}),
+    )
+    .await;
 
     let edited = sqlx::query("UPDATE ga_asset_event SET reason = 'diubah' WHERE asset_id = $1")
         .bind(asset.asset_id)
@@ -319,8 +323,9 @@ fn specs_are_checked_against_the_builds_own_fields() {
 
     // A date that is not a day. Refused at the moment somebody typed it rather
     // than a year later when the warranty reminder fires on the wrong day.
-    let wrong_day = domain::assert_specs("TECH", &json!({"make": "Daikin", "warranty": "31-12-2027"}))
-        .expect_err("a warranty end is YYYY-MM-DD");
+    let wrong_day =
+        domain::assert_specs("TECH", &json!({"make": "Daikin", "warranty": "31-12-2027"}))
+            .expect_err("a warranty end is YYYY-MM-DD");
     assert!(wrong_day.to_string().contains("warranty"), "{wrong_day}");
 
     // And an empty value is dropped rather than stored: `specs` should say what
@@ -352,10 +357,7 @@ async fn a_class_the_register_does_not_keep_is_refused_by_name(pool: PgPool) {
     )
     .await
     .expect_err("the register keeps its own list of classes");
-    assert!(
-        refused.to_string().contains("TIDAK_ADA_KELAS"),
-        "{refused}"
-    );
+    assert!(refused.to_string().contains("TIDAK_ADA_KELAS"), "{refused}");
     assert_eq!(count_assets(&pool, "AST-8100").await, 0);
 }
 
@@ -436,8 +438,8 @@ async fn registering_writes_the_asset_and_its_first_event_in_one_transaction(poo
     // asset's own columns and fails the event's, which is the ONLY way to fail
     // between the two writes — and if they were not one transaction it would
     // leave a register row whose history starts empty.
-    let orphan = cloud::ga_asset_register(&pool, &an_asset("AST-8302", "MOBIL", json!( {})), "")
-        .await;
+    let orphan =
+        cloud::ga_asset_register(&pool, &an_asset("AST-8302", "MOBIL", json!({})), "").await;
     assert!(orphan.is_err(), "an event with no recorder is refused");
     assert_eq!(
         count_assets(&pool, "AST-8302").await,
@@ -538,7 +540,10 @@ async fn a_transfer_moves_the_thing_and_writes_one_row_saying_where_it_came_from
     )
     .await
     .expect_err("a move names one of the estate's own sites");
-    assert!(nowhere.to_string().contains("gudang-yang-tidak-ada"), "{nowhere}");
+    assert!(
+        nowhere.to_string().contains("gudang-yang-tidak-ada"),
+        "{nowhere}"
+    );
 
     // And nothing was written by either refusal.
     assert_eq!(events(&pool, asset.asset_id).await.len(), 2);
@@ -551,7 +556,9 @@ async fn a_transfer_moves_the_thing_and_writes_one_row_saying_where_it_came_from
 /// The two facts a walk-round changes, each with its own line — and no line at
 /// all when nothing changed.
 #[sqlx::test(migrations = "./migrations/postgres")]
-async fn a_condition_and_a_holder_each_write_their_own_line_and_only_when_they_change(pool: PgPool) {
+async fn a_condition_and_a_holder_each_write_their_own_line_and_only_when_they_change(
+    pool: PgPool,
+) {
     let asset = register(&pool, "AST-8501", "LIFT", json!({"make": "Andalan"})).await;
     let untouched = cloud::UpdateGaAssetRequest {
         name: None,
@@ -610,7 +617,11 @@ async fn a_condition_and_a_holder_each_write_their_own_line_and_only_when_they_c
     let history = events(&pool, asset.asset_id).await;
     assert_eq!(history.len(), 3);
     let condition_line = event_of(&history, "CONDITION");
-    assert!(condition_line.reason.contains("BAIK"), "{}", condition_line.reason);
+    assert!(
+        condition_line.reason.contains("BAIK"),
+        "{}",
+        condition_line.reason
+    );
     assert!(
         condition_line.reason.contains("PERLU_SERVIS"),
         "the line names the word it was and the word it became: {}",
@@ -658,7 +669,13 @@ async fn a_condition_and_a_holder_each_write_their_own_line_and_only_when_they_c
 /// nobody else's papers.
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn the_hub_gathers_the_things_history_and_its_own_papers(pool: PgPool) {
-    let asset = register(&pool, "AST-8601", "AIR_CONDITIONER", json!({"make": "Daikin"})).await;
+    let asset = register(
+        &pool,
+        "AST-8601",
+        "AIR_CONDITIONER",
+        json!({"make": "Daikin"}),
+    )
+    .await;
     let other = register(&pool, "AST-8602", "LIFT", json!({"make": "Andalan"})).await;
     cloud::ga_asset_note(
         &pool,
@@ -679,8 +696,14 @@ async fn the_hub_gathers_the_things_history_and_its_own_papers(pool: PgPool) {
     )
     .await;
     filed_against(&pool, stnk, asset.asset_id).await;
-    let warranty = file_document(&pool, "Garansi lift", "GARANSI", "LIFT-2027", Some(day(2027, 1, 1)))
-        .await;
+    let warranty = file_document(
+        &pool,
+        "Garansi lift",
+        "GARANSI",
+        "LIFT-2027",
+        Some(day(2027, 1, 1)),
+    )
+    .await;
     filed_against(&pool, warranty, other.asset_id).await;
 
     let hub = cloud::ga_asset_hub(&pool, asset.asset_id)
@@ -692,7 +715,10 @@ async fn the_hub_gathers_the_things_history_and_its_own_papers(pool: PgPool) {
     assert_eq!(hub.documents.len(), 1, "the lift's warranty is not this");
     assert_eq!(hub.documents[0].name, "STNK B 9615 PCD");
     assert_eq!(hub.documents[0].doc_type.as_deref(), Some("STNK"));
-    assert_eq!(hub.documents[0].doc_number.as_deref(), Some("STNK-2026-001"));
+    assert_eq!(
+        hub.documents[0].doc_number.as_deref(),
+        Some("STNK-2026-001")
+    );
     assert_eq!(hub.documents[0].expires_on, Some(day(2026, 10, 12)));
     assert!(hub.documents[0].available, "the bytes are in the row");
 
@@ -711,7 +737,10 @@ fn the_asset_routes_are_a_supervisors_surface() {
         ("GET", "/api/v1/ga/assets"),
         ("POST", "/api/v1/ga/assets"),
         ("GET", "/api/v1/ga/asset-builds"),
-        ("PATCH", "/api/v1/ga/assets/9f0f5f0e-0000-0000-0000-000000000000"),
+        (
+            "PATCH",
+            "/api/v1/ga/assets/9f0f5f0e-0000-0000-0000-000000000000",
+        ),
         (
             "POST",
             "/api/v1/ga/assets/9f0f5f0e-0000-0000-0000-000000000000/transfer",
@@ -746,9 +775,16 @@ async fn the_overview_lists_the_papers_that_run_out_and_nothing_further_off(pool
         Some(day(2026, 10, 12)),
     )
     .await;
-    let boundary = file_document(&pool, "Izin usaha", "IZIN", "IZ-9", Some(day(2026, 12, 23))).await;
-    let far = file_document(&pool, "Sertifikat tanah", "SHM", "SHM-00231", Some(day(2027, 4, 12)))
-        .await;
+    let boundary =
+        file_document(&pool, "Izin usaha", "IZIN", "IZ-9", Some(day(2026, 12, 23))).await;
+    let far = file_document(
+        &pool,
+        "Sertifikat tanah",
+        "SHM",
+        "SHM-00231",
+        Some(day(2027, 4, 12)),
+    )
+    .await;
     let undated = file_document(&pool, "BPKB", "BPKB", "BPKB-1", None).await;
 
     let overview = cloud::ga_overview(&pool, day(2026, 9, 24))
@@ -762,11 +798,7 @@ async fn the_overview_lists_the_papers_that_run_out_and_nothing_further_off(pool
         .collect();
     assert_eq!(
         listed,
-        vec![
-            overdue.to_string(),
-            soon.to_string(),
-            boundary.to_string()
-        ],
+        vec![overdue.to_string(), soon.to_string(), boundary.to_string()],
         "soonest first, and an expired permit is not less urgent than one expiring"
     );
     for out in [far, undated] {
@@ -842,16 +874,16 @@ async fn the_forms_are_the_eleven_with_the_fields_the_validator_enforces(pool: P
     // Which is only true if the validator agrees: a plate the form offers and
     // the server refused would be a form nobody could submit.
     assert!(domain::assert_specs("VEHICLE", &json!({"make": "a", "plate": "b"})).is_ok());
-    assert!(domain::assert_specs("VEHICLE", &json!({"make": "a", "plate": "b", "odometer": "1"}))
-        .is_err());
+    assert!(domain::assert_specs(
+        "VEHICLE",
+        &json!({"make": "a", "plate": "b", "odometer": "1"})
+    )
+    .is_err());
 
     // A date field is a date, not free text: a warranty end is asked about
     // later, so a form that let somebody type "tiga tahun" would be a reminder
     // that never fires.
-    let warranty = vehicle
-        .fields
-        .iter()
-        .find(|field| field.key == "warranty");
+    let warranty = vehicle.fields.iter().find(|field| field.key == "warranty");
     assert!(warranty.is_none(), "a vehicle has no warranty field");
 
     // Four classes are one form, and the class picker is told which: a lift

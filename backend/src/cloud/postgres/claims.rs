@@ -37,9 +37,7 @@ use crate::cloud::domain::{
     ClaimType, ClaimTypeCatalogue, ClaimTypeCode, EmployeeId, ExpenseClaim, ExpenseClaimWire,
     UnitId,
 };
-use crate::cloud::postgres::{
-    number_series, poster, LineAccount, PostingIntent, PostingLine,
-};
+use crate::cloud::postgres::{number_series, poster, LineAccount, PostingIntent, PostingLine};
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::Serialize;
 use sqlx::{PgPool, Postgres, Row, Transaction};
@@ -122,12 +120,11 @@ pub async fn define_claim_type(
 ) -> Result<(), AppError> {
     let _ = actor;
     let category = expense_category.trim();
-    let usable: Option<bool> = sqlx::query_scalar(
-        "SELECT is_active AND for_claims FROM expense_category WHERE code = $1",
-    )
-    .bind(category)
-    .fetch_optional(pool)
-    .await?;
+    let usable: Option<bool> =
+        sqlx::query_scalar("SELECT is_active AND for_claims FROM expense_category WHERE code = $1")
+            .bind(category)
+            .fetch_optional(pool)
+            .await?;
     match usable {
         None => {
             return Err(AppError::Validation(format!(
@@ -681,13 +678,9 @@ pub async fn pay_claim(
     let unit = claim.unit().as_str().to_string();
     // Counted per unit — the unit whose petty cash pays — and printed under its
     // client code by the claim-payout series (0701).
-    let document_number = number_series::next_number(
-        &mut tx,
-        number_series::CLAIM_PAYOUT,
-        paid_on,
-        Some(&unit),
-    )
-    .await?;
+    let document_number =
+        number_series::next_number(&mut tx, number_series::CLAIM_PAYOUT, paid_on, Some(&unit))
+            .await?;
 
     // Paid out of exactly the liabilities the approval raised: every credit
     // the approval entry put on this employee in this unit's books is debited
@@ -1221,4 +1214,3 @@ pub async fn advance_for_recovery(
         outstanding_minor: row.try_get("outstanding_minor")?,
     }))
 }
-

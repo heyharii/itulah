@@ -76,10 +76,14 @@ pub async fn create_delegation(
     created_by: &str,
 ) -> Result<(), AppError> {
     if delegator == delegate {
-        return Err(AppError::Validation("nobody delegates to themselves".into()));
+        return Err(AppError::Validation(
+            "nobody delegates to themselves".into(),
+        ));
     }
     if to_date < from_date {
-        return Err(AppError::Validation("a delegation ends before it starts".into()));
+        return Err(AppError::Validation(
+            "a delegation ends before it starts".into(),
+        ));
     }
     if reason.trim().is_empty() {
         return Err(AppError::Validation("say why".into()));
@@ -161,14 +165,22 @@ pub async fn delegated_authority(
 // ── the employee app's modules (0813) ───────────────────────────────────────
 
 pub const ESS_MODULES: [&str; 7] = [
-    "ATTENDANCE", "LEAVE", "OVERTIME", "PAY", "CLAIMS", "CORRECTION", "SWAP",
+    "ATTENDANCE",
+    "LEAVE",
+    "OVERTIME",
+    "PAY",
+    "CLAIMS",
+    "CORRECTION",
+    "SWAP",
 ];
 
 pub async fn ess_modules(pool: &PgPool) -> Result<Vec<String>, AppError> {
-    Ok(sqlx::query_scalar::<_, Vec<String>>("SELECT modules FROM ess_setting")
-        .fetch_optional(pool)
-        .await?
-        .unwrap_or_else(|| ESS_MODULES.iter().map(|m| (*m).to_owned()).collect()))
+    Ok(
+        sqlx::query_scalar::<_, Vec<String>>("SELECT modules FROM ess_setting")
+            .fetch_optional(pool)
+            .await?
+            .unwrap_or_else(|| ESS_MODULES.iter().map(|m| (*m).to_owned()).collect()),
+    )
 }
 
 pub async fn set_ess_modules(
@@ -176,9 +188,14 @@ pub async fn set_ess_modules(
     modules: &[String],
     updated: &crate::cloud::domain::Authorization,
 ) -> Result<(), AppError> {
-    let mut clean: Vec<String> = modules.iter().map(|m| m.trim().to_ascii_uppercase()).collect();
+    let mut clean: Vec<String> = modules
+        .iter()
+        .map(|m| m.trim().to_ascii_uppercase())
+        .collect();
     if let Some(unknown) = clean.iter().find(|m| !ESS_MODULES.contains(&m.as_str())) {
-        return Err(AppError::Validation(format!("{unknown} is not a module of the app")));
+        return Err(AppError::Validation(format!(
+            "{unknown} is not a module of the app"
+        )));
     }
     clean.sort();
     clean.dedup();

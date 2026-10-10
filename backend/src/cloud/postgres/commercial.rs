@@ -14,8 +14,10 @@ use pricing_engine::{price_catalog, CartLine, PriceLevel};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Postgres, Row, Transaction};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
+
+const PUBLICATION_DISPATCH_BATCH_SIZE: usize = 8;
 
 pub async fn create_commercial_publication(
     pool: &PgPool,
@@ -414,6 +416,20 @@ fn validate_publication_request(
                 "promotion rule ids must be unique within a publication".into(),
             ));
         }
+        // More than 100% off is not a discount anyone means: the engine would
+        // cap it at the line and give the goods away, and the book would say
+        // something no shopper was promised.
+        let percent = match &rule.effect {
+            pricing_engine::Effect::Percent { bps, .. } => Some(*bps),
+            pricing_engine::Effect::BuyXGetY { reward_bps, .. } => Some(*reward_bps),
+            _ => None,
+        };
+        if percent.is_some_and(|bps| !(1..=10_000).contains(&bps)) {
+            return Err(AppError::Validation(format!(
+                "promotion {} takes a percentage between 0.01% and 100% off",
+                rule.name.trim()
+            )));
+        }
         // A shop refuses a promotion whose campaign it does not hold, so a rule
         // naming a campaign this publication does not define would ship an
         // offer that can never apply anywhere. Caught here, where the author is
@@ -631,6 +647,14 @@ WHERE NOT EXISTS(
         .bind(request.actor_id.trim())
         .execute(&mut *tx)
         .await?;
+    // A capped coupon in this book becomes a coupon set before any till hears
+    // of it, so the first till to ask head office to hold a use finds one.
+    super::coupons::ensure_book_coupon_sets_for_publication(
+        &mut tx,
+        publication_id,
+        request.actor_id.trim(),
+    )
+    .await?;
     let delivered_to =
         dispatch_publication(&mut tx, publication_id, request.actor_id.trim()).await?;
     // A rule whose window is already open starts the moment the book is
@@ -715,15 +739,21 @@ pub(super) async fn dispatch_publication_to(
     .bind(only_origin)
     .fetch_all(&mut **tx)
     .await?;
+    let mut unique_origins = HashSet::with_capacity(shops.len());
+    for shop in &shops {
+        let origin_id: String = shop.get("origin_id");
+        let origin_id = origin_id.trim();
+        if origin_id.is_empty() || !unique_origins.insert(origin_id.to_owned()) {
+            return Err(AppError::Validation(
+                "publication target origins must be non-empty and unique after trimming".into(),
+            ));
+        }
+    }
 
-    // Promotions, their codes and their envelopes are the same for every shop:
-    // none of the three queries below names a site. Read inside the loop they
-    // were read once per branch — thirty identical round trips for one book,
-    // inside the transaction that publishes it and therefore holding it open
-    // that much longer.
-    //
-    // Prices and markdowns stay in the loop because they genuinely differ: each
-    // shop is sent the company-wide rows and its own, and nothing else.
+    // Promotions, coupons and their envelopes are shared by every shop and are
+    // fetched once. Scoped prices and markdowns are fetched once per small shop
+    // batch below; each batch keeps at most eight recipients' payloads in
+    // memory while replacing per-shop query/write loops with set operations.
     let promotion_rules: Vec<Value> = sqlx::query(
         "SELECT definition FROM commercial_rule
           WHERE publication_id=$1 ORDER BY rule_id",
@@ -807,145 +837,156 @@ pub(super) async fn dispatch_publication_to(
     // ordering into them that does not exist.
     let told_at = Utc::now();
     let mut delivered = Vec::with_capacity(shops.len());
-    for shop in shops {
-        let origin_id: String = shop.get("origin_id");
-        let site_id: String = shop.get("site_id");
-        // `sellable` lives on the assortment rule, not the price rule; the two
-        // are authored together and the shop receives them as one thing.
-        let rules: Vec<Value> = sqlx::query(
-            "SELECT pr.sku_id,s.sku_code,pr.site_id,pr.site_ids,pr.channel,ar.sellable,
+    for shop_batch in shops.chunks(PUBLICATION_DISPATCH_BATCH_SIZE) {
+        let mut site_ids = Vec::with_capacity(shop_batch.len());
+        for shop in shop_batch {
+            let site_id: String = shop.get("site_id");
+            if !site_ids.contains(&site_id) {
+                site_ids.push(site_id);
+            }
+        }
+
+        // Sellability lives on the assortment rule, not the price rule; the
+        // two are authored together and the shop receives them as one thing.
+        // One target row per site preserves each old per-shop scope and order.
+        let price_rows = sqlx::query(
+            "SELECT target.site_id AS target_site_id,
+                    pr.sku_id,s.sku_code,pr.site_id,pr.site_ids,pr.channel,ar.sellable,
                     pr.currency::text currency,pr.unit_price_minor,pr.tax_category
-               FROM commercial_price_rule pr
+               FROM unnest($2::text[]) AS target(site_id)
+               JOIN commercial_price_rule pr
+                 ON (pr.site_id IS NULL OR pr.site_id=target.site_id)
+                AND (pr.site_ids IS NULL OR target.site_id=ANY(pr.site_ids))
                JOIN sku s ON s.id=pr.sku_id
                JOIN commercial_assortment_rule ar
                  ON ar.publication_id=pr.publication_id AND ar.sku_id=pr.sku_id
                 AND ar.channel=pr.channel AND ar.site_id IS NOT DISTINCT FROM pr.site_id
               WHERE pr.publication_id=$1
-                AND (pr.site_id IS NULL OR pr.site_id=$2)
-                AND (pr.site_ids IS NULL OR $2 = ANY(pr.site_ids))
-              ORDER BY s.sku_code,pr.channel,(pr.site_id IS NOT NULL)",
+              ORDER BY target.site_id,s.sku_code,pr.channel,(pr.site_id IS NOT NULL)",
         )
         .bind(publication_id)
-        .bind(&site_id)
+        .bind(&site_ids)
         .fetch_all(&mut **tx)
-        .await?
-        .into_iter()
-        .map(|row| {
-            json!({
-                "sku_id": row.get::<Uuid, _>("sku_id"),
-                "sku_code": row.get::<String, _>("sku_code"),
-                "site_id": row.get::<Option<String>, _>("site_id"),
-                "site_ids": row.get::<Option<Vec<String>>, _>("site_ids"),
-                "channel": row.get::<String, _>("channel"),
-                "sellable": row.get::<bool, _>("sellable"),
-                "currency": row.get::<String, _>("currency").trim(),
-                "unit_price_minor": row.get::<i64, _>("unit_price_minor"),
-                "tax_category": row.get::<String, _>("tax_category"),
-            })
-        })
-        .collect();
-
-        // Clearance, scoped the same way prices are: the company-wide ones and
-        // this shop's own. A branch has no business holding another branch's.
-        let markdowns: Vec<Value> = sqlx::query(
-            "SELECT markdown_id,sku_code,article_code,site_id,site_ids,
-                    replacement_unit_price_minor,priority,effective_from,effective_to,
-                    campaign_id,iso_weekdays,from_minute,to_minute
-               FROM commercial_markdown
-              WHERE publication_id=$1
-                AND (site_id IS NULL OR site_id=$2)
-                AND (site_ids IS NULL OR $2 = ANY(site_ids))
-              ORDER BY markdown_id",
-        )
-        .bind(publication_id)
-        .bind(&site_id)
-        .fetch_all(&mut **tx)
-        .await?
-        .into_iter()
-        .map(|row| {
-            json!({
-                "markdown_id": row.get::<String, _>("markdown_id"),
-                "sku_code": row.get::<Option<String>, _>("sku_code"),
-                "article_code": row.get::<Option<String>, _>("article_code"),
-                "site_id": row.get::<Option<String>, _>("site_id"),
-                "site_ids": row.get::<Option<Vec<String>>, _>("site_ids"),
-                "replacement_unit_price_minor": row.get::<i64, _>("replacement_unit_price_minor"),
-                "priority": row.get::<i32, _>("priority"),
-                "effective_from": row.get::<DateTime<Utc>, _>("effective_from"),
-                "effective_to": row.get::<Option<DateTime<Utc>>, _>("effective_to"),
-                "campaign_id": row.get::<Option<String>, _>("campaign_id"),
-                // When in the week and in the day. A flash sale is a clearance
-                // with an hour on it, not a separate kind of price.
-                "iso_weekdays": row.get::<Vec<i16>, _>("iso_weekdays"),
-                "from_minute": row.get::<Option<i32>, _>("from_minute"),
-                "to_minute": row.get::<Option<i32>, _>("to_minute"),
-            })
-        })
-        .collect();
-
-        // A shop is not sent a book that says nothing to it: the receiving
-        // validator rejects an empty one, and rightly — it cannot tell an empty
-        // publication from a truncated one.
-        //
-        // "Nothing" is the whole book and not the prices alone. This used to
-        // test `rules` — the price rules — so a book carrying only a promotion
-        // or only a clearance was skipped for every shop in the fleet: it
-        // published, reported delivery to nobody, and changed nothing. That is
-        // the same publish-and-change-nothing fault the version guard exists to
-        // stop, arriving from the other direction.
-        if rules.is_empty()
-            && markdowns.is_empty()
-            && promotion_rules.is_empty()
-            && coupons.is_empty()
-            && campaigns.is_empty()
-        {
-            continue;
+        .await?;
+        let mut rules_by_site: HashMap<String, Vec<Value>> = HashMap::new();
+        for row in price_rows {
+            let target_site_id: String = row.get("target_site_id");
+            rules_by_site
+                .entry(target_site_id)
+                .or_default()
+                .push(json!({
+                    "sku_id": row.get::<Uuid, _>("sku_id"),
+                    "sku_code": row.get::<String, _>("sku_code"),
+                    "site_id": row.get::<Option<String>, _>("site_id"),
+                    "site_ids": row.get::<Option<Vec<String>>, _>("site_ids"),
+                    "channel": row.get::<String, _>("channel"),
+                    "sellable": row.get::<bool, _>("sellable"),
+                    "currency": row.get::<String, _>("currency").trim(),
+                    "unit_price_minor": row.get::<i64, _>("unit_price_minor"),
+                    "tax_category": row.get::<String, _>("tax_category"),
+                }));
         }
 
-        let payload = json!({
-            "publication_id": publication_id,
-            "version": publication.get::<i64, _>("version"),
-            "name": publication.get::<String, _>("name"),
-            "effective_from": publication.get::<DateTime<Utc>, _>("effective_from"),
-            "effective_to": publication.get::<Option<DateTime<Utc>>, _>("effective_to"),
-            "tax_rules": tax_rules,
-            "price_rules": rules,
-            "markdowns": markdowns,
-            "rules": promotion_rules,
-            "coupons": coupons,
-            "campaigns": campaigns,
-        });
-        super::sync::issue_command_tx(
-            tx,
-            crate::cloud::domain::COMMAND_ACTIVATE_PUBLICATION,
-            &payload,
-            issued_by,
-            // No expiry. A price book that lapsed in the queue would leave a
-            // shop selling at the previous version with nothing to show why.
-            None,
-            std::slice::from_ref(&origin_id),
+        // Clearance uses the same two independent scope predicates as prices.
+        let markdown_rows = sqlx::query(
+            "SELECT target.site_id AS target_site_id,
+                    m.markdown_id,m.sku_code,m.article_code,m.site_id,m.site_ids,
+                    m.replacement_unit_price_minor,m.priority,m.effective_from,m.effective_to,
+                    m.campaign_id,m.iso_weekdays,m.from_minute,m.to_minute
+               FROM unnest($2::text[]) AS target(site_id)
+               JOIN commercial_markdown m
+                 ON (m.site_id IS NULL OR m.site_id=target.site_id)
+                AND (m.site_ids IS NULL OR target.site_id=ANY(m.site_ids))
+              WHERE m.publication_id=$1
+              ORDER BY target.site_id,m.markdown_id",
         )
+        .bind(publication_id)
+        .bind(&site_ids)
+        .fetch_all(&mut **tx)
         .await?;
-        // Write down that this shop has been told, in the transaction that
-        // tells it. Which shops are outstanding was a subtraction — target less
-        // activated — and a subtraction can count but can never say WHEN a shop
-        // was told, which is the gap UI-001 §6 asks somebody to watch.
-        //
-        // Only the shops that were actually sent the book: a shop the loop
-        // skipped above because this book says nothing to it was never told and
-        // is not outstanding. The list is resolved once, here, for the reason
-        // `publish_commercial_usage_to_fleet` gives — "which shops" has one
-        // right answer and a second derivation can quietly miss one.
-        super::rollout::record_told(
-            tx,
-            publication_id,
-            publication.get::<i64, _>("version"),
-            &origin_id,
-            &site_id,
-            told_at,
-        )
-        .await?;
-        delivered.push(origin_id);
+        let mut markdowns_by_site: HashMap<String, Vec<Value>> = HashMap::new();
+        for row in markdown_rows {
+            let target_site_id: String = row.get("target_site_id");
+            markdowns_by_site
+                .entry(target_site_id)
+                .or_default()
+                .push(json!({
+                    "markdown_id": row.get::<String, _>("markdown_id"),
+                    "sku_code": row.get::<Option<String>, _>("sku_code"),
+                    "article_code": row.get::<Option<String>, _>("article_code"),
+                    "site_id": row.get::<Option<String>, _>("site_id"),
+                    "site_ids": row.get::<Option<Vec<String>>, _>("site_ids"),
+                    "replacement_unit_price_minor": row.get::<i64, _>("replacement_unit_price_minor"),
+                    "priority": row.get::<i32, _>("priority"),
+                    "effective_from": row.get::<DateTime<Utc>, _>("effective_from"),
+                    "effective_to": row.get::<Option<DateTime<Utc>>, _>("effective_to"),
+                    "campaign_id": row.get::<Option<String>, _>("campaign_id"),
+                    // When in the week and in the day. A flash sale is a
+                    // clearance with an hour on it, not a separate kind.
+                    "iso_weekdays": row.get::<Vec<i16>, _>("iso_weekdays"),
+                    "from_minute": row.get::<Option<i32>, _>("from_minute"),
+                    "to_minute": row.get::<Option<i32>, _>("to_minute"),
+                }));
+        }
+
+        let mut command_payloads = Vec::with_capacity(shop_batch.len());
+        let mut told_shops = Vec::with_capacity(shop_batch.len());
+        for shop in shop_batch {
+            let origin_id: String = shop.get("origin_id");
+            let site_id: String = shop.get("site_id");
+            let rules = rules_by_site.get(&site_id).cloned().unwrap_or_default();
+            let markdowns = markdowns_by_site.get(&site_id).cloned().unwrap_or_default();
+
+            // A shop is not told about a book that says nothing to it: the
+            // receiver rejects an empty publication as likely truncation.
+            if rules.is_empty()
+                && markdowns.is_empty()
+                && promotion_rules.is_empty()
+                && coupons.is_empty()
+                && campaigns.is_empty()
+            {
+                continue;
+            }
+
+            let payload = json!({
+                "publication_id": publication_id,
+                "version": publication.get::<i64, _>("version"),
+                "name": publication.get::<String, _>("name"),
+                "effective_from": publication.get::<DateTime<Utc>, _>("effective_from"),
+                "effective_to": publication.get::<Option<DateTime<Utc>>, _>("effective_to"),
+                "tax_rules": tax_rules,
+                "price_rules": rules,
+                "markdowns": markdowns,
+                "rules": promotion_rules,
+                "coupons": coupons,
+                "campaigns": campaigns,
+            });
+            command_payloads.push((payload, origin_id.clone()));
+            told_shops.push((origin_id, site_id));
+        }
+
+        if !command_payloads.is_empty() {
+            // No expiry. A stale price book would leave a shop on its previous
+            // version with nothing to explain why.
+            super::sync::issue_commands_one_per_origin_tx(
+                tx,
+                crate::cloud::domain::COMMAND_ACTIVATE_PUBLICATION,
+                &command_payloads,
+                issued_by,
+                None,
+            )
+            .await?;
+            // Only recipients actually sent a non-empty book are outstanding.
+            super::rollout::record_told_batch(
+                tx,
+                publication_id,
+                publication.get::<i64, _>("version"),
+                &told_shops,
+                told_at,
+            )
+            .await?;
+            delivered.extend(told_shops.into_iter().map(|(origin_id, _)| origin_id));
+        }
     }
     Ok(delivered)
 }
@@ -1721,8 +1762,7 @@ pub async fn simulate(
     tx.commit().await?;
 
     let utc_offset_minutes =
-        super::sites::business_utc_offset_minutes(pool, Some(request.site_id.as_str()), at)
-            .await?;
+        super::sites::business_utc_offset_minutes(pool, Some(request.site_id.as_str()), at).await?;
     let mut context = crate::reporting::pricing_context(
         &request.site_id,
         request.channel.as_str(),
@@ -2755,8 +2795,7 @@ pub async fn article_prices(
         }
         pending_by_site.insert(site_id.clone(), pending);
         let utc_offset_minutes =
-            super::sites::business_utc_offset_minutes(&mut *tx, Some(site_id.as_str()), at)
-                .await?;
+            super::sites::business_utc_offset_minutes(&mut *tx, Some(site_id.as_str()), at).await?;
         let context =
             crate::reporting::pricing_context(&site_id, channel.as_str(), at, utc_offset_minutes);
 
@@ -2785,12 +2824,8 @@ pub async fn article_prices(
                 lines
                     .iter()
                     .map(|line| {
-                        pricing_engine::price_cart(
-                            &snapshot,
-                            &context,
-                            std::slice::from_ref(line),
-                        )
-                        .ok()
+                        pricing_engine::price_cart(&snapshot, &context, std::slice::from_ref(line))
+                            .ok()
                     })
                     .collect()
             });
@@ -2810,9 +2845,7 @@ pub async fn article_prices(
                     label: label.clone(),
                     stack: collapsed,
                     final_price: match (&finals, &promotions) {
-                        (Some(all), Some(promotions)) => {
-                            final_of(&all[*from..*to], promotions)
-                        }
+                        (Some(all), Some(promotions)) => final_of(&all[*from..*to], promotions),
                         _ => None,
                     },
                 });

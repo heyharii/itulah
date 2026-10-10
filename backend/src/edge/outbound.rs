@@ -112,9 +112,8 @@ pub fn next_koli_number(
     site_id: &str,
     at: DateTime<Utc>,
 ) -> Result<String, EdgeError> {
-    let offset = chrono::Duration::minutes(i64::from(
-        crate::edge::site_profile::utc_offset_minutes(tx),
-    ));
+    let offset =
+        chrono::Duration::minutes(i64::from(crate::edge::site_profile::utc_offset_minutes(tx)));
     let year = (at + offset).year();
     let letter = koli_year_letter(year)?;
     let this_year = format!("{letter}[0-9][0-9][0-9][0-9][0-9]");
@@ -1830,7 +1829,11 @@ pub fn box_candidates(
         });
     }
     drop(units);
-    let wanted: Vec<&str> = packing_box.target.iter().map(|line| line.sku_code.as_str()).collect();
+    let wanted: Vec<&str> = packing_box
+        .target
+        .iter()
+        .map(|line| line.sku_code.as_str())
+        .collect();
     let mut others_statement = connection
         .prepare(
             "SELECT subject.sku_code, subject.epc FROM inventory_projection projection
@@ -2408,14 +2411,29 @@ mod tests {
             Ok(tx) => tx,
             Err(error) => panic!("tx: {error}"),
         };
-        assert_eq!(koli_number_at(&tx, "dc-01", "2026-10-02T03:00:00Z"), "A00001");
-        assert_eq!(koli_number_at(&tx, "dc-01", "2026-10-02T03:00:01Z"), "A00002");
+        assert_eq!(
+            koli_number_at(&tx, "dc-01", "2026-10-02T03:00:00Z"),
+            "A00001"
+        );
+        assert_eq!(
+            koli_number_at(&tx, "dc-01", "2026-10-02T03:00:01Z"),
+            "A00002"
+        );
         // 18:00 UTC on New Year's Eve is already 1 January in Jakarta, the
         // offset a node uses until head office says otherwise.
-        assert_eq!(koli_number_at(&tx, "dc-01", "2026-12-31T18:00:00Z"), "B00001");
-        assert_eq!(koli_number_at(&tx, "dc-01", "2027-03-01T03:00:00Z"), "B00002");
+        assert_eq!(
+            koli_number_at(&tx, "dc-01", "2026-12-31T18:00:00Z"),
+            "B00001"
+        );
+        assert_eq!(
+            koli_number_at(&tx, "dc-01", "2027-03-01T03:00:00Z"),
+            "B00002"
+        );
         // A DC numbers its own cartons; another site's counter is its own.
-        assert_eq!(koli_number_at(&tx, "dc-02", "2026-10-02T03:00:00Z"), "A00001");
+        assert_eq!(
+            koli_number_at(&tx, "dc-02", "2026-10-02T03:00:00Z"),
+            "A00001"
+        );
     }
 
     #[test]
@@ -2447,8 +2465,14 @@ mod tests {
             Ok(tx) => tx,
             Err(error) => panic!("tx: {error}"),
         };
-        assert_eq!(koli_number_at(&tx, "dc-01", "2026-10-02T03:00:00Z"), "A00008");
-        assert_eq!(koli_number_at(&tx, "dc-01", "2027-01-02T03:00:00Z"), "B00001");
+        assert_eq!(
+            koli_number_at(&tx, "dc-01", "2026-10-02T03:00:00Z"),
+            "A00008"
+        );
+        assert_eq!(
+            koli_number_at(&tx, "dc-01", "2027-01-02T03:00:00Z"),
+            "B00001"
+        );
     }
 
     #[test]

@@ -43,7 +43,7 @@ const TASKS: Record<SetupTaskId, TaskCopy> = {
   team: {
     title: "Invite your team",
     detail: () =>
-      "Finance, the Gudang, and a manager for each store — each gets a link to set their own password. Cashiers sign in on the store's own devices.",
+      "Finance, the warehouse, and a manager for each store — each gets a link to set their own password. Cashiers sign in on the store's own devices.",
     when: "before stores open",
     urgent: true,
     sheet: "team",

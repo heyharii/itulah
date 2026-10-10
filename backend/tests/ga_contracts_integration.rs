@@ -127,22 +127,27 @@ fn a_scope() -> cloud::GaContractScope {
 /// would surface months later, somewhere else.
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn the_migration_seeds_the_vocabulary_the_register_needs(pool: PgPool) {
-    let types: Vec<(String, String, String)> = sqlx::query_as(
-        "SELECT code, name, group_code FROM contract_type ORDER BY sort_order",
-    )
-    .fetch_all(&pool)
-    .await
-    .unwrap_or_else(|error| panic!("types: {error}"));
+    let types: Vec<(String, String, String)> =
+        sqlx::query_as("SELECT code, name, group_code FROM contract_type ORDER BY sort_order")
+            .fetch_all(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("types: {error}"));
     assert_eq!(types.len(), 17, "brief §9.2 keeps seventeen contract types");
     assert_eq!(types[0].0, "SEWA_TANAH");
-    assert_eq!(types[9], ("IZIN_KENDARAAN".into(), "STNK / KIR".into(), "IZIN".into()));
+    assert_eq!(
+        types[9],
+        ("IZIN_KENDARAAN".into(), "STNK / KIR".into(), "IZIN".into())
+    );
     assert_eq!(types[16].0, "DISEWAKAN_PERALATAN");
 
     // The Rust side of the vocabulary is the same seventeen, in the same
     // order — the constant names them in refusals, the table backs the FK.
     assert_eq!(domain::CONTRACT_TYPES.len(), 17);
     for (kept, (code, _, _)) in types.iter().zip(domain::CONTRACT_TYPES) {
-        assert_eq!(kept.0, *code, "the table and the constant disagree at {code}");
+        assert_eq!(
+            kept.0, *code,
+            "the table and the constant disagree at {code}"
+        );
     }
 
     let objects: i64 = sqlx::query_scalar("SELECT count(*) FROM ga_repair_object")
@@ -170,14 +175,14 @@ async fn the_migration_seeds_the_vocabulary_the_register_needs(pool: PgPool) {
     .unwrap_or_else(|error| panic!("usage column: {error}"));
     assert_eq!(usage, 0, "usage must be computed, never stored");
 
-    let kind: Option<(String, String)> = sqlx::query_as(
-        "SELECT code, label FROM record_kind WHERE code = 'contract'",
-    )
-    .fetch_optional(&pool)
-    .await
-    .unwrap_or_else(|error| panic!("record kind: {error}"));
+    let kind: Option<(String, String)> =
+        sqlx::query_as("SELECT code, label FROM record_kind WHERE code = 'contract'")
+            .fetch_optional(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("record kind: {error}"));
     assert_eq!(
-        kind.as_ref().map(|(code, label)| (code.as_str(), label.as_str())),
+        kind.as_ref()
+            .map(|(code, label)| (code.as_str(), label.as_str())),
         Some(("contract", "Contract")),
         "a contract must be fileable: papers, comments, history"
     );
@@ -208,7 +213,10 @@ async fn a_contract_has_exactly_one_party_and_one_coverage(pool: PgPool) {
     let refused = cloud::ga_contract_record(&pool, &request, ACTOR, today())
         .await
         .expect_err("supplier AND free-text is two deals in one number");
-    assert!(refused.to_string().contains("one counterparty"), "{refused}");
+    assert!(
+        refused.to_string().contains("one counterparty"),
+        "{refused}"
+    );
 
     // No coverage.
     let mut request = a_lease();
@@ -254,7 +262,10 @@ async fn a_contract_has_exactly_one_party_and_one_coverage(pool: PgPool) {
     request.supplier_id = Some(supplier);
     request.counterparty_name = None;
     let recorded = record(&pool, &request).await;
-    assert_eq!(recorded.supplier_name.as_deref(), Some("Grid Listrik Nusantara"));
+    assert_eq!(
+        recorded.supplier_name.as_deref(),
+        Some("Grid Listrik Nusantara")
+    );
     assert!(recorded.counterparty_name.is_none());
 }
 
@@ -288,7 +299,10 @@ async fn objek_belongs_to_maintenance_and_only_to_it(pool: PgPool) {
     assert!(refused.to_string().contains("repair object"), "{refused}");
 
     let air_conditioner = a_maintenance(&pool, "AC").await;
-    assert_eq!(air_conditioner.objek_name.as_deref(), Some("AC & refrigerator"));
+    assert_eq!(
+        air_conditioner.objek_name.as_deref(),
+        Some("AC & refrigerator")
+    );
     assert_eq!(air_conditioner.status, "DRAFT", "a deal starts as a draft");
 }
 
@@ -325,7 +339,11 @@ async fn status_moves_one_way_and_archived_rows_hold_still(pool: PgPool) {
         .await
         .unwrap_or_else(|error| panic!("terminate: {error}"));
     assert_eq!(terminated.status, "TERMINATED");
-    assert_eq!(terminated.version, lease.version + 2, "each act is a version");
+    assert_eq!(
+        terminated.version,
+        lease.version + 2,
+        "each act is a version"
+    );
 
     request.status = Some("ACTIVE".into());
     let refused = cloud::ga_contract_update(&pool, lease.contract_id, &request, ACTOR, today())
@@ -352,7 +370,11 @@ async fn status_moves_one_way_and_archived_rows_hold_still(pool: PgPool) {
         .unwrap_or_else(|error| panic!("archive: {error}"));
     assert!(archived.archived);
     assert!(
-        archived.notes.as_deref().unwrap_or_default().contains("sewa diakhiri pemilik gedung"),
+        archived
+            .notes
+            .as_deref()
+            .unwrap_or_default()
+            .contains("sewa diakhiri pemilik gedung"),
         "the why travels with the row"
     );
 
@@ -384,13 +406,7 @@ fn the_standing_is_arithmetic_on_the_window() {
     assert_eq!(days, Some(26), "days_to_end counts even before the start");
 
     // A window with no end never runs out.
-    let (standing, days) = domain::contract_standing(
-        "ACTIVE",
-        day(2026, 1, 1),
-        None,
-        60,
-        today(),
-    );
+    let (standing, days) = domain::contract_standing("ACTIVE", day(2026, 1, 1), None, 60, today());
     assert_eq!(standing, "AKTIF");
     assert_eq!(days, None);
 
@@ -407,13 +423,8 @@ fn the_standing_is_arithmetic_on_the_window() {
 
     // The boundary: the last day of the window is still SEGERA_HABIS at
     // zero days, and the day after is HABIS at minus one.
-    let (standing, days) = domain::contract_standing(
-        "ACTIVE",
-        day(2026, 1, 1),
-        Some(today()),
-        60,
-        today(),
-    );
+    let (standing, days) =
+        domain::contract_standing("ACTIVE", day(2026, 1, 1), Some(today()), 60, today());
     assert_eq!(standing, "SEGERA_HABIS");
     assert_eq!(days, Some(0));
 
@@ -435,7 +446,10 @@ fn the_standing_is_arithmetic_on_the_window() {
         400,
         today(),
     );
-    assert_eq!(standing, "SEGERA_HABIS", "300 days is soon to a 400-day reminder");
+    assert_eq!(
+        standing, "SEGERA_HABIS",
+        "300 days is soon to a 400-day reminder"
+    );
 
     // Decisions beat dates: a terminated deal is DIHENTIKAN inside its own
     // window, and a draft is a draft.
@@ -449,14 +463,12 @@ fn the_standing_is_arithmetic_on_the_window() {
     assert_eq!(standing, "DIHENTIKAN");
     assert_eq!(days, Some(18));
 
-    let (standing, _) = domain::contract_standing(
-        "DRAFT",
-        day(2026, 1, 1),
-        Some(day(2026, 9, 1)),
-        60,
-        today(),
+    let (standing, _) =
+        domain::contract_standing("DRAFT", day(2026, 1, 1), Some(day(2026, 9, 1)), 60, today());
+    assert_eq!(
+        standing, "DRAFT",
+        "a draft has not begun, even one past its end"
     );
-    assert_eq!(standing, "DRAFT", "a draft has not begun, even one past its end");
 }
 
 // ---------------------------------------------------------------------------
@@ -507,7 +519,10 @@ async fn a_meter_reading_is_one_month_one_row_and_the_usage_is_computed(pool: Pg
     )
     .await
     .unwrap_or_else(|error| panic!("correction: {error}"));
-    assert_eq!(corrected.reading_id, reading.reading_id, "same month, same row");
+    assert_eq!(
+        corrected.reading_id, reading.reading_id,
+        "same month, same row"
+    );
     assert_eq!(corrected.usage, 290);
 
     let history = cloud::ga_contract_meter_readings(&pool, contract.contract_id)
@@ -620,7 +635,11 @@ async fn archiving_hides_from_the_default_list_and_not_from_the_register(pool: P
     assert!(page.rows[0].archived);
     assert_eq!(page.rows[0].contract_id, lease.contract_id);
     assert!(
-        page.rows[0].notes.as_deref().unwrap_or_default().contains("gedung dijual"),
+        page.rows[0]
+            .notes
+            .as_deref()
+            .unwrap_or_default()
+            .contains("gedung dijual"),
         "the archive keeps the why"
     );
 
@@ -794,7 +813,10 @@ async fn a_template_names_its_contract_and_the_sweep_clamps_to_the_months_end(po
         .unwrap_or_else(|error| panic!("hub: {error}"));
     assert_eq!(hub.templates.len(), 1);
     assert_eq!(hub.templates[0].label, "Listrik Pusat");
-    assert!(hub.bills.is_empty(), "tahap 6 brings the bills; until then, none");
+    assert!(
+        hub.bills.is_empty(),
+        "tahap 6 brings the bills; until then, none"
+    );
 
     // February: the 31st does not exist, and the promise does not skip the
     // month — it raises on the month's own last day.
@@ -821,7 +843,10 @@ async fn a_template_names_its_contract_and_the_sweep_clamps_to_the_months_end(po
     let second_sweep = cloud::bill_template_sweep(&pool, day(2026, 10, 30), "system")
         .await
         .unwrap_or_else(|error| panic!("october 30 sweep: {error}"));
-    assert_eq!(second_sweep.raised, 0, "the 30th is not the 31st in October");
+    assert_eq!(
+        second_sweep.raised, 0,
+        "the 30th is not the 31st in October"
+    );
     let october = cloud::bill_template_sweep(&pool, day(2026, 10, 31), "system")
         .await
         .unwrap_or_else(|error| panic!("october 31 sweep: {error}"));
@@ -991,6 +1016,9 @@ async fn the_overview_fires_on_each_contracts_own_reminder(pool: PgPool) {
         .unwrap_or_else(|| panic!("the soon row is on the list"));
     assert_eq!(row.kind, "contract");
     assert_eq!(row.label, "LK/2026/0201");
-    assert_eq!(row.detail.as_deref(), Some("SEWA_TOKO · Pasar Raya Inkubator"));
+    assert_eq!(
+        row.detail.as_deref(),
+        Some("SEWA_TOKO · Pasar Raya Inkubator")
+    );
     assert_eq!(row.on.as_deref(), Some("2026-11-03"));
 }

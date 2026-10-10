@@ -152,7 +152,7 @@ function Benefit() {
                       {entry.delta_minor > 0
                         ? "+"
                         : entry.delta_minor < 0
-                          ? "-"
+                          ? "−"
                           : ""}
                       {money(Math.abs(entry.delta_minor))}
                     </span>
@@ -265,7 +265,7 @@ function AnnualTaxRows({ form }: { form: AnnualTaxSlip }) {
         {form.from_month}–{form.to_month}
       </Row>
       <Row label="Gross income">{money(form.gross_minor)}</Row>
-      <Row label="Biaya jabatan">{money(form.biaya_jabatan_minor)}</Row>
+      <Row label="Position expense">{money(form.biaya_jabatan_minor)}</Row>
       <Row label="JHT and JP you paid">{money(form.pension_minor)}</Row>
       <Row label="Net income">{money(form.net_minor)}</Row>
       <Row label={`PTKP (${form.ptkp ?? "—"})`}>{money(form.ptkp_minor)}</Row>

@@ -1,163 +1,181 @@
 import { ArrowRight, Boxes, Search, Shirt, Store, Trash, X } from "lucide-react"
 
-import { AppLink } from "@/components/ui/app-link"
-import { Input } from "@/components/ui/field"
-import { allModules, visibleSections } from "@/lib/navigation"
 import { cn } from "@/lib/utils"
-import { Photograph } from "@/screens/catalogue"
+import { Photograph } from "@/screens/catalogue-parts"
 import { readPlace, type PlaceCode } from "@/screens/stock/shared"
 
-/// The drawn pieces the three Stock screens share. The words behind them are
-/// in `shared.ts`.
+/// The drawn pieces the Stock screens share. The words behind them are in
+/// `shared.ts`.
 
 // ── The frame ───────────────────────────────────────────────────────────────
 
-/// The module's own screens, below `md` only — the GA strip's twin.
-///
-/// On a phone the sidebar is a drawer behind the last tab, and Stock is a
-/// bottom-bar tab that lands on On hand: without this, Receive and Movements
-/// are three taps away from somebody standing in the stockroom with a reader.
-/// Read from the registry, so a screen added to Stock appears here without
-/// anybody remembering this file.
-export function StockStrip() {
-  const module = allModules.find((one) => one.id === "stock")
-  if (module === undefined) return null
-  const items = visibleSections(module).flatMap((section) => section.items)
-  return (
-    <nav
-      aria-label="Stock"
-      className="-mx-4 mb-4 flex [scrollbar-width:none] gap-1.5 overflow-x-auto px-4 py-1 md:hidden [&::-webkit-scrollbar]:hidden"
-    >
-      {items.map((item) => {
-        const Icon = item.icon
-        return (
-          <AppLink
-            key={item.path}
-            to={item.path}
-            activeOptions={{ exact: true }}
-            className="flex h-11 shrink-0 items-center gap-2 rounded-inner border border-hairline bg-canvas px-3.5 text-nav font-medium text-body shadow-soft data-[status=active]:border-accent/30 data-[status=active]:bg-accent-bg data-[status=active]:font-semibold data-[status=active]:text-accent"
-          >
-            <Icon className="size-[1.0625rem] shrink-0 stroke-[1.55]" />
-            {item.label}
-          </AppLink>
-        )
-      })}
-    </nav>
-  )
-}
+/// A footer button on a phone: 44px, whatever the kit's footer says. The kit's
+/// `Sheet` pins every button in its foot to 36px (`[&_button]:h-9`); a thumb
+/// needs 44 (audit D1), and `!` is the only way to beat a parent's arbitrary
+/// variant from the button itself.
+export const FOOT = "max-md:h-11!"
 
-/// The row of controls over a list: the filter at the left, the search at
-/// the right. Stacked on a phone, where the two cannot share 375px.
-export function Toolbar({
+/// The figures under a list's title, as one sentence: "**12** movements".
+/// Nothing else sits at the top of a list on a phone.
+export function Figures({
   children,
-  className,
+  trailing,
 }: {
   children: React.ReactNode
-  className?: string
+  /// Quiet and right-aligned: when the list was last read.
+  trailing?: React.ReactNode
 }) {
   return (
-    <div
-      className={cn(
-        "mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between md:gap-3",
-        className,
+    <div className="mb-3 flex items-center gap-3">
+      <p className="min-w-0 flex-1 truncate text-meta text-body">{children}</p>
+      {trailing !== undefined && (
+        <span className="shrink-0 text-meta text-mute tabular-nums">
+          {trailing}
+        </span>
       )}
-    >
-      {children}
     </div>
   )
 }
 
-/// The list's search box: a glass, the field, and a way to clear it.
+/// The desk's search box, over a list: a glass, the field, and a way to clear
+/// it. On a phone the same search is the dock's, so this is `max-md:hidden`.
 ///
 /// Not the `ScanField`. That one is a scanner's keyboard and keeps the caret;
 /// this one narrows a list somebody is reading, and gives the caret back.
-export function SearchBox({
+export function DeskSearch({
   value,
   onChange,
+  label,
   placeholder,
+  className,
 }: {
   value: string
   onChange: (next: string) => void
+  label: string
   placeholder: string
+  className?: string
 }) {
   return (
-    <div className="relative md:w-72">
-      <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-line-ico" />
-      <Input
-        type="search"
+    <label className={cn("relative min-w-0 flex-[0_1_18rem]", className)}>
+      <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-line-ico" />
+      <input
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        aria-label={placeholder}
+        aria-label={label}
         enterKeyHint="search"
         autoCapitalize="none"
         autoCorrect="off"
         spellCheck={false}
-        // The hub's compact field on a desk with a mouse; the touch floor, and
-        // 16px type, anywhere a finger is — iOS zooms the page into any field
-        // set smaller than that.
-        className="h-11 pr-11 pl-10 md:pointer-fine:h-9 md:pointer-fine:text-cell [&::-webkit-search-cancel-button]:hidden"
+        className="h-9 w-full rounded-inner border border-hairline-2 bg-canvas pr-9 pl-8 text-[0.875rem] text-ink shadow-soft outline-none placeholder:text-body hover:border-hairline-strong focus:border-accent pointer-coarse:h-11"
       />
       {value !== "" && (
         <button
           type="button"
           onClick={() => onChange("")}
           aria-label="Clear the search"
-          className="absolute top-1/2 right-0 grid size-11 -translate-y-1/2 place-items-center text-line-ico md:pointer-fine:size-9"
+          className="absolute top-1/2 right-1 grid size-7 -translate-y-1/2 place-items-center rounded-inner text-line-ico transition-colors hover:bg-soft-2 hover:text-ink pointer-coarse:size-9"
         >
           <X className="size-4" />
         </button>
       )}
-    </div>
+    </label>
   )
 }
 
-// ── The detail ──────────────────────────────────────────────────────────────
+// ── The sheet's body ────────────────────────────────────────────────────────
 
-export function Facts({
+/// A section of a record sheet: a heading with its count beside it, then the
+/// content. The sheet's body spaces its sections (`gap-6`); nothing here sets a
+/// margin of its own.
+export function SheetSection({
+  title,
+  aside,
   children,
-  className,
 }: {
+  title: React.ReactNode
+  aside?: React.ReactNode
   children: React.ReactNode
-  className?: string
 }) {
   return (
-    <dl
-      className={cn(
-        "grid grid-cols-2 gap-x-4 gap-y-3 md:gap-x-6 lg:grid-cols-3",
-        className,
-      )}
-    >
+    <section>
+      <h3 className="mb-2 flex items-baseline gap-2 text-[1rem] font-medium text-ink">
+        {title}
+        {aside !== undefined && (
+          <span className="text-[0.9375rem] font-normal text-mute tabular-nums">
+            {aside}
+          </span>
+        )}
+      </h3>
       {children}
-    </dl>
+    </section>
   )
 }
 
-export function Fact({
-  term,
-  children,
-  wide = false,
-  className,
+/// Rows in a sheet: hairlines between them, no card around them — a sheet is
+/// already the surface.
+export function RowList({ children }: { children: React.ReactNode }) {
+  return (
+    <ul className="divide-y divide-hairline border-y border-hairline">
+      {children}
+    </ul>
+  )
+}
+
+/// One row of a `RowList`: a name over a quiet line at the left, a figure (and
+/// a quiet line under it) at the right.
+export function Row({
+  title,
+  sub,
+  figure,
+  figureSub,
+  leading,
+  tone,
 }: {
-  term: React.ReactNode
-  children: React.ReactNode
-  /// Spans the whole panel — for an id too long to share a line.
-  wide?: boolean
-  className?: string
+  title: React.ReactNode
+  sub?: React.ReactNode
+  figure?: React.ReactNode
+  figureSub?: React.ReactNode
+  leading?: React.ReactNode
+  /// A figure that says something is wrong.
+  tone?: "bad"
 }) {
   return (
-    <div
-      className={cn(
-        "min-w-0",
-        wide && "col-span-2 lg:col-span-full",
-        className,
+    <li className="flex items-start gap-3 py-3">
+      {leading}
+      <span className="min-w-0 flex-1">
+        <span className="block text-[0.9375rem] font-medium break-words text-ink">
+          {title}
+        </span>
+        {sub !== undefined && sub !== null && (
+          <span className="mt-0.5 block text-[0.875rem] break-words text-mute">
+            {sub}
+          </span>
+        )}
+      </span>
+      {figure !== undefined && (
+        <span className="flex shrink-0 flex-col items-end text-right tabular-nums">
+          <span
+            className={cn(
+              "text-[0.9375rem] font-medium",
+              tone === "bad" ? "text-bad-fg" : "text-ink",
+            )}
+          >
+            {figure}
+          </span>
+          {figureSub !== undefined && (
+            <span
+              className={cn(
+                "text-[0.875rem]",
+                tone === "bad" ? "text-bad-fg" : "text-mute",
+              )}
+            >
+              {figureSub}
+            </span>
+          )}
+        </span>
       )}
-    >
-      <dt className="text-meta text-mute">{term}</dt>
-      <dd className="mt-0.5 text-cell break-words text-ink tabular-nums">
-        {children}
-      </dd>
-    </div>
+    </li>
   )
 }
 
@@ -194,11 +212,14 @@ const POOL_GLYPH: Record<PlaceCode, React.ReactNode> = {
   reject: <Trash />,
 }
 
-/// A pool's glyph in the hub's small bordered tile — the same tile a record
-/// card's strip carries, so a pool looks like the same thing on every screen.
+/// A pool's glyph, filling the card's 64px media slot — the same tile on every
+/// screen, so a pool looks like the same thing wherever it turns up.
 export function PoolGlyph({ code }: { code: PlaceCode | null }) {
   return (
-    <span className="grid size-[1.6875rem] shrink-0 place-items-center rounded-inner border border-hairline-2 bg-canvas text-line-ico [&_svg]:size-[0.9375rem]">
+    <span
+      aria-hidden
+      className="grid size-full place-items-center text-line-ico [&_svg]:size-7 [&_svg]:stroke-[1.4]"
+    >
       {code === null ? <Boxes /> : POOL_GLYPH[code]}
     </span>
   )

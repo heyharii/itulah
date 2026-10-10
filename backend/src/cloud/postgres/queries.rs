@@ -28,7 +28,7 @@ use uuid::Uuid;
 /// deliberately ignoring the filters already applied, so the number answers
 /// "how many of these there are" — the question somebody has while choosing —
 /// rather than "how many survive what you have already ticked".
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
 pub struct InventoryFacet {
     /// What to send back as the filter — a site id, a pool id, a cause. Never
@@ -226,63 +226,54 @@ WITH ledger_deltas AS (
     FROM observation_sighting
     WHERE last_seen_at > $1-($2::text||' hours')::interval AND last_seen_at <= $1
     GROUP BY pool_id
+), risk_window AS (
+    -- Only the LOST-RISK WINDOW is scanned, by the place+time indexes
+    -- (`ix_movement_to_place_occurred`, `ix_movement_from_place_occurred`):
+    -- at most one probe per pool per side, however big the ledger has grown.
+    -- The old spelling re-aggregated every movement ever written — 2 × the
+    -- whole ledger per page — because the opening balance was read out of the
+    -- ledger too (42 ms at 120k movements; 29 s at a 1M-sale year's 8.8M,
+    -- saturating the node for every other request meanwhile).
+    --
+    -- The opening balance is now DERIVED, not replayed: the pool's current
+    -- on-hand balance (the projection, via `balances` above) minus what
+    -- arrived inside the window plus what left it, which is arithmetically
+    -- the same sum the old query computed over history —
+    --   opening = Σ_to(<ws) − Σ_from(<ws) = balance − inbound_win + outbound_win
+    -- the missing→lost leg never touches on-hand, so it corrects nothing
+    -- here, exactly as the old query's opening ignored it.
+    SELECT op.id AS pool_id,
+           COALESCE(win.inbound, 0)::bigint  AS inbound,
+           COALESCE(win.outbound, 0)::bigint AS outbound,
+           COALESCE(win.lost, 0)::bigint     AS lost
+      FROM operational_pool op
+      LEFT JOIN LATERAL (
+          SELECT
+              COALESCE(SUM(m.quantity) FILTER (WHERE m.to_place_id = op.id || ':on_hand'), 0)::bigint AS inbound,
+              COALESCE(SUM(m.quantity) FILTER (WHERE m.from_place_id = op.id || ':on_hand'), 0)::bigint AS outbound,
+              COALESCE(SUM(m.quantity) FILTER (WHERE m.from_place_id = op.id || ':missing'
+                                                 AND m.to_place_id = 'system/lost'), 0)::bigint AS lost
+            FROM movement m
+           WHERE m.occurred_at >= $1 - ($3::text || ' days')::interval
+             AND m.occurred_at <= $1
+             AND (m.to_place_id = op.id || ':on_hand'
+                  OR m.from_place_id IN (op.id || ':on_hand', op.id || ':missing'))
+      ) win ON true
 ), risk_raw AS (
-    -- ONE pass over the ledger, expanded per posting rather than one pass PER
-    -- POOL. The old spelling joined `operational_pool` to `movement` on
-    -- `movement.to_place_id = pool.id||':on_hand' OR …`, which the planner can
-    -- only answer by looking the whole ledger up once for each of the hundred
-    -- and twelve pools: 120,852 rows examined to produce 112, over 10,187
-    -- buffers, 128 ms of a 150 ms page. This reads `movement` once — 3,495
-    -- buffers, 42 ms — and it is the whole of why `/inventory/pools` and
-    -- `/inventory/fleet-pools` came back under budget.
-    --
-    -- The expansion names the pool off the place id rather than joining to find
-    -- it. Every OPERATIONAL place is `<pool id>:on_hand` or `<pool id>:missing`
-    -- — checked, not assumed: no operational place breaks that rule and no
-    -- external or system place looks like one — so `left(place_id,-8)` IS the
-    -- pool, and a derived id that matches no pool is dropped by the roll-up
-    -- below rather than needing to be filtered here.
-    --
-    -- At most ONE of the two branches can name a given pool for a given
-    -- posting, which is what makes this arithmetically identical to the ordered
-    -- CASE it replaces rather than merely similar. Both naming pool P at once
-    -- would need `to_place_id` and `from_place_id` to be the same string —
-    -- `P:on_hand` — and `from_place_id <> to_place_id` is a table constraint;
-    -- the lost branch needs `P:missing` on the side the other branch needs
-    -- `P:on_hand` on. Verified row for row against the old shape over all 112
-    -- pools regardless, because an argument is not a measurement.
-    SELECT side.pool_id,
-           SUM(side.opening)::bigint opening,
-           SUM(side.inbound)::bigint inbound,
-           SUM(side.lost)::bigint lost
-    FROM movement
-    CROSS JOIN LATERAL (VALUES
-        -- Into the shelf: everything before the window is the opening balance,
-        -- everything inside it is inbound.
-        (CASE WHEN movement.to_place_id LIKE '%:on_hand'
-              THEN left(movement.to_place_id,-8) END,
-         CASE WHEN movement.occurred_at < $1-($3::text||' days')::interval
-              THEN movement.quantity ELSE 0 END,
-         CASE WHEN movement.occurred_at >= $1-($3::text||' days')::interval
-              THEN movement.quantity ELSE 0 END,
-         0::bigint),
-        -- Off the shelf — which lowers the opening balance — or confirmed lost
-        -- out of this pool's missing place, which is the numerator.
-        (CASE WHEN movement.from_place_id LIKE '%:on_hand'
-                OR (movement.from_place_id LIKE '%:missing'
-                    AND movement.to_place_id='system/lost')
-              THEN left(movement.from_place_id,-8) END,
-         CASE WHEN movement.from_place_id LIKE '%:on_hand'
-               AND movement.occurred_at < $1-($3::text||' days')::interval
-              THEN -movement.quantity ELSE 0 END,
-         0::bigint,
-         CASE WHEN movement.from_place_id LIKE '%:missing'
-               AND movement.to_place_id='system/lost'
-               AND movement.occurred_at >= $1-($3::text||' days')::interval
-              THEN movement.quantity ELSE 0 END)
-    ) AS side(pool_id,opening,inbound,lost)
-    WHERE movement.occurred_at <= $1 AND side.pool_id IS NOT NULL
-    GROUP BY side.pool_id
+    SELECT w.pool_id,
+           (COALESCE(b.quantity, 0) - w.inbound + w.outbound)::bigint AS opening,
+           w.inbound,
+           w.lost
+      FROM risk_window w
+      LEFT JOIN balances b ON b.pool_id = w.pool_id AND b.state = 'NORMAL'
+    -- History, for the next person who reads this: the window used to be
+    -- answered by replaying the whole ledger per page — one careful pass,
+    -- expanded per posting (`left(place_id,-8)` naming the pool, at most one
+    -- side per posting by the `from_place_id <> to_place_id` constraint) —
+    -- which measured 42 ms over 120k movements and therefore looked finished,
+    -- and 29 s over a 1M-sale year's 8.8M. The shape above answers the same
+    -- arithmetic from the maintained balance plus an indexed window; the
+    -- parity check for the change is in scripts/check-db-efficiency.sh.
 ), pool_scope AS (
     SELECT output.id output_pool_id,component.id component_pool_id
     FROM operational_pool output
@@ -336,6 +327,19 @@ WITH ledger_deltas AS (
            COALESCE(SUM(commitment.to_pack_qty),0)::bigint quantity
     FROM allotment_line_commitment commitment
     WHERE $4
+      -- Only lines that can still owe packing (0928): a completed line's
+      -- counters net to zero, and every line ever completed was read here,
+      -- on every page, to add zeros. A line with DC progress is read whatever
+      -- its own counters say, as the view reads the progress for it.
+      AND commitment.allotment_line_id IN (
+          SELECT line.id FROM allotment_line line
+           WHERE line.quantity + line.unpacked_quantity + line.lost_packed_quantity
+                 + line.lost_in_transit_quantity + line.lost_at_store_quantity
+                 - line.packed_quantity - line.cancelled_quantity
+                 - line.closed_short_quantity > 0
+          UNION ALL
+          SELECT progress.allotment_line_id FROM edge_allotment_line_progress progress
+      )
     GROUP BY commitment.source_pool_id
 )
 -- Which pools can be allotted from is their ROLE (0610) — goods at rest —
@@ -797,7 +801,13 @@ fn edge_pool_metadata(
         Outbound {
             stage: OutboundStage::InTransit,
             ..
-        } => ("OUTBOUND", "IN_TRANSIT", "In Transit", 80, Some("IN_TRANSIT")),
+        } => (
+            "OUTBOUND",
+            "IN_TRANSIT",
+            "In Transit",
+            80,
+            Some("IN_TRANSIT"),
+        ),
         DcRejectDc { .. } => ("REJECT", "DC_REJECT", "DC Reject", 90, None),
         DcRejectStore { .. } | Return { .. } => {
             ("REJECT", "STORE_REJECT", "Store Return", 100, None)
@@ -1557,6 +1567,11 @@ pub async fn list_fleet_pools(
              FROM allotment_line_commitment commitment
              JOIN sync_origin_credential credential
                ON credential.origin_id=commitment.origin_id
+             -- `origin_id` comes from a DC's progress row, so only lines with
+             -- one can join a credential at all; asking for them by that table
+             -- spares reading every allotment line ever written first.
+             WHERE commitment.allotment_line_id IN
+                   (SELECT progress.allotment_line_id FROM edge_allotment_line_progress progress)
              GROUP BY commitment.origin_id,
                       regexp_replace(commitment.source_pool_id,'^[^.]+',credential.site_id)
          ), pool_scope AS (

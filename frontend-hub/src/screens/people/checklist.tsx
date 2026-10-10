@@ -103,7 +103,7 @@ function Checklist({
   const done = rows.filter((row) => row.state === "DONE").length
   const tick = useMutation({
     mutationFn: (taskId: string) =>
-      completeLifecycleTask(taskId, why.trim() === "" ? "selesai" : why.trim()),
+      completeLifecycleTask(taskId, why.trim() === "" ? "done" : why.trim()),
     onSuccess: () => {
       void client.invalidateQueries({
         queryKey: orgKeys.checklist(employeeId),

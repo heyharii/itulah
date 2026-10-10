@@ -92,6 +92,22 @@ impl Vocabulary {
         }
     }
 
+    /// Count once for a master list rather than twice for every term. The
+    /// single-term read still uses `usage`, where an indexed lookup is cheaper.
+    fn usage_counts(self) -> &'static str {
+        match self {
+            Self::Divisions => {
+                "SELECT division_code AS code, count(*) AS in_use FROM article GROUP BY division_code"
+            }
+            Self::Sizes => {
+                "SELECT size_code AS code, count(*) AS in_use FROM sku GROUP BY size_code"
+            }
+            Self::Tags => {
+                "SELECT tag_code AS code, count(DISTINCT article_id) AS in_use FROM article_tag GROUP BY tag_code"
+            }
+        }
+    }
+
     /// The code as this list stores it.
     ///
     /// Sizes are two digits and nothing else — `03` is M on every article in
@@ -365,8 +381,8 @@ impl TermCursor {
 /// filter panel's counts read what the search alone leaves.
 ///
 /// Every column a sort can name is non-null: `code`, `label` and
-/// `display_order` are `NOT NULL`, and `in_use` is a `count(*)` subquery, which
-/// returns zero rather than NULL. A row comparison against NULL is NULL rather
+/// `display_order` are `NOT NULL`, and `in_use` defaults to zero when no usage
+/// group exists. A row comparison against NULL is NULL rather
 /// than true, so a nullable sort key added here would end paging at the first
 /// NULL, in silence.
 ///
@@ -374,12 +390,13 @@ impl TermCursor {
 fn term_rows(kind: Vocabulary) -> String {
     format!(
         "SELECT v.code, v.label, v.display_order, v.active, v.version, v.ever_used,
-                {usage} AS in_use,
+                COALESCE(u.in_use, 0) AS in_use,
                 CASE WHEN v.active THEN 'ACTIVE' ELSE 'RETIRED' END AS state,
-                CASE WHEN {usage} > 0 THEN 'IN_USE' ELSE 'UNUSED' END AS usage
+                CASE WHEN COALESCE(u.in_use, 0) > 0 THEN 'IN_USE' ELSE 'UNUSED' END AS usage
            FROM {table} v
+           LEFT JOIN ({counts}) u ON u.code = v.code
           WHERE ($1::text IS NULL OR v.code ILIKE $1 OR v.label ILIKE $1)",
-        usage = kind.usage(),
+        counts = kind.usage_counts(),
         table = kind.table()
     )
 }

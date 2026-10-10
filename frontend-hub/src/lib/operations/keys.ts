@@ -28,6 +28,9 @@ export const keys = {
   /// (`/dc/purchase-orders`), because it is deliberately not an order list —
   /// it carries no ordered quantity at all.
   purchaseWork: () => ["dc", "purchase-work"] as const,
+  /// What the badge and the order book read off that list, without it. Under
+  /// `purchaseWork` so whatever refreshes the list refreshes this with it.
+  purchaseSummary: () => ["dc", "purchase-work", "summary"] as const,
   /// The uploaded invoice page for one delivery. Keyed by the delivery and not
   /// by the count: one lorry brings one invoice, and every count on it looks
   /// at the same page.
@@ -89,6 +92,16 @@ export const keys = {
   /// here) — the Picking screen's "To pick" card.
   picklistsToPick: () => ["dc", "picklists-to-pick"] as const,
   pickRound: (sessionId: string) => ["dc", "pick-session", sessionId] as const,
+  /// Work MD left the Gudang to undo: pieces in the pick area and in unsent
+  /// cartons that MD edited or cancelled away (`GET /api/v1/dc/owed`). The
+  /// board's red strips and CANCELLED stamps, and what Move back prefills.
+  owed: () => ["dc", "owed"] as const,
+  /// Pickers who could not finish a line, and why (`GET /api/v1/dc/short-picks`):
+  /// the amber Short pick strip on a To pick card.
+  shortPicks: () => ["dc", "short-picks"] as const,
+  /// MD changes the warehouse has not acknowledged yet (`GET /api/v1/dc/changes`):
+  /// the board's tags and "Got it", and the picker's banner.
+  changes: () => ["dc", "changes"] as const,
 
   // ── Packing ──────────────────────────────────────────────────────────────
   /// Every shop with something outstanding — the packer's queue.

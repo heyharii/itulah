@@ -8,11 +8,16 @@ import { Banner, EmptyState } from "@/components/ui/states"
 import { monthStamp, type ExportSheet } from "@/lib/export-xlsx"
 import { count, day, money } from "@/lib/format"
 import { financeKeys, trialBalance } from "@/lib/queries/finance"
+import { useLayout } from "@/lib/layout"
 import { queryState } from "@/lib/query-state"
 import { Code, Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
 import { isoDay, ladderLevel } from "@/screens/finance/chart"
 import { useUnitName, useWindow } from "@/screens/finance/hooks"
 import { UnitName, UnitSelect, WindowControl } from "@/screens/finance/parts"
+import {
+  PhoneStatement,
+  type StatementLine,
+} from "@/screens/finance/phone-parts"
 import { FilterCheck, ReportFilters } from "@/screens/finance/report"
 import type { TrialBalanceRow } from "@itulah/contract"
 
@@ -57,6 +62,7 @@ import type { TrialBalanceRow } from "@itulah/contract"
 /// anything on this screen. Both must agree, and drawing only the first would
 /// mean a report that balances because of what it left out.
 export function TrialBalance() {
+  const phone = useLayout() === "phone"
   const range = useWindow()
   const [unit, setUnit] = useState("")
   // One row per account, as ERPNext's Trial Balance reads; "Split by Unit"
@@ -166,7 +172,7 @@ export function TrialBalance() {
       sheet: "Trial Balance",
       title: "Trial Balance",
       subtitle: `${day(before)} → ${day(closing.data.as_of)} · ${
-        unit === "" ? "every unit" : unitName(unit)
+        unit === "" ? "all units" : unitName(unit)
       }${split ? " · split by unit" : ""}`,
       columns: [
         { header: "Code", kind: "text", width: 12 },
@@ -197,11 +203,15 @@ export function TrialBalance() {
       <PageHeader
         crumb="Finance · Financial Reports"
         title="Trial Balance"
+        // On a phone Export is a row of the Filters sheet, not a button at the
+        // top of the page.
         actions={
-          <ExportButton
-            build={build}
-            disabled={closing.data === undefined || lines.length === 0}
-          />
+          phone ? undefined : (
+            <ExportButton
+              build={build}
+              disabled={closing.data === undefined || lines.length === 0}
+            />
+          )
         }
       />
 
@@ -211,7 +221,7 @@ export function TrialBalance() {
             <>
               {day(before)} → {day(closing.data.as_of)} ·{" "}
               {closing.data.unit_id === null ? (
-                "every unit"
+                "all units"
               ) : (
                 <UnitName id={closing.data.unit_id} />
               )}
@@ -231,6 +241,12 @@ export function TrialBalance() {
           checked={grain === "unit"}
           onChange={(split) => setGrain(split ? "unit" : "account")}
         />
+        {phone && (
+          <ExportButton
+            build={build}
+            disabled={closing.data === undefined || lines.length === 0}
+          />
+        )}
       </ReportFilters>
 
       {/* The one thing this report exists to say, said before anything else on
@@ -290,6 +306,18 @@ export function TrialBalance() {
                     {unit === "" ? ", in any unit" : " in this unit"}. There is
                     no trial balance to draw yet.
                   </EmptyState>
+                ) : phone ? (
+                  <PhoneStatement
+                    lines={phoneLines(
+                      groups,
+                      className,
+                      grain === "unit",
+                      unitName,
+                      foot,
+                      footFolds,
+                      lines.length
+                    )}
+                  />
                 ) : (
                   <Grid>
                     <thead>
@@ -427,6 +455,94 @@ export function TrialBalance() {
       </div>
     </PageContent>
   )
+}
+
+/// The trial balance as a phone reads it: each class a band with its closing
+/// balance, each account under it with its own, and the two sides of the foot
+/// as the last two lines. The other four figures of a line (opening and the
+/// period's movement) are the sheet a tap opens.
+function phoneLines(
+  groups: readonly { rootClass: string; lines: readonly Line[] }[],
+  className: ReadonlyMap<string, string>,
+  split: boolean,
+  unitName: (unitId: string | null | undefined) => string,
+  foot: ReturnType<typeof total>,
+  footFolds: boolean,
+  lineCount: number
+): StatementLine[] {
+  const closing = (one: ReturnType<typeof total>) =>
+    one.closeDebit === 0 && one.closeCredit === 0 ? (
+      <span className="text-mute">·</span>
+    ) : one.closeDebit >= one.closeCredit ? (
+      <>
+        {money(one.closeDebit - one.closeCredit)}{" "}
+        <span className="font-normal text-mute">Dr</span>
+      </>
+    ) : (
+      <>
+        {money(one.closeCredit - one.closeDebit)}{" "}
+        <span className="font-normal text-mute">Cr</span>
+      </>
+    )
+  const facts = (one: ReturnType<typeof total>) => [
+    { label: "Opening Dr", value: money(one.openDebit) },
+    { label: "Opening Cr", value: money(one.openCredit) },
+    { label: "Debit", value: money(one.periodDebit) },
+    { label: "Credit", value: money(one.periodCredit) },
+    { label: "Closing Dr", value: money(one.closeDebit) },
+    { label: "Closing Cr", value: money(one.closeCredit) },
+  ]
+  const out: StatementLine[] = []
+  for (const bucket of groups) {
+    const sub = total(bucket.lines)
+    out.push({
+      key: bucket.rootClass,
+      kind: "section",
+      code: bucket.rootClass,
+      name: className.get(bucket.rootClass) ?? "—",
+      figure: closing(sub),
+      facts: facts(sub),
+    })
+    for (const line of bucket.lines) {
+      out.push({
+        key: line.key,
+        code: line.code,
+        name: split ? (
+          <>
+            {line.name}
+            <span className="block text-[0.875rem] font-normal text-mute">
+              {unitName(line.unitId)}
+            </span>
+          </>
+        ) : (
+          line.name
+        ),
+        level: Math.min(ladderLevel(line.depth), 4),
+        figure: closing(line),
+        facts: facts(line),
+      })
+    }
+  }
+  const tone = footFolds ? undefined : "bad"
+  out.push(
+    {
+      key: "total-debit",
+      kind: "total",
+      name: `Total debit · ${count(lineCount)} lines`,
+      figure: money(foot.closeDebit),
+      tone,
+      facts: facts(foot),
+    },
+    {
+      key: "total-credit",
+      kind: "total",
+      name: "Total credit",
+      figure: money(foot.closeCredit),
+      tone,
+      facts: facts(foot),
+    }
+  )
+  return out
 }
 
 /// A figure in a trial balance column, with the empty side left empty.

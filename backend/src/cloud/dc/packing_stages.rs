@@ -6,11 +6,11 @@
 
 use super::edge_error;
 use crate::cloud::dc::common;
+use crate::cloud::domain::flow::{FlowSource, SourceKind, StageKind};
 use crate::cloud::domain::{
     AllotmentStatus, FulfillmentStatus, MovementCause, MovementCommand, MovementGroupId,
     MovementLine, Place, SubjectId,
 };
-use crate::cloud::domain::flow::{FlowSource, SourceKind, StageKind};
 use crate::cloud::postgres::flow_stages::{resume_from_node_fact_tx, NodeFact};
 use crate::cloud::{AppError, AppState};
 use crate::edge::contracts::{DispatchTripRequest, FulfillmentProgressResult, PackRequest};
@@ -32,14 +32,15 @@ type Tx<'a> = Transaction<'a, Postgres>;
 /// one fixed year and never start again.
 const RUNNING_SERIES_YEAR: i32 = 2000;
 
-/// One piece in a box, and the allotment line it answers.
+/// One piece in a box, and the allotment line it answers. Shared with the
+/// move back (`dc/move_back.rs`), which takes pieces out of a box again.
 #[derive(Clone, Debug)]
-struct Piece {
-    subject_id: Uuid,
-    epc: String,
-    sku_code: String,
-    allotment_id: Uuid,
-    allotment_line_id: Uuid,
+pub(in crate::cloud::dc) struct Piece {
+    pub(in crate::cloud::dc) subject_id: Uuid,
+    pub(in crate::cloud::dc) epc: String,
+    pub(in crate::cloud::dc) sku_code: String,
+    pub(in crate::cloud::dc) allotment_id: Uuid,
+    pub(in crate::cloud::dc) allotment_line_id: Uuid,
 }
 
 /// A koli as the stage machinery needs it.
@@ -161,11 +162,10 @@ pub(super) async fn pack(
     request.destination_store_id = destination.clone();
     let request_json = serde_json::to_string(&request)?;
 
-    if let Some(row) =
-        sqlx::query("SELECT koli_id, pack_request FROM dc_koli WHERE pack_key = $1")
-            .bind(&request.idempotency_key)
-            .fetch_optional(&mut *tx)
-            .await?
+    if let Some(row) = sqlx::query("SELECT koli_id, pack_request FROM dc_koli WHERE pack_key = $1")
+        .bind(&request.idempotency_key)
+        .fetch_optional(&mut *tx)
+        .await?
     {
         if row.try_get::<Option<String>, _>("pack_request")?.as_deref()
             != Some(request_json.as_str())
@@ -218,7 +218,8 @@ pub(super) async fn pack(
     let at = state.clock.now();
     let koli_id = Uuid::new_v4();
     let koli_number = next_koli_number(&mut tx, &site, at).await?;
-    let wire_destination_id = crate::cloud::postgres::node_site_id_tx(&mut tx, &destination).await?;
+    let wire_destination_id =
+        crate::cloud::postgres::node_site_id_tx(&mut tx, &destination).await?;
     sqlx::query(
         "INSERT INTO dc_koli
              (koli_id, koli_number, site_id, destination_store_id, wire_destination_id, stage,
@@ -261,7 +262,15 @@ pub(super) async fn pack(
         stage: FulfillmentStage::Packed,
         shipment_reference: None,
     };
-    record_stage(&mut tx, &koli, &pieces, FulfillmentStage::Packed, &actor, at).await?;
+    record_stage(
+        &mut tx,
+        &koli,
+        &pieces,
+        FulfillmentStage::Packed,
+        &actor,
+        at,
+    )
+    .await?;
     if request.seal {
         seal_tx(&mut tx, koli_id, &actor, at).await?;
     }
@@ -520,43 +529,75 @@ pub(super) async fn dispatch_trip(
 
     // Every carton checked before anything is written: sealed, and not
     // already on a trip. Grouped by shop — a surat jalan is signed by one.
+    // One locked read for the whole request, not one per carton.
+    struct Carton {
+        koli_number: String,
+        destination_store_id: String,
+        sealed_at: Option<DateTime<Utc>>,
+        voided_at: Option<DateTime<Utc>>,
+        shipment_id: Option<Uuid>,
+        shipment_number: Option<String>,
+        dispatch_id: Option<Uuid>,
+    }
+    let mut ids = Vec::with_capacity(request.koli_ids.len());
+    for koli_id in &request.koli_ids {
+        ids.push(
+            Uuid::parse_str(koli_id).map_err(|_| AppError::NotFound(format!("koli {koli_id}")))?,
+        );
+    }
+    let mut checked: BTreeMap<Uuid, Carton> = BTreeMap::new();
+    for row in sqlx::query(
+        "SELECT k.koli_id, k.koli_number, k.destination_store_id, k.sealed_at, k.voided_at,
+                k.shipment_id, s.shipment_number, s.dispatch_id
+           FROM dc_koli k
+           LEFT JOIN dc_shipment s ON s.shipment_id = k.shipment_id
+          WHERE k.koli_id = ANY($1)
+            FOR UPDATE OF k",
+    )
+    .bind(&ids)
+    .fetch_all(&mut *tx)
+    .await?
+    {
+        checked.insert(
+            row.get("koli_id"),
+            Carton {
+                koli_number: row.try_get("koli_number")?,
+                destination_store_id: row.try_get("destination_store_id")?,
+                sealed_at: row.try_get("sealed_at")?,
+                voided_at: row.try_get("voided_at")?,
+                shipment_id: row.try_get("shipment_id")?,
+                shipment_number: row.try_get("shipment_number")?,
+                dispatch_id: row.try_get("dispatch_id")?,
+            },
+        );
+    }
     let mut loose: BTreeMap<String, Vec<Uuid>> = BTreeMap::new();
     let mut shipment_ids: Vec<Uuid> = Vec::new();
-    for koli_id in &request.koli_ids {
-        let id = Uuid::parse_str(koli_id)
-            .map_err(|_| AppError::NotFound(format!("koli {koli_id}")))?;
-        let row = sqlx::query(
-            "SELECT k.koli_number, k.destination_store_id, k.sealed_at, k.shipment_id,
-                    s.shipment_number, s.dispatch_id
-               FROM dc_koli k
-               LEFT JOIN dc_shipment s ON s.shipment_id = k.shipment_id
-              WHERE k.koli_id = $1
-                FOR UPDATE OF k",
-        )
-        .bind(id)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("koli {koli_id}")))?;
-        let number: String = row.try_get("koli_number")?;
-        if row
-            .try_get::<Option<DateTime<Utc>>, _>("sealed_at")?
-            .is_none()
-        {
+    for (koli_id, id) in request.koli_ids.iter().zip(&ids) {
+        let carton = checked
+            .get(id)
+            .ok_or_else(|| AppError::NotFound(format!("koli {koli_id}")))?;
+        let number = &carton.koli_number;
+        if carton.voided_at.is_some() {
+            return Err(AppError::Conflict(format!(
+                "carton {number} was emptied by a move back; there is nothing in it to send"
+            )));
+        }
+        if carton.sealed_at.is_none() {
             return Err(AppError::Conflict(format!(
                 "carton {number} is not sealed yet"
             )));
         }
-        match row.try_get::<Option<Uuid>, _>("shipment_id")? {
+        match carton.shipment_id {
             None => loose
-                .entry(row.try_get("destination_store_id")?)
+                .entry(carton.destination_store_id.clone())
                 .or_default()
-                .push(id),
+                .push(*id),
             Some(shipment_id) => {
-                if row.try_get::<Option<Uuid>, _>("dispatch_id")?.is_some() {
-                    let shipment_number: Option<String> = row.try_get("shipment_number")?;
+                if carton.dispatch_id.is_some() {
                     return Err(AppError::Conflict(format!(
                         "carton {number} is already on a trip ({})",
-                        shipment_number.unwrap_or_default()
+                        carton.shipment_number.clone().unwrap_or_default()
                     )));
                 }
                 if !shipment_ids.contains(&shipment_id) {
@@ -565,34 +606,59 @@ pub(super) async fn dispatch_trip(
             }
         }
     }
+    // The hard stop: a carton holding pieces MD took out does not leave.
+    refuse_taken_out(&mut tx, &ids, &shipment_ids).await?;
 
     let at = state.clock.now();
-    // The surat jalan, one per shop, for the cartons on none yet.
-    for (destination, koli_ids) in loose {
-        let shipment_id = Uuid::new_v4();
-        let number = next_paper_number(&mut tx, &site, "SJ", "SHIPMENT").await?;
+    // The surat jalan, one per shop, for the cartons on none yet. The serial
+    // numbers are taken one by one (each takes the series' next); the writes
+    // are one INSERT for every surat jalan and one UPDATE for every carton
+    // of the trip, where each shop wrote its own before.
+    if !loose.is_empty() {
+        let mut new_shipments: Vec<Uuid> = Vec::with_capacity(loose.len());
+        let mut numbers: Vec<String> = Vec::with_capacity(loose.len());
+        let mut destinations: Vec<String> = Vec::with_capacity(loose.len());
+        for destination in loose.keys() {
+            numbers.push(next_paper_number(&mut tx, &site, "SJ", "SHIPMENT").await?);
+            destinations.push(destination.clone());
+            new_shipments.push(Uuid::new_v4());
+        }
         sqlx::query(
             "INSERT INTO dc_shipment
                  (shipment_id, shipment_number, site_id, destination_store_id, created_by, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6)",
+             SELECT shipment.shipment_id, shipment.shipment_number, $2,
+                    shipment.destination_store_id, $3, $4
+               FROM unnest($1::uuid[], $5::text[], $6::text[])
+                    AS shipment(shipment_id, shipment_number, destination_store_id)",
         )
-        .bind(shipment_id)
-        .bind(&number)
+        .bind(&new_shipments)
         .bind(&site)
-        .bind(&destination)
         .bind(&actor)
         .bind(at)
+        .bind(&numbers)
+        .bind(&destinations)
         .execute(&mut *tx)
         .await?;
+        let mut loaded_kolis: Vec<Uuid> = Vec::new();
+        let mut onto_shipment: Vec<Uuid> = Vec::new();
+        for (index, koli_ids) in loose.values().enumerate() {
+            for koli_id in koli_ids {
+                loaded_kolis.push(*koli_id);
+                onto_shipment.push(new_shipments[index]);
+            }
+        }
         sqlx::query(
-            "UPDATE dc_koli SET shipment_id = $2, updated_at = $3 WHERE koli_id = ANY($1)",
+            "UPDATE dc_koli k
+                SET shipment_id = assignment.shipment_id, updated_at = $3
+               FROM unnest($1::uuid[], $2::uuid[]) AS assignment(koli_id, shipment_id)
+              WHERE k.koli_id = assignment.koli_id",
         )
-        .bind(&koli_ids)
-        .bind(shipment_id)
+        .bind(&loaded_kolis)
+        .bind(&onto_shipment)
         .bind(at)
         .execute(&mut *tx)
         .await?;
-        shipment_ids.push(shipment_id);
+        shipment_ids.extend(new_shipments);
     }
 
     // The truck run.
@@ -621,19 +687,64 @@ pub(super) async fn dispatch_trip(
         .await?;
 
     // Every carton on those surat jalan goes — including one an earlier
-    // surat jalan holds that was never put on a truck.
-    let cartons: Vec<Uuid> = sqlx::query_scalar(
-        "SELECT k.koli_id FROM dc_koli k
+    // surat jalan holds that was never put on a truck. The cartons and
+    // their pieces are read for the whole trip in two queries, where the
+    // stage machinery re-read both per carton per rung; no rung below
+    // writes either.
+    let carton_rows = sqlx::query(
+        "SELECT k.koli_id, k.koli_number, k.site_id, k.destination_store_id,
+                k.wire_destination_id, k.stage, s.shipment_number
+           FROM dc_koli k
            JOIN dc_shipment s ON s.shipment_id = k.shipment_id
           WHERE s.dispatch_id = $1
-          ORDER BY s.shipment_number, k.koli_number",
+          ORDER BY s.shipment_number, k.koli_number
+            FOR UPDATE OF k",
     )
     .bind(dispatch_id)
     .fetch_all(&mut *tx)
     .await?;
-    for koli_id in &cartons {
-        advance_to(&mut tx, *koli_id, FulfillmentStage::Loaded, &actor, at).await?;
+    let carton_ids: Vec<Uuid> = carton_rows.iter().map(|row| row.get("koli_id")).collect();
+    let mut pieces_of: BTreeMap<Uuid, Vec<Piece>> = BTreeMap::new();
+    for row in sqlx::query(
+        "SELECT koli_id, subject_id, epc, sku_code, allotment_id, allotment_line_id
+           FROM dc_koli_unit
+          WHERE koli_id = ANY($1)
+          ORDER BY koli_id, epc",
+    )
+    .bind(&carton_ids)
+    .fetch_all(&mut *tx)
+    .await?
+    {
+        pieces_of
+            .entry(row.get("koli_id"))
+            .or_default()
+            .push(Piece {
+                subject_id: row.get("subject_id"),
+                epc: row.get("epc"),
+                sku_code: row.get("sku_code"),
+                allotment_id: row.get("allotment_id"),
+                allotment_line_id: row.get("allotment_line_id"),
+            });
     }
+    let mut trip: Vec<(KoliRef, Vec<Piece>)> = Vec::with_capacity(carton_rows.len());
+    for row in &carton_rows {
+        let koli_id: Uuid = row.get("koli_id");
+        let pieces = pieces_of.remove(&koli_id).unwrap_or_default();
+        trip.push((
+            KoliRef {
+                koli_id,
+                koli_number: row.try_get("koli_number")?,
+                site_id: row.try_get("site_id")?,
+                destination_store_id: row.try_get("destination_store_id")?,
+                wire_destination_id: row.try_get("wire_destination_id")?,
+                stage: parse_stage(&row.try_get::<String, _>("stage")?)?,
+                shipment_reference: row.try_get("shipment_number")?,
+            },
+            pieces,
+        ));
+    }
+
+    // The truck leaves, stamped once, before any carton is announced.
     sqlx::query(
         "UPDATE dc_dispatch SET departed_at = $2 WHERE dispatch_id = $1 AND departed_at IS NULL",
     )
@@ -641,11 +752,96 @@ pub(super) async fn dispatch_trip(
     .bind(at)
     .execute(&mut *tx)
     .await?;
-    for koli_id in &cartons {
-        advance_to(&mut tx, *koli_id, FulfillmentStage::InTransit, &actor, at).await?;
+    // Every carton up the ladder in the cartons' order, a rung at a time,
+    // from the one read above — each rung used to start from its own
+    // re-read of the koli and its pieces. A carton's own stage order is
+    // kept: each rung whole before the next, LOADED whole, then IN_TRANSIT
+    // whole, whatever rung it starts from.
+    for (mut koli, pieces) in trip {
+        while koli.stage.rank() < FulfillmentStage::InTransit.rank() {
+            let next = next_stage(koli.stage);
+            record_stage(&mut tx, &koli, &pieces, next, &actor, at).await?;
+            koli.stage = next;
+        }
     }
     tx.commit().await?;
     Ok(dispatch_id)
+}
+
+/// The hard stop of MD's edit and cancel
+/// (docs/research/2026-10-09-outbound-cancel-edit-build.md §0 rule 4): a
+/// carton holding pieces of a line MD took pieces out of
+/// (`takeout_pending_quantity`), or of an allotment MD cancelled, is refused
+/// until the Gudang has moved them back. There is no override.
+///
+/// Every carton that would go is checked — the ones ticked, and the ones an
+/// earlier surat jalan of the trip already holds — before anything is
+/// written. Their lines are held (FOR SHARE) so an edit cannot land between
+/// this read and the trip: it waits, and then sees the pieces as sent.
+async fn refuse_taken_out(
+    tx: &mut Tx<'_>,
+    koli_ids: &[Uuid],
+    shipment_ids: &[Uuid],
+) -> Result<(), AppError> {
+    sqlx::query(
+        "SELECT line.id
+           FROM allotment_line line
+          WHERE line.id IN (SELECT unit.allotment_line_id
+                              FROM dc_koli_unit unit
+                              JOIN dc_koli koli ON koli.koli_id = unit.koli_id
+                             WHERE koli.koli_id = ANY($1) OR koli.shipment_id = ANY($2))
+          ORDER BY line.id
+            FOR SHARE OF line",
+    )
+    .bind(koli_ids)
+    .bind(shipment_ids)
+    .fetch_all(&mut **tx)
+    .await?;
+    let Some(row) = sqlx::query(
+        "SELECT koli.koli_number,
+                COALESCE(SUM(LEAST(held.pieces, line.takeout_pending_quantity)), 0)::bigint
+                    AS taken_out,
+                COALESCE(SUM(held.pieces) FILTER (
+                    WHERE header.status IN ('CANCELLED', 'REJECTED')
+                       OR header.cancelled_at IS NOT NULL), 0)::bigint AS cancelled,
+                string_agg(DISTINCT header.allotment_number, ', ') FILTER (
+                    WHERE header.status IN ('CANCELLED', 'REJECTED')
+                       OR header.cancelled_at IS NOT NULL) AS cancelled_allotments
+           FROM (SELECT unit.koli_id, unit.allotment_line_id, COUNT(*)::bigint AS pieces
+                   FROM dc_koli_unit unit
+                   JOIN dc_koli koli ON koli.koli_id = unit.koli_id
+                  WHERE koli.koli_id = ANY($1) OR koli.shipment_id = ANY($2)
+                  GROUP BY unit.koli_id, unit.allotment_line_id) held
+           JOIN dc_koli koli ON koli.koli_id = held.koli_id
+           JOIN allotment_line line ON line.id = held.allotment_line_id
+           JOIN allotment header ON header.id = line.allotment_id
+          GROUP BY koli.koli_number
+         HAVING SUM(LEAST(held.pieces, line.takeout_pending_quantity)) > 0
+             OR bool_or(header.status IN ('CANCELLED', 'REJECTED')
+                        OR header.cancelled_at IS NOT NULL)
+          ORDER BY koli.koli_number
+          LIMIT 1",
+    )
+    .bind(koli_ids)
+    .bind(shipment_ids)
+    .fetch_optional(&mut **tx)
+    .await?
+    else {
+        return Ok(());
+    };
+    let number: String = row.try_get("koli_number")?;
+    let cancelled: i64 = row.try_get("cancelled")?;
+    if cancelled > 0 {
+        let allotments: Option<String> = row.try_get("cancelled_allotments")?;
+        return Err(AppError::Conflict(format!(
+            "{number} holds {cancelled} pcs of {}, which MD cancelled; move them back first",
+            allotments.unwrap_or_else(|| "an allotment".into())
+        )));
+    }
+    let taken_out: i64 = row.try_get("taken_out")?;
+    Err(AppError::Conflict(format!(
+        "{number} holds {taken_out} pcs MD took out; move them back first"
+    )))
 }
 
 /// The truck leaves (`edge::outbound::depart_dispatch`): stamped once. Its
@@ -739,28 +935,6 @@ pub(super) async fn koli_in_transit(
 // The stage machinery
 // ---------------------------------------------------------------------------
 
-/// Move a koli up the ladder to `target`, one rung at a time, from wherever
-/// it stands.
-async fn advance_to(
-    tx: &mut Tx<'_>,
-    koli_id: Uuid,
-    target: FulfillmentStage,
-    actor: &str,
-    at: DateTime<Utc>,
-) -> Result<(), AppError> {
-    let mut koli = load_koli_ref(tx, koli_id).await?;
-    if koli.stage.rank() >= target.rank() {
-        return Ok(());
-    }
-    let pieces = load_pieces(tx, koli_id).await?;
-    while koli.stage.rank() < target.rank() {
-        let next = next_stage(koli.stage);
-        record_stage(tx, &koli, &pieces, next, actor, at).await?;
-        koli.stage = next;
-    }
-    Ok(())
-}
-
 /// One rung, whole: the goods move in the ledger, the allotment lines' rung
 /// rises, the koli's stage, and the record a DC server's fulfillment fact
 /// leaves (`sync.rs` `apply_fulfillment_progress`) — the koli mirror, the
@@ -800,7 +974,10 @@ async fn record_stage(
 
     let mut by_line: BTreeMap<Uuid, Vec<&Piece>> = BTreeMap::new();
     for piece in pieces {
-        by_line.entry(piece.allotment_line_id).or_default().push(piece);
+        by_line
+            .entry(piece.allotment_line_id)
+            .or_default()
+            .push(piece);
     }
 
     // 1. The goods move: one movement group per allotment line, because the
@@ -808,9 +985,15 @@ async fn record_stage(
     let mut groups: BTreeMap<Uuid, Uuid> = BTreeMap::new();
     for (line_id, line_pieces) in &by_line {
         if stage == FulfillmentStage::Packed {
-            // What the line still owes, so a piece is never packed past it.
+            // What the line still wants, so a piece is never packed past it:
+            // To Pack less the picked pieces MD gave up, which wait to go back
+            // to the racks (0965) — the rest may be packed meanwhile (owner,
+            // 10 Oct 2026: picked 30, now 20 → pack at most 20).
             let to_pack: Option<i64> = sqlx::query_scalar(
-                "SELECT to_pack_qty FROM allotment_line_commitment WHERE allotment_line_id = $1",
+                "SELECT commitment.to_pack_qty - line.pick_owed_quantity
+                   FROM allotment_line_commitment commitment
+                   JOIN allotment_line line ON line.id = commitment.allotment_line_id
+                  WHERE commitment.allotment_line_id = $1",
             )
             .bind(line_id)
             .fetch_optional(&mut **tx)
@@ -941,56 +1124,91 @@ async fn record_stage(
     .bind(serde_json::to_value(&payload.units)?)
     .execute(&mut **tx)
     .await?;
-    for (index, unit) in payload.units.iter().enumerate() {
-        sqlx::query(
-            "INSERT INTO edge_fulfillment_progress_unit
-                 (progress_event_id, koli_id, unit_ordinal, epc, sku_code,
-                  allotment_id, allotment_line_id)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)",
-        )
-        .bind(event_id)
-        .bind(koli.koli_id)
-        .bind(i64::try_from(index).unwrap_or(i64::MAX - 1) + 1)
-        .bind(&unit.epc)
-        .bind(&unit.sku_code)
-        .bind(unit.allotment_id)
-        .bind(unit.allotment_line_id)
-        .execute(&mut **tx)
-        .await?;
-    }
+    // The units in one statement; unit_ordinal from the unnest's ordinality,
+    // which numbers rows from 1 in array order, as the per-unit write did.
+    let unit_epcs: Vec<String> = payload.units.iter().map(|unit| unit.epc.clone()).collect();
+    let unit_skus: Vec<String> = payload
+        .units
+        .iter()
+        .map(|unit| unit.sku_code.clone())
+        .collect();
+    let unit_allotments: Vec<Uuid> = payload.units.iter().map(|unit| unit.allotment_id).collect();
+    let unit_lines: Vec<Uuid> = payload
+        .units
+        .iter()
+        .map(|unit| unit.allotment_line_id)
+        .collect();
+    sqlx::query(
+        "INSERT INTO edge_fulfillment_progress_unit
+             (progress_event_id, koli_id, unit_ordinal, epc, sku_code,
+              allotment_id, allotment_line_id)
+         SELECT $1, $2, unit.ordinal, unit.epc, unit.sku_code,
+                unit.allotment_id, unit.allotment_line_id
+           FROM unnest($3::text[], $4::text[], $5::uuid[], $6::uuid[])
+                WITH ORDINALITY
+                AS unit(epc, sku_code, allotment_id, allotment_line_id, ordinal)",
+    )
+    .bind(event_id)
+    .bind(koli.koli_id)
+    .bind(&unit_epcs)
+    .bind(&unit_skus)
+    .bind(&unit_allotments)
+    .bind(&unit_lines)
+    .execute(&mut **tx)
+    .await?;
 
     // 5. On the road: one claim per piece for the shop's count to pair with
     //    (what a DC server sends as `TransferClaim` IN_TRANSIT), and the
     //    shop's blind-count announcement — the applier's own function, so the
     //    shop's node is told exactly as it is told of a DC server's koli.
     if stage == FulfillmentStage::InTransit {
-        for (index, unit) in payload.units.iter().enumerate() {
-            let claim_seq = common::next_seq(tx).await?;
-            sqlx::query(
-                "INSERT INTO edge_transfer_claim
-                     (event_id, origin_id, owner_site_id, owner_node_role, generation, seq,
-                      claim_kind, source_dc_id, destination_store_id, shipment_reference,
-                      epc, quantity, sku_code, movement_group_id, receipt_id, occurred_at,
-                      in_transit_progress_event_id, in_transit_unit_ordinal)
-                 VALUES ($1, $2, $3, 'DC', $4, $5, 'IN_TRANSIT', $3, $6, $7,
-                         $8, 1, $9, $10, NULL, $11, $12, $13)",
-            )
-            .bind(Uuid::new_v4())
-            .bind(common::CLOUD_DC_ORIGIN)
-            .bind(&koli.site_id)
-            .bind(common::CLOUD_DC_GENERATION)
-            .bind(claim_seq)
-            .bind(&payload.destination_store_id)
-            .bind(&payload.shipment_reference)
-            .bind(&unit.epc)
-            .bind(&unit.sku_code)
-            .bind(groups.get(&unit.allotment_line_id).copied().unwrap_or(first_group))
-            .bind(at)
-            .bind(event_id)
-            .bind(i64::try_from(index).unwrap_or(i64::MAX - 1) + 1)
-            .execute(&mut **tx)
-            .await?;
-        }
+        // One claim per piece for the shop's count to pair with, in one
+        // statement; the claims' seqs taken in one round trip, in unit order
+        // (row i of generate_series for unit i), where each claim took its
+        // own nextval before its insert.
+        let claim_seqs: Vec<i64> =
+            sqlx::query_scalar("SELECT nextval('cloud_dc_record_seq') FROM generate_series(1, $1)")
+                .bind(i64::try_from(payload.units.len()).unwrap_or(i64::MAX))
+                .fetch_all(&mut **tx)
+                .await?;
+        let claim_events: Vec<Uuid> = payload.units.iter().map(|_| Uuid::new_v4()).collect();
+        let claim_groups: Vec<Uuid> = payload
+            .units
+            .iter()
+            .map(|unit| {
+                groups
+                    .get(&unit.allotment_line_id)
+                    .copied()
+                    .unwrap_or(first_group)
+            })
+            .collect();
+        sqlx::query(
+            "INSERT INTO edge_transfer_claim
+                 (event_id, origin_id, owner_site_id, owner_node_role, generation, seq,
+                  claim_kind, source_dc_id, destination_store_id, shipment_reference,
+                  epc, quantity, sku_code, movement_group_id, receipt_id, occurred_at,
+                  in_transit_progress_event_id, in_transit_unit_ordinal)
+             SELECT claim.event_id, $2, $3, 'DC', $4, claim.seq, 'IN_TRANSIT', $3, $5, $6,
+                    claim.epc, 1, claim.sku_code, claim.movement_group_id, NULL, $7, $1,
+                    claim.ordinal
+               FROM unnest($8::uuid[], $9::bigint[], $10::text[], $11::text[], $12::uuid[])
+                    WITH ORDINALITY
+                    AS claim(event_id, seq, epc, sku_code, movement_group_id, ordinal)",
+        )
+        .bind(event_id)
+        .bind(common::CLOUD_DC_ORIGIN)
+        .bind(&koli.site_id)
+        .bind(common::CLOUD_DC_GENERATION)
+        .bind(&payload.destination_store_id)
+        .bind(&payload.shipment_reference)
+        .bind(at)
+        .bind(&claim_events)
+        .bind(&claim_seqs)
+        .bind(&unit_epcs)
+        .bind(&unit_skus)
+        .bind(&claim_groups)
+        .execute(&mut **tx)
+        .await?;
         crate::cloud::postgres::announce_store_inbound_tx(tx, &payload).await?;
     }
 
@@ -1127,7 +1345,7 @@ async fn mirror_koli(
 /// Move a line's pieces from one place to another as one movement group,
 /// referenced to the line. Returns the group's id.
 #[allow(clippy::too_many_arguments)]
-async fn move_pieces(
+pub(in crate::cloud::dc) async fn move_pieces(
     tx: &mut Tx<'_>,
     pieces: &[&Piece],
     allotment_line_id: Uuid,
@@ -1141,10 +1359,14 @@ async fn move_pieces(
 ) -> Result<Uuid, AppError> {
     let from_place: Place = from
         .parse()
-        .map_err(|error: crate::cloud::domain::PlaceError| AppError::Validation(error.to_string()))?;
+        .map_err(|error: crate::cloud::domain::PlaceError| {
+            AppError::Validation(error.to_string())
+        })?;
     let to_place: Place = to
         .parse()
-        .map_err(|error: crate::cloud::domain::PlaceError| AppError::Validation(error.to_string()))?;
+        .map_err(|error: crate::cloud::domain::PlaceError| {
+            AppError::Validation(error.to_string())
+        })?;
     let command = MovementCommand {
         movement_group_id: MovementGroupId::new(),
         lines: pieces
@@ -1263,7 +1485,7 @@ async fn stage_record(
 
 /// A cloud-run allotment's status, from the commitment view (as
 /// `execute_allotment` writes it).
-async fn refresh_allotment_status(
+pub(crate) async fn refresh_allotment_status(
     tx: &mut Tx<'_>,
     allotment_id: Uuid,
     at: DateTime<Utc>,
@@ -1373,8 +1595,15 @@ pub(crate) async fn reconcile_counted_in_tx(
             .bind(&unit_epc)
             .execute(&mut **tx)
             .await?;
-            let_go(tx, allotment_line_id, &unit_epc, receipt_event_id, destination_store_id, received_at)
-                .await?;
+            let_go(
+                tx,
+                allotment_line_id,
+                &unit_epc,
+                receipt_event_id,
+                destination_store_id,
+                received_at,
+            )
+            .await?;
             touched_lines.insert(allotment_line_id);
             touched_allotments.insert(allotment_id);
         }
@@ -1507,8 +1736,11 @@ async fn let_go(
 // ---------------------------------------------------------------------------
 
 /// One packer or one trip at a time per Gudang: a piece is never put in two
-/// boxes, a carton never on two trucks.
-async fn lock_outbound(tx: &mut Tx<'_>, site: &str) -> Result<(), AppError> {
+/// boxes, a carton never on two trucks. A move back takes the same lock.
+pub(in crate::cloud::dc) async fn lock_outbound(
+    tx: &mut Tx<'_>,
+    site: &str,
+) -> Result<(), AppError> {
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
         .bind(format!("dc-outbound:{site}"))
         .execute(&mut **tx)
@@ -1517,7 +1749,11 @@ async fn lock_outbound(tx: &mut Tx<'_>, site: &str) -> Result<(), AppError> {
 }
 
 /// A pool of the Gudang by its role, as a place in the ledger.
-async fn place_of_role(tx: &mut Tx<'_>, site: &str, role: PoolRole) -> Result<String, AppError> {
+pub(in crate::cloud::dc) async fn place_of_role(
+    tx: &mut Tx<'_>,
+    site: &str,
+    role: PoolRole,
+) -> Result<String, AppError> {
     let pool = crate::cloud::postgres::sites::pool_of_role(&mut **tx, site, role)
         .await?
         .ok_or_else(|| AppError::Conflict(format!("{site} has no {} pool", role.label())))?;

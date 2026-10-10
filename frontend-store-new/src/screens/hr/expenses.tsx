@@ -3,8 +3,8 @@ import {
   useQueries,
   useQuery,
   useQueryClient,
+  type UseQueryResult,
 } from "@tanstack/react-query"
-import { Plus } from "lucide-react"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -12,8 +12,9 @@ import { Field, Input, Select } from "@/components/ui/field"
 import { PeopleSheet, SheetSection } from "@/components/ui/people-sheet"
 import { PeopleTable } from "@/components/ui/people-table"
 import { PeopleTabs } from "@/components/ui/people-tabs"
-import { Pill } from "@/components/ui/pill"
+import { Pill, Status } from "@/components/ui/pill"
 import { Stat, StatStrip } from "@/components/ui/stat-strip"
+import { LoadingState } from "@/components/ui/states"
 import { moment } from "@/lib/format"
 import {
   advancesOf,
@@ -30,15 +31,22 @@ import {
   type StoreScope,
 } from "@/lib/queries/hr"
 import { centreState } from "@/screens/hr/centre"
-import { RefusedBanner } from "@/screens/hr/refused"
 import {
-  Decision,
   Facts,
   Person,
+  personCard,
   PersonPicker,
   Submit,
+  useDecision,
 } from "@/screens/hr/parts"
-import { personName, useTeam, type Tone } from "@/screens/hr/words"
+import { RefusedBanner } from "@/screens/hr/refused"
+import {
+  personByLogin,
+  personName,
+  requestState,
+  useTeam,
+  type Tone,
+} from "@/screens/hr/words"
 import { HrWorkspace } from "@/screens/hr/workspace"
 import { money, parseMoneyToMinor } from "@itulah/contract/money"
 import type { EmployeeList, PolicyView } from "@itulah/contract"
@@ -64,12 +72,7 @@ export function HrExpenses() {
   const [recording, setRecording] = useState(false)
   return (
     <HrWorkspace
-      actions={
-        <Button variant="primary" onClick={() => setRecording(true)}>
-          <Plus />
-          Record a claim
-        </Button>
-      }
+      primary={{ label: "New claim", onClick: () => setRecording(true) }}
     >
       {(scope) => (
         <Expenses
@@ -82,25 +85,22 @@ export function HrExpenses() {
   )
 }
 
-/// What a claim's state means, spelled as what it waits for or what it costs:
-/// approved-and-unpaid is money owed, and a pill saying only "approved" hides
-/// that.
+/// What a claim's state is called: the module's four words, plus the two a
+/// claim has of its own. Approved-and-unpaid is money owed — still "in motion"
+/// with Finance — so it wears the info tone, and Paid is the settled one; who
+/// the claim is waiting on is a fact in the sheet.
 function claimState(state: string): { label: string; tone: Tone } {
   switch (state) {
     case "DRAFT":
-      return { label: "Draft — not sent", tone: "neutral" }
+      return { label: "Draft", tone: "neutral" }
     case "SUBMITTED":
-      return { label: "Waiting on the store head", tone: "warn" }
+      return requestState("PENDING")
     case "APPROVED":
-      return { label: "Approved · with Finance", tone: "info" }
+      return { label: "Approved", tone: "info" }
     case "PAID":
       return { label: "Paid", tone: "ok" }
-    case "REJECTED":
-      return { label: "Refused", tone: "bad" }
-    case "WITHDRAWN":
-      return { label: "Withdrawn", tone: "neutral" }
     default:
-      return { label: state, tone: "neutral" }
+      return requestState(state)
   }
 }
 
@@ -145,11 +145,10 @@ function Expenses({
       {tab === "claims" && (
         <Claims scope={scope} team={team.data} limits={limits.data ?? []} />
       )}
-      {tab === "advances" && <Advances team={team.data} />}
+      {tab === "advances" && <Advances team={team} />}
 
       {recording && (
         <RecordClaim
-          scope={scope}
           team={team.data}
           limits={limits.data ?? []}
           onClose={() => onRecording(false)}
@@ -163,20 +162,28 @@ function Expenses({
   )
 }
 
-/// Head office's money limits, as the prototype's chips. Read, never restated.
-function Limits({ limits }: { limits: readonly PolicyView[] }) {
+/// Head office's money limits, in one quiet line. Read, never restated.
+function Limits({
+  limits,
+  className,
+}: {
+  limits: readonly PolicyView[]
+  className?: string
+}) {
   if (limits.length === 0) return null
   return (
-    <div className="mb-4 flex flex-wrap gap-1.5">
-      {limits.map((rule) => (
-        <Pill key={rule.key} tone="neutral">
-          {rule.label}:{" "}
-          {rule.unit === "RUPIAH"
-            ? money(rule.value)
-            : `${rule.value} ${rule.unit.toLowerCase()}`}
-        </Pill>
-      ))}
-    </div>
+    <p className={className ?? "mb-4 text-meta text-body"}>
+      {limits
+        .map(
+          (rule) =>
+            `${rule.label}: ${
+              rule.unit === "RUPIAH"
+                ? money(rule.value)
+                : `${rule.value} ${rule.unit.toLowerCase()}`
+            }`,
+        )
+        .join(" · ")}
+    </p>
   )
 }
 
@@ -198,7 +205,7 @@ function Claims({
   const [open, setOpen] = useState<ClaimRow | null>(null)
 
   return centreState(claims, {
-    loading: "Loading…",
+    loading: "Reading the claims…",
     what: "this shop's claims",
     render: (rows) => {
       const waiting = rows.filter((claim) => claim.state === "SUBMITTED")
@@ -214,7 +221,7 @@ function Claims({
         <>
           <StatStrip>
             <Stat
-              label="Waiting on the store head"
+              label="Pending"
               value={waiting.length}
               tone={waiting.length > 0 ? "warn" : undefined}
               sub={money(
@@ -239,6 +246,37 @@ function Claims({
             rowKey={(claim) => claim.claim_id}
             onRowClick={setOpen}
             empty="No claims."
+            card={(claim) => {
+              const state = claimState(claim.state)
+              const what = claim.lines
+                .map((line) => line.description)
+                .join(", ")
+              return {
+                ...personCard(
+                  team,
+                  claim.employee_id,
+                  what === ""
+                    ? []
+                    : [<span className="line-clamp-2">{what}</span>],
+                ),
+                // The figure is what was sanctioned once somebody has decided,
+                // and what was asked for until then.
+                lead:
+                  claim.sanctioned_minor === null
+                    ? { figure: money(claim.claimed_minor), caption: "claimed" }
+                    : {
+                        figure: money(claim.sanctioned_minor),
+                        caption: "approved",
+                      },
+                foot: {
+                  info: <Status tone={state.tone}>{state.label}</Status>,
+                  action: {
+                    label: claim.state === "SUBMITTED" ? "Review" : "Open",
+                    onClick: () => setOpen(claim),
+                  },
+                },
+              }
+            }}
             columns={[
               {
                 key: "who",
@@ -248,7 +286,6 @@ function Claims({
               {
                 key: "claim",
                 header: "Claim",
-                card: "meta",
                 className: "whitespace-normal",
                 cell: (claim) => (
                   <span className="flex min-w-0 flex-col">
@@ -266,7 +303,6 @@ function Claims({
               {
                 key: "type",
                 header: "Kind",
-                card: "meta",
                 cell: (claim) =>
                   [...new Set(claim.lines.map((line) => line.type_name))].join(
                     ", ",
@@ -300,10 +336,9 @@ function Claims({
               {
                 key: "state",
                 header: "Status",
-                card: "status",
                 cell: (claim) => {
                   const state = claimState(claim.state)
-                  return <Pill tone={state.tone}>{state.label}</Pill>
+                  return <Status tone={state.tone}>{state.label}</Status>
                 },
               },
             ]}
@@ -323,11 +358,17 @@ function Claims({
   })
 }
 
+/// "SENT_BACK" → "Sent back".
+function actionWord(action: string): string {
+  const spaced = action.toLowerCase().replace(/_/g, " ")
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1)
+}
+
 /// One claim, and the store head's sanction of it — a figure per line.
 ///
 /// Each line starts at what was claimed; the store head brings any line down to
 /// what head office's limit allows. The centre refuses a line sanctioned to
-/// nothing (a claim worth nothing is refused or sent back instead) and totals
+/// nothing (a claim worth nothing is rejected or sent back instead) and totals
 /// the lines itself rather than trusting this arithmetic.
 function ClaimSheet({
   claim,
@@ -374,6 +415,27 @@ function ClaimSheet({
   })
   const state = claimState(claim.state)
   const deciding = claim.state === "SUBMITTED"
+  const decision = useDecision({
+    placeholder: "Taxi receipt checked",
+    pending: decide.isPending || sendBack.isPending,
+    error: decide.error ?? sendBack.error,
+    onDecide: (approve, reason) => {
+      if (approve && invalid) return
+      decide.mutate({ approve, reason })
+    },
+    // The third way out, between Reject and Approve: the claim goes back to
+    // the person to put right rather than being closed.
+    extra: (reason) => (
+      <Button
+        disabled={
+          reason.trim() === "" || sendBack.isPending || decide.isPending
+        }
+        onClick={() => sendBack.mutate(reason)}
+      >
+        Send back
+      </Button>
+    ),
+  })
 
   return (
     <PeopleSheet
@@ -381,40 +443,34 @@ function ClaimSheet({
       onOpenChange={(next) => {
         if (!next) onClose()
       }}
-      crumb={
-        <>
-          Claim · <span className="font-mono">{claim.claim_number}</span>
-        </>
-      }
+      id={claim.claim_number}
+      crumb="Claim"
       title={claim.employee_name ?? personName(team, claim.employee_id)}
       sub={`${readDate(claim.posted_on)} · ${scope.label}`}
       status={<Pill tone={state.tone}>{state.label}</Pill>}
-      foot={
-        deciding ? (
-          <Decision
-            approveLabel="Approve these figures"
-            placeholder="Taxi receipt checked"
-            pending={decide.isPending || sendBack.isPending}
-            error={decide.error ?? sendBack.error}
-            onDecide={(approve, reason) => {
-              if (approve && invalid) return
-              decide.mutate({ approve, reason })
-            }}
-            extra={(reason) => (
-              <Button
-                disabled={
-                  reason.trim() === "" || sendBack.isPending || decide.isPending
-                }
-                onClick={() => sendBack.mutate(reason)}
-              >
-                Send back
-              </Button>
-            )}
-          />
-        ) : undefined
-      }
+      foot={deciding ? decision.footer : undefined}
     >
-      <SheetSection title="Lines">
+      <Facts
+        rows={[
+          ["Filed by", personByLogin(team, claim.claimed_by)],
+          // Who is being waited on is a fact here, not part of the state's name.
+          claim.state === "SUBMITTED" && ["Waiting on", "Store head"],
+          claim.state === "APPROVED" && ["Waiting on", "Finance"],
+          claim.decided_by !== null && [
+            "Decided by",
+            personByLogin(team, claim.decided_by),
+          ],
+          claim.decided_by !== null && ["Decided on", moment(claim.decided_at)],
+          claim.decide_reason !== null && ["Why", claim.decide_reason, true],
+          claim.paid_at !== null && [
+            "Paid by",
+            personByLogin(team, claim.paid_by),
+          ],
+          claim.paid_at !== null && ["Paid on", moment(claim.paid_at)],
+        ]}
+      />
+
+      <SheetSection title="Lines" className="mt-6">
         <div className="flex flex-col divide-y divide-hairline rounded-inner border border-hairline">
           {claim.lines.map((line) => (
             <div key={line.line_id} className="flex flex-col gap-2 px-3 py-2.5">
@@ -432,13 +488,14 @@ function ClaimSheet({
               {deciding ? (
                 <Field
                   label="Paid back"
+                  required
                   problem={
                     (parseMoneyToMinor(figures[line.line_id] ?? "") ?? 0) >
                     line.claimed_minor
                       ? "More than was claimed."
                       : (parseMoneyToMinor(figures[line.line_id] ?? "") ?? 0) <=
                           0
-                        ? "Enter an amount, or refuse."
+                        ? "Enter an amount, or reject the claim."
                         : undefined
                   }
                 >
@@ -483,32 +540,13 @@ function ClaimSheet({
         </div>
       </SheetSection>
 
-      <SheetSection title="Record">
-        <Facts
-          rows={[
-            ["Filed by", claim.claimed_by],
-            claim.decided_by !== null && [
-              "Decided",
-              `${claim.decided_by} · ${moment(claim.decided_at)}`,
-            ],
-            claim.decide_reason !== null && ["Why", claim.decide_reason],
-            claim.paid_at !== null && [
-              "Paid",
-              `${claim.paid_by ?? ""} · ${moment(claim.paid_at)}`,
-            ],
-          ]}
-        />
-      </SheetSection>
-
       {claim.history.length > 0 && (
         <SheetSection title="History">
           <ul className="flex flex-col gap-1.5">
             {claim.history.map((event, index) => (
               <li key={`${event.at}-${index}`} className="text-meta text-body">
-                <span className="text-ink">
-                  {event.action.toLowerCase().replace(/_/g, " ")}
-                </span>{" "}
-                · {event.actor} · {moment(event.at)}
+                <span className="text-ink">{actionWord(event.action)}</span> ·{" "}
+                {personByLogin(team, event.actor)} · {moment(event.at)}
                 {event.reason !== null && ` — ${event.reason}`}
               </li>
             ))}
@@ -516,20 +554,19 @@ function ClaimSheet({
         </SheetSection>
       )}
 
+      {deciding && decision.field}
     </PeopleSheet>
   )
 }
 
-/// Record a claim for one of this shop's people — the prototype's *Catat
-/// klaim*. Filed and sent in at once; decided by somebody other than whoever
-/// filed it.
+/// A new claim for one of this shop's people — the prototype's *Catat klaim*.
+/// Filed and sent in at once; decided by somebody other than whoever filed it.
 function RecordClaim({
   team,
   limits,
   onClose,
   onDone,
 }: {
-  scope: StoreScope
   team: EmployeeList | undefined
   limits: readonly PolicyView[]
   onClose: () => void
@@ -575,11 +612,11 @@ function RecordClaim({
       onOpenChange={(next) => {
         if (!next) onClose()
       }}
-      crumb="Expenses"
-      title="Record a claim"
+      title="New claim"
       foot={
         <Submit
-          label="Send to the store head"
+          label="Create claim"
+          pendingLabel="Creating…"
           pending={file.isPending}
           disabled={
             employeeId === "" ||
@@ -591,6 +628,7 @@ function RecordClaim({
           }
           error={file.error}
           onSubmit={() => file.mutate()}
+          onCancel={onClose}
         />
       }
     >
@@ -600,8 +638,9 @@ function RecordClaim({
           value={employeeId}
           onChange={setEmployeeId}
           label="Employee"
+          required
         />
-        <Field label="Kind of expense">
+        <Field label="Kind of expense" required>
           <Select value={typeCode} onChange={setTypeCode}>
             <option value="">Choose…</option>
             {(kinds.data ?? [])
@@ -613,7 +652,7 @@ function RecordClaim({
               ))}
           </Select>
         </Field>
-        <Field label="What it was">
+        <Field label="What it was" required>
           <Input
             value={description}
             placeholder="Taxi to the Gudang"
@@ -623,6 +662,7 @@ function RecordClaim({
         <div className="grid grid-cols-2 gap-3">
           <Field
             label="Amount (Rp)"
+            required
             hint={minor === null || minor <= 0 ? undefined : money(minor)}
           >
             <Input
@@ -634,7 +674,7 @@ function RecordClaim({
               }
             />
           </Field>
-          <Field label="Spent on">
+          <Field label="Spent on" required>
             <Input
               type="date"
               value={spentOn}
@@ -643,13 +683,13 @@ function RecordClaim({
             />
           </Field>
         </div>
-        <Field label="Purpose" hint="Optional">
+        <Field label="Purpose">
           <Input
             value={reason}
             onChange={(event) => setReason(event.target.value)}
           />
         </Field>
-        <Limits limits={limits} />
+        <Limits limits={limits} className="text-meta text-body" />
       </div>
     </PeopleSheet>
   )
@@ -657,8 +697,13 @@ function RecordClaim({
 
 // ── advances ────────────────────────────────────────────────────────────────
 
-function Advances({ team }: { team: EmployeeList | undefined }) {
-  const people = (team?.rows ?? []).filter(
+/// "OPEN" → "Open", "PART_SETTLED" → "Part settled".
+function statusWord(status: string): string {
+  return status.charAt(0) + status.slice(1).toLowerCase().replace(/_/g, " ")
+}
+
+function Advances({ team }: { team: UseQueryResult<EmployeeList> }) {
+  const people = (team.data?.rows ?? []).filter(
     (person) => person.status === "ACTIVE",
   )
   const reads = useQueries({
@@ -676,92 +721,113 @@ function Advances({ team }: { team: EmployeeList | undefined }) {
     })),
   )
   const outstanding = rows.reduce((sum, row) => sum + row.outstanding_minor, 0)
+  // Nothing has come back yet: say so, rather than "No advances".
+  const reading = reads.length > 0 && reads.every((read) => read.isPending)
 
-  return (
-    <>
-      {refused !== undefined && (
-        <RefusedBanner error={refused.error} what="this shop's advances" />
-      )}
-      <StatStrip>
-        <Stat label="Advances on record" value={rows.length} />
-        <Stat
-          label="Still out"
-          value={money(outstanding)}
-          tone={outstanding > 0 ? "warn" : undefined}
-        />
-      </StatStrip>
-      <PeopleTable
-        rows={rows}
-        rowKey={(row) => row.advance_id}
-        empty="No advances."
-        columns={[
-          {
-            key: "who",
-            header: "Employee",
-            cell: (row) => <Person team={team} id={row.employeeId} />,
-          },
-          {
-            key: "purpose",
-            header: "Purpose",
-            card: "meta",
-            className: "whitespace-normal",
-            cell: (row) => (
-              <span className="flex flex-col">
-                <span className="text-ink">{row.purpose}</span>
-                <span className="text-meta text-mute">
-                  <span className="font-mono">{row.advance_number}</span> ·{" "}
-                  {moment(row.requested_at)}
-                </span>
-              </span>
-            ),
-          },
-          {
-            key: "amount",
-            header: "Advance",
-            align: "right",
-            cell: (row) => money(row.amount_minor),
-          },
-          {
-            key: "settled",
-            header: "Receipts",
-            align: "right",
-            cell: (row) => money(row.settled_minor),
-          },
-          {
-            key: "back",
-            header: "Returned",
-            align: "right",
-            cell: (row) => money(row.refunded_minor + row.recovered_minor),
-          },
-          {
-            key: "left",
-            header: "Still out",
-            align: "right",
-            cell: (row) => (
-              <span
-                className={
-                  row.outstanding_minor > 0
-                    ? "font-semibold text-warn-fg"
-                    : undefined
-                }
-              >
-                {money(row.outstanding_minor)}
-              </span>
-            ),
-          },
-          {
-            key: "status",
-            header: "Status",
-            card: "status",
-            cell: (row) => (
-              <Pill tone={row.outstanding_minor > 0 ? "info" : "ok"}>
-                {row.status.charAt(0) +
-                  row.status.slice(1).toLowerCase().replace(/_/g, " ")}
-              </Pill>
-            ),
-          },
-        ]}
-      />
-    </>
-  )
+  return centreState(team, {
+    loading: "Reading the advances…",
+    what: "this shop's people",
+    render: (list) =>
+      reading ? (
+        <LoadingState>Reading the advances…</LoadingState>
+      ) : (
+        <>
+          {refused !== undefined && (
+            <RefusedBanner error={refused.error} what="this shop's advances" />
+          )}
+          <StatStrip>
+            <Stat label="Advances on record" value={rows.length} />
+            <Stat
+              label="Still out"
+              value={money(outstanding)}
+              tone={outstanding > 0 ? "warn" : undefined}
+            />
+          </StatStrip>
+          <PeopleTable
+            rows={rows}
+            rowKey={(row) => row.advance_id}
+            empty="No advances."
+            card={(row) => ({
+              ...personCard(list, row.employeeId, [row.purpose]),
+              lead: {
+                figure: money(row.outstanding_minor),
+                caption: "still out",
+                muted: row.outstanding_minor === 0,
+              },
+              foot: {
+                info: (
+                  <Status tone={row.outstanding_minor > 0 ? "info" : "ok"}>
+                    {statusWord(row.status)}
+                  </Status>
+                ),
+              },
+            })}
+            columns={[
+              {
+                key: "who",
+                header: "Employee",
+                cell: (row) => <Person team={list} id={row.employeeId} />,
+              },
+              {
+                key: "purpose",
+                header: "Purpose",
+                className: "whitespace-normal",
+                cell: (row) => (
+                  <span className="flex flex-col">
+                    <span className="text-ink">{row.purpose}</span>
+                    <span className="text-meta text-mute">
+                      <span className="font-mono">{row.advance_number}</span> ·{" "}
+                      {moment(row.requested_at)}
+                    </span>
+                  </span>
+                ),
+              },
+              {
+                key: "amount",
+                header: "Advance",
+                align: "right",
+                cell: (row) => money(row.amount_minor),
+              },
+              {
+                key: "settled",
+                header: "Receipts",
+                align: "right",
+                cell: (row) => money(row.settled_minor),
+              },
+              {
+                key: "back",
+                header: "Returned",
+                align: "right",
+                cell: (row) => money(row.refunded_minor + row.recovered_minor),
+              },
+              {
+                key: "left",
+                header: "Still out",
+                align: "right",
+                cell: (row) => (
+                  <span
+                    className={
+                      row.outstanding_minor > 0
+                        ? "font-semibold text-warn-fg"
+                        : undefined
+                    }
+                  >
+                    {money(row.outstanding_minor)}
+                  </span>
+                ),
+              },
+              {
+                key: "status",
+                header: "Status",
+                cell: (row) => (
+                  <Status tone={row.outstanding_minor > 0 ? "info" : "ok"}>
+                    {statusWord(row.status)}
+                  </Status>
+                ),
+              },
+            ]}
+          />
+        </>
+      ),
+  })
 }

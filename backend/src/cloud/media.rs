@@ -54,7 +54,9 @@ use axum::{
 use object_store::{Config, ObjectStore};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sqlx::{PgPool, Row};
 use std::sync::Arc;
+use uuid::Uuid;
 
 /// How long a handed-out read URL stays good. Long enough for a slow shop
 /// connection to finish a fetch, short enough that a URL copied out of a log
@@ -342,6 +344,16 @@ impl CatalogueMedia {
         )
     }
 
+    /// A photograph a buyer attached to one variant of an order line (0961).
+    ///
+    /// Keyed by an id the browser mints, because the line it belongs to may
+    /// not exist yet: the bytes go up while the order is still being written,
+    /// and the link travels with the order. Filed under the catalogue prefix,
+    /// where no article code can be `po-photos` (they are eight digits).
+    pub fn order_photo_key(&self, photo_id: Uuid) -> String {
+        format!("{}/po-photos/{}.jpg", self.catalogue_prefix, photo_id)
+    }
+
     /// A public URL when the bucket has one, a short-lived signed URL
     /// otherwise. Callers do not need to know which; they need `expires_in`.
     pub fn locate(&self, key: String) -> Result<ImageLocation, AppError> {
@@ -492,6 +504,14 @@ pub fn router() -> Router<AppState> {
             "/api/v1/catalogue/suppliers/{supplier_code}/items/{item_code}/image/upload-url",
             post(supplier_image_upload_url),
         )
+        .route(
+            "/api/v1/catalogue/order-photos/{photo_id}",
+            get(order_photo),
+        )
+        .route(
+            "/api/v1/catalogue/order-photos/{photo_id}/upload-url",
+            post(order_photo_upload_url),
+        )
 }
 
 fn media(state: &AppState) -> Result<Arc<CatalogueMedia>, AppError> {
@@ -629,6 +649,119 @@ async fn supplier_image(
     Ok(Json(media.locate(key)?))
 }
 
+/// A URL the browser can PUT one order photograph to (0961). The caller reads
+/// the location back through the GET below once the bytes are up, as it does
+/// for a supplier item, and sends that link with the order.
+async fn order_photo_upload_url(
+    State(state): State<AppState>,
+    Path(photo_id): Path<Uuid>,
+    Query(variant): Query<UploadVariant>,
+) -> Result<Json<Value>, AppError> {
+    let media = media(&state)?;
+    let location = media.upload_location(variant.key_for(media.order_photo_key(photo_id)))?;
+    Ok(Json(json!({
+        "upload": location,
+        "method": "PUT",
+        "content_type": "image/jpeg",
+    })))
+}
+
+async fn order_photo(
+    State(state): State<AppState>,
+    Path(photo_id): Path<Uuid>,
+) -> Result<Json<ImageLocation>, AppError> {
+    let media = media(&state)?;
+    let key = media.order_photo_key(photo_id);
+    if !media.exists(&key).await? {
+        return Err(AppError::NotFound(format!("no order photograph {photo_id}")));
+    }
+    Ok(Json(media.locate(key)?))
+}
+
+/// The order photograph a stored link points at: the id after `po-photos/`.
+/// Anything else — a supplier's own picture pasted in, a link from before
+/// 0961 — is not ours to copy and answers `None`.
+fn order_photo_id(url: &str) -> Option<Uuid> {
+    let (_, rest) = url.split_once("/po-photos/")?;
+    let id = rest.get(..36)?;
+    Uuid::parse_str(id).ok()
+}
+
+/// Give each colourway of the articles just opened the first photograph the
+/// order carried for one of its variants (0961) — the owner's rule of
+/// 2026-10-10: what the buyer photographed at ordering is what New Articles
+/// starts from. Article imagery is per colourway, so a colour takes one.
+///
+/// Best effort, and never over a photograph a colourway already has: the
+/// setup itself has succeeded by the time this runs, and a picture that did
+/// not copy is one somebody can still add by hand. The bytes are copied
+/// within the bucket by this process (they are small), the thumbnail with
+/// them when there is one.
+pub async fn adopt_order_photos(
+    db: &PgPool,
+    media: &CatalogueMedia,
+    session_ids: &[Uuid],
+) -> Result<usize, AppError> {
+    // A colour's first photograph: of its variants that carry any, the one in
+    // the smallest size code (the grid's own order), its first.
+    let rows = sqlx::query(
+        "SELECT DISTINCT ON (s.session_id, c.colour_digit)
+                s.article_code, c.colour_digit, v.image_urls[1] AS image_url
+           FROM article_setup_session s
+           JOIN goods_receipt_line r ON r.receipt_line_id = s.receipt_line_id
+           JOIN article_setup_colour c ON c.session_id = s.session_id
+           JOIN purchase_order_line_variant v
+             ON v.po_line_id = r.po_line_id
+            AND v.colour_code = c.colour_code
+            AND cardinality(v.image_urls) > 0
+          WHERE s.session_id = ANY($1)
+          ORDER BY s.session_id, c.colour_digit, v.size_code NULLS FIRST",
+    )
+    .bind(session_ids)
+    .fetch_all(db)
+    .await?;
+    let mut copied = 0;
+    for row in rows {
+        let article_code: String = row.try_get("article_code")?;
+        let digit: String = row.try_get("colour_digit")?;
+        let url: String = row.try_get("image_url")?;
+        let Some(photo_id) = order_photo_id(&url) else {
+            continue;
+        };
+        let target = media.article_key(&ArticleImage::parse(&article_code, &digit)?);
+        if media.exists(&target).await? {
+            continue;
+        }
+        let source = media.order_photo_key(photo_id);
+        let thumb = thumbnail_key(&source);
+        if media.exists(&thumb).await? {
+            let bytes = media.get_object(&thumb).await?;
+            media.put_jpeg(&thumbnail_key(&target), bytes).await?;
+        }
+        let bytes = media.get_object(&source).await?;
+        media.put_jpeg(&target, bytes).await?;
+        copied += 1;
+    }
+    Ok(copied)
+}
+
+/// [`adopt_order_photos`] after the response, so opening a setup never waits
+/// on the bucket. A node without imagery has nothing to copy.
+pub fn adopt_order_photos_later(
+    db: PgPool,
+    media: Option<Arc<CatalogueMedia>>,
+    session_ids: Vec<Uuid>,
+) {
+    let Some(media) = media else {
+        return;
+    };
+    tokio::spawn(async move {
+        if let Err(error) = adopt_order_photos(&db, &media, &session_ids).await {
+            tracing::warn!(%error, "order photographs were not copied to the new colourways");
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -720,6 +853,29 @@ mod tests {
             location.url,
             "https://img.example.com/catalogue/00000042/3.jpg"
         );
+    }
+
+    /// An order photograph cannot land on an article's colourway: article
+    /// codes are eight digits, and this folder is not one.
+    #[test]
+    fn an_order_photograph_has_its_own_folder() {
+        let id = Uuid::nil();
+        assert_eq!(
+            media().order_photo_key(id),
+            "catalogue/po-photos/00000000-0000-0000-0000-000000000000.jpg"
+        );
+        assert!(ArticleImage::parse("po-photos", "0").is_err());
+    }
+
+    #[test]
+    fn an_order_photograph_is_found_by_its_link() {
+        let id = "6f2b9a3e-1c4d-4e8f-9a0b-2c3d4e5f6a7b";
+        assert_eq!(
+            order_photo_id(&format!("https://img.example.com/catalogue/po-photos/{id}.jpg?v=1")),
+            Uuid::parse_str(id).ok()
+        );
+        assert_eq!(order_photo_id("https://img.example.com/supplier/hm/1.jpg"), None);
+        assert_eq!(order_photo_id("https://x/po-photos/not-a-uuid.jpg"), None);
     }
 
     #[test]

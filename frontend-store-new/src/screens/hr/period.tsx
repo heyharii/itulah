@@ -7,12 +7,18 @@ import {
 import { Lock } from "lucide-react"
 import { useState } from "react"
 
+import { DockChoice } from "@/components/shell/dock-tools"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
+import { button } from "@/components/ui/button-style"
 import { Field, Input } from "@/components/ui/field"
-import { PeopleSheet, SheetSection } from "@/components/ui/people-sheet"
+import {
+  PeopleSheet,
+  SheetFoot,
+  SheetSection,
+} from "@/components/ui/people-sheet"
 import { PeopleTable } from "@/components/ui/people-table"
-import { Pill } from "@/components/ui/pill"
+import { Pill, Status } from "@/components/ui/pill"
 import { Segmented } from "@/components/ui/segmented"
 import { Stat, StatStrip } from "@/components/ui/stat-strip"
 import { Banner } from "@/components/ui/states"
@@ -29,10 +35,10 @@ import {
   readMonth,
   type StoreScope,
 } from "@/lib/queries/hr"
-import { centreState } from "@/screens/hr/centre"
+import { centreState, describeCentre } from "@/screens/hr/centre"
+import { Facts, Heading, Person, personCard } from "@/screens/hr/parts"
 import { RefusedBanner } from "@/screens/hr/refused"
-import { Facts, Heading, Person, Submit } from "@/screens/hr/parts"
-import { useTeam } from "@/screens/hr/words"
+import { personByLogin, useTeam } from "@/screens/hr/words"
 import { HrWorkspace } from "@/screens/hr/workspace"
 import type {
   CloseReadinessView,
@@ -53,18 +59,26 @@ import type {
 ///
 /// **Closing is the shop's; reopening is head office's.** The centre routes
 /// them apart on purpose — a place that could reopen its own close has not
-/// closed anything — so this screen has one button, and it only goes one way.
+/// closed anything — so this screen has one act, and it only goes one way.
+/// That is why the sheet that does it asks twice: where the month stands and a
+/// reason first, then one more press to close.
+///
+/// # The phone
+///
+/// "Close attendance" is the dock's round button; the month is the dock's chip.
+/// What holds the close is a card of rows each with the way to deal with it,
+/// and the month per person is a lead card each — the unrecorded days as the
+/// figure, because that is what stops a person's month from closing clean.
 export function HrPeriod() {
   const [which, setWhich] = useState<Which>("last")
   const [closing, setClosing] = useState(false)
   return (
     <HrWorkspace
-      actions={
-        <Button variant="primary" onClick={() => setClosing(true)}>
-          <Lock />
-          Close attendance
-        </Button>
-      }
+      primary={{
+        label: "Close attendance",
+        onClick: () => setClosing(true),
+        icon: Lock,
+      }}
     >
       {(scope) => (
         <Period
@@ -120,16 +134,23 @@ function Period({
 
   return (
     <>
-      <div className="mb-4 md:max-w-[20rem]">
+      {/* The month: the dock's chip on a phone, a switch on a desk. */}
+      <DockChoice
+        title="Month"
+        value={which}
+        options={MONTHS}
+        onChange={(next) => onWhich(next as Which)}
+      />
+      <div className="mb-4 max-md:hidden md:max-w-[20rem]">
         <Segmented options={MONTHS} value={which} onChange={onWhich} />
       </div>
 
       {centreState(month, {
-        loading: "Loading…",
+        loading: "Reading the period…",
         what: `the ${readMonth(period)} period`,
         render: (view) => (
           <>
-            <Status view={view} />
+            <Standing view={view} team={team.data} />
             {view.readiness !== null && <Blockers readiness={view.readiness} />}
             <Heading>{readMonth(view.period)} · per person</Heading>
             <PerPerson
@@ -153,28 +174,35 @@ function Period({
 }
 
 /// Where the month stands, and who has acted on it.
-function Status({ view }: { view: PeriodView }) {
+function Standing({
+  view,
+  team,
+}: {
+  view: PeriodView
+  team: EmployeeList | undefined
+}) {
   const closed = view.status === "CLOSED"
+  const last = view.history[view.history.length - 1]
   return (
     <StatStrip>
       <Stat
         label={readMonth(view.period)}
-        value={closed ? "Closed · locked" : "Open"}
+        value={closed ? "Closed" : "Open"}
         tone={closed ? "ok" : "warn"}
       />
       <Stat
         label="Last act"
         value={
-          view.history.length === 0
+          last === undefined
             ? "—"
-            : view.history[view.history.length - 1]?.event === "CLOSED"
+            : last.event === "CLOSED"
               ? "Closed"
               : "Reopened"
         }
         sub={
-          view.history.length === 0
-            ? "nothing has happened yet"
-            : `${view.history[view.history.length - 1]?.actor ?? ""} · ${moment(view.history[view.history.length - 1]?.at)}`
+          last === undefined
+            ? undefined
+            : `${personByLogin(team, last.actor)} · ${moment(last.at)}`
         }
       />
       {/* A frequently reopened period is a governance signal, which is why the
@@ -190,8 +218,8 @@ function Status({ view }: { view: PeriodView }) {
   )
 }
 
-/// What stands between this month and a close — the prototype's red callout
-/// with a link to where each one is dealt with.
+/// What stands between this month and a close — a card of rows, each with the
+/// way to deal with it.
 ///
 /// The counts come from the centre and are recomputed there when the close is
 /// pressed: a client supplying its own zeros could close a month over anything
@@ -200,7 +228,7 @@ function Blockers({ readiness }: { readiness: CloseReadinessView }) {
   const items: { text: string; to: string; act: string }[] = []
   if (readiness.unresolved_leave > 0) {
     items.push({
-      text: `${readiness.unresolved_leave} leave request${readiness.unresolved_leave === 1 ? "" : "s"} still undecided`,
+      text: `${readiness.unresolved_leave} leave request${readiness.unresolved_leave === 1 ? "" : "s"} pending`,
       to: "/hr/leave",
       act: "Decide leave",
     })
@@ -214,7 +242,7 @@ function Blockers({ readiness }: { readiness: CloseReadinessView }) {
   }
   if ((readiness.open_corrections ?? 0) > 0) {
     items.push({
-      text: `${readiness.open_corrections} attendance fix${readiness.open_corrections === 1 ? "" : "es"} waiting on a decision`,
+      text: `${readiness.open_corrections} attendance fix${readiness.open_corrections === 1 ? "" : "es"} pending`,
       to: "/hr/attendance",
       act: "Decide fixes",
     })
@@ -230,33 +258,31 @@ function Blockers({ readiness }: { readiness: CloseReadinessView }) {
   return (
     <div className="mb-5 flex flex-col gap-3">
       {items.length > 0 ? (
-        <Banner tone="bad">
-          <b className="font-semibold">
-            {items.length} thing{items.length === 1 ? "" : "s"} holding the
-            close
-          </b>
-          <ul className="mt-1.5 flex flex-col gap-1">
+        <div>
+          <Heading count={items.length}>Holding the close</Heading>
+          <ul className="overflow-hidden rounded-card border border-hairline bg-canvas shadow-soft">
             {items.map((item) => (
-              <li key={item.to}>
-                {item.text} ·{" "}
+              <li
+                key={item.to}
+                className="flex min-h-14 items-center gap-3 border-b border-hairline px-4 py-2 last:border-b-0"
+              >
+                <span className="min-w-0 flex-1 text-cell text-ink">
+                  {item.text}
+                </span>
                 <AppLink
                   to={item.to}
-                  className="font-medium underline underline-offset-2"
+                  className={button({ variant: "tint", size: "card" })}
                 >
                   {item.act}
                 </AppLink>
               </li>
             ))}
           </ul>
-        </Banner>
+        </div>
       ) : readiness.can_close ? (
-        <Banner tone="ok">
-          Ready to close.
-        </Banner>
+        <Banner tone="ok">Ready to close.</Banner>
       ) : (
-        <Banner tone="warn">
-          Head office says it can't close yet.
-        </Banner>
+        <Banner tone="warn">Head office says it can't close yet.</Banner>
       )}
 
       {/* `null` is NOT ASSESSED, and a zero would be a claim that somebody
@@ -267,17 +293,21 @@ function Blockers({ readiness }: { readiness: CloseReadinessView }) {
         </Banner>
       )}
       {readiness.employees_without_roster > 0 && (
-        <Banner tone="info">
+        <Banner
+          tone="info"
+          className="items-center"
+          action={
+            <AppLink
+              to="/hr/roster"
+              className={button({ variant: "soft", size: "card" })}
+            >
+              Plan them
+            </AppLink>
+          }
+        >
           {readiness.employees_without_roster} person
           {readiness.employees_without_roster === 1 ? " is" : "s are"} on the
-          books here with no rota this month —{" "}
-          <AppLink
-            to="/hr/roster"
-            className="font-medium underline underline-offset-2"
-          >
-            plan them
-          </AppLink>{" "}
-          if they worked.
+          books here with no rota this month.
         </Banner>
       )}
     </div>
@@ -343,6 +373,48 @@ function PerPerson({
         rows={rows}
         rowKey={(row) => row.id}
         empty="Nobody is posted here."
+        card={(row) => {
+          const gaps = assessed && row.unrecorded > 0
+          // What the month came to, in one line: nothing that is zero is said.
+          const line = row.loading
+            ? "Reading the month…"
+            : [
+                assessed
+                  ? `${row.present} of ${row.rostered} present`
+                  : `${row.rostered} rostered`,
+                assessed && row.late > 0 ? `${row.late} late` : null,
+                row.leave > 0 ? `${row.leave} on leave` : null,
+                row.overtime > 0
+                  ? `${readMinutes(row.overtime)} overtime agreed`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")
+          return {
+            ...personCard(team, row.id, [line]),
+            lead: row.loading
+              ? { figure: "…", muted: true }
+              : assessed
+                ? {
+                    figure: row.unrecorded,
+                    caption: "unrecorded",
+                    muted: row.unrecorded === 0,
+                  }
+                : { figure: "—", caption: "not assessed", muted: true },
+            foot: row.loading
+              ? undefined
+              : {
+                  info: !assessed ? (
+                    <Status tone="neutral">Not assessed</Status>
+                  ) : gaps ? (
+                    <Status tone="bad">Needs fixes</Status>
+                  ) : (
+                    <Status tone="ok">Complete</Status>
+                  ),
+                },
+            tone: gaps ? "alert" : undefined,
+          }
+        }}
         columns={[
           {
             key: "who",
@@ -379,7 +451,7 @@ function PerPerson({
             align: "right",
             cell: (row) =>
               !row.loading && assessed && row.unrecorded > 0 ? (
-                <Pill tone="bad">{row.unrecorded}</Pill>
+                <Status tone="bad">{row.unrecorded}</Status>
               ) : (
                 figure(row.unrecorded, row.loading, true)
               ),
@@ -396,7 +468,8 @@ function PerPerson({
   )
 }
 
-/// Sign the month off.
+/// Sign the month off, in two steps: where it stands and why, then one more
+/// press. The foot says which step it is on; nothing is closed on the first.
 function CloseSheet({
   scope,
   view,
@@ -408,6 +481,7 @@ function CloseSheet({
 }) {
   const client = useQueryClient()
   const [reason, setReason] = useState("")
+  const [sure, setSure] = useState(false)
   const close = useMutation({
     mutationFn: () =>
       closePeriod({ place: scope.unit_id, period: view.period, reason }),
@@ -420,6 +494,7 @@ function CloseSheet({
   })
   const readiness = view.readiness
   const closed = view.status === "CLOSED" || readiness === null
+  const month = readMonth(view.period)
 
   return (
     <PeopleSheet
@@ -427,8 +502,8 @@ function CloseSheet({
       onOpenChange={(next) => {
         if (!next) onClose()
       }}
-      crumb="Period close"
-      title={`Close ${readMonth(view.period)}`}
+      crumb="Attendance"
+      title={`Close ${month}`}
       sub={scope.label}
       status={
         <Pill tone={closed ? "ok" : "warn"}>{closed ? "Closed" : "Open"}</Pill>
@@ -436,41 +511,56 @@ function CloseSheet({
       foot={
         closed ? undefined : (
           <div className="flex flex-col gap-3">
-            <Field
-              label="Reason"
-            >
-              <Input
-                value={reason}
-                placeholder={`${readMonth(view.period)} time data checked and complete`}
-                onChange={(event) => setReason(event.target.value)}
-              />
-            </Field>
-            <Submit
-              label={`Close ${readMonth(view.period)}`}
-              pending={close.isPending}
-              disabled={!readiness.can_close || reason.trim() === ""}
-              error={close.error}
-              onSubmit={() => close.mutate()}
-            />
+            {close.error !== null && (
+              <Banner tone="bad">{describeCentre(close.error)}</Banner>
+            )}
+            {sure && (
+              <p className="text-meta text-body">
+                Close {month}? Only head office can reopen it.
+              </p>
+            )}
+            <SheetFoot>
+              <Button
+                variant="quiet"
+                onClick={sure ? () => setSure(false) : onClose}
+              >
+                {sure ? "Back" : "Cancel"}
+              </Button>
+              {sure ? (
+                <Button
+                  variant="primary"
+                  pending={close.isPending}
+                  onClick={() => close.mutate()}
+                >
+                  {close.isPending ? "Closing…" : "Close attendance"}
+                </Button>
+              ) : (
+                <Button
+                  variant="primary"
+                  disabled={!readiness.can_close || reason.trim() === ""}
+                  onClick={() => setSure(true)}
+                >
+                  Close attendance
+                </Button>
+              )}
+            </SheetFoot>
           </div>
         )
       }
     >
       {closed ? (
-        <Banner tone="ok">
-          Closed and locked.
-        </Banner>
+        <Banner tone="ok">Closed and locked.</Banner>
       ) : (
         <>
           <SheetSection title="Where it stands">
             <Facts
               rows={[
-                ["Leave undecided", readiness.unresolved_leave],
+                ["Leave pending", readiness.unresolved_leave],
                 ["Overtime unanswered", readiness.unanswered_overtime],
-                ["Fixes open", readiness.open_corrections ?? "not assessed"],
+                ["Fixes pending", readiness.open_corrections ?? "Not assessed"],
                 [
-                  "Days off the rota",
-                  readiness.unrostered_punch_days ?? "not assessed",
+                  "Days worked off the rota",
+                  readiness.unrostered_punch_days ?? "Not assessed",
                 ],
                 [
                   "On the books, never rostered",
@@ -481,9 +571,17 @@ function CloseSheet({
           </SheetSection>
           {!readiness.can_close && (
             <Banner tone="warn" className="mb-4">
-              Decide everything above first.
+              Clear what is holding the close first.
             </Banner>
           )}
+          <Field label="Reason" required>
+            <Input
+              value={reason}
+              placeholder={`${month} time data checked and complete`}
+              disabled={sure}
+              onChange={(event) => setReason(event.target.value)}
+            />
+          </Field>
         </>
       )}
     </PeopleSheet>

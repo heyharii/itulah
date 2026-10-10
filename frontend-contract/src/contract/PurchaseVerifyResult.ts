@@ -20,19 +20,19 @@ matched_quantity: number | null,
  * Includes the wrong pieces: everything beyond what the order can take
  * goes back to the supplier together (0710).
  */
-excess_quantity: number | null,
+excess_quantity: number | null, 
 /**
  * How much of the excess the checker had already written down as not
  * matching the order. A part of `excess_quantity`, named so the return
  * that takes it back can say why. `None` on a recount.
  */
-wrong_quantity: number | null,
+wrong_quantity: number | null, 
 /**
  * The agreed price that applied at this moment, written onto the
  * acceptance so a later amendment cannot restate what this delivery was
  * worth.
  */
-agreed_unit_price_minor: number | null,
+agreed_unit_price_minor: number | null, 
 /**
  * Set when the invoice disagreed with the order: the query now waiting
  * for the buyer. The goods went in regardless.

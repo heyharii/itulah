@@ -24,7 +24,10 @@ import { cn } from "@/lib/utils"
 /// own page) stays. From 48rem up nothing changes.
 function useEchoesTopBar(title: React.ReactNode): boolean {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  return typeof title === "string" && screenForPath(pathname)?.label === title
+  return (
+    typeof title === "string" &&
+    screenForPath(pathname)?.label.toLowerCase() === title.toLowerCase()
+  )
 }
 
 export function PageHeader({

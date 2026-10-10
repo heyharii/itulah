@@ -45,7 +45,29 @@ pub const DEFAULT_CHUNK_SIZE: i64 = 100;
 
 /// How long to wait for a printer that is powered off, jammed, or simply not
 /// at the address someone typed. Short enough that an operator learns quickly.
-const PRINTER_TIMEOUT: Duration = Duration::from_secs(5);
+///
+/// Two clocks, not one (POS-PERFORMANCE-PLAN Phase 3): CONNECT is what a dead
+/// printer actually eats — a switched-off sibling on the LAN answers nothing,
+/// and the old single 5 s constant made the till's print button hang for five
+/// full seconds before saying so. WRITE stays longer than connect because a
+/// real receipt on shop wifi is bytes over a live socket, not a silence.
+/// Both are overridable per node (`INVENTORY_PRINTER_CONNECT_MS`,
+/// `INVENTORY_PRINTER_WRITE_MS`) without a rebuild.
+fn printer_connect_timeout() -> Duration {
+    env_duration_millis("INVENTORY_PRINTER_CONNECT_MS", 1_000)
+}
+
+fn printer_write_timeout() -> Duration {
+    env_duration_millis("INVENTORY_PRINTER_WRITE_MS", 2_000)
+}
+
+fn env_duration_millis(name: &str, default_ms: u64) -> Duration {
+    let parsed = std::env::var(name)
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|millis| *millis > 0);
+    Duration::from_millis(parsed.unwrap_or(default_ms))
+}
 
 /// What a print run needs to know before it starts.
 #[derive(Debug, Deserialize)]
@@ -1317,7 +1339,7 @@ pub fn probe_printer(host: &str, port: u16) -> Result<PrinterProbe, EdgeError> {
 
     let mut last = "printer had no reachable address".to_string();
     for address in &addresses {
-        match TcpStream::connect_timeout(address, PRINTER_TIMEOUT) {
+        match TcpStream::connect_timeout(address, printer_connect_timeout()) {
             Ok(stream) => {
                 let took_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
                 let (identity, speaks) = identify(stream);
@@ -1458,9 +1480,9 @@ fn is_disallowed(ip: IpAddr) -> bool {
 fn send_one(addresses: &[SocketAddr], payload: &[u8]) -> Option<String> {
     let mut last = "printer had no reachable address".to_string();
     for address in addresses {
-        match TcpStream::connect_timeout(address, PRINTER_TIMEOUT) {
+        match TcpStream::connect_timeout(address, printer_connect_timeout()) {
             Ok(mut stream) => {
-                if let Err(error) = stream.set_write_timeout(Some(PRINTER_TIMEOUT)) {
+                if let Err(error) = stream.set_write_timeout(Some(printer_write_timeout())) {
                     last = format!("cannot set write timeout for {address}: {error}");
                     continue;
                 }

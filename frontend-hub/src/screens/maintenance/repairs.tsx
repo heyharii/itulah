@@ -10,6 +10,7 @@ import { useMemo, useState } from "react"
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Fab } from "@/components/ui/fab"
 import { Choices, Section } from "@/components/ui/form"
 import { Field, Input, Money, Select } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
@@ -21,7 +22,8 @@ import {
   LoadMore,
   type Pageable,
 } from "@/components/ui/states"
-import { count, money } from "@/lib/format"
+import { count, money, moneyCompact } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { procurementKeys, supplierPage } from "@/lib/queries/procurement"
 import {
   gaAssets,
@@ -38,6 +40,11 @@ import { RepairSheet } from "@/screens/maintenance/hub"
 import { RepairStagePill } from "@/screens/maintenance/parts"
 import { repairObjectTiles, repairOver } from "@/screens/maintenance/format"
 import { FinanceMark } from "@/screens/contracts/parts"
+import {
+  CardFigure,
+  type CardSpec,
+  PhoneCards,
+} from "@/components/ui/phone-cards"
 import { SupplierName } from "@/screens/procurement/supplier-name"
 import type { GaAssetRow, GaRepairRow, GaRepairSummary } from "@itulah/contract"
 
@@ -63,6 +70,7 @@ const PAGE = 100
 export function Repairs() {
   const open = useSheet("repair")
   const [adding, setAdding] = useState(false)
+  const phone = useLayout() === "phone"
 
   /// The book, a page at a time as its foot nears view. Its own key under
   /// the book's prefix: the replacement form reads the same scope as one
@@ -89,12 +97,18 @@ export function Repairs() {
         title="Repairs"
         sub="What broke, where, who is fixing it, and the estimate. The actual cost is read from bills that point to this repair."
         actions={
-          <Button variant="primary" onClick={() => setAdding(true)}>
-            <Plus />
-            Record repair
-          </Button>
+          // On a phone the one thing this page makes is the round button over
+          // the bottom bar.
+          phone ? undefined : (
+            <Button variant="primary" onClick={() => setAdding(true)}>
+              <Plus />
+              Record repair
+            </Button>
+          )
         }
       />
+
+      <Fab label="Record repair" onClick={() => setAdding(true)} />
 
       {head !== undefined && <SummaryStrip summary={head.summary} />}
 
@@ -177,6 +191,18 @@ function RepairTable({
   onOpen: (repairId: string) => void
   more: Pageable
 }) {
+  const phone = useLayout() === "phone"
+  if (phone) {
+    return (
+      <PhoneCards
+        rows={rows}
+        rowId={(row) => row.repair_id}
+        spec={REPAIR_CARD}
+        onOpen={(row) => onOpen(row.repair_id)}
+        more={more}
+      />
+    )
+  }
   return (
     <Card className="overflow-hidden">
       <div className="overflow-x-auto">
@@ -208,6 +234,46 @@ function RepairTable({
       <LoadMore query={more} />
     </Card>
   )
+}
+
+/// A repair as a phone's card: the problem over what and where it is and who is
+/// fixing it, the estimate it leads with, the actual under the hairline (red
+/// when the ledger has already answered high), and where the job stands.
+const REPAIR_CARD: CardSpec<GaRepairRow> = {
+  title: (row) => <span className="min-w-0 break-words">{row.title}</span>,
+  meta: [
+    (row) =>
+      [row.asset_name ?? "no asset", row.objek_name, row.site_id]
+        .filter((part) => part !== null && part !== "")
+        .join(" · "),
+    (row) =>
+      row.supplier_name === null && row.supplier_id === null ? null : (
+        <SupplierName code={row.supplier_id} name={row.supplier_name} />
+      ),
+  ],
+  lead: (row) => (
+    <CardFigure
+      value={
+        <span title={money(row.estimated_cost_minor)}>
+          {moneyCompact(row.estimated_cost_minor)}
+        </span>
+      }
+      caption="Estimate"
+    />
+  ),
+  foot: (row) => {
+    const { over, capWord } = repairOver(row)
+    return (
+      <span className="tabular-nums">
+        Actual{" "}
+        <span className={over ? "text-bad" : undefined}>
+          {moneyCompact(row.actual_cost_minor)}
+        </span>
+        {over && <span className="text-bad"> · over {capWord}</span>}
+      </span>
+    )
+  },
+  action: (row) => <RepairStagePill status={row.status} />,
 }
 
 function RepairLine({

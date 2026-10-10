@@ -16,10 +16,10 @@ import {
 import { listUnits, unitKeys, type UnitsBook } from "@/lib/queries/units"
 import {
   catalogueVocabulary,
+  listSuppliers,
   paymentTermsBook,
   procurementKeys,
   purchaseDestinations,
-  supplierPage,
 } from "@/lib/queries/procurement"
 
 /// The reference data the offline surfaces read, kept on the device.
@@ -132,8 +132,8 @@ function saveCache(patch: Partial<ReferenceCache>): void {
       cache: next,
       trouble:
         error instanceof Error
-          ? "Penyimpanan perangkat penuh atau ditolak — data referensi tidak akan bertahan setelah halaman ditutup."
-          : "Penyimpanan perangkat tidak tersedia.",
+          ? "Device storage is full or was refused — the reference data will not survive once the page is closed."
+          : "Device storage is not available.",
     }
   }
   announce()
@@ -182,34 +182,21 @@ function connectionDefersBulk(): boolean {
   return conn.effectiveType === "slow-2g" || conn.effectiveType === "2g"
 }
 
-/// The supplier book, paged to the cap. The menu is the merchandise book —
-/// the same scope Suppliers online reads — and the rows are sorted by name so
-/// the cap cuts at a stable place rather than at wherever the server's
-/// ordering stopped.
+/// The supplier book, capped. The light picker route answers it — complete
+/// rows and nothing else, without the order tallies, facets and book summary
+/// the offline menus never read. It carries every active party (the route has
+/// no category of its own; the screens that must see merchandise only already
+/// filter), and the rows are sorted by name here so the cap cuts at a stable
+/// place rather than at wherever the server's ordering stopped.
 async function refreshSuppliers(signal?: AbortSignal): Promise<void> {
-  const rows: Supplier[] = []
-  let total = 0
-  let cursor: string | undefined
-  for (let page = 0; page < 10; page++) {
-    const body = await supplierPage(
-      {
-        category: "MERCHANDISE",
-        status: "ACTIVE",
-        sort: "name",
-        limit: 1000,
-        ...(cursor === undefined ? {} : { cursor }),
-      },
-      signal
-    )
-    total = body.total
-    rows.push(...body.rows)
-    if (body.next_cursor === null || rows.length >= SUPPLIER_CAP) break
-    cursor = body.next_cursor
-  }
-  rows.sort((a, b) => a.name.localeCompare(b.name))
+  const book = await listSuppliers("ACTIVE", signal)
+  const rows = [...book].sort((a, b) => a.name.localeCompare(b.name))
   saveCache({
     suppliers: rows.slice(0, SUPPLIER_CAP),
-    suppliers_total: total,
+    // The light route sends no book summary, so the count is what the read
+    // actually saw — the honest side of "showing X of Y" when the book has
+    // outgrown the cap.
+    suppliers_total: rows.length,
     suppliers_at: new Date().toISOString(),
   })
 }

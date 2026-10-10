@@ -236,8 +236,8 @@ function AgreePay({ employeeId }: { employeeId: string }) {
       {failed !== null && <Banner tone="bad">{failed}</Banner>}
       <Banner tone="info">
         A new agreement supersedes the one before it from its own date. It
-        cannot be filed behind the latest — a backdated raise is paid as a
-        rapel, not by rewriting a month already settled.
+        cannot be filed behind the latest — a backdated raise is paid as back
+        pay, not by rewriting a month already settled.
       </Banner>
       {live.length > 0 && (
         <Field label="Start from a salary structure">

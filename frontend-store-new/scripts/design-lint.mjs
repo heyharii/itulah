@@ -29,6 +29,11 @@ const SRC = join(ROOT, "src")
 /** The file that defines the tokens is allowed to hold raw values. */
 const DEFINES_TOKENS = new Set(["src/styles/index.css"])
 
+/** The sign-in door's wordmark is the hub's, and the hub sets "Central." in
+ *  bold on the owner's ruling (2026-09-28): the one place a fourth weight is
+ *  meant. Everything else holds to three. */
+const WEIGHT_EXEMPT = new Set(["src/components/sign-in-door.tsx"])
+
 const RULES = [
   {
     id: "px-type-size",
@@ -73,6 +78,7 @@ for (const file of walk(SRC)) {
       // A rule quoted in a comment is documentation, not a violation.
       if (/^\s*(\/\/|\/\*|\*)/.test(line)) return
       for (const rule of RULES) {
+        if (rule.id === "fourth-weight" && WEIGHT_EXEMPT.has(rel)) continue
         const hit = rule.pattern.exec(line)
         if (hit) {
           findings += 1

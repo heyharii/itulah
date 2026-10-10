@@ -480,6 +480,45 @@ pub async fn approve_count(
         .ok_or_else(|| AppError::Conflict("Edge result fact is unavailable".into()))?;
         let result_lines: Vec<OfficialCountResultLine> =
             serde_json::from_value(result.get("lines"))?;
+        // A tag the node counted where its own ledger had nothing: the node
+        // books it as a gain, and no node can see another's ledger. If the
+        // facts say a different node still holds that very piece, approving
+        // would put it on two shelves at once — the adjustment must equal the
+        // submitted result, so the one place to stop it is here.
+        let counted_in: Vec<String> = result_lines
+            .iter()
+            .filter(|line| line.expected_quantity == 0 && line.found_quantity > 0)
+            .map(|line| line.epc.clone())
+            .collect();
+        if !counted_in.is_empty() {
+            let held_elsewhere = sqlx::query(
+                "SELECT epc,origin_id,place_id FROM edge_inventory_fact_position
+                 WHERE epc = ANY($1) AND origin_id <> $2 AND quantity > 0
+                   AND place_id LIKE '%:%'
+                 ORDER BY epc,origin_id LIMIT 5",
+            )
+            .bind(&counted_in)
+            .bind(&target_origin_id)
+            .fetch_all(&mut *tx)
+            .await?;
+            if !held_elsewhere.is_empty() {
+                let named = held_elsewhere
+                    .iter()
+                    .map(|row| {
+                        format!(
+                            "{} at {} ({})",
+                            row.get::<String, _>("epc"),
+                            row.get::<String, _>("origin_id"),
+                            row.get::<String, _>("place_id")
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                return Err(AppError::Conflict(format!(
+                    "this count found pieces another node still holds, and approving would book them twice: {named}. Reject the count, or move the pieces first"
+                )));
+            }
+        }
         let lines = result_lines
             .into_iter()
             .filter_map(|line| {
@@ -836,7 +875,11 @@ pub async fn get_count(pool: &PgPool, count_id: Uuid) -> Result<Value, AppError>
     if let Value::Array(items) = &mut lines {
         let codes: Vec<String> = items
             .iter()
-            .filter_map(|line| line.get("sku_code").and_then(Value::as_str).map(str::to_owned))
+            .filter_map(|line| {
+                line.get("sku_code")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
             .collect();
         let names: BTreeMap<String, String> = sqlx::query(
             "SELECT sku.sku_code, article.name FROM sku

@@ -312,7 +312,8 @@ impl PostingLine {
     /// Tag the line with an accounting dimension value (0470).
     pub fn with_dimension(mut self, dimension: &str, value: &str) -> Self {
         self.dimensions.retain(|(code, _)| code != dimension);
-        self.dimensions.push((dimension.to_string(), value.to_string()));
+        self.dimensions
+            .push((dimension.to_string(), value.to_string()));
         self
     }
 
@@ -615,8 +616,14 @@ pub async fn post(
                 // falls back to the company's default (0465).
                 let party = match (&line.party_type, &line.party_id) {
                     (Some(kind), Some(id)) if source_type == "COMPANY" => {
-                        match resolve_linked(&mut **tx, semantic_key, &line.unit_id, "PARTY", &format!("{kind}:{id}"))
-                            .await?
+                        match resolve_linked(
+                            &mut **tx,
+                            semantic_key,
+                            &line.unit_id,
+                            "PARTY",
+                            &format!("{kind}:{id}"),
+                        )
+                        .await?
                         {
                             Some(own) => Some(own),
                             // Then the party's group (ERPNext Supplier Group):
@@ -650,8 +657,14 @@ pub async fn post(
                 match party {
                     Some(found) => found,
                     None => {
-                        resolve_account_from(&mut **tx, semantic_key, &line.unit_id, source_type, qualifier)
-                            .await?
+                        resolve_account_from(
+                            &mut **tx,
+                            semantic_key,
+                            &line.unit_id,
+                            source_type,
+                            qualifier,
+                        )
+                        .await?
                     }
                 }
             }

@@ -9,13 +9,53 @@
 import { Building2 } from "lucide-react"
 import { useState } from "react"
 
+import { DockChoice } from "@/components/shell/dock-tools"
 import { ChoiceMenu } from "@/components/ui/list-chrome"
+import { Segmented } from "@/components/ui/segmented"
+import { SubTabs, type SubTab } from "@/components/ui/sub-tabs"
+import { useLayout } from "@/lib/layout"
+import { currentMonth, stepMonth } from "@/lib/queries/hr-time"
 import {
   employerScope,
   useReach,
   useReachableUnits,
   type ReachableUnit,
 } from "@/lib/queries/people"
+
+/// The sections of a record inside a sheet. On a desk, the underlined tabs; on
+/// a phone the same choice as pills that wrap, because a row of tabs that
+/// scrolls sideways hides the sections past the edge. Never the dock's chip
+/// (`SubTabs`' default on a phone): the dock sits behind the sheet.
+export function SheetTabs({
+  tabs,
+  value,
+  onChange,
+}: {
+  readonly tabs: readonly SubTab[]
+  readonly value: string
+  readonly onChange: (value: string) => void
+}) {
+  const phone = useLayout() === "phone"
+  if (phone)
+    return (
+      <div className="mb-[1.125rem]">
+        <Segmented
+          options={tabs.map((tab) => ({ value: tab.value, label: tab.label }))}
+          value={value}
+          onChange={onChange}
+        />
+      </div>
+    )
+  return <SubTabs tabs={tabs} value={value} onChange={onChange} dock={false} />
+}
+
+/// The months a phone's month chip offers: half a year back to a quarter
+/// ahead, newest first, and the one on screen if it is further away than that.
+export function monthOptions(selected: string): readonly string[] {
+  const months = new Set<string>([selected])
+  for (let by = -6; by <= 3; by += 1) months.add(stepMonth(currentMonth(), by))
+  return [...months].sort().reverse()
+}
 
 /// A quiet sentence where a table would be, inside a sheet or a card.
 ///
@@ -109,7 +149,23 @@ export function UnitChoice({
   readonly units: readonly ReachableUnit[]
   readonly onChange: (unitId: string) => void
 }) {
+  const phone = useLayout() === "phone"
   if (units.length < 2) return null
+
+  // On a phone the unit is the chip over the bottom bar and the sheet it opens
+  // (one of a few, like a status), not a control at the top of the page.
+  if (phone)
+    return (
+      <DockChoice
+        value={unitId ?? ""}
+        onChange={onChange}
+        options={units.map((one) => ({
+          value: one.id,
+          label: `${one.name} · ${one.employees}`,
+          short: one.name,
+        }))}
+      />
+    )
 
   return (
     <ChoiceMenu

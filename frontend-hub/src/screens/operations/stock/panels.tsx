@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Panel } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/field"
 import { EmptyState, LoadingState } from "@/components/ui/states"
-import { count } from "@/lib/format"
+import { count, quantity } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { TwoLines } from "@/screens/operations/two-lines"
 import {
@@ -48,7 +48,7 @@ const LIST_TITLE: Readonly<Record<ListKind, string>> = {
   returns: "Returns",
 }
 
-const pcs = (n: number) => `${count(n)} pcs`
+const pcs = (n: number) => `${quantity(n)}`
 
 /// A table in the dialog: header row, rows at 64px, an optional total.
 function Grid({

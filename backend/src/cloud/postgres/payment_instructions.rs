@@ -49,7 +49,6 @@ use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
-
 /// One ask, and everything that has happened to it.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "contract/"))]
@@ -733,14 +732,16 @@ pub async fn decide_instruction(
 
     // The repair the ask came from, if its own bill named one.
     let repair_id: Option<Uuid> = match existing.bill_id {
-        Some(bill_id) => sqlx::query_scalar(
-            "SELECT repair_id FROM supplier_invoice_expense_line
+        Some(bill_id) => {
+            sqlx::query_scalar(
+                "SELECT repair_id FROM supplier_invoice_expense_line
               WHERE invoice_id = $1 AND repair_id IS NOT NULL
               LIMIT 1",
-        )
-        .bind(bill_id)
-        .fetch_optional(pool)
-        .await?,
+            )
+            .bind(bill_id)
+            .fetch_optional(pool)
+            .await?
+        }
         None => None,
     };
 

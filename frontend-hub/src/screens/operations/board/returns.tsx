@@ -137,7 +137,7 @@ export function StoreReturnsBoard() {
       stage: stage("on-way", "On the way", "bg-info", 0),
       title: shop(one.source_site_id) || one.source_site_id,
       doc: one.shipment_reference ?? undefined,
-      detail: `${count(one.koli_count)} koli`,
+      detail: `${count(one.koli_count)} ${one.koli_count === 1 ? "carton" : "cartons"}`,
       pieces: one.koli_count,
       at: one.departed_at,
       act: "Count receive",
@@ -148,7 +148,7 @@ export function StoreReturnsBoard() {
       stage: stage("receive-count", "Receive count", "bg-warn", 1),
       title: shop(one.source_site_id) || one.source_site_id,
       doc: one.shipment_reference ?? undefined,
-      detail: `${count(one.koli_count)} koli`,
+      detail: `${count(one.koli_count)} ${one.koli_count === 1 ? "carton" : "cartons"}`,
       pieces: one.koli_count,
       at: one.received_at,
       flag: discrepancy(one),
@@ -240,7 +240,7 @@ export function StoreReturnsBoard() {
             tone="bg-info"
             title="On the Way"
             pieces={sum(way, (one) => one.koli_count)}
-            unit="koli"
+            unit="cartons"
             cards={way.length}
           >
             {way.map((one) => (
@@ -252,7 +252,7 @@ export function StoreReturnsBoard() {
                 sub={one.shipment_reference ?? undefined}
                 meta={`Left ${ago(one.departed_at)}`}
                 pieces={one.koli_count}
-                unit="koli"
+                unit="cartons"
                 act="Count receive"
               />
             ))}

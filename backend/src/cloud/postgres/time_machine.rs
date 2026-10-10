@@ -115,62 +115,108 @@ fn fact_seq_u64(value: i64, table: &str) -> Result<u64, AppError> {
 
 /// Load the operational ledger as a time-machine log: one `Adjust` per
 /// operational side of every movement, ordered by `fact_sequence`.
+///
+/// The read is the ledger's head, not a sample of it: the first
+/// `MAX_TIMELINE_ROWS + 1` movements in the ledger's own order, out of 8.8
+/// million on the load estate. How the optional subject filter is spelled
+/// decides whether that head is a seek or a scan, so the statement is built
+/// in the shape the caller actually means. Written the obvious way —
+/// `($1::uuid IS NULL OR m.subject_id = $1)` — a prepared statement's plan
+/// goes generic after the first few opens, and the generic planner cannot
+/// price the ordered path through the index: it reads the opaque filter as
+/// needles scattered through the whole ledger, so it sorts all 8.8 million
+/// rows (spilling half a gigabyte to disk, measured on an estate-sized
+/// table) to hand back the first hundred thousand. Without a subject the
+/// statement carries no filter at all, and the head is the unique index on
+/// `fact_sequence` (0001) read in its own order; with one it is a plain
+/// equality, which the subject-leading index of that same 0001 answers
+/// directly. Both shapes return the same rows the optional filter did, in
+/// the same order — no filter is what `NULL` meant, and an equality is what
+/// a subject meant.
 async fn ledger_timeline(
     pool: &PgPool,
     scope: &TimeMachineScope,
 ) -> Result<(tm::Timeline, bool), AppError> {
-    let rows = sqlx::query(
-        r#"SELECT m.fact_sequence, m.subject_id, m.quantity, m.occurred_at,
+    const HEAD: &str = "m.fact_sequence, m.subject_id, m.quantity, m.occurred_at,
                   m.movement_group_id, m.from_place_id, m.to_place_id,
                   fp.kind AS from_kind, tp.kind AS to_kind,
-                  fp.pool_id AS from_pool, tp.pool_id AS to_pool
-           FROM movement m
-           JOIN inventory_place fp ON fp.id = m.from_place_id
-           JOIN inventory_place tp ON tp.id = m.to_place_id
-           WHERE ($1::uuid IS NULL OR m.subject_id = $1)
-           ORDER BY m.fact_sequence
-           LIMIT $2"#,
-    )
-    .bind(scope.subject_id)
-    .bind(MAX_TIMELINE_ROWS + 1)
-    .fetch_all(pool)
-    .await?;
+                  fp.pool_id AS from_pool, tp.pool_id AS to_pool";
+    let sql = match scope.subject_id {
+        None => format!(
+            r#"SELECT {HEAD}
+               FROM movement m
+               JOIN inventory_place fp ON fp.id = m.from_place_id
+               JOIN inventory_place tp ON tp.id = m.to_place_id
+               ORDER BY m.fact_sequence
+               LIMIT $1"#,
+        ),
+        Some(_) => format!(
+            r#"SELECT {HEAD}
+               FROM movement m
+               JOIN inventory_place fp ON fp.id = m.from_place_id
+               JOIN inventory_place tp ON tp.id = m.to_place_id
+               WHERE m.subject_id = $1
+               ORDER BY m.fact_sequence
+               LIMIT $2"#,
+        ),
+    };
+    let mut query = sqlx::query_as::<_, (
+        i64,
+        Uuid,
+        i64,
+        DateTime<Utc>,
+        Uuid,
+        String,
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+    )>(sql.as_str());
+    if let Some(subject) = scope.subject_id {
+        query = query.bind(subject);
+    }
+    let rows = query
+        .bind(MAX_TIMELINE_ROWS + 1)
+        .fetch_all(pool)
+        .await?;
 
-    let truncated = rows.len() as i64 > MAX_TIMELINE_ROWS;
+    let truncated = rows.len() > MAX_TIMELINE_ROWS as usize;
     let mut events = Vec::with_capacity(rows.len() * 2);
-    for row in rows.iter().take(MAX_TIMELINE_ROWS as usize) {
-        let fact = fact_seq_u64(row.get::<i64, _>("fact_sequence"), "movement")?;
-        let subject: Uuid = row.get("subject_id");
-        let quantity: i64 = row.get("quantity");
-        let at: DateTime<Utc> = row.get("occurred_at");
-        let group: Uuid = row.get("movement_group_id");
+    for (fact_sequence, subject, quantity, at, group, from_place, to_place, from_kind, to_kind, from_pool, to_pool) in
+        rows.into_iter().take(MAX_TIMELINE_ROWS as usize)
+    {
+        let fact = fact_seq_u64(fact_sequence, "movement")?;
         let origin = format!("movement group {group} fact {fact}");
         let sides = [
             (
-                "from_place_id",
-                "from_kind",
-                "from_pool",
+                from_place.as_str(),
+                from_kind.as_str(),
+                from_pool.as_deref(),
                 -quantity,
                 fact * 2 - 1,
             ),
-            ("to_place_id", "to_kind", "to_pool", quantity, fact * 2),
+            (
+                to_place.as_str(),
+                to_kind.as_str(),
+                to_pool.as_deref(),
+                quantity,
+                fact * 2,
+            ),
         ];
-        for (place_col, kind_col, pool_col, delta, seq) in sides {
-            let kind: String = row.get(kind_col);
+        for (place, kind, pool, delta, seq) in sides {
             if kind != "OPERATIONAL" {
                 continue;
             }
             if let Some(wanted) = scope.pool_id.as_deref() {
-                let pool_id: Option<String> = row.get(pool_col);
-                if pool_id.as_deref() != Some(wanted) {
+                if pool != Some(wanted) {
                     continue;
                 }
             }
-            let place: String = row.get(place_col);
             events.push(adjust_event(
                 seq,
                 at,
-                pair_subject(&subject.to_string(), &place),
+                pair_subject(&subject.to_string(), place),
                 delta,
                 origin.clone(),
             ));

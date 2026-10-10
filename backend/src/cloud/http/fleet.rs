@@ -39,12 +39,15 @@ pub async fn heartbeat(
             "heartbeats are accepted from registered shop servers only".into(),
         ));
     }
-    let received = infrastructure::record_heartbeat(&state.db, &origin.origin_id, &beat.status).await?;
+    let received =
+        infrastructure::record_heartbeat(&state.db, &origin.origin_id, &beat.status).await?;
     Ok(Json(json!({ "server_time": received })))
 }
 
 pub async fn nodes(State(state): State<AppState>) -> Result<Json<Value>, AppError> {
-    Ok(Json(json!({ "items": infrastructure::fleet(&state.db).await? })))
+    Ok(Json(
+        json!({ "items": infrastructure::fleet(&state.db).await? }),
+    ))
 }
 
 /// A page of one node's history. `deny_unknown_fields`, so a misspelt
@@ -127,14 +130,18 @@ pub async fn device_status(
 }
 
 pub async fn uptime(State(state): State<AppState>) -> Result<Json<Value>, AppError> {
-    Ok(Json(json!({ "items": infrastructure::fleet_uptime(&state.db).await? })))
+    Ok(Json(
+        json!({ "items": infrastructure::fleet_uptime(&state.db).await? }),
+    ))
 }
 
 pub async fn node_uptime(
     State(state): State<AppState>,
     Path(origin_id): Path<String>,
 ) -> Result<Json<infrastructure::NodeUptime>, AppError> {
-    Ok(Json(infrastructure::node_uptime(&state.db, origin_id.trim()).await?))
+    Ok(Json(
+        infrastructure::node_uptime(&state.db, origin_id.trim()).await?,
+    ))
 }
 
 /// A status page anyone holding the link can open on a phone: no login, no
@@ -181,9 +188,25 @@ fn render_status_page(
     let down = nodes.iter().filter(|n| n.state == "DOWN").count();
     let maintenance = nodes.iter().filter(|n| n.state == "MAINTENANCE").count();
     let (tone, headline) = if down > 0 {
-        ("bad", format!("{down} store {} unreachable", if down == 1 { "server" } else { "servers" }))
+        (
+            "bad",
+            format!(
+                "{down} store {} unreachable",
+                if down == 1 { "server" } else { "servers" }
+            ),
+        )
     } else if maintenance > 0 {
-        ("info", format!("{maintenance} store {} in maintenance", if maintenance == 1 { "server" } else { "servers" }))
+        (
+            "info",
+            format!(
+                "{maintenance} store {} in maintenance",
+                if maintenance == 1 {
+                    "server"
+                } else {
+                    "servers"
+                }
+            ),
+        )
     } else {
         ("ok", "All store servers running".to_owned())
     };
@@ -194,7 +217,13 @@ fn render_status_page(
     };
     let mut rows = String::new();
     let mut sorted: Vec<&infrastructure::NodeUptime> = nodes.iter().collect();
-    sorted.sort_by_key(|n| (n.state != "DOWN", n.state != "MAINTENANCE", n.origin_id.clone()));
+    sorted.sort_by_key(|n| {
+        (
+            n.state != "DOWN",
+            n.state != "MAINTENANCE",
+            n.origin_id.clone(),
+        )
+    });
     for node in sorted {
         let (dot, word) = match node.state {
             "UP" => ("ok", "Up"),
@@ -212,10 +241,18 @@ fn render_status_page(
                     Some(p) if p >= 97.0 => "a",
                     Some(_) => "r",
                 };
-                format!("<i class=\"{class}\" title=\"{} {}\"></i>", day.day, pct(day.percent))
+                format!(
+                    "<i class=\"{class}\" title=\"{} {}\"></i>",
+                    day.day,
+                    pct(day.percent)
+                )
             })
             .collect();
-        let month = node.windows.iter().find(|w| w.days == 30).and_then(|w| w.percent);
+        let month = node
+            .windows
+            .iter()
+            .find(|w| w.days == 30)
+            .and_then(|w| w.percent);
         rows.push_str(&format!(
             "<li><div class=\"top\"><span class=\"name\"><b class=\"dot {dot}\"></b>{}</span><span class=\"pct\">{}</span><span class=\"st {dot}\">{word}</span></div><div class=\"bars\">{bars}</div></li>",
             escape(names.get(&node.origin_id).map(String::as_str).unwrap_or(&node.origin_id)),
@@ -356,7 +393,9 @@ pub async fn fleet_status_of(
     State(state): State<AppState>,
     Path(unit): Path<String>,
 ) -> Result<Json<Value>, AppError> {
-    Ok(Json(infrastructure::fleet_status_of(&state.db, &unit).await?))
+    Ok(Json(
+        infrastructure::fleet_status_of(&state.db, &unit).await?,
+    ))
 }
 
 pub async fn fleet_sync(State(state): State<AppState>) -> Result<Json<Value>, AppError> {

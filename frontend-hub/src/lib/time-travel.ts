@@ -1,5 +1,7 @@
 import type { ClockControlRequest, ClockStatus } from "@itulah/contract"
 
+import { dateParts, dateText } from "@/lib/format"
+
 /// The arithmetic behind the Time travel panel: what "now" is on the server,
 /// where a quick jump lands, and how a moment reads. Business time is always
 /// Asia/Jakarta (UTC+7, no daylight saving), so a fixed offset is exact.
@@ -8,46 +10,23 @@ export const DAY = 86_400_000
 const WIB = 7 * 3_600_000
 const ZONE = "Asia/Jakarta"
 
-const dateFmt = new Intl.DateTimeFormat("en-GB", {
+/// Every moment on this panel is read in Jakarta, whatever zone the browser is
+/// in: the clock being bent is the business's, not the laptop's.
+const MOMENT = {
   timeZone: ZONE,
   weekday: "short",
-  day: "numeric",
+  day: "2-digit",
   month: "short",
   year: "numeric",
-})
-const timeFmt = new Intl.DateTimeFormat("en-GB", {
-  timeZone: ZONE,
   hour: "2-digit",
   minute: "2-digit",
-  hourCycle: "h23",
-})
-const shortFmt = new Intl.DateTimeFormat("en-GB", {
-  timeZone: ZONE,
-  day: "numeric",
-  month: "short",
-})
-const dayFmt = new Intl.DateTimeFormat("en-GB", {
-  timeZone: ZONE,
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-})
+} as const
 
-/// "Fri 6 Nov 2026 · 14:05"
+/// "Fri 06 Nov 2026 · 14:05"
 export function momentLabel(ms: number): string {
-  return `${dateFmt.format(ms).replace(",", "")} · ${timeFmt.format(ms)}`
+  const p = momentParts(ms)
+  return `${p.weekday} ${p.day} ${p.month} ${p.year} · ${p.hour}:${p.minute}`
 }
-
-const partsFmt = new Intl.DateTimeFormat("en-GB", {
-  timeZone: ZONE,
-  weekday: "short",
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-  hourCycle: "h23",
-})
 
 /// `momentLabel`, in the pieces the header rolls one by one.
 export function momentParts(ms: number): {
@@ -58,8 +37,7 @@ export function momentParts(ms: number): {
   hour: string
   minute: string
 } {
-  const found: Record<string, string> = {}
-  for (const part of partsFmt.formatToParts(ms)) found[part.type] = part.value
+  const found = dateParts(new Date(ms), MOMENT)
   return {
     weekday: found.weekday ?? "",
     day: found.day ?? "",
@@ -87,14 +65,23 @@ export function dayStart(iso: string): number {
   return Date.parse(`${iso}T00:00:00Z`) - WIB
 }
 
-/// "5 Nov" — the button's reminder that time is bent.
+/// "05 Nov" — the button's reminder that time is bent.
 export function shortDay(ms: number): string {
-  return shortFmt.format(ms)
+  return dateText(new Date(ms), {
+    timeZone: ZONE,
+    day: "2-digit",
+    month: "short",
+  })
 }
 
-/// "6 Nov 2026" — the toast after a jump.
+/// "06 Nov 2026" — the toast after a jump.
 export function dayLabel(ms: number): string {
-  return dayFmt.format(ms)
+  return dateText(new Date(ms), {
+    timeZone: ZONE,
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  })
 }
 
 /// Whether the clock is anything but the wall clock.

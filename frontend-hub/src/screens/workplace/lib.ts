@@ -1,5 +1,5 @@
 import type { ChatConversation } from "@itulah/contract"
-import type { Tone } from "@/lib/format"
+import { dateText, time, type Tone } from "@/lib/format"
 
 /// The small answers the workplace screens need and `lib/format.ts` does not
 /// carry, kept here rather than pushed into the shared formatter.
@@ -28,7 +28,7 @@ export function clock(iso: string | null | undefined): string {
   if (!iso) return ""
   const at = new Date(iso)
   if (Number.isNaN(at.getTime())) return ""
-  return at.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })
+  return time(at)
 }
 
 /// The day a message belongs to, for the divider between them.
@@ -45,7 +45,7 @@ export function dayOf(iso: string | null | undefined): string {
   const yesterday = new Date(today)
   yesterday.setDate(today.getDate() - 1)
   if (sameDayAs(yesterday)) return "Yesterday"
-  return at.toLocaleDateString("id-ID", {
+  return dateText(at, {
     day: "2-digit",
     month: "short",
     year: "numeric",

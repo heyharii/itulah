@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState } from "@/components/ui/states"
 import { day, label, money } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   accountLedger,
   financeKeys,
@@ -25,7 +26,13 @@ import {
   Th,
   TotalRow,
 } from "@/screens/finance-final/parts"
-import { UnitName, UnitSelect, WindowControl } from "@/screens/finance/parts"
+import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
+import {
+  PhoneFigures,
+  UnitName,
+  UnitSelect,
+  WindowControl,
+} from "@/screens/finance/parts"
 import { useWindow } from "@/screens/finance/hooks"
 import type {
   GeneralLedgerRow,
@@ -98,6 +105,7 @@ interface Movement {
 }
 
 export function Transactions() {
+  const phone = useLayout() === "phone"
   const [unit, setUnit] = useState("")
   const range = useWindow()
   const scoped = unit === "" ? null : unit
@@ -244,6 +252,7 @@ export function Transactions() {
   return (
     <PageContent>
       <PageHeader
+        className="max-md:hidden"
         crumb="Finance · Cash & Bank"
         title="Transactions"
         sub="Every movement of money at one place, in the order it happened."
@@ -270,20 +279,33 @@ export function Transactions() {
           loading: "Reading this unit's drawers and bank accounts…",
           render: () => (
             <div className="flex flex-col gap-4">
-              <CardRow columns={4}>
-                <NumberCard
-                  label={`Held on ${day(range.from)}`}
-                  value={ledgers.opening}
-                  note="opening balance, every money account at this unit"
-                />
-                <NumberCard label="In" value={ledgers.moved} tone="ok" />
-                <NumberCard label="Out" value={ledgers.spent} tone="warn" />
-                <NumberCard
-                  label={`Held on ${day(range.to)}`}
-                  value={ledgers.closing}
-                  note={`${ledgers.held} ${ledgers.held === 1 ? "movement" : "movements"} across ${accounts.length} ${accounts.length === 1 ? "account" : "accounts"}`}
-                />
-              </CardRow>
+              <PhoneFigures
+                items={[
+                  {
+                    label: `Held on ${day(range.from)}`,
+                    value: ledgers.opening,
+                  },
+                  { label: "In", value: ledgers.moved, tone: "ok" },
+                  { label: "Out", value: ledgers.spent, tone: "warn" },
+                  { label: `Held on ${day(range.to)}`, value: ledgers.closing },
+                ]}
+              />
+              <div className="max-md:hidden">
+                <CardRow columns={4}>
+                  <NumberCard
+                    label={`Held on ${day(range.from)}`}
+                    value={ledgers.opening}
+                    note="opening balance, every money account at this unit"
+                  />
+                  <NumberCard label="In" value={ledgers.moved} tone="ok" />
+                  <NumberCard label="Out" value={ledgers.spent} tone="warn" />
+                  <NumberCard
+                    label={`Held on ${day(range.to)}`}
+                    value={ledgers.closing}
+                    note={`${ledgers.held} ${ledgers.held === 1 ? "movement" : "movements"} across ${accounts.length} ${accounts.length === 1 ? "account" : "accounts"}`}
+                  />
+                </CardRow>
+              </div>
 
               {short && (
                 <Note>
@@ -300,6 +322,47 @@ export function Transactions() {
                   Nothing moved through this unit&rsquo;s drawers or bank
                   accounts between {day(range.from)} and {day(range.to)}.
                 </EmptyState>
+              ) : phone ? (
+                <PhoneList
+                  rows={movements.map((movement) => {
+                    const { row, account, balance } = movement
+                    const incoming = row.debit_minor !== 0
+                    return {
+                      key: row.line_id,
+                      title: row.memo ?? account.account_name,
+                      code: row.entry_number,
+                      line: (
+                        <>
+                          {account.account_name}
+                          {row.category_name !== null &&
+                            ` · ${row.category_name}`}
+                        </>
+                      ),
+                      lead: (
+                        <CardFigure
+                          value={money(
+                            incoming ? row.debit_minor : row.credit_minor
+                          )}
+                          caption={incoming ? "in" : "out"}
+                        />
+                      ),
+                      foot: (
+                        <span className="flex flex-col tabular-nums">
+                          <span>
+                            {day(row.posting_date)} · balance {money(balance)}
+                          </span>
+                          <span>
+                            Against{" "}
+                            <Against
+                              entry={against.byEntry.get(row.entry_id)}
+                              movement={movement}
+                            />
+                          </span>
+                        </span>
+                      ),
+                    }
+                  })}
+                />
               ) : (
                 <Grid>
                   <thead>

@@ -3,6 +3,8 @@ import { ChevronLeft, ChevronRight, Clock4 } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
+import { DockChoice } from "@/components/shell/dock-tools"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Day } from "@/components/ui/day"
@@ -12,7 +14,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { ButtonGroup, Segmented } from "@/components/ui/segmented"
 import { Banner, EmptyState } from "@/components/ui/states"
-import { day } from "@/lib/format"
+import { dayNumber, weekday, weekdayName } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import {
   listEmployees,
@@ -24,6 +26,12 @@ import {
 } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
 import { UnitChoice, useUnit } from "@/screens/people/parts"
+import {
+  CardButton,
+  CardFigure,
+  CardName,
+  PhoneCards,
+} from "@/components/ui/phone-cards"
 import type { RosterDayView, ShiftView } from "@itulah/contract"
 
 /// Next week, per person.
@@ -94,14 +102,7 @@ function brushFromKey(key: string, shifts: readonly ShiftView[]): Brush | null {
 /// is a calendar day, and letting the formatter apply Jakarta's +7 to a
 /// midnight would print the day before.
 function column(iso: string): { weekday: string; date: string } {
-  const at = new Date(`${iso}T00:00:00Z`)
-  return {
-    weekday: at.toLocaleDateString("id-ID", {
-      weekday: "short",
-      timeZone: "UTC",
-    }),
-    date: at.toLocaleDateString("id-ID", { day: "2-digit", timeZone: "UTC" }),
-  }
+  return { weekday: weekdayName(iso), date: dayNumber(iso) }
 }
 
 function todayIso(): string {
@@ -111,7 +112,44 @@ function todayIso(): string {
     .slice(0, 10)
 }
 
+/// What a day's plan reads as: the shift's name, Rest, Holiday — or nothing.
+function planLabel(entry: RosterDayView | undefined): string | null {
+  if (entry === undefined) return null
+  return entry.plan === "SCHEDULED"
+    ? (entry.shift_name ?? entry.shift_id)
+    : entry.plan === "REST_DAY"
+      ? "Rest"
+      : "Holiday"
+}
+
+/// The day on screen, on a phone: last week, this week and next as the chip
+/// over the bottom bar. A phone reads a roster a day at a time — a person per
+/// card — rather than as seven columns.
+function RosterDayChoice({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (iso: string) => void
+}) {
+  const start = addDays(mondayOf(new Date()), -7)
+  const days = new Set<string>([value])
+  for (let by = 0; by < 21; by += 1) days.add(addDays(start, by))
+  return (
+    <DockChoice
+      value={value}
+      onChange={onChange}
+      options={[...days].sort().map((iso) => ({
+        value: iso,
+        label: weekday(iso, true),
+        short: iso === todayIso() ? "Today" : weekday(iso, true),
+      }))}
+    />
+  )
+}
+
 export function Roster() {
+  const phone = useLayout() === "phone"
   const client = useQueryClient()
   const unit = useUnit()
   const unitId = unit.unitId
@@ -126,6 +164,9 @@ export function Roster() {
     [from]
   )
   const to = week[6]
+  // The day a phone shows: today while the week holds it, else the week's first.
+  const [phoneDay, setPhoneDay] = useState(todayIso)
+  const dayOn = week.includes(phoneDay) ? phoneDay : week[0]
 
   const days = useQuery({
     queryKey: rosterKeys.unit(unitId ?? "", from, to),
@@ -214,52 +255,71 @@ export function Roster() {
             ? "Head office reads any place's plan, and may revise one. The place that works it builds it."
             : `Next week at ${unit.name ?? "your place"}. A revision keeps the plan it replaced.`
         }
+        // On a phone the unit and the day are the chips over the bottom bar.
         actions={
-          <>
-            <UnitChoice
-              unitId={unitId}
-              units={unit.units}
-              onChange={unit.setUnitId}
-            />
-            {/* A week at a time, because that is how a roster is built — and
+          phone ? undefined : (
+            <>
+              <UnitChoice
+                unitId={unitId}
+                units={unit.units}
+                onChange={unit.setUnitId}
+              />
+              {/* A week at a time, because that is how a roster is built — and
                 the date picker stays for the jump to a month away. */}
-            <ButtonGroup>
-              <Button
-                variant="ghost"
-                aria-label="Previous week"
-                onClick={() => setFrom(addDays(from, -7))}
-              >
-                <ChevronLeft className="size-4 stroke-[1.7]" />
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => setFrom(mondayOf(new Date()))}
-              >
-                This week
-              </Button>
-              <Button
-                variant="ghost"
-                aria-label="Next week"
-                onClick={() => setFrom(addDays(from, 7))}
-              >
-                <ChevronRight className="size-4 stroke-[1.7]" />
-              </Button>
-            </ButtonGroup>
-            <Day
-              value={from}
-              onChange={(next) => setFrom(mondayOf(new Date(next)))}
-              className="h-8 w-36"
-            />
-            {/* Extra hours on a day of this plan — ordering them is a plan
+              <ButtonGroup>
+                <Button
+                  variant="ghost"
+                  aria-label="Previous week"
+                  onClick={() => setFrom(addDays(from, -7))}
+                >
+                  <ChevronLeft className="size-4 stroke-[1.7]" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => setFrom(mondayOf(new Date()))}
+                >
+                  This week
+                </Button>
+                <Button
+                  variant="ghost"
+                  aria-label="Next week"
+                  onClick={() => setFrom(addDays(from, 7))}
+                >
+                  <ChevronRight className="size-4 stroke-[1.7]" />
+                </Button>
+              </ButtonGroup>
+              <Day
+                value={from}
+                onChange={(next) => setFrom(mondayOf(new Date(next)))}
+                className="h-8 w-36"
+              />
+              {/* Extra hours on a day of this plan — ordering them is a plan
                 act, like a shift. A sidebar row until 2026-09-27; the orders
                 nobody has answered are on the Overview. */}
-            <AppLink to="/people/overtime" variant="ghost">
-              <Clock4 />
-              Overtime
-            </AppLink>
-          </>
+              <AppLink to="/people/overtime" variant="ghost">
+                <Clock4 />
+                Overtime
+              </AppLink>
+            </>
+          )
         }
       />
+      {phone && (
+        <>
+          <UnitChoice
+            unitId={unitId}
+            units={unit.units}
+            onChange={unit.setUnitId}
+          />
+          <RosterDayChoice
+            value={dayOn}
+            onChange={(next) => {
+              setPhoneDay(next)
+              setFrom(mondayOf(new Date(`${next}T00:00:00Z`)))
+            }}
+          />
+        </>
+      )}
 
       {unitId === null && !unit.choosing && (
         <Banner tone="warn" className="mb-4">
@@ -278,10 +338,10 @@ export function Roster() {
         </Banner>
       )}
 
-      <Card className="mb-4 overflow-hidden">
+      <Card className="mb-4 overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         <CardHeader>
           <CardTitle>
-            {day(from)} — {day(to)}
+            {phone ? day(dayOn) : `${day(from)} — ${day(to)}`}
           </CardTitle>
         </CardHeader>
 
@@ -289,7 +349,7 @@ export function Roster() {
             are putting people on, say once why, then click the days. Above the
             grid rather than below it, because it has to be read first. */}
         {live.length > 0 && (
-          <div className="flex flex-wrap items-end gap-x-4 gap-y-3 border-b border-hairline px-4 pb-3.5">
+          <div className="flex flex-wrap items-end gap-x-4 gap-y-3 border-b border-hairline px-4 pb-3.5 max-md:mb-3 max-md:rounded-card max-md:border max-md:bg-canvas max-md:py-3.5 max-md:shadow-soft">
             <div className="flex flex-col gap-[0.4375rem]">
               <span className="text-[0.875rem] font-medium text-text">
                 Put on
@@ -321,7 +381,7 @@ export function Roster() {
                   ? "Recorded against every day you click."
                   : "Required — the grid stays locked until it is given."
               }
-              className="w-60"
+              className="w-60 max-md:w-full"
               required
             >
               <Input
@@ -337,6 +397,58 @@ export function Roster() {
           render: () =>
             (team.data ?? []).length === 0 ? (
               <EmptyState>Nobody is posted here to roster.</EmptyState>
+            ) : phone ? (
+              <PhoneCards
+                rows={team.data ?? []}
+                rowId={(person) => person.employee_id}
+                spec={{
+                  title: (person) => (
+                    <CardName
+                      name={person.full_name ?? person.employee_code}
+                      line={
+                        person.full_name !== null
+                          ? person.employee_code
+                          : undefined
+                      }
+                    />
+                  ),
+                  lead: (person) => {
+                    const entry = planned.get(`${person.employee_id}|${dayOn}`)
+                    const label = planLabel(entry)
+                    return (
+                      <CardFigure
+                        value={label ?? "—"}
+                        caption={
+                          label === null
+                            ? "not planned"
+                            : entry !== undefined && entry.revision_count > 1
+                              ? `revised ×${entry.revision_count}`
+                              : undefined
+                        }
+                        tone={label === null ? "quiet" : undefined}
+                      />
+                    )
+                  },
+                  action: (person) => {
+                    const label = planLabel(
+                      planned.get(`${person.employee_id}|${dayOn}`)
+                    )
+                    return (
+                      <CardButton
+                        label={label === null ? "Plan" : "Revise"}
+                        disabled={!ready || write.isPending}
+                        ariaLabel={`${label === null ? "Plan" : "Revise"} ${person.full_name ?? person.employee_code} on ${day(dayOn)}`}
+                        onClick={() =>
+                          write.mutate({
+                            employeeId: person.employee_id,
+                            onDate: dayOn,
+                          })
+                        }
+                      />
+                    )
+                  },
+                }}
+              />
             ) : (
               // Its own scroller: seven columns fit a laptop and not a phone,
               // and the page body must never scroll sideways.
@@ -415,6 +527,14 @@ export function Roster() {
             ),
         })}
       </Card>
+      {/* The overtime orders are a plan act too; on a phone the link is the
+          last thing on the page rather than the first. */}
+      <div className="md:hidden">
+        <AppLink to="/people/overtime" variant="ghost">
+          <Clock4 />
+          Overtime
+        </AppLink>
+      </div>
     </PageContent>
   )
 }

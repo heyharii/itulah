@@ -1,27 +1,24 @@
 import { PackagePlus } from "lucide-react"
 import { useDeferredValue, useEffect, useMemo, useState } from "react"
 
-import { AppLink } from "@/components/ui/app-link"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { CardList } from "@/components/ui/card-list"
+import { LeadCard } from "@/components/ui/lead-card"
 import { ListTable, type ListColumn } from "@/components/ui/list-table"
+import { Status } from "@/components/ui/pill"
 import { Screen } from "@/components/ui/screen"
 import { Segmented } from "@/components/ui/segmented"
 import { EmptyState } from "@/components/ui/states"
-import { Tag } from "@/components/ui/tag"
-import { count, label as humanise, moment } from "@/lib/format"
+import { count, moment } from "@/lib/format"
 import { useGo } from "@/lib/go"
+import { useLayout } from "@/lib/layout"
 import { useParam } from "@/lib/params"
 import { queryState } from "@/lib/query-state"
-import {
-  Code,
-  Fact,
-  Facts,
-  Route,
-  SearchBox,
-  StockStrip,
-  Toolbar,
-} from "@/screens/stock/parts"
+import { MovementSheet } from "@/screens/stock/movement-sheet"
+import { useOpenRecord } from "@/screens/stock/open-record"
+import { DeskSearch, Figures, Route } from "@/screens/stock/parts"
 import {
   LEDGER_LIMIT,
   LEDGER_MAX,
@@ -30,6 +27,7 @@ import {
   directionOf,
   matches,
   readPlace,
+  routeText,
   skuOf,
   useLedger,
   useRange,
@@ -41,23 +39,37 @@ import type { CatalogRow, MovementView } from "@itulah/contract"
 /// inventory/movements.tsx`) over one shop's node.
 ///
 /// Append-only: nothing on this screen can be edited, because nothing in the
-/// ledger can be. A mistake is corrected by another movement that says what it
-/// is correcting, and this is where both of them show up. That is also why the
-/// header carries no action — there is nothing to write from here.
+/// ledger can be. A mistake is corrected by another movement that says what it is
+/// correcting, and this is where both of them show up. That is also why there
+/// is nothing to write from here.
+///
+/// Nothing at the top but the title (the top bar's) and one line of figures.
+/// The search and In / Out / Inside are the dock's on a phone and a toolbar on a
+/// desk. On a phone a movement is a card — the action over its route, the
+/// quantity it leads with, when and by whom in the foot, the SKU at the foot's
+/// end; on a desk the ledger is a table, because it is read down and across. A
+/// row opens as a sheet (`?movement=`) with everything the ledger holds.
 ///
 /// **Everything is narrowed in the browser.** The node's read takes a limit and
 /// nothing else (`edge/http.rs::movements`), so the direction, the search and
 /// the counts all run over the page in hand, and the page says how big it is
 /// rather than pretending to be the whole ledger. A shop's day is about a
 /// hundred lines; the node will hand over five hundred when asked.
+type Way = "all" | Direction
+
+/// How many cards are drawn before somebody asks for more.
+const PAGE = 40
+
 export function Movements() {
   const go = useGo()
+  const phone = useLayout() === "phone"
   const search = useParam("q")
+  const record = useOpenRecord("movement")
 
   /// What is being typed, held locally and pushed to the URL as it settles —
-  /// the Catalogue's split, for the Catalogue's reason: a pool's "Every
-  /// movement here" lands on this screen already narrowed, and a narrowed
-  /// ledger should survive the tablet going to sleep.
+  /// the Catalogue's split, for the Catalogue's reason: a pool's "Stock ledger"
+  /// lands on this screen already narrowed, and a narrowed ledger should
+  /// survive the tablet going to sleep.
   const [typed, setTyped] = useState(search.value ?? "")
   useEffect(() => {
     const timer = setTimeout(
@@ -72,149 +84,188 @@ export function Movements() {
   const needle = useDeferredValue(typed).trim().toLowerCase()
 
   const [limit, setLimit] = useState(LEDGER_LIMIT)
-  const [way, setWay] = useState<"all" | Direction>("all")
+  const [way, setWay] = useState<Way>("all")
+  const [shownCards, setShownCards] = useState(PAGE)
   const ledger = useLedger(limit)
   const { bySku } = useRange()
 
-  return (
-    <Screen className="[&>div:first-child]:md:mb-6">
-      <StockStrip />
-      {queryState(ledger, {
-        loading: "Loading…",
-        render: (rows) =>
-          rows.length === 0 ? (
-            <Card>
-              <EmptyState
-                action={
-                  <Button onClick={() => go("/receive")}>
-                    <PackagePlus />
-                    Receive stock
-                  </Button>
-                }
-              >
-                No movements yet.
-              </EmptyState>
-            </Card>
-          ) : (
-            <Ledger
-              rows={rows}
-              bySku={bySku}
-              needle={needle}
-              typed={typed}
-              onType={setTyped}
-              way={way}
-              onWay={setWay}
-              limit={limit}
-              onMore={() => setLimit(LEDGER_MAX)}
-              fetching={ledger.isPlaceholderData}
-            />
-          ),
-      })}
-    </Screen>
-  )
-}
-
-function Ledger({
-  rows,
-  bySku,
-  needle,
-  typed,
-  onType,
-  way,
-  onWay,
-  limit,
-  onMore,
-  fetching,
-}: {
-  rows: readonly MovementView[]
-  bySku: ReadonlyMap<string, CatalogRow>
-  needle: string
-  typed: string
-  onType: (next: string) => void
-  way: "all" | Direction
-  onWay: (next: "all" | Direction) => void
-  limit: number
-  onMore: () => void
-  fetching: boolean
-}) {
+  const rows = useMemo(() => ledger.data ?? [], [ledger.data])
   const counts = useMemo(() => {
     const tally = { in: 0, out: 0, inside: 0 }
     for (const row of rows) tally[directionOf(row)] += 1
     return tally
   }, [rows])
-
   const shown = rows.filter(
     (row) =>
       (way === "all" || directionOf(row) === way) &&
       matchesRow(needle, row, bySku),
   )
+  const filtered = way !== "all" || needle !== ""
 
-  const columns = useMemo(() => columnsFor(bySku), [bySku])
+  // A new narrowing starts at the top, not at the depth the last one was read
+  // to — compared during render so no stale frame is drawn first.
+  const scope = `${needle}|${way}`
+  const [lastScope, setLastScope] = useState(scope)
+  if (scope !== lastScope) {
+    setLastScope(scope)
+    setShownCards(PAGE)
+  }
+
+  const options = [
+    { value: "all" as const, label: "All", count: rows.length },
+    { value: "in" as const, label: "In", count: counts.in },
+    { value: "out" as const, label: "Out", count: counts.out },
+    { value: "inside" as const, label: "Inside", count: counts.inside },
+  ]
+  const capped = rows.length >= limit
+  const more = capped && limit < LEDGER_MAX
 
   return (
-    <>
-      <Toolbar>
-        <Segmented<"all" | Direction>
-          value={way}
-          onChange={onWay}
-          // The hub's compact control on a desk with a mouse, the touch floor
-          // anywhere a finger is; the counts are in the labels because the one
-          // question a filter raises is "how many would I see".
-          className="md:w-auto [&>button]:px-3.5 [&>button]:whitespace-nowrap pointer-coarse:[&>button]:h-tap md:pointer-fine:[&>button]:h-8"
-          options={[
-            { value: "all", label: `All · ${count(rows.length)}` },
-            { value: "in", label: `In · ${count(counts.in)}` },
-            { value: "out", label: `Out · ${count(counts.out)}` },
-            { value: "inside", label: `Inside · ${count(counts.inside)}` },
-          ]}
-        />
-        <SearchBox
-          value={typed}
-          onChange={onType}
-          placeholder="Search tag, SKU, place, person"
-        />
-      </Toolbar>
+    <Screen counter>
+      <DockTools
+        search={{
+          value: typed,
+          onChange: setTyped,
+          label: "Search tag, SKU, place, person",
+        }}
+        status={{
+          value: way,
+          options,
+          onChange: (next) => setWay(next as Way),
+        }}
+      />
 
-      <Card>
-        <ListTable
-          rows={shown}
-          columns={columns}
-          rowKey={(row) => row.movement_id}
-          detail={(row) => (
-            <MovementDetail row={row} rows={rows} bySku={bySku} />
-          )}
-          empty={
-            needle !== ""
-              ? `No match for “${typed.trim()}”.`
-              : way === "in"
-                ? "Nothing in."
-                : way === "out"
-                  ? "Nothing out."
-                  : "Nothing moved inside."
-          }
-        />
-      </Card>
+      {queryState(ledger, {
+        loading: "Reading the ledger…",
+        render: () =>
+          rows.length === 0 ? (
+            <EmptyState
+              action={
+                <Button onClick={() => go("/receive")}>
+                  <PackagePlus />
+                  Receive stock
+                </Button>
+              }
+            >
+              No movements yet.
+            </EmptyState>
+          ) : (
+            <>
+              <Figures>
+                {filtered ? (
+                  <>
+                    <b className="font-medium text-ink">
+                      {count(shown.length)}
+                    </b>{" "}
+                    of {count(rows.length)} movements match
+                  </>
+                ) : (
+                  <>
+                    {capped && "Newest "}
+                    <b className="font-medium text-ink">
+                      {count(rows.length)}
+                    </b>{" "}
+                    movements
+                  </>
+                )}
+              </Figures>
 
-      <div className="mt-3 flex flex-col gap-2 text-meta text-mute md:flex-row md:items-center md:justify-between">
-        <span className="tabular-nums">
-          {rows.length < limit
-            ? `${count(rows.length)} movements`
-            : `Newest ${count(rows.length)} movements`}
-        </span>
-        {rows.length >= limit && limit < LEDGER_MAX && (
-          <Button onClick={onMore} disabled={fetching} className="md:self-auto">
-            {fetching ? "Loading…" : `Show last ${count(LEDGER_MAX)}`}
-          </Button>
-        )}
-      </div>
-    </>
+              {/* The desk's toolbar: the search at the left, the direction at
+                  the right. On a phone both are the dock's. */}
+              <div className="mb-3.5 flex flex-wrap items-center gap-[0.4375rem] max-md:hidden">
+                <DeskSearch
+                  value={typed}
+                  onChange={setTyped}
+                  label="Search the ledger"
+                  placeholder="Tag, SKU, place, person"
+                />
+                <span className="flex-1" />
+                <Segmented<Way>
+                  value={way}
+                  onChange={setWay}
+                  options={options.map((one) => ({
+                    value: one.value,
+                    label: `${one.label} · ${count(one.count)}`,
+                  }))}
+                />
+              </div>
+
+              {shown.length === 0 ? (
+                <EmptyState>
+                  {needle !== ""
+                    ? `No match for “${typed.trim()}”.`
+                    : way === "in"
+                      ? "Nothing in."
+                      : way === "out"
+                        ? "Nothing out."
+                        : "Nothing moved inside."}
+                </EmptyState>
+              ) : phone ? (
+                <>
+                  <CardList>
+                    {shown.slice(0, shownCards).map((row) => (
+                      <MovementCard
+                        key={row.movement_id}
+                        row={row}
+                        bySku={bySku}
+                        selected={record.value === row.movement_id}
+                        onOpen={() => record.open(row.movement_id)}
+                      />
+                    ))}
+                  </CardList>
+                  {shown.length > shownCards && (
+                    <div className="mt-5 flex justify-center">
+                      <Button
+                        onClick={() => setShownCards((was) => was + PAGE)}
+                      >
+                        Show {count(Math.min(PAGE, shown.length - shownCards))}{" "}
+                        more
+                      </Button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <Card>
+                  <ListTable
+                    rows={shown}
+                    columns={columnsFor(bySku)}
+                    rowKey={(row) => row.movement_id}
+                    onOpen={(row) => record.open(row.movement_id)}
+                    empty="Nothing here."
+                  />
+                </Card>
+              )}
+
+              {more && (
+                <div className="mt-5 flex justify-center">
+                  <Button
+                    onClick={() => setLimit(LEDGER_MAX)}
+                    pending={ledger.isPlaceholderData}
+                  >
+                    {ledger.isPlaceholderData
+                      ? "Reading…"
+                      : `Show the last ${count(LEDGER_MAX)}`}
+                  </Button>
+                </div>
+              )}
+            </>
+          ),
+      })}
+
+      <MovementSheet
+        row={rows.find((row) => row.movement_id === record.value)}
+        rows={rows}
+        bySku={bySku}
+        onClose={record.close}
+      />
+    </Screen>
   )
 }
 
 /// Every word a movement carries, so the box finds a row by whatever the
 /// person has in hand: the tag, the SKU, the garment's name, a place — by its
-/// name or by its id, which is what a pool's "Every movement here" sends —
-/// or who did it.
+/// name or by its id, which is what a pool's "Stock ledger" sends — or who did
+/// it.
 function matchesRow(
   needle: string,
   row: MovementView,
@@ -237,9 +288,52 @@ function matchesRow(
   )
 }
 
-/// What a movement's tag was written for, read off the tag. The SKU is always
-/// there; the name only when this shop's book holds it — which, on a node no
-/// price book has reached yet, is never, and the column still reads.
+/// One movement as the uniform card: the action over its route and the garment,
+/// the quantity as the one figure, and in the foot when and by whom, with the
+/// SKU at the foot's end. A loss or a write-off takes the red foot — the eye
+/// should stop on the corrections, not on Tuesday.
+function MovementCard({
+  row,
+  bySku,
+  selected,
+  onOpen,
+}: {
+  row: MovementView
+  bySku: ReadonlyMap<string, CatalogRow>
+  selected: boolean
+  onOpen: () => void
+}) {
+  const sku = skuOf(row.epc)
+  const name = sku === null ? undefined : bySku.get(sku)?.name
+  return (
+    <LeadCard
+      onOpen={onOpen}
+      selected={selected}
+      tone={causeTone(row.cause) === "bad" ? "alert" : undefined}
+      title={causeLabel(row.cause)}
+      lines={[routeText(row.from, row.to, row.cause), name]}
+      lead={{
+        figure: count(row.quantity),
+        caption: row.quantity === 1 ? "pc" : "pcs",
+      }}
+      foot={{
+        info: (
+          <span className="tabular-nums">
+            {moment(row.occurred_at)} · {row.actor_id}
+          </span>
+        ),
+        status: (
+          <span className="font-mono text-[0.875rem] text-mute">
+            {sku ?? `…${row.epc.slice(-6)}`}
+          </span>
+        ),
+      }}
+    />
+  )
+}
+
+/// A garment, by name when this shop's book holds it, and by the SKU off its
+/// tag always.
 function Product({
   epc,
   bySku,
@@ -262,11 +356,11 @@ function Product({
   )
 }
 
-/// The columns, over the book they name garments with. A factory for that
+/// The desk's columns, over the book they name garments with. A factory for that
 /// reason only — the hub's does the same with its pool master.
 ///
-/// Route is the load-bearing column and the phone card's title: "out of here,
-/// into there" is what a movement IS, and the cause beside it says why.
+/// Route is the load-bearing column: "out of here, into there" is what a
+/// movement IS, and the cause beside it says why.
 function columnsFor(
   bySku: ReadonlyMap<string, CatalogRow>,
 ): readonly ListColumn<MovementView>[] {
@@ -274,8 +368,7 @@ function columnsFor(
     {
       id: "when",
       header: "When",
-      card: "hide",
-      className: "w-[7.5rem]",
+      className: "w-[10.5rem]",
       cell: (row) => (
         <span className="text-body tabular-nums">
           {moment(row.occurred_at)}
@@ -285,16 +378,14 @@ function columnsFor(
     {
       id: "movement",
       header: "Movement",
-      card: "status",
       className: "w-[8.5rem]",
       cell: (row) => (
-        <Tag tone={causeTone(row.cause)}>{causeLabel(row.cause)}</Tag>
+        <Status tone={causeTone(row.cause)}>{causeLabel(row.cause)}</Status>
       ),
     },
     {
       id: "route",
       header: "Route",
-      card: "title",
       cell: (row) => (
         <Route
           from={row.from}
@@ -307,16 +398,14 @@ function columnsFor(
     {
       id: "product",
       header: "Article",
-      card: "meta",
       className: "max-w-[18rem]",
       cell: (row) => <Product epc={row.epc} bySku={bySku} />,
     },
     {
       id: "quantity",
-      header: "Qty",
+      header: "Quantity",
       align: "right",
-      card: "hide",
-      className: "w-14",
+      className: "w-24",
       cell: (row) => (
         <span className="tabular-nums">{count(row.quantity)}</span>
       ),
@@ -324,123 +413,8 @@ function columnsFor(
     {
       id: "actor",
       header: "By",
-      card: "hide",
       className: "max-lg:hidden",
       cell: (row) => <span className="text-body">{row.actor_id}</span>,
     },
-    {
-      // The phone's second line: when, who, and how many only when it is not
-      // the one it almost always is.
-      id: "phone-when",
-      header: "",
-      card: "meta",
-      className: "hidden",
-      cell: (row) =>
-        [
-          moment(row.occurred_at),
-          row.actor_id,
-          row.quantity === 1 ? null : `×${count(row.quantity)}`,
-        ]
-          .filter(Boolean)
-          .join(" · "),
-    },
   ]
-}
-
-/// Everything the ledger holds about one movement, opened under its row. The
-/// row names the places; the detail adds the ids they stand for, the tag in
-/// full, and what the movement was posted against — the three things somebody
-/// reads out to head office when a number is being argued about.
-function MovementDetail({
-  row,
-  rows,
-  bySku,
-}: {
-  row: MovementView
-  rows: readonly MovementView[]
-  bySku: ReadonlyMap<string, CatalogRow>
-}) {
-  const sku = skuOf(row.epc)
-  const product = sku === null ? undefined : bySku.get(sku)
-  // Posted together — a sale of three garments is one group of three lines.
-  const siblings = rows.filter(
-    (one) =>
-      one.movement_group_id === row.movement_group_id &&
-      one.movement_id !== row.movement_id,
-  ).length
-  const from = readPlace(row.from, row.cause)
-  const to = readPlace(row.to, row.cause)
-
-  return (
-    <Facts className="pt-2 lg:grid-cols-4">
-      <Fact term="Article">
-        {product?.name ??
-          (sku === null
-            ? "Not a tag this codec reads"
-            : "Not in this shop's book")}
-        {sku !== null && (
-          <span className="block">
-            <Code>{sku}</Code>
-          </span>
-        )}
-        {product !== undefined && (
-          <AppLink
-            to="/catalogue/product"
-            search={{ sku: product.sku_code }}
-            className="mt-0.5 inline-block text-meta font-medium text-accent underline-offset-2 hover:underline"
-          >
-            Open in the catalogue
-          </AppLink>
-        )}
-      </Fact>
-      <Fact term="Tag">
-        <Code>{row.epc}</Code>
-      </Fact>
-      <Fact term="From">
-        {from.name}
-        {from.state !== null && ` (${from.state})`}
-        <span className="block">
-          <Code>{row.from}</Code>
-        </span>
-      </Fact>
-      <Fact term="To">
-        {to.name}
-        {to.state !== null && ` (${to.state})`}
-        <span className="block">
-          <Code>{row.to}</Code>
-        </span>
-      </Fact>
-      <Fact term="Why">
-        {causeLabel(row.cause)}
-        <span className="block">
-          <Code>{row.cause}</Code>
-        </span>
-      </Fact>
-      <Fact term="Posted against">
-        {row.reference_type === null ? (
-          <span className="text-mute">Nothing — a movement on its own</span>
-        ) : (
-          <>
-            {humanise(row.reference_type)}
-            {row.reference_id !== null && (
-              <span className="block">
-                <Code>{row.reference_id}</Code>
-              </span>
-            )}
-          </>
-        )}
-      </Fact>
-      <Fact term="By">
-        {row.actor_id} · {moment(row.occurred_at)}
-      </Fact>
-      <Fact term="Movement">
-        <Code>{row.movement_id}</Code>
-        {siblings > 0 && (
-          <span className="block text-meta text-mute">
-            Posted with {count(siblings)} other{siblings === 1 ? "" : "s"}
-          </span>
-        )}
-      </Fact>
-    </Facts>
-  )
 }

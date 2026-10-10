@@ -49,7 +49,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 STORE = "store-01"
-TERMINAL = "POS-01"
+# The till seat HO numbered for store-01 (Kasir 1); seats replaced POS-01 (till seats, Sep 2026).
+TERMINAL = "KASIR-1"
 FLOAT = 500_000
 WIB = timezone(timedelta(hours=7))
 MARKER = "demo-sales"

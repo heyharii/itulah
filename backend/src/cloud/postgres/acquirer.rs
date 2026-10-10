@@ -1728,7 +1728,10 @@ async fn mdr_check(
     for row in lines {
         let tender_kind: String = row.try_get("tender_kind")?;
         let amount: i64 = row.try_get("amount_minor")?;
-        let kinds: Vec<String> = fee_kinds(&tender_kind).iter().map(|k| (*k).to_string()).collect();
+        let kinds: Vec<String> = fee_kinds(&tender_kind)
+            .iter()
+            .map(|k| (*k).to_string())
+            .collect();
         let fee: Option<i64> = sqlx::query_scalar(
             "SELECT round($4::numeric * rate_percent / 100)::bigint
                FROM acquirer_fee_rate
@@ -1863,9 +1866,10 @@ pub async fn acq_settlement_curate(
     let mut discharged: Vec<(String, String, i64)> = Vec::with_capacity(lines.len());
     // The bank is in head office's books, found by its kind (0605).
     let head_office = super::sites::head_office_unit_id(pool).await?;
-    let mut posting_lines =
-        vec![PostingLine::debit(bank_key, &head_office, settlement.net_minor)
-            .with_qualifier(&bank_qualifier)];
+    let mut posting_lines = vec![
+        PostingLine::debit(bank_key, &head_office, settlement.net_minor)
+            .with_qualifier(&bank_qualifier),
+    ];
     for row in &lines {
         let unit_id: String = row.try_get("unit_id")?;
         let tender_kind: String = row.try_get("tender_kind")?;

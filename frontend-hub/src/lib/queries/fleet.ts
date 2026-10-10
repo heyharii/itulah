@@ -199,7 +199,7 @@ export interface FleetSyncPage {
   readonly stores: readonly FleetSyncRow[]
 }
 
-// ---- Rows: a store, the gudang, or head office ------------------------------
+// ---- Rows: a store, the warehouse, or head office ------------------------------
 
 export type FleetRowKind = "STORE" | "GUDANG" | "HEAD_OFFICE"
 

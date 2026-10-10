@@ -28,16 +28,16 @@ export const executiveNav: AppModule = {
   sections: [
     {
       items: [
-        { path: "/executive", label: "Ringkasan", icon: LayoutDashboard },
-        { path: "/executive/stores", label: "Kinerja Toko", icon: Store },
-        { path: "/executive/stock", label: "Barang & Pembelian", icon: Boxes },
-        { path: "/executive/finance", label: "Kas & Laba", icon: Wallet },
+        { path: "/executive", label: "Overview", icon: LayoutDashboard },
+        { path: "/executive/stores", label: "Store Performance", icon: Store },
+        { path: "/executive/stock", label: "Stock & Purchasing", icon: Boxes },
+        { path: "/executive/finance", label: "Cash & Profit", icon: Wallet },
         {
           path: "/executive/customers",
-          label: "Pelanggan & Promosi",
+          label: "Customers & Promotions",
           icon: Megaphone,
         },
-        { path: "/executive/people", label: "Tim & Aset", icon: Users },
+        { path: "/executive/people", label: "Team & Assets", icon: Users },
       ],
     },
   ],

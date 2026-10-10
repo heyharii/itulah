@@ -240,7 +240,8 @@ impl LeavePolicy {
                 if as_of.month() == 12 {
                     // The remainder of the twelfths, as the whole-year rule gives it.
                     return LeaveDays::from_centidays(
-                        entitlement * months_left / 12 + if from_month == 1 { entitlement % 12 } else { 0 },
+                        entitlement * months_left / 12
+                            + if from_month == 1 { entitlement % 12 } else { 0 },
                     );
                 }
                 let counted = as_of.month() as i32 - from_month + 1;

@@ -13,7 +13,8 @@ import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Banner, LoadingState } from "@/components/ui/states"
 import { ExportButton } from "@/components/ui/export-button"
 import { fileSafe, type ExportSheet } from "@/lib/export-xlsx"
-import { day, money } from "@/lib/format"
+import { count, day, money, moneyCompact } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { problemOf } from "@/lib/problem"
 import {
   financeKeys,
@@ -36,6 +37,7 @@ import {
   useSupplierName,
   useUnitName,
 } from "@/screens/finance/hooks"
+import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
 import { SupplierName, UnitName, UnitSelect } from "@/screens/finance/parts"
 import type { PaymentTermsBook } from "@itulah/contract"
 
@@ -474,7 +476,7 @@ export function PaymentProjection() {
       filename: `Payment-Projection-${fileSafe(period)}`,
       sheet: "Payment Projection",
       title: "Payment Projection",
-      subtitle: `${period} · ${unit === "" ? "every unit" : unitName(unit)}${
+      subtitle: `${period} · ${unit === "" ? "all units" : unitName(unit)}${
         includeNotPayable ? "" : " · not-payable-yet excluded"
       }`,
       columns: [
@@ -518,7 +520,11 @@ export function PaymentProjection() {
 
   return (
     <PageContent>
-      <PageHeader crumb="Finance · Payables" title="Payment Projection" />
+      <PageHeader
+        className="max-md:hidden"
+        crumb="Finance · Payables"
+        title="Payment Projection"
+      />
 
       <Toolbar>
         <Input
@@ -527,7 +533,8 @@ export function PaymentProjection() {
             setNeedle(event.target.value)
             setSelectedDay(null)
           }}
-          aria-label="Search"
+          aria-label="Search payments"
+          placeholder="Search payments"
           className="h-control w-64"
         />
         <UnitSelect
@@ -546,7 +553,7 @@ export function PaymentProjection() {
         />
         <Toolbar.Spacer />
         <span className="text-[0.875rem] text-mute">
-          {unit === "" ? "every unit" : <UnitName id={unit} />}
+          {unit === "" ? "all units" : <UnitName id={unit} />}
           {includeNotPayable ? "" : " · not-payable-yet excluded"}
         </span>
         <ExportButton
@@ -842,7 +849,7 @@ function OverdueSection({
             Overdue · {rows.length} {rows.length === 1 ? "item" : "items"} ·{" "}
             {money(total)}
           </span>
-          <span className="shrink-0 text-[0.8125rem] font-medium text-accent">
+          <span className="shrink-0 text-[0.875rem] font-medium text-accent">
             {expanded ? "Hide" : "Show"}
           </span>
         </button>
@@ -879,6 +886,63 @@ function ProjectionTable({
     grandTotalLabel !== undefined &&
     payableRows.length > 0 &&
     notPayableRows.length > 0
+  const phone = useLayout() === "phone"
+
+  if (phone) {
+    const cards = (list: readonly ProjectionEntry[], muted: boolean) => (
+      <PhoneList
+        rows={list.map((row) => {
+          const status = statusOf(row, today)
+          return {
+            key: row.key,
+            title: <PartyCell row={row} muted={muted} />,
+            code: <WhatCell row={row} muted={muted} />,
+            lead: (
+              <CardFigure
+                value={money(row.amountMinor)}
+                tone={!muted && status.tone === "bad" ? "bad" : undefined}
+              />
+            ),
+            foot: (
+              <span>
+                {day(row.date)}
+                {row.estimated && " est."} · {TYPE_LABEL[row.kind]}
+              </span>
+            ),
+            action: (
+              <Status tone={muted ? "neutral" : status.tone}>
+                {status.label}
+              </Status>
+            ),
+          }
+        })}
+      />
+    )
+    const total = (text: string, minor: number) => (
+      <p className="flex items-baseline justify-between gap-3 px-1 text-[0.9375rem] font-medium text-ink tabular-nums">
+        <span>{text}</span>
+        <span>{money(minor)}</span>
+      </p>
+    )
+    return (
+      <div className="flex flex-col gap-3">
+        {payableRows.length > 0 && (
+          <>
+            {cards(payableRows, false)}
+            {total("Total payable", sumOf(payableRows))}
+          </>
+        )}
+        {notPayableRows.length > 0 && (
+          <>
+            <h3 className="px-1 text-[0.875rem] text-mute">Not payable yet</h3>
+            {cards(notPayableRows, true)}
+            {total("Total not payable yet", sumOf(notPayableRows))}
+          </>
+        )}
+        {showGrandTotal && total(`Total ${grandTotalLabel}`, sumOf(rows))}
+      </div>
+    )
+  }
 
   return (
     <Grid>
@@ -1047,12 +1111,23 @@ function gridDaysOf(year: number, month: number): readonly GridDay[] {
   return days
 }
 
-const compactRupiah = new Intl.NumberFormat("id-ID", {
-  style: "currency",
-  currency: "IDR",
-  notation: "compact",
-  maximumFractionDigits: 1,
-})
+const compactRupiah = {
+  format: (value: number) => moneyCompact(value),
+}
+
+/// What a day is tinted on a phone, where seven columns leave no room to
+/// write its figure: the busier the day, the darker (the same three steps as
+/// the year's little calendars), red where the money is already late.
+const PHONE_TINT_ACCENT: Readonly<Record<1 | 2 | 3, string>> = {
+  1: "max-md:bg-accent/10",
+  2: "max-md:bg-accent/25",
+  3: "max-md:bg-accent/45",
+}
+const PHONE_TINT_BAD: Readonly<Record<1 | 2 | 3, string>> = {
+  1: "max-md:bg-bad/10",
+  2: "max-md:bg-bad/25",
+  3: "max-md:bg-bad/45",
+}
 
 function BigMonthCalendar({
   year,
@@ -1070,6 +1145,10 @@ function BigMonthCalendar({
   onSelectDay: (iso: string) => void
 }) {
   const gridDays = gridDaysOf(year, month)
+  const busiest = Math.max(
+    0,
+    ...Array.from(dayTotals.values(), (cell) => cell.total)
+  )
   return (
     <>
       <div className="grid grid-cols-7 gap-1">
@@ -1101,9 +1180,15 @@ function BigMonthCalendar({
               onClick={() => onSelectDay(cell.iso)}
               className={cn(
                 "flex min-h-[4.375rem] flex-col items-start gap-0.5 rounded-inner border px-2 py-1.5 text-left transition-colors",
+                "max-md:min-h-11 max-md:items-center max-md:justify-center max-md:px-0",
                 cell.inMonth
                   ? "border-hairline bg-canvas hover:bg-soft"
                   : "border-transparent bg-transparent",
+                cell.inMonth &&
+                  totals !== undefined &&
+                  (pastOpen ? PHONE_TINT_BAD : PHONE_TINT_ACCENT)[
+                    tierOf(totals.total, busiest)
+                  ],
                 isToday && "border-accent",
                 selected && "border-accent bg-soft-2"
               )}
@@ -1123,13 +1208,13 @@ function BigMonthCalendar({
                 <>
                   <span
                     className={cn(
-                      "text-[0.875rem] font-medium tabular-nums",
+                      "text-[0.875rem] font-medium tabular-nums max-md:hidden",
                       pastOpen ? "text-bad-fg" : "text-ink"
                     )}
                   >
                     {compactRupiah.format(totals.total)}
                   </span>
-                  <span className="text-[0.875rem] text-mute">
+                  <span className="text-[0.875rem] text-mute max-md:hidden">
                     {totals.count} {totals.count === 1 ? "item" : "items"}
                   </span>
                 </>
@@ -1159,6 +1244,33 @@ function YearGrid({
   onSelectMonth: (month: number) => void
   onSelectDay: (month: number, iso: string) => void
 }) {
+  // Twelve calendars of seven 24px days do not fit two to a row on a phone,
+  // and their figures are 10–11px: a phone gets the twelve months as the
+  // cards every list is, each opening that month.
+  if (useLayout() === "phone") {
+    return (
+      <PhoneList
+        rows={Array.from({ length: 12 }, (_, i) => i + 1).map((month) => {
+          const key = keyOf(year, month)
+          const monthRows = rows.filter((row) => row.date.slice(0, 7) === key)
+          const notPayable = sumOf(monthRows.filter((row) => !row.payable))
+          return {
+            key,
+            title: monthLabel(year, month),
+            lead: money(sumOf(monthRows.filter((row) => row.payable))),
+            foot: (
+              <span className="tabular-nums">
+                {count(monthRows.length)}{" "}
+                {monthRows.length === 1 ? "item" : "items"}
+                {notPayable > 0 && ` · not payable yet ${money(notPayable)}`}
+              </span>
+            ),
+            onOpen: () => onSelectMonth(month),
+          }
+        })}
+      />
+    )
+  }
   return (
     <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3 lg:grid-cols-4">
       {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => {
@@ -1209,11 +1321,11 @@ function MiniMonthCard({
       <button
         type="button"
         onClick={onSelectMonth}
-        className="mb-1 block w-full truncate text-left text-[0.8125rem] font-medium text-ink hover:text-accent"
+        className="mb-1 block w-full truncate text-left text-[0.875rem] font-medium text-ink hover:text-accent"
       >
         {monthLabel(year, month)}
       </button>
-      <div className="mb-1.5 text-[0.75rem] tabular-nums">
+      <div className="mb-1.5 text-[0.875rem] tabular-nums">
         <span className="text-ink">{compactRupiah.format(payable)}</span>
         {notPayable > 0 && (
           <span className="text-mute">
@@ -1224,7 +1336,7 @@ function MiniMonthCard({
       </div>
       <div className="grid grid-cols-7 gap-0.5">
         {WEEKDAY_INITIALS.map((label, index) => (
-          <div key={index} className="text-center text-[0.625rem] text-mute">
+          <div key={index} className="text-center text-[0.875rem] text-mute">
             {label}
           </div>
         ))}
@@ -1265,7 +1377,7 @@ function MiniMonthCard({
             >
               <span
                 className={cn(
-                  "text-[0.6875rem] tabular-nums",
+                  "text-[0.875rem] tabular-nums",
                   !cell.inMonth && "text-faint",
                   cell.inMonth && !hasItem && cell.weekend && "text-mute",
                   cell.inMonth && !hasItem && !cell.weekend && "text-ink",

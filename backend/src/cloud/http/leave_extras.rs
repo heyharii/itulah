@@ -5,7 +5,10 @@ use super::employment::{current_unit, reach_of, resolve};
 use crate::cloud::{
     application::{AppError, AppState},
     domain::{actions, required_role_for_action, role_allows, Authorization, Reach},
-    postgres::{self as infrastructure, HolidayWorkView, LeaveBlackoutView, LeaveEncashmentView, TeamCalendarView},
+    postgres::{
+        self as infrastructure, HolidayWorkView, LeaveBlackoutView, LeaveEncashmentView,
+        TeamCalendarView,
+    },
 };
 use axum::{
     extract::{Path, Query, State},
@@ -96,7 +99,9 @@ pub async fn encashments(
 ) -> Result<Json<Vec<LeaveEncashmentView>>, AppError> {
     let access = resolve(&state, &principal, &raw).await?;
     access.may_read(actions::EMPLOYEE_READ)?;
-    Ok(Json(infrastructure::encashments_of(&state.db, &access.employee_id).await?))
+    Ok(Json(
+        infrastructure::encashments_of(&state.db, &access.employee_id).await?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -126,14 +131,18 @@ pub async fn encash(
     require(&principal, actions::PAY_CHANGE)?;
     require(&principal, actions::LEAVE_GRANT)?;
     if raw == "me" {
-        return Err(AppError::Forbidden("leave is paid out by head office".into()));
+        return Err(AppError::Forbidden(
+            "leave is paid out by head office".into(),
+        ));
     }
     let access = resolve(&state, &principal, &raw).await?;
     let record = infrastructure::load_employee(&state.db, &access.employee_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("employee {}", access.employee_id)))?;
     let unit = current_unit(&record)
-        .ok_or_else(|| AppError::Conflict(format!("{} is not posted anywhere", access.employee_id)))?
+        .ok_or_else(|| {
+            AppError::Conflict(format!("{} is not posted anywhere", access.employee_id))
+        })?
         .to_owned();
     let period = NaiveDate::parse_from_str(&format!("{}-01", body.period), "%Y-%m-%d")
         .map_err(|_| AppError::Validation("period is a month, YYYY-MM".into()))?;
@@ -150,7 +159,10 @@ pub async fn encash(
     .into_iter()
     .find(|row| row.leave_type == body.leave_type)
     .ok_or_else(|| {
-        AppError::Validation(format!("{} is not a kind of leave with a balance", body.leave_type))
+        AppError::Validation(format!(
+            "{} is not a kind of leave with a balance",
+            body.leave_type
+        ))
     })?;
     let available = balance.centidays - balance.pending_centidays;
 
@@ -174,7 +186,9 @@ pub async fn encash(
     )
     .await?;
     infrastructure::rebuild_draft_run(&state.db, &unit, period).await?;
-    Ok(Json(infrastructure::encashments_of(&state.db, &access.employee_id).await?))
+    Ok(Json(
+        infrastructure::encashments_of(&state.db, &access.employee_id).await?,
+    ))
 }
 
 // ── holidays worked ─────────────────────────────────────────────────────────
@@ -201,7 +215,9 @@ pub async fn holiday_work(
     let mut kept = Vec::new();
     for row in rows {
         let record = infrastructure::load_employee(&state.db, &row.employee_id).await?;
-        let unit = record.as_ref().and_then(|r| current_unit(r).map(ToOwned::to_owned));
+        let unit = record
+            .as_ref()
+            .and_then(|r| current_unit(r).map(ToOwned::to_owned));
         if reach.covers(unit.as_deref()) {
             kept.push(row);
         }
@@ -229,7 +245,9 @@ pub async fn record_holiday_work(
 ) -> Result<Json<Vec<HolidayWorkView>>, AppError> {
     require(&principal, actions::LEAVE_GRANT)?;
     if raw == "me" {
-        return Err(AppError::Forbidden("a holiday worked is recorded by HR".into()));
+        return Err(AppError::Forbidden(
+            "a holiday worked is recorded by HR".into(),
+        ));
     }
     let access = resolve(&state, &principal, &raw).await?;
     let by = authority(&principal, actions::LEAVE_GRANT, &body.reason)?;

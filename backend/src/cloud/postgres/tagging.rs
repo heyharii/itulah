@@ -134,8 +134,121 @@ pub struct SetupSessionSummary {
     pub declared_quantity: i64,
     pub destination_site_id: String,
     pub status: String,
+    pub issue_state: Option<String>,
+    pub issue_error: Option<String>,
     pub created_by: String,
     pub created_at: DateTime<Utc>,
+}
+
+async fn enqueue_setup_issue_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    sessions: &[Uuid],
+    issued_by: &str,
+) -> Result<(), AppError> {
+    sqlx::query(
+        "INSERT INTO article_setup_issue_queue(session_id,issued_by)
+         SELECT session_id,$2 FROM unnest($1::uuid[]) AS session_id",
+    )
+    .bind(sessions)
+    .bind(issued_by.trim())
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// Retry a failed mint without keeping a browser request open for its work.
+/// A session's row lock and one queue row prevent duplicate scheduling.
+pub async fn enqueue_setup_issue(
+    pool: &PgPool,
+    session_id: Uuid,
+    issued_by: &str,
+) -> Result<(), AppError> {
+    if issued_by.trim().is_empty() {
+        return Err(AppError::Validation(
+            "issuing a setup session must name who did it".into(),
+        ));
+    }
+    let mut tx = pool.begin().await?;
+    let status: String = sqlx::query_scalar(
+        "SELECT status FROM article_setup_session WHERE session_id=$1 FOR UPDATE",
+    )
+    .bind(session_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| AppError::NotFound(format!("no setup session {session_id}")))?;
+    if status == "OPEN" {
+        sqlx::query(
+            "INSERT INTO article_setup_issue_queue(session_id,issued_by) VALUES($1,$2)
+             ON CONFLICT(session_id) DO UPDATE SET state='QUEUED',attempts=0,
+                 issued_by=EXCLUDED.issued_by,next_attempt_at=now(),last_error=NULL,
+                 lease_id=NULL,lease_until=NULL,finished_at=NULL
+             WHERE article_setup_issue_queue.state='FAILED'",
+        )
+        .bind(session_id)
+        .bind(issued_by.trim())
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Bounded work for the shared job runtime. Leases recover crashes; minting
+/// itself still locks the session and commits its ledger/price facts together.
+pub async fn process_setup_issue_queue(pool: &PgPool) -> Result<u64, AppError> {
+    let mut processed = 0;
+    for _ in 0..4 {
+        let lease_id = Uuid::new_v4();
+        let job = sqlx::query(
+            "UPDATE article_setup_issue_queue queue
+             SET state='PROCESSING',attempts=attempts+1,lease_id=$1,
+                 lease_until=now()+interval '2 minutes'
+             WHERE queue.session_id=(
+                 SELECT session_id FROM article_setup_issue_queue
+                 WHERE (state='QUEUED' AND next_attempt_at<=now())
+                    OR (state='PROCESSING' AND lease_until<=now())
+                 ORDER BY created_at,session_id FOR UPDATE SKIP LOCKED LIMIT 1)
+             RETURNING session_id,issued_by,attempts",
+        )
+        .bind(lease_id)
+        .fetch_optional(pool)
+        .await?;
+        let Some(job) = job else {
+            break;
+        };
+        let session_id: Uuid = job.get("session_id");
+        let issued_by: String = job.get("issued_by");
+        let attempts: i32 = job.get("attempts");
+        let result = issue_setup_session(pool, session_id, &issued_by).await;
+        // A manual mint, or a recovered lease, may already have committed the
+        // exact session. Treat that as completion, never mint another job.
+        let status: String =
+            sqlx::query_scalar("SELECT status FROM article_setup_session WHERE session_id=$1")
+                .bind(session_id)
+                .fetch_one(pool)
+                .await?;
+        if result.is_ok() || status != "OPEN" {
+            sqlx::query("UPDATE article_setup_issue_queue SET state='DONE',finished_at=now(),last_error=NULL,lease_id=NULL,lease_until=NULL WHERE session_id=$1 AND lease_id=$2")
+                .bind(session_id).bind(lease_id).execute(pool).await?;
+        } else if let Err(error) = result {
+            tracing::warn!(%session_id,%error,attempts,"article setup mint failed");
+            sqlx::query(
+                "UPDATE article_setup_issue_queue SET state=$3,last_error=$4,
+                     next_attempt_at=now()+($5::integer*interval '30 seconds'),
+                     lease_id=NULL,lease_until=NULL
+                 WHERE session_id=$1 AND lease_id=$2",
+            )
+            .bind(session_id)
+            .bind(lease_id)
+            .bind(if attempts >= 3 { "FAILED" } else { "QUEUED" })
+            .bind(error.to_string())
+            .bind(attempts.min(3))
+            .execute(pool)
+            .await?;
+        }
+        processed += 1;
+    }
+    Ok(processed)
 }
 
 fn single_digit(value: &str, what: &str) -> Result<char, AppError> {
@@ -193,9 +306,35 @@ pub async fn create_setup_session(
     pool: &PgPool,
     request: &NewSetupSession,
 ) -> Result<Uuid, AppError> {
+    create_setup_session_inner(pool, request, None).await
+}
+
+pub async fn create_setup_session_background(
+    pool: &PgPool,
+    request: &NewSetupSession,
+    key: &str,
+) -> Result<Uuid, AppError> {
+    create_setup_session_inner(pool, request, Some(key)).await
+}
+
+async fn create_setup_session_inner(
+    pool: &PgPool,
+    request: &NewSetupSession,
+    background_key: Option<&str>,
+) -> Result<Uuid, AppError> {
     let total = validate_setup_request(request)?;
 
     let mut tx = pool.begin().await?;
+    if let Some(key) = background_key {
+        let digest = super::payload_digest(request)?;
+        if let Some(response) =
+            super::begin_idempotent(&mut tx, key, "SETUP_BACKGROUND", &digest).await?
+        {
+            let id: Uuid = serde_json::from_value(response)?;
+            tx.commit().await?;
+            return Ok(id);
+        }
+    }
     let line = lock_waiting_line(&mut tx, request.receipt_line_id).await?;
     let receipt_quantity = line.matched_quantity;
 
@@ -215,6 +354,10 @@ pub async fn create_setup_session(
     }
 
     let session_id = insert_setup_session(&mut tx, request, &line, total).await?;
+    if let Some(key) = background_key {
+        enqueue_setup_issue_tx(&mut tx, &[session_id], &request.created_by).await?;
+        super::complete_idempotent(&mut tx, key, &json!(session_id)).await?;
+    }
     tx.commit().await?;
     Ok(session_id)
 }
@@ -230,6 +373,22 @@ pub async fn create_setup_session(
 pub async fn create_split_setup(
     pool: &PgPool,
     request: &NewSplitSetup,
+) -> Result<Vec<Uuid>, AppError> {
+    create_split_setup_inner(pool, request, None).await
+}
+
+pub async fn create_split_setup_background(
+    pool: &PgPool,
+    request: &NewSplitSetup,
+    key: &str,
+) -> Result<Vec<Uuid>, AppError> {
+    create_split_setup_inner(pool, request, Some(key)).await
+}
+
+async fn create_split_setup_inner(
+    pool: &PgPool,
+    request: &NewSplitSetup,
+    background_key: Option<&str>,
 ) -> Result<Vec<Uuid>, AppError> {
     if request.articles.is_empty() {
         return Err(AppError::Validation(
@@ -309,6 +468,16 @@ pub async fn create_split_setup(
     }
 
     let mut tx = pool.begin().await?;
+    if let Some(key) = background_key {
+        let digest = super::payload_digest(request)?;
+        if let Some(response) =
+            super::begin_idempotent(&mut tx, key, "SPLIT_SETUP_BACKGROUND", &digest).await?
+        {
+            let ids: Vec<Uuid> = serde_json::from_value(response)?;
+            tx.commit().await?;
+            return Ok(ids);
+        }
+    }
     let line = lock_waiting_line(&mut tx, request.receipt_line_id).await?;
     let receipt_quantity = line.matched_quantity;
     if total != receipt_quantity {
@@ -330,6 +499,10 @@ pub async fn create_split_setup(
     let mut sessions = Vec::with_capacity(parts.len());
     for (part, part_total) in parts.iter().zip(&totals) {
         sessions.push(insert_setup_session(&mut tx, part, &line, *part_total).await?);
+    }
+    if let Some(key) = background_key {
+        enqueue_setup_issue_tx(&mut tx, &sessions, &request.created_by).await?;
+        super::complete_idempotent(&mut tx, key, &json!(sessions)).await?;
     }
     tx.commit().await?;
     Ok(sessions)
@@ -549,91 +722,140 @@ async fn insert_setup_session(
         .execute(&mut **tx)
         .await?;
 
-    // Tags come from the vocabulary, so a word nobody has defined is refused
-    // here rather than quietly filed under a spelling that does not exist.
-    for tag in &request.tags {
+    // Validate all vocabulary references together, then write each relation
+    // with one INSERT. A setup with many sizes used to wait on PostgreSQL once
+    // per tag, colour and variant while this transaction held the receipt row.
+    let tag_codes: Vec<String> = request
+        .tags
+        .iter()
+        .map(|tag| tag.trim().to_owned())
+        .collect();
+    let colours: Vec<(String, String)> = request
+        .colours
+        .iter()
+        .map(|colour| {
+            let digit = single_digit(&colour.colour_digit, "colour")?;
+            let code = colour.colour_code.trim().to_uppercase();
+            if code.is_empty() {
+                return Err(AppError::Validation(format!(
+                    "colour {digit} names no colour; colours are picked from the master, not typed"
+                )));
+            }
+            Ok((digit.to_string(), code))
+        })
+        .collect::<Result<_, _>>()?;
+    let colour_codes: Vec<String> = colours.iter().map(|(_, code)| code.clone()).collect();
+    let (known_tags, offered_colours): (Vec<String>, Vec<String>) = sqlx::query_as(
+        "SELECT
+             COALESCE((SELECT array_agg(code) FROM tag WHERE code = ANY($1)), ARRAY[]::text[]),
+             COALESCE((SELECT array_agg(code) FROM colour
+                        WHERE code = ANY($2) AND active), ARRAY[]::text[])",
+    )
+    .bind(&tag_codes)
+    .bind(&colour_codes)
+    .fetch_one(&mut **tx)
+    .await?;
+
+    let known_tags: std::collections::HashSet<&str> =
+        known_tags.iter().map(String::as_str).collect();
+    for (tag, code) in request.tags.iter().zip(&tag_codes) {
+        if !known_tags.contains(code.as_str()) {
+            return Err(AppError::Validation(format!(
+                "tag {tag:?} is not in the tag vocabulary"
+            )));
+        }
+    }
+    if !tag_codes.is_empty() {
         sqlx::query(
-            "INSERT INTO article_setup_session_tag (session_id, tag_code) VALUES ($1, $2)
+            "INSERT INTO article_setup_session_tag (session_id, tag_code)
+             SELECT $1, tags.tag_code FROM unnest($2::text[]) AS tags(tag_code)
              ON CONFLICT DO NOTHING",
         )
         .bind(session_id)
-        .bind(tag.trim())
+        .bind(&tag_codes)
         .execute(&mut **tx)
-        .await
-        .map_err(|error| {
-            AppError::Validation(format!("tag {tag:?} is not in the tag vocabulary: {error}"))
-        })?;
+        .await?;
     }
 
-    for colour in &request.colours {
-        let digit = single_digit(&colour.colour_digit, "colour")?;
-        let code = colour.colour_code.trim().to_uppercase();
-        if code.is_empty() {
-            return Err(AppError::Validation(format!(
-                "colour {digit} names no colour; colours are picked from the master, not typed"
-            )));
-        }
+    let offered_colours: std::collections::HashSet<&str> =
+        offered_colours.iter().map(String::as_str).collect();
+    let mut seen_digits = std::collections::HashSet::new();
+    let mut seen_colours = std::collections::HashSet::new();
+    for (digit, code) in &colours {
         // Refused here rather than left to the foreign key, because "insert or
         // update violates foreign key constraint" names a constraint and not
         // the word somebody got wrong. A retired colour is refused too: a
         // delivery being set up today is new goods, and new goods should not
         // be filed under a shade merchandising has stopped offering.
-        let offered: bool =
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM colour WHERE code = $1 AND active)")
-                .bind(&code)
-                .fetch_one(&mut **tx)
-                .await?;
-        if !offered {
+        if !offered_colours.contains(code.as_str()) {
             return Err(AppError::Validation(format!(
                 "colour {code:?} is not in the colour master, or has been retired; \
                  pick one that is on offer"
             )));
         }
+        if !seen_digits.insert(digit.as_str()) || !seen_colours.insert(code.as_str()) {
+            return Err(AppError::Validation(format!(
+                "colour {code:?} is declared twice under different digits; \
+                 two SKUs no picker can tell apart"
+            )));
+        }
+    }
+    if !colours.is_empty() {
+        let digits: Vec<String> = colours.iter().map(|(digit, _)| digit.clone()).collect();
         sqlx::query(
             "INSERT INTO article_setup_colour (session_id, colour_digit, colour_code)
-             VALUES ($1,$2,$3)",
+             SELECT $1, colours.colour_digit, colours.colour_code
+               FROM unnest($2::text[], $3::text[]) AS colours(colour_digit, colour_code)",
         )
         .bind(session_id)
-        .bind(digit.to_string())
-        .bind(&code)
+        .bind(&digits)
+        .bind(&colour_codes)
         .execute(&mut **tx)
-        .await
-        .map_err(|error| {
-            if is_unique_violation(&error) {
-                AppError::Validation(format!(
-                    "colour {code:?} is declared twice under different digits; \
-                     two SKUs no picker can tell apart"
-                ))
-            } else {
-                AppError::from(error)
-            }
-        })?;
+        .await?;
     }
 
+    let mut variants = Vec::with_capacity(request.variants.len());
+    let mut seen_variants = std::collections::HashSet::new();
     for variant in &request.variants {
-        let digit = single_digit(&variant.colour_digit, "colour")?;
+        let digit = single_digit(&variant.colour_digit, "colour")?.to_string();
+        let size_code = variant.size_code.trim().to_owned();
+        if !seen_variants.insert((digit.clone(), size_code.clone())) {
+            return Err(AppError::Validation(format!(
+                "colour {} size {} appears twice",
+                variant.colour_digit, variant.size_code
+            )));
+        }
+        variants.push((digit, size_code, variant.quantity, variant.base_price_minor));
+    }
+    if !variants.is_empty() {
+        let digits: Vec<String> = variants
+            .iter()
+            .map(|(digit, _, _, _)| digit.clone())
+            .collect();
+        let sizes: Vec<String> = variants
+            .iter()
+            .map(|(_, size, _, _)| size.clone())
+            .collect();
+        let quantities: Vec<i64> = variants
+            .iter()
+            .map(|(_, _, quantity, _)| *quantity)
+            .collect();
+        let prices: Vec<i64> = variants.iter().map(|(_, _, _, price)| *price).collect();
         sqlx::query(
             "INSERT INTO article_setup_variant
                  (session_id, colour_digit, size_code, target_quantity, base_price_minor)
-             VALUES ($1,$2,$3,$4,$5)",
+             SELECT $1, variants.colour_digit, variants.size_code,
+                    variants.target_quantity, variants.base_price_minor
+               FROM unnest($2::text[], $3::text[], $4::bigint[], $5::bigint[])
+                    AS variants(colour_digit, size_code, target_quantity, base_price_minor)",
         )
         .bind(session_id)
-        .bind(digit.to_string())
-        .bind(variant.size_code.trim())
-        .bind(variant.quantity)
-        .bind(variant.base_price_minor)
+        .bind(&digits)
+        .bind(&sizes)
+        .bind(&quantities)
+        .bind(&prices)
         .execute(&mut **tx)
-        .await
-        .map_err(|error| {
-            if is_unique_violation(&error) {
-                AppError::Validation(format!(
-                    "colour {} size {} appears twice",
-                    variant.colour_digit, variant.size_code
-                ))
-            } else {
-                AppError::from(error)
-            }
-        })?;
+        .await?;
     }
 
     Ok(session_id)
@@ -643,44 +865,75 @@ fn is_unique_violation(error: &sqlx::Error) -> bool {
     matches!(error, sqlx::Error::Database(db) if db.code().as_deref() == Some("23505"))
 }
 
-/// Draw the next `quantity` serials for a SKU.
-///
-/// The row lock is the whole mechanism: two jobs for the same SKU issued at
-/// the same instant queue behind each other and get adjacent ranges. Without
-/// it they would read the same `last_serial` and mint the same EPCs, and two
-/// garments carrying one identity cannot be untangled once the tags are on.
-async fn allocate_serials(
-    tx: &mut Transaction<'_, Postgres>,
-    sku: &str,
+#[derive(Clone, Debug)]
+struct PreparedSetupVariant {
+    sku_code: String,
+    colour_digit: String,
+    colour_label: String,
+    size_code: String,
+    size_label: String,
     quantity: i64,
-) -> Result<i64, AppError> {
-    sqlx::query(
-        "INSERT INTO epc_serial_counter (sku_code, last_serial) VALUES ($1, 0)
-         ON CONFLICT (sku_code) DO NOTHING",
+    base_price_minor: i64,
+    qr_payload: String,
+    barcode_payload: String,
+}
+
+/// Reserve one serial range per SKU in a single statement.
+///
+/// The unique-key upsert is the row lock: concurrent issues of the same SKU
+/// serialize at that counter and receive disjoint ranges. Sorting the source
+/// rows gives concurrent multi-SKU jobs the same lock order.
+async fn allocate_serial_ranges(
+    tx: &mut Transaction<'_, Postgres>,
+    variants: &[PreparedSetupVariant],
+) -> Result<std::collections::HashMap<String, i64>, AppError> {
+    if variants.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let mut requested: Vec<(String, i64)> = variants
+        .iter()
+        .map(|variant| (variant.sku_code.clone(), variant.quantity))
+        .collect();
+    requested.sort_by(|left, right| left.0.cmp(&right.0));
+    let sku_codes: Vec<String> = requested.iter().map(|(sku, _)| sku.clone()).collect();
+    let quantities: Vec<i64> = requested.iter().map(|(_, quantity)| *quantity).collect();
+
+    let rows = sqlx::query(
+        "INSERT INTO epc_serial_counter (sku_code, last_serial)
+         SELECT requested.sku_code, requested.quantity
+           FROM unnest($1::text[], $2::bigint[])
+                AS requested(sku_code, quantity)
+          ORDER BY requested.sku_code
+         ON CONFLICT (sku_code) DO UPDATE
+             SET last_serial = epc_serial_counter.last_serial + EXCLUDED.last_serial,
+                 updated_at = now()
+           WHERE epc_serial_counter.last_serial <=
+                 9223372036854775807::bigint - EXCLUDED.last_serial
+         RETURNING rtrim(sku_code::text) AS sku_code, last_serial",
     )
-    .bind(sku)
-    .execute(&mut **tx)
+    .bind(&sku_codes)
+    .bind(&quantities)
+    .fetch_all(&mut **tx)
     .await?;
-    let last: i64 = sqlx::query_scalar(
-        "SELECT last_serial FROM epc_serial_counter WHERE sku_code = $1 FOR UPDATE",
-    )
-    .bind(sku)
-    .fetch_one(&mut **tx)
-    .await?;
-    let start = last
-        .checked_add(1)
-        .ok_or_else(|| AppError::Validation(format!("serial counter for {sku} overflowed")))?;
-    let end = start
-        .checked_add(quantity - 1)
-        .ok_or_else(|| AppError::Validation(format!("serial counter for {sku} overflowed")))?;
-    sqlx::query(
-        "UPDATE epc_serial_counter SET last_serial = $2, updated_at = now() WHERE sku_code = $1",
-    )
-    .bind(sku)
-    .bind(end)
-    .execute(&mut **tx)
-    .await?;
-    Ok(start)
+
+    let last_by_sku: std::collections::HashMap<String, i64> = rows
+        .into_iter()
+        .map(|row| (row.get("sku_code"), row.get("last_serial")))
+        .collect();
+    let mut starts = std::collections::HashMap::with_capacity(requested.len());
+    for (sku, quantity) in requested {
+        let Some(last) = last_by_sku.get(&sku).copied() else {
+            return Err(AppError::Validation(format!(
+                "serial counter for {sku} overflowed"
+            )));
+        };
+        let start = last
+            .checked_sub(quantity)
+            .and_then(|previous| previous.checked_add(1))
+            .ok_or_else(|| AppError::Validation(format!("serial counter for {sku} overflowed")))?;
+        starts.insert(sku, start);
+    }
+    Ok(starts)
 }
 
 /// Publish the prices a setup just decided, as a price book of its own.
@@ -700,12 +953,12 @@ async fn allocate_serials(
 /// inventing a commercial decision rather than recording one.
 async fn publish_setup_prices(
     tx: &mut Transaction<'_, Postgres>,
-    job_lines: &[Value],
+    variants: &[PreparedSetupVariant],
     currency: &str,
     article_name: &str,
     issued_by: &str,
 ) -> Result<i64, AppError> {
-    if job_lines.is_empty() {
+    if variants.is_empty() {
         return Ok(0);
     }
     // Serialise version allocation without blocking readers. Two setups issued
@@ -746,38 +999,46 @@ async fn publish_setup_prices(
     .execute(&mut **tx)
     .await?;
 
-    for line in job_lines {
-        let sku_code = line["sku_code"].as_str().unwrap_or_default();
-        let base_price_minor = line["base_price_minor"].as_i64().unwrap_or_default();
-        let sku_id: Uuid = sqlx::query_scalar("SELECT id FROM sku WHERE sku_code = $1")
-            .bind(sku_code)
-            .fetch_one(&mut **tx)
-            .await?;
-        // A price and the permission to sell are authored together. One
-        // without the other is either a priced product nobody may sell or a
-        // sellable one with no price, and the publication check refuses both.
-        sqlx::query(
-            "INSERT INTO commercial_assortment_rule
+    let sku_codes: Vec<String> = variants.iter().map(|line| line.sku_code.clone()).collect();
+    let prices: Vec<i64> = variants.iter().map(|line| line.base_price_minor).collect();
+    // Both rules draw from the same small input relation. A setup with many
+    // colour/size combinations therefore uses one database request for the
+    // whole price book instead of looking up a SKU and writing two rules per
+    // combination.
+    let inserted: i64 = sqlx::query_scalar(
+        "WITH setup_lines AS MATERIALIZED (
+             SELECT s.id AS sku_id, requested.base_price_minor
+               FROM unnest($2::text[], $4::bigint[])
+                    AS requested(sku_code, base_price_minor)
+               JOIN sku s ON s.sku_code = requested.sku_code
+         ), assortment AS (
+             INSERT INTO commercial_assortment_rule
                  (id, publication_id, sku_id, site_id, channel, sellable)
-             VALUES (gen_random_uuid(), $1, $2, NULL, 'STORE', true)",
-        )
-        .bind(publication_id)
-        .bind(sku_id)
-        .execute(&mut **tx)
-        .await?;
-        sqlx::query(
-            "INSERT INTO commercial_price_rule
+             SELECT gen_random_uuid(), $1, setup_lines.sku_id, NULL, 'STORE', true
+               FROM setup_lines
+             RETURNING sku_id
+         ), prices AS (
+             INSERT INTO commercial_price_rule
                  (id, publication_id, sku_id, site_id, channel, currency,
                   unit_price_minor, tax_category)
-             VALUES (gen_random_uuid(), $1, $2, NULL, 'STORE', $3, $4, $5)",
-        )
-        .bind(publication_id)
-        .bind(sku_id)
-        .bind(currency)
-        .bind(base_price_minor)
-        .bind(SETUP_TAX_CATEGORY)
-        .execute(&mut **tx)
-        .await?;
+             SELECT gen_random_uuid(), $1, setup_lines.sku_id, NULL, 'STORE', $3,
+                    setup_lines.base_price_minor, $5
+               FROM setup_lines
+             RETURNING sku_id
+         )
+         SELECT count(*)::bigint FROM prices",
+    )
+    .bind(publication_id)
+    .bind(&sku_codes)
+    .bind(currency)
+    .bind(&prices)
+    .bind(SETUP_TAX_CATEGORY)
+    .fetch_one(&mut **tx)
+    .await?;
+    if inserted != variants.len() as i64 {
+        return Err(AppError::Validation(
+            "one or more setup SKUs could not be found for pricing".into(),
+        ));
     }
 
     sqlx::query(
@@ -985,9 +1246,8 @@ pub async fn issue_setup_session(
     .execute(&mut *tx)
     .await?;
 
-    let mut job_lines: Vec<Value> = Vec::with_capacity(variants.len());
+    let mut prepared = Vec::with_capacity(variants.len());
     let mut declared_total = 0i64;
-
     for variant in &variants {
         let colour_digit: String = variant.get("colour_digit");
         let size_code: String = variant.get("size_code");
@@ -1002,64 +1262,17 @@ pub async fn issue_setup_session(
         let sku = sku_code(&article_code, digit, &size_code).map_err(AppError::Validation)?;
         let qr = crate::cloud::domain::qr_payload(&sku).map_err(AppError::Validation)?;
         let barcode = crate::cloud::domain::barcode_payload(&sku).map_err(AppError::Validation)?;
-
-        sqlx::query(
-            "INSERT INTO sku (id, article_id, sku_code, color, size, colour_digit, size_code,
-                              base_price_minor, currency, qr_payload, created_by_session_id)
-             VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-             ON CONFLICT (sku_code) DO NOTHING",
-        )
-        .bind(article_id)
-        .bind(&sku)
-        .bind(&colour_label)
-        .bind(&size_label)
-        .bind(&colour_digit)
-        .bind(&size_code)
-        .bind(base_price_minor)
-        .bind(&currency)
-        .bind(&qr)
-        .bind(session_id)
-        .execute(&mut *tx)
-        .await?;
-
-        let serial_from = allocate_serials(&mut tx, &sku, quantity).await?;
-        let epcs = encode_epc_range(&sku, serial_from as u64, quantity as u64)
-            .map_err(AppError::Validation)?;
-
-        sqlx::query(
-            "INSERT INTO tagging_job_line
-                 (job_id, sku_code, colour_digit, colour_label, size_code, size_label,
-                  quantity, serial_from, serial_to, qr_payload, barcode_payload,
-                  base_price_minor)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
-        )
-        .bind(job_id)
-        .bind(&sku)
-        .bind(&colour_digit)
-        .bind(&colour_label)
-        .bind(&size_code)
-        .bind(&size_label)
-        .bind(quantity)
-        .bind(serial_from)
-        .bind(serial_from + quantity - 1)
-        .bind(&qr)
-        .bind(&barcode)
-        .bind(base_price_minor)
-        .execute(&mut *tx)
-        .await?;
-
-        job_lines.push(json!({
-            "sku_code": sku,
-            "colour_digit": colour_digit,
-            "colour_label": colour_label,
-            "size_code": size_code,
-            "size_label": size_label,
-            "quantity": quantity,
-            "qr_payload": qr,
-            "barcode_payload": barcode,
-            "base_price_minor": base_price_minor,
-            "epcs": epcs,
-        }));
+        prepared.push(PreparedSetupVariant {
+            sku_code: sku,
+            colour_digit,
+            colour_label,
+            size_code,
+            size_label,
+            quantity,
+            base_price_minor,
+            qr_payload: qr,
+            barcode_payload: barcode,
+        });
         declared_total += quantity;
     }
 
@@ -1072,10 +1285,115 @@ pub async fn issue_setup_session(
         )));
     }
 
+    // Mint all missing SKUs at once. A repeated delivery reuses the existing
+    // SKU, exactly as the former per-variant INSERT ... DO NOTHING did.
+    let sku_codes: Vec<String> = prepared.iter().map(|line| line.sku_code.clone()).collect();
+    let colour_digits: Vec<String> = prepared
+        .iter()
+        .map(|line| line.colour_digit.clone())
+        .collect();
+    let colour_labels: Vec<String> = prepared
+        .iter()
+        .map(|line| line.colour_label.clone())
+        .collect();
+    let size_codes: Vec<String> = prepared.iter().map(|line| line.size_code.clone()).collect();
+    let size_labels: Vec<String> = prepared
+        .iter()
+        .map(|line| line.size_label.clone())
+        .collect();
+    let prices: Vec<i64> = prepared.iter().map(|line| line.base_price_minor).collect();
+    let qr_payloads: Vec<String> = prepared
+        .iter()
+        .map(|line| line.qr_payload.clone())
+        .collect();
+    sqlx::query(
+        "INSERT INTO sku (id, article_id, sku_code, color, size, colour_digit, size_code,
+                          base_price_minor, currency, qr_payload, created_by_session_id)
+         SELECT gen_random_uuid(), $1, line.sku_code, line.colour_label, line.size_label,
+                line.colour_digit, line.size_code, line.base_price_minor, $2,
+                line.qr_payload, $3
+           FROM unnest($4::text[], $5::text[], $6::text[], $7::text[], $8::text[],
+                       $9::bigint[], $10::text[])
+                AS line(sku_code, colour_digit, colour_label, size_code, size_label,
+                        base_price_minor, qr_payload)
+         ON CONFLICT (sku_code) DO NOTHING",
+    )
+    .bind(article_id)
+    .bind(&currency)
+    .bind(session_id)
+    .bind(&sku_codes)
+    .bind(&colour_digits)
+    .bind(&colour_labels)
+    .bind(&size_codes)
+    .bind(&size_labels)
+    .bind(&prices)
+    .bind(&qr_payloads)
+    .execute(&mut *tx)
+    .await?;
+
+    let serial_starts = allocate_serial_ranges(&mut tx, &prepared).await?;
+    let mut job_lines: Vec<Value> = Vec::with_capacity(prepared.len());
+    let mut serial_starts_by_line = Vec::with_capacity(prepared.len());
+    for line in &prepared {
+        let serial_from = serial_starts.get(&line.sku_code).copied().ok_or_else(|| {
+            AppError::Validation(format!("no serial range for {}", line.sku_code))
+        })?;
+        let epcs = encode_epc_range(&line.sku_code, serial_from as u64, line.quantity as u64)
+            .map_err(AppError::Validation)?;
+        serial_starts_by_line.push(serial_from);
+        job_lines.push(json!({
+            "sku_code": line.sku_code,
+            "colour_digit": line.colour_digit,
+            "colour_label": line.colour_label,
+            "size_code": line.size_code,
+            "size_label": line.size_label,
+            "quantity": line.quantity,
+            "qr_payload": line.qr_payload,
+            "barcode_payload": line.barcode_payload,
+            "base_price_minor": line.base_price_minor,
+            "epcs": epcs,
+        }));
+    }
+
+    // A job's SKU rows also arrive together. The serial ranges above remain
+    // one per SKU and are reserved atomically under their counter row locks.
+    let serial_quantities: Vec<i64> = prepared.iter().map(|line| line.quantity).collect();
+    let barcode_payloads: Vec<String> = prepared
+        .iter()
+        .map(|line| line.barcode_payload.clone())
+        .collect();
+    sqlx::query(
+        "INSERT INTO tagging_job_line
+             (job_id, sku_code, colour_digit, colour_label, size_code, size_label,
+              quantity, serial_from, serial_to, qr_payload, barcode_payload,
+              base_price_minor)
+         SELECT $1, line.sku_code, line.colour_digit, line.colour_label,
+                line.size_code, line.size_label, line.quantity, line.serial_from,
+                line.serial_from + (line.quantity - 1), line.qr_payload,
+                line.barcode_payload, line.base_price_minor
+           FROM unnest($2::text[], $3::text[], $4::text[], $5::text[], $6::text[],
+                       $7::bigint[], $8::bigint[], $9::text[], $10::text[], $11::bigint[])
+                AS line(sku_code, colour_digit, colour_label, size_code, size_label,
+                        quantity, serial_from, qr_payload, barcode_payload, base_price_minor)",
+    )
+    .bind(job_id)
+    .bind(&sku_codes)
+    .bind(&colour_digits)
+    .bind(&colour_labels)
+    .bind(&size_codes)
+    .bind(&size_labels)
+    .bind(&serial_quantities)
+    .bind(&serial_starts_by_line)
+    .bind(&qr_payloads)
+    .bind(&barcode_payloads)
+    .bind(&prices)
+    .execute(&mut *tx)
+    .await?;
+
     // The setup's own price book, published and on its way to the shops before
     // the tagging job leaves. A garment cannot arrive somewhere unsellable.
     let _price_book_version =
-        publish_setup_prices(&mut tx, &job_lines, &currency, &article_name, issued_by).await?;
+        publish_setup_prices(&mut tx, &prepared, &currency, &article_name, issued_by).await?;
 
     let payload = json!({
         "job_id": job_id,
@@ -1136,13 +1454,65 @@ pub async fn issue_setup_session(
     .execute(&mut *tx)
     .await?;
 
+    sqlx::query("UPDATE article_setup_issue_queue SET state='DONE',finished_at=now(),last_error=NULL WHERE session_id=$1")
+        .bind(session_id).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok((job_id, command_id))
 }
 
+/// Where the previous page of head office's queue stopped — as a ROW, not a
+/// position, so a delivery identified between two pages moves nothing.
+#[derive(Serialize, Deserialize)]
+struct UnidentifiedCursor {
+    verified_at: DateTime<Utc>,
+    receipt_line_id: Uuid,
+}
+
+/// A page of the queue unless the caller asks for less. The queue is read by
+/// people, and a person works through hundreds of deliveries, not millions.
+pub const UNIDENTIFIED_PAGE: i64 = 500;
+const UNIDENTIFIED_PAGE_MAX: i64 = 2000;
+
 /// Deliveries that have been received and accepted but not yet given an
-/// identity — head office's queue.
+/// identity — head office's queue, its first page.
 pub async fn unidentified_receipts(pool: &PgPool) -> Result<Vec<Value>, AppError> {
+    Ok(unidentified_receipts_page(pool, None, None).await?.0)
+}
+
+/// How many deliveries wait in the queue, counted up to `cap` and no further.
+///
+/// The badge on every screen needs a number, never the rows: reading the whole
+/// queue to take its length is what held two million receipt lines in memory
+/// and took the server down. A count that stops at `cap` costs the same
+/// whether the queue holds ten deliveries or ten million.
+pub async fn unidentified_receipt_count(pool: &PgPool, cap: i64) -> Result<i64, AppError> {
+    Ok(sqlx::query_scalar(
+        "SELECT count(*)::bigint FROM (
+             SELECT 1 FROM goods_receipt_line r
+              WHERE r.matched_quantity > 0
+                AND NOT EXISTS (SELECT 1 FROM article_setup_session s
+                                 WHERE s.receipt_line_id = r.receipt_line_id)
+              LIMIT $1
+         ) waiting",
+    )
+    .bind(cap.max(1))
+    .fetch_one(pool)
+    .await?)
+}
+
+/// One page of head office's queue, oldest delivery first, and where the next
+/// page starts (`None` on the last one).
+pub async fn unidentified_receipts_page(
+    pool: &PgPool,
+    limit: Option<i64>,
+    cursor: Option<&str>,
+) -> Result<(Vec<Value>, Option<String>), AppError> {
+    let limit = limit.unwrap_or(UNIDENTIFIED_PAGE).clamp(1, UNIDENTIFIED_PAGE_MAX);
+    let after = cursor
+        .map(str::trim)
+        .filter(|raw| !raw.is_empty())
+        .map(super::decode_cursor::<UnidentifiedCursor>)
+        .transpose()?;
     let rows = sqlx::query(
         "SELECT r.receipt_line_id, r.matched_quantity AS quantity, r.excess_quantity,
                 r.verified_at, l.article_code, l.article_name,
@@ -1164,7 +1534,17 @@ pub async fn unidentified_receipts(pool: &PgPool) -> Result<Vec<Value>, AppError
                                      'colour_code', v.colour_code,
                                      'size_code', v.size_code,
                                      'quantity', v.quantity,
-                                     'base_price_minor', v.base_price_minor)
+                                     'base_price_minor', v.base_price_minor,
+                                     'image_urls', to_jsonb(v.image_urls),
+                                     -- What the bay counted of it, when the
+                                     -- line was counted per variant (0963);
+                                     -- null for a line counted as a whole.
+                                     'counted_quantity',
+                                         (SELECT x.counted_quantity
+                                            FROM dc_receiving_count_variant x
+                                           WHERE x.count_id = r.count_id
+                                             AND COALESCE(x.colour_code, '') = COALESCE(v.colour_code, '')
+                                             AND COALESCE(x.size_code, '') = COALESCE(v.size_code, '')))
                                  ORDER BY v.colour_code, v.size_code)
                           FROM purchase_order_line_variant v
                           WHERE v.po_line_id = l.po_line_id), '[]'::jsonb) AS variants
@@ -1180,11 +1560,24 @@ pub async fn unidentified_receipts(pool: &PgPool) -> Result<Vec<Value>, AppError
            -- It is not lost: it sits in the buyer's excess queue until they
            -- say whether the company is keeping it.
            AND r.matched_quantity > 0
-         ORDER BY r.verified_at",
+           AND ($1::timestamptz IS NULL
+                OR (r.verified_at, r.receipt_line_id) > ($1::timestamptz, $2::uuid))
+         ORDER BY r.verified_at, r.receipt_line_id
+         LIMIT $3",
     )
+    .bind(after.as_ref().map(|c| c.verified_at))
+    .bind(after.as_ref().map(|c| c.receipt_line_id))
+    .bind(limit)
     .fetch_all(pool)
     .await?;
-    Ok(rows
+    let next_cursor = match rows.last() {
+        Some(last) if rows.len() as i64 == limit => Some(super::encode_cursor(&UnidentifiedCursor {
+            verified_at: last.try_get("verified_at")?,
+            receipt_line_id: last.try_get("receipt_line_id")?,
+        })?),
+        _ => None,
+    };
+    let items = rows
         .into_iter()
         .map(|row| {
             json!({
@@ -1219,95 +1612,89 @@ pub async fn unidentified_receipts(pool: &PgPool) -> Result<Vec<Value>, AppError
                 "variants": row.get::<Value, _>("variants"),
             })
         })
-        .collect())
+        .collect();
+    Ok((items, next_cursor))
 }
 
 /// Where one setup session stands, with the job it produced.
 pub async fn setup_session_status(pool: &PgPool, session_id: Uuid) -> Result<Value, AppError> {
-    let session = sqlx::query(
-        // The supplier comes back through the delivery this session was opened
-        // against. It is not on the session row and it should not be: a
-        // session records what head office DECIDED, and who sent the goods is
-        // a fact about the receipt. Left-joined because a receipt line can be
-        // removed from under a session that has already minted, and a record
-        // that 404s because its delivery was tidied away is worse than one
-        // that cannot name the supplier.
-        "SELECT s.receipt_line_id, s.article_code, s.supplier_article_code, s.article_name,
-                s.division_code,
-                s.receipt_quantity, s.destination_site_id, s.status, s.currency,
-                s.created_by, s.created_at, s.issued_at, s.tagged_at,
-                j.job_id, j.status AS job_status, j.confirmed_by, j.confirmed_at,
-                g.supplier_id
-         FROM article_setup_session s
-         LEFT JOIN tagging_job j ON j.session_id = s.session_id
-         LEFT JOIN goods_receipt_line r ON r.receipt_line_id = s.receipt_line_id
-         LEFT JOIN goods_receipt g ON g.receipt_id = r.receipt_id
-         WHERE s.session_id = $1",
-    )
-    .bind(session_id)
-    .fetch_optional(pool)
-    .await?
-    .ok_or_else(|| AppError::NotFound(format!("no setup session {session_id}")))?;
+    setup_sessions_status(pool, &[session_id])
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| AppError::NotFound(format!("no setup session {session_id}")))
+}
 
-    let lines = sqlx::query(
-        "SELECT l.sku_code, l.colour_digit, l.colour_label, l.size_code, l.size_label,
-                l.quantity, l.serial_from, l.serial_to, l.qr_payload, l.base_price_minor
-         FROM tagging_job_line l
-         JOIN tagging_job j ON j.job_id = l.job_id
-         WHERE j.session_id = $1
-         ORDER BY l.sku_code",
-    )
-    .bind(session_id)
-    .fetch_all(pool)
-    .await?;
-
-    let tags: Vec<String> = sqlx::query_scalar(
-        "SELECT tag_code FROM article_setup_session_tag WHERE session_id = $1 ORDER BY tag_code",
-    )
-    .bind(session_id)
-    .fetch_all(pool)
-    .await?;
-
-    Ok(json!({
-        "session_id": session_id,
-        "receipt_line_id": session.get::<Uuid, _>("receipt_line_id"),
-        "article_code": session.get::<String, _>("article_code"),
-        "supplier_article_code": session.get::<Option<String>, _>("supplier_article_code"),
-        // The supplier's CODE — `SUP02` — which is what the receipt carries
-        // and what the supplier book is keyed by. The name is looked up where
-        // it is read, so this answer does not go stale when somebody renames a
-        // supplier.
-        "supplier_code": session.get::<Option<String>, _>("supplier_id"),
-        "article_name": session.get::<String, _>("article_name"),
-        "division_code": session.get::<String, _>("division_code"),
-        "tags": tags,
-        "currency": session.get::<String, _>("currency").trim(),
-        "receipt_quantity": session.get::<i64, _>("receipt_quantity"),
-        "site_id": session.get::<String, _>("destination_site_id"),
-        "status": session.get::<String, _>("status"),
-        "created_by": session.get::<String, _>("created_by"),
-        "created_at": session.get::<DateTime<Utc>, _>("created_at"),
-        "issued_at": session.get::<Option<DateTime<Utc>>, _>("issued_at"),
-        "tagged_at": session.get::<Option<DateTime<Utc>>, _>("tagged_at"),
-        "job": session.get::<Option<Uuid>, _>("job_id").map(|job_id| json!({
-            "job_id": job_id,
-            "status": session.get::<Option<String>, _>("job_status"),
-            "confirmed_by": session.get::<Option<String>, _>("confirmed_by"),
-            "confirmed_at": session.get::<Option<DateTime<Utc>>, _>("confirmed_at"),
-        })),
-        "variants": lines.into_iter().map(|row| json!({
-            "sku_code": row.get::<String, _>("sku_code"),
-            "colour_digit": row.get::<String, _>("colour_digit"),
-            "colour_label": row.get::<String, _>("colour_label"),
-            "size_code": row.get::<String, _>("size_code"),
-            "size_label": row.get::<String, _>("size_label"),
-            "quantity": row.get::<i64, _>("quantity"),
-            "serial_from": row.get::<i64, _>("serial_from"),
-            "serial_to": row.get::<i64, _>("serial_to"),
-            "qr_payload": row.get::<String, _>("qr_payload"),
-            "base_price_minor": row.get::<i64, _>("base_price_minor"),
-        })).collect::<Vec<_>>(),
-    }))
+/// Read one batch in input order, aggregating only these sessions' tags and
+/// variants. A split response no longer performs three reads per article.
+pub async fn setup_sessions_status(
+    pool: &PgPool,
+    session_ids: &[Uuid],
+) -> Result<Vec<Value>, AppError> {
+    let sessions = sqlx::query(
+        "WITH selected AS MATERIALIZED (
+             SELECT * FROM article_setup_session WHERE session_id=ANY($1)
+         ), variants AS (
+             SELECT j.session_id,jsonb_agg(jsonb_build_object(
+                 'sku_code',l.sku_code,'colour_digit',l.colour_digit,
+                 'colour_label',l.colour_label,'size_code',l.size_code,'size_label',l.size_label,
+                 'quantity',l.quantity,'serial_from',l.serial_from,'serial_to',l.serial_to,
+                 'qr_payload',l.qr_payload,'base_price_minor',l.base_price_minor)
+                 ORDER BY l.sku_code) AS items
+             FROM selected s JOIN tagging_job j ON j.session_id=s.session_id
+             JOIN tagging_job_line l ON l.job_id=j.job_id GROUP BY j.session_id
+         ), tags AS (
+             SELECT t.session_id,jsonb_agg(t.tag_code ORDER BY t.tag_code) AS items
+             FROM selected s JOIN article_setup_session_tag t ON t.session_id=s.session_id
+             GROUP BY t.session_id
+         )
+         SELECT s.*,j.job_id,j.status AS job_status,j.confirmed_by,j.confirmed_at,g.supplier_id,
+                queue.state AS issue_state,queue.last_error AS issue_error,
+                COALESCE(variants.items,'[]'::jsonb) AS variants,COALESCE(tags.items,'[]'::jsonb) AS tags
+         FROM selected s LEFT JOIN tagging_job j ON j.session_id=s.session_id
+         LEFT JOIN goods_receipt_line r ON r.receipt_line_id=s.receipt_line_id
+         LEFT JOIN goods_receipt g ON g.receipt_id=r.receipt_id
+         LEFT JOIN article_setup_issue_queue queue ON queue.session_id=s.session_id
+         LEFT JOIN variants ON variants.session_id=s.session_id
+         LEFT JOIN tags ON tags.session_id=s.session_id
+         ORDER BY array_position($1::uuid[],s.session_id)",
+    ).bind(session_ids).fetch_all(pool).await?;
+    Ok(sessions
+        .into_iter()
+        .map(|session| {
+            json!({
+                "session_id": session.get::<Uuid, _>("session_id"),
+                "receipt_line_id": session.get::<Uuid, _>("receipt_line_id"),
+                "article_code": session.get::<String, _>("article_code"),
+                "supplier_article_code": session.get::<Option<String>, _>("supplier_article_code"),
+                // The supplier's CODE — `SUP02` — which is what the receipt carries
+                // and what the supplier book is keyed by. The name is looked up where
+                // it is read, so this answer does not go stale when somebody renames a
+                // supplier.
+                "supplier_code": session.get::<Option<String>, _>("supplier_id"),
+                "article_name": session.get::<String, _>("article_name"),
+                "division_code": session.get::<String, _>("division_code"),
+                "tags": session.get::<Value, _>("tags"),
+                "currency": session.get::<String, _>("currency").trim(),
+                "receipt_quantity": session.get::<i64, _>("receipt_quantity"),
+                "site_id": session.get::<String, _>("destination_site_id"),
+                "status": session.get::<String, _>("status"),
+                "issue_state": session.get::<Option<String>, _>("issue_state"),
+                "issue_error": session.get::<Option<String>, _>("issue_error"),
+                "created_by": session.get::<String, _>("created_by"),
+                "created_at": session.get::<DateTime<Utc>, _>("created_at"),
+                "issued_at": session.get::<Option<DateTime<Utc>>, _>("issued_at"),
+                "tagged_at": session.get::<Option<DateTime<Utc>>, _>("tagged_at"),
+                "job": session.get::<Option<Uuid>, _>("job_id").map(|job_id| json!({
+                    "job_id": job_id,
+                    "status": session.get::<Option<String>, _>("job_status"),
+                    "confirmed_by": session.get::<Option<String>, _>("confirmed_by"),
+                    "confirmed_at": session.get::<Option<DateTime<Utc>>, _>("confirmed_at"),
+                })),
+                "variants": session.get::<Value, _>("variants"),
+            })
+        })
+        .collect())
 }
 
 /// Sessions waiting on head office, oldest first.
@@ -1315,11 +1702,13 @@ pub async fn pending_setup_sessions(pool: &PgPool) -> Result<Vec<SetupSessionSum
     let rows = sqlx::query(
         "SELECT s.session_id, s.receipt_line_id, s.article_code, s.article_name, s.division_code,
                 s.receipt_quantity, s.destination_site_id, s.status, s.created_by, s.created_at,
-                COALESCE(SUM(v.target_quantity), 0)::bigint AS declared
+                COALESCE(SUM(v.target_quantity), 0)::bigint AS declared,
+                queue.state AS issue_state, queue.last_error AS issue_error
          FROM article_setup_session s
          LEFT JOIN article_setup_variant v ON v.session_id = s.session_id
+         LEFT JOIN article_setup_issue_queue queue ON queue.session_id = s.session_id
          WHERE s.status = 'OPEN'
-         GROUP BY s.session_id
+         GROUP BY s.session_id,queue.session_id
          ORDER BY s.created_at",
     )
     .fetch_all(pool)
@@ -1336,6 +1725,8 @@ pub async fn pending_setup_sessions(pool: &PgPool) -> Result<Vec<SetupSessionSum
             declared_quantity: row.get("declared"),
             destination_site_id: row.get("destination_site_id"),
             status: row.get("status"),
+            issue_state: row.get("issue_state"),
+            issue_error: row.get("issue_error"),
             created_by: row.get("created_by"),
             created_at: row.get("created_at"),
         })

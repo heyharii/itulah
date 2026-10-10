@@ -1,10 +1,10 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
-import { Button } from "@/components/ui/button"
-import { Field, Input, Select } from "@/components/ui/field"
-import { RecordSheet } from "@/components/ui/record-sheet"
+import { Field, Input, Select, Textarea } from "@/components/ui/field"
+import { SheetSection } from "@/components/ui/people-sheet"
 import { Segmented } from "@/components/ui/segmented"
+import { Sheet } from "@/components/ui/sheet"
 import { Banner } from "@/components/ui/states"
 import {
   coveringContract,
@@ -26,7 +26,7 @@ import {
   repairObjectWords,
   today,
 } from "@/screens/ga/format"
-import { ChoiceTiles, SheetBlock, TextArea } from "@/screens/ga/parts"
+import { ChoiceTiles, Question, Submit } from "@/screens/ga/parts"
 import { describeGa } from "@/screens/ga/state"
 import type { GaAssetRow } from "@itulah/contract"
 
@@ -42,7 +42,8 @@ const URGENCY: readonly { value: Urgency; label: string; says: string }[] = [
   },
 ]
 
-/// Telling head office something is broken, from the shop it broke in.
+/// Telling head office something is broken, from the shop it broke in — a sheet
+/// with a `[Cancel] [Create repair request]` foot.
 ///
 /// # Two ways to tell them, when there is an asset
 ///
@@ -198,9 +199,7 @@ export function RepairComposer({
   const problems = {
     title: title.trim() === "" ? "Say what is wrong." : null,
     objek:
-      !noting && askObject && objek === null
-        ? "Choose a kind."
-        : null,
+      !noting && askObject && objek === null ? "Choose a kind." : null,
     vendor:
       !noting && who === null
         ? vendors.length === 0
@@ -222,7 +221,7 @@ export function RepairComposer({
   }
 
   return (
-    <RecordSheet
+    <Sheet
       open={open}
       onOpenChange={(next) => {
         if (!next) onClose()
@@ -235,208 +234,188 @@ export function RepairComposer({
           : undefined
       }
       footer={
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button variant="primary" disabled={file.isPending} onClick={submit}>
-            {file.isPending
-              ? "Sending…"
-              : noting
-                ? "Add the note"
-                : "Send to head office"}
-          </Button>
-        </div>
+        <Submit
+          label={noting ? "Create note" : "Create repair request"}
+          pendingLabel="Creating…"
+          pending={file.isPending}
+          error={file.error}
+          onSubmit={submit}
+          onCancel={onClose}
+        />
       }
     >
-      <div className="flex flex-col gap-5">
-        {file.error !== null && (
-          <Banner tone="bad">{describeGa(file.error)}</Banner>
-        )}
-
-        {withAsset && (
+      {withAsset && (
+        <div className="mb-6">
           <Segmented
             value={mode}
             onChange={setMode}
-            className="[&>button]:pointer-coarse:h-tap"
             options={[
               { value: "repair", label: "Needs fixing" },
               { value: "note", label: "Just a note" },
             ]}
           />
-        )}
+        </div>
+      )}
 
-        <SheetBlock title="What is it">
-          <div className="flex flex-col gap-3">
-            {asset ? (
-              <p className="text-cell text-body">
-                {asset.name} · {asset.class_name}
-                {asset.sub_location !== null && ` · ${asset.sub_location}`}
-              </p>
-            ) : (
-              <Field
-                label="Asset"
-                hint={
-                  chosen !== undefined
-                    ? `${classOf(chosen.build).label} · ${chosen.class_name}${chosen.sub_location !== null ? ` · ${chosen.sub_location}` : ""}`
-                    : "Empty for the building itself"
-                }
+      <SheetSection title="What is it">
+        <div className="flex flex-col gap-4">
+          {asset ? (
+            <p className="text-cell text-body">
+              {asset.name} · {asset.class_name}
+              {asset.sub_location !== null && ` · ${asset.sub_location}`}
+            </p>
+          ) : (
+            <Field
+              label="Asset"
+              hint={
+                chosen !== undefined
+                  ? `${classOf(chosen.build).label} · ${chosen.class_name}${chosen.sub_location !== null ? ` · ${chosen.sub_location}` : ""}`
+                  : undefined
+              }
+            >
+              <Select
+                value={assetId}
+                onChange={(next) => {
+                  setAssetId(next)
+                  setObjek(null)
+                  setVendor(null)
+                }}
+                aria-label="Asset"
               >
-                <Select
-                  value={assetId}
+                <option value="">Not a registered asset</option>
+                {(assets.data?.rows ?? []).map((one) => (
+                  <option key={one.asset_id} value={one.asset_id}>
+                    {one.name} · {one.asset_number}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
+          {!noting && askObject && (
+            <Question
+              label={withAsset ? "Kind of repair" : "What kind of thing"}
+              required
+              problem={tried ? problems.objek : null}
+            >
+              {objects.isPending ? (
+                <p className="text-meta text-mute">
+                  Reading the kinds of repair…
+                </p>
+              ) : objects.isError ? (
+                <p className="text-meta text-bad">
+                  {describeGa(objects.error)}
+                </p>
+              ) : (
+                <ChoiceTiles
+                  label="What kind of thing"
+                  value={objek}
                   onChange={(next) => {
-                    setAssetId(next)
-                    setObjek(null)
+                    setObjek(next)
                     setVendor(null)
                   }}
-                  aria-label="Asset"
+                  options={(objects.data ?? []).map((one) => ({
+                    value: one.code,
+                    label: repairObjectWords(one.code, one.name),
+                    icon: repairObjectIcon(one.code),
+                  }))}
+                />
+              )}
+            </Question>
+          )}
+        </div>
+      </SheetSection>
+
+      <SheetSection title="What is wrong">
+        <div className="flex flex-col gap-4">
+          <Field
+            label={noting ? "Note" : "In one line"}
+            required
+            problem={tried ? problems.title : null}
+          >
+            <Input
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              placeholder={
+                noting ? "Moved to the stockroom" : "AC by the till is not cooling"
+              }
+            />
+          </Field>
+          <Field label="More detail">
+            <Textarea
+              rows={3}
+              value={details}
+              onChange={(event) => setDetails(event.target.value)}
+              placeholder="Since this morning. Dripping water onto the counter."
+            />
+          </Field>
+          <Question label="How urgent">
+            <Segmented
+              value={urgency}
+              onChange={setUrgency}
+              options={URGENCY.map((one) => ({
+                value: one.value,
+                label: one.label,
+              }))}
+            />
+          </Question>
+        </div>
+      </SheetSection>
+
+      {!noting && (
+        <SheetSection title="Who should fix it">
+          {blocked ? (
+            <Banner tone="warn">
+              No supplier on record for this shop.{" "}
+              {withAsset
+                ? "Add a note on the asset instead."
+                : "Pick an asset to leave a note, or call GA."}
+            </Banner>
+          ) : (
+            <div className="flex flex-col gap-4">
+              <Field
+                label="Supplier"
+                required
+                hint={
+                  covering !== undefined && covering.supplier_id === who
+                    ? `Under ${covering.contract_number ?? "the maintenance contract"}`
+                    : undefined
+                }
+                problem={tried ? problems.vendor : null}
+              >
+                <Select
+                  value={who ?? ""}
+                  onChange={(next) => setVendor(next === "" ? null : next)}
+                  aria-label="Supplier"
+                  disabled={place.isPending || repairs.isPending}
                 >
-                  <option value="">Not a registered asset</option>
-                  {(assets.data?.rows ?? []).map((one) => (
-                    <option key={one.asset_id} value={one.asset_id}>
-                      {one.name} · {one.asset_number}
+                  <option value="">
+                    {place.isPending || repairs.isPending
+                      ? "Reading the suppliers…"
+                      : "Choose…"}
+                  </option>
+                  {vendors.map((one) => (
+                    <option key={one.supplier_id} value={one.supplier_id}>
+                      {one.name} · {one.why}
                     </option>
                   ))}
                 </Select>
               </Field>
-            )}
-            {!noting && askObject && (
-              <div className="flex flex-col gap-1.5">
-                <span className="text-meta font-medium text-text">
-                  {withAsset
-                    ? "Kind of repair"
-                    : "What kind of thing"}
-                </span>
-                {objects.isPending ? (
-                  <p className="text-meta text-mute">Loading…</p>
-                ) : objects.isError ? (
-                  <p className="text-meta text-bad">
-                    {describeGa(objects.error)}
-                  </p>
-                ) : (
-                  <ChoiceTiles
-                    label="What kind of thing"
-                    value={objek}
-                    onChange={(next) => {
-                      setObjek(next)
-                      setVendor(null)
-                    }}
-                    options={(objects.data ?? []).map((one) => ({
-                      value: one.code,
-                      label: repairObjectWords(one.code, one.name),
-                      icon: repairObjectIcon(one.code),
-                    }))}
-                  />
-                )}
-                {tried && problems.objek !== null && (
-                  <span className="text-meta text-bad">{problems.objek}</span>
-                )}
-              </div>
-            )}
-          </div>
-        </SheetBlock>
-
-        <SheetBlock title="What is wrong">
-          <div className="flex flex-col gap-3">
-            <Field
-              label={noting ? "Note" : "In one line"}
-              problem={tried ? problems.title : null}
-            >
-              <Input
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                placeholder={
-                  noting
-                    ? "Moved to the stockroom"
-                    : "AC by the till is not cooling"
-                }
-                invalid={tried && problems.title !== null}
-              />
-            </Field>
-            <Field
-              label="More detail"
-              hint="Optional"
-            >
-              <TextArea
-                value={details}
-                onChange={(event) => setDetails(event.target.value)}
-                placeholder="Since this morning. Dripping water onto the counter."
-              />
-            </Field>
-            <div className="flex flex-col gap-1.5">
-              <span className="text-meta font-medium text-text">
-                How urgent
-              </span>
-              <Segmented
-                value={urgency}
-                onChange={setUrgency}
-                className="[&>button]:pointer-coarse:h-tap"
-                options={URGENCY.map((one) => ({
-                  value: one.value,
-                  label: one.label,
-                }))}
-              />
-            </div>
-          </div>
-        </SheetBlock>
-
-        {!noting && (
-          <SheetBlock title="Who should fix it">
-            {blocked ? (
-              <Banner tone="warn">
-                No supplier on record for this shop.{" "}
-                {withAsset
-                  ? "Add a note on the asset instead."
-                  : "Pick an asset to leave a note, or call GA."}
-              </Banner>
-            ) : (
-              <div className="flex flex-col gap-3">
-                <Field
-                  label="Supplier"
-                  hint={
-                    covering !== undefined && covering.supplier_id === who
-                      ? `Under ${covering.contract_number ?? "the maintenance contract"}`
-                      : undefined
+              <Field label="Noticed on">
+                <Input
+                  type="date"
+                  value={noticed}
+                  max={today()}
+                  onChange={(event) =>
+                    setNoticed(
+                      event.target.value === "" ? today() : event.target.value,
+                    )
                   }
-                  problem={tried ? problems.vendor : null}
-                >
-                  <Select
-                    value={who ?? ""}
-                    onChange={(next) => setVendor(next === "" ? null : next)}
-                    aria-label="Supplier"
-                    disabled={place.isPending || repairs.isPending}
-                  >
-                    <option value="">
-                      {place.isPending || repairs.isPending
-                        ? "Loading…"
-                        : "Choose…"}
-                    </option>
-                    {vendors.map((one) => (
-                      <option key={one.supplier_id} value={one.supplier_id}>
-                        {one.name} · {one.why}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-                <Field label="Noticed on">
-                  <Input
-                    type="date"
-                    value={noticed}
-                    max={today()}
-                    onChange={(event) =>
-                      setNoticed(
-                        event.target.value === ""
-                          ? today()
-                          : event.target.value,
-                      )
-                    }
-                  />
-                </Field>
-              </div>
-            )}
-          </SheetBlock>
-        )}
-      </div>
-    </RecordSheet>
+                />
+              </Field>
+            </div>
+          )}
+        </SheetSection>
+      )}
+    </Sheet>
   )
 }

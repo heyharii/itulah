@@ -467,7 +467,8 @@ fn promotion_rows() -> String {
 const RULE_STARTS: &str = "CASE WHEN (r.definition->'conditions'->>'effective_from') ~ '^[0-9][0-9][0-9][0-9]-'
                   AND pg_input_is_valid(r.definition->'conditions'->>'effective_from', 'timestamptz')
                  THEN (r.definition->'conditions'->>'effective_from')::timestamptz END";
-const RULE_ENDS: &str = "CASE WHEN (r.definition->'conditions'->>'effective_to') ~ '^[0-9][0-9][0-9][0-9]-'
+const RULE_ENDS: &str =
+    "CASE WHEN (r.definition->'conditions'->>'effective_to') ~ '^[0-9][0-9][0-9][0-9]-'
                   AND pg_input_is_valid(r.definition->'conditions'->>'effective_to', 'timestamptz')
                  THEN (r.definition->'conditions'->>'effective_to')::timestamptz END";
 

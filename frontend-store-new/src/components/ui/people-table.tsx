@@ -1,5 +1,36 @@
+import { CardList } from "@/components/ui/card-list"
+import { LeadCard } from "@/components/ui/lead-card"
+import { EmptyState } from "@/components/ui/states"
 import { useLayout } from "@/lib/layout"
 import { cn } from "@/lib/utils"
+
+/// One row as the uniform lead-figure card — what a phone draws for every
+/// People list (`LeadCard`, `components/ui/lead-card.tsx`):
+///
+///   title   the person's FULL name (never a login), or the document's name
+///   lines   under it, 14px grey: their role, then at most one more line
+///   lead    the ONE figure that matters, 24px at the right — days, hours,
+///           an amount, a date — with a plain caption under it
+///   foot    `info` on the left (a `<Status>` dot and word), and on the right
+///           ONE tint word button (`Open`, `Review`) — the card is also the
+///           target, so the button opens the same sheet
+export interface PeopleCard {
+  readonly title: React.ReactNode
+  readonly code?: React.ReactNode
+  readonly lines?: readonly React.ReactNode[]
+  readonly lead?: {
+    readonly figure: React.ReactNode
+    readonly caption?: React.ReactNode
+    readonly muted?: boolean
+  }
+  readonly foot?: {
+    readonly info?: React.ReactNode
+    readonly action?: { readonly label: string; readonly onClick: () => void }
+    readonly status?: React.ReactNode
+  }
+  /// A card that needs somebody: the foot takes a light red wash.
+  readonly tone?: "alert"
+}
 
 /// One column of a `PeopleTable`, declared once for both of its shapes.
 export interface PeopleColumn<T> {
@@ -44,6 +75,7 @@ export function PeopleTable<T>({
   rows,
   columns,
   rowKey,
+  card,
   onRowClick,
   empty,
   className,
@@ -51,6 +83,10 @@ export function PeopleTable<T>({
   rows: readonly T[]
   columns: readonly PeopleColumn<T>[]
   rowKey: (row: T) => string
+  /// What a phone draws for a row: a lead-figure card. A screen that leaves it
+  /// out gets a card guessed from the columns' `card` roles, which is a stopgap
+  /// — a People list always says its own card.
+  card?: (row: T) => PeopleCard
   /// Opening a row. The whole row is the target, on a desk and on a phone.
   onRowClick?: (row: T) => void
   /// What an empty list says. "No rows" and "nothing has happened yet" are
@@ -60,6 +96,36 @@ export function PeopleTable<T>({
 }) {
   const layout = useLayout()
 
+  if (rows.length === 0) {
+    return <EmptyState>{empty ?? "Nothing to show."}</EmptyState>
+  }
+
+  // A phone: the lead-figure card, one under the other. No frame round the
+  // list — each card is its own.
+  if (layout === "phone" && card !== undefined) {
+    return (
+      <CardList className={className}>
+        {rows.map((row) => {
+          const one = card(row)
+          return (
+            <LeadCard
+              key={rowKey(row)}
+              title={one.title}
+              code={one.code}
+              lines={one.lines}
+              lead={one.lead}
+              foot={one.foot}
+              tone={one.tone}
+              onOpen={
+                onRowClick === undefined ? undefined : () => onRowClick(row)
+              }
+            />
+          )
+        })}
+      </CardList>
+    )
+  }
+
   return (
     <div
       className={cn(
@@ -67,13 +133,7 @@ export function PeopleTable<T>({
         className,
       )}
     >
-      {rows.length === 0 ? (
-        <div className="px-4 py-10 text-center">
-          <p className="mx-auto max-w-[28em] text-meta text-body">
-            {empty ?? "Nothing to show."}
-          </p>
-        </div>
-      ) : layout === "phone" ? (
+      {layout === "phone" ? (
         <ul className="flex flex-col">
           {rows.map((row) => (
             <CardRow
@@ -113,8 +173,7 @@ export function PeopleTable<T>({
                   }
                   className={cn(
                     "h-row border-b border-hairline last:border-b-0",
-                    onRowClick !== undefined &&
-                      "cursor-pointer hover:bg-[#f7f9fc]",
+                    onRowClick !== undefined && "cursor-pointer hover:bg-soft",
                   )}
                 >
                   {columns.map((column) => (

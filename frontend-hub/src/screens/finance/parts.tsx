@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query"
 import { Check as CheckIcon, ChevronDown, X } from "lucide-react"
 import { useMemo, useState } from "react"
 
+import { DockPortal, useDock } from "@/components/shell/dock"
 import { Button } from "@/components/ui/button"
 import { Day } from "@/components/ui/day"
 import { Input, Select } from "@/components/ui/field"
@@ -11,10 +12,13 @@ import {
   FORM_HALO_WITHIN,
   useInForm,
 } from "@/components/ui/field-state"
+import { SHEET_ROW } from "@/components/ui/list-chrome"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { Meter } from "@/components/ui/meter"
+import { BottomSheet } from "@/components/ui/picker-sheet"
 import { Tag } from "@/components/ui/tag"
 import { ITEM, POPUP } from "@/lib/filter-chrome"
-import { money } from "@/lib/format"
+import { count, money } from "@/lib/format"
 import { financeKeys, searchAccounts } from "@/lib/queries/finance"
 import {
   siteChoices,
@@ -117,23 +121,23 @@ export function Amount({
 /// the journal — a ledger, a balance, a statement, money, payments, deposits,
 /// bank accounts — is a unit's, and its filter is a `<UnitSelect>`.
 ///
-/// A SITE is premises — the Gudang, a shop. A bill, an asset, a cash count, a
+/// A SITE is premises — the warehouse, a shop. A bill, an asset, a cash count, a
 /// payment instruction or a trading day happened at one, and keeps it; its
 /// filter is a `<SiteSelect>`. A store's unit and its shop share an id today,
-/// head office's unit and the Gudang do not, so the two are never swapped.
+/// head office's unit and the warehouse do not, so the two are never swapped.
 ///
 /// Both replaced a free-text box that was a quiz — the ids are ours and
 /// nothing on any screen said what they were. The value on the wire is still
 /// the id; the client's code and name are for reading, never for sending.
 
-/// Choose a unit, or every unit.
+/// Choose a unit, or all units.
 export function UnitSelect({
   value,
   onChange,
-  /// What the empty option says. A filter means "every unit"; a form field
+  /// What the empty option says. A filter means "all units"; a form field
   /// that must be answered says so instead, and the caller's own validation is
   /// what refuses the empty string.
-  emptyLabel = "Every unit",
+  emptyLabel = "All units",
   /// Units this particular field cannot take. An option whose only outcome is
   /// a refusal is better not offered.
   exclude,
@@ -165,11 +169,11 @@ export function UnitSelect({
   )
 }
 
-/// Choose a site, or every site — for the documents that happened at one.
+/// Choose a site, or all sites — for the documents that happened at one.
 export function SiteSelect({
   value,
   onChange,
-  emptyLabel = "Every site",
+  emptyLabel = "All sites",
   /// Sites this field cannot take. One caller so far: an asset transfer,
   /// whose destination is every site *but* the one it is at — the database
   /// refuses a move to where a thing already is.
@@ -1100,5 +1104,182 @@ export function AccountAndCategory({
         </>
       )}
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// On a phone
+// ---------------------------------------------------------------------------
+
+/// "Pick one of a few" on a phone: a chip in the dock over the bottom bar and
+/// the sheet it opens — a shop, a day, a month, a bank account, a unit.
+///
+/// Nothing is drawn at the top of the page (owner, 2026-10-06), and nothing
+/// is drawn at all on a desk: the screen keeps its own control there and
+/// renders this beside it. The chip names the current answer; the sheet lists
+/// every answer, each with a `note` (the figure it holds) where there is one.
+///
+/// The chip keeps 6px off a neighbour on either side (the dock's tabs slot does
+/// not space its chips, and the Filters and status chips carry no margin of
+/// their own): its own left margin, and the next chip's, whoever's it is.
+export function PhoneChoice({
+  title,
+  value,
+  options,
+  onChange,
+}: {
+  /// What is being chosen: "Shop", "Day". The sheet's heading and the chip's
+  /// spoken name.
+  title: string
+  value: string
+  options: readonly {
+    readonly value: string
+    /// The row's words, and the chip's too unless `short` says otherwise.
+    readonly label: string
+    readonly short?: string
+    /// The figure under or beside the row ("Rp 1,2 M").
+    readonly note?: React.ReactNode
+  }[]
+  onChange: (value: string) => void
+}) {
+  const dock = useDock()
+  const [open, setOpen] = useState(false)
+  const current = options.find((one) => one.value === value)
+  if (dock?.available !== true) return null
+  return (
+    <>
+      <DockPortal slot="tabs">
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          aria-haspopup="dialog"
+          aria-label={`${title}: ${current?.label ?? ""}`}
+          className="ml-1.5 inline-flex h-9 max-w-full items-center gap-1 rounded-full bg-soft-2 pr-2.5 pl-3.5 text-[0.875rem] font-medium text-ink transition-[scale] duration-(--t-press) ease-(--ease-out) first:ml-0 active:scale-[0.97] [&+*]:ml-1.5"
+        >
+          <span className="truncate">{current?.short ?? current?.label}</span>
+          <ChevronDown className="size-4 shrink-0 text-line-ico" />
+        </button>
+      </DockPortal>
+      <BottomSheet open={open} onOpenChange={setOpen} title={title}>
+        <div className="min-h-0 overflow-y-auto overscroll-contain px-2 pb-3">
+          {options.map((one) => {
+            const on = one.value === value
+            return (
+              <button
+                key={one.value}
+                type="button"
+                aria-pressed={on}
+                onClick={() => {
+                  onChange(one.value)
+                  setOpen(false)
+                }}
+                className={cn(SHEET_ROW, on && "font-medium text-accent")}
+              >
+                <span className="min-w-0 flex-1 truncate">{one.label}</span>
+                {one.note !== undefined && (
+                  <span className="shrink-0 text-body tabular-nums">
+                    {one.note}
+                  </span>
+                )}
+                <CheckIcon
+                  className={cn("size-4 shrink-0", on ? "" : "opacity-0")}
+                />
+              </button>
+            )
+          })}
+        </div>
+      </BottomSheet>
+    </>
+  )
+}
+
+/// The figures above a list, on a phone: ONE card, two to a row (`KpiStrip`),
+/// where a desk has a card to each (`<NumberCard>`). Drawn on a phone only —
+/// the screen keeps its desk cards and says `max-md:hidden` on them.
+///
+/// A note under a figure is left out here: the card is two lines tall so that
+/// six figures are three rows, and "As of today" is not worth a third line.
+export interface PhoneFigureItem {
+  readonly label: string
+  /// A number is money (or a count, with `unit`); a string is printed as is.
+  readonly value: number | null | string
+  readonly unit?: "money" | "count"
+  readonly tone?: "bad" | "ok" | "warn"
+}
+
+export function PhoneFigures({
+  items,
+  className,
+}: {
+  items: readonly PhoneFigureItem[]
+  className?: string
+}) {
+  return (
+    <KpiStrip className={cn("md:hidden", className)}>
+      {items.map((item) => (
+        <Kpi
+          key={item.label}
+          label={item.label}
+          value={
+            <span
+              className={
+                item.tone === "bad"
+                  ? "text-bad-fg"
+                  : item.tone === "warn"
+                    ? "text-warn-fg"
+                    : item.tone === "ok"
+                      ? "text-ok-fg"
+                      : undefined
+              }
+            >
+              {typeof item.value === "string"
+                ? item.value
+                : item.value === null
+                  ? "—"
+                  : item.unit === "count"
+                    ? count(item.value)
+                    : money(item.value)}
+            </span>
+          }
+        />
+      ))}
+    </KpiStrip>
+  )
+}
+
+/// `<UnitSelect>` as the dock's chip: pick a unit, or all units, on a phone.
+/// The same list, the same words (`unitLabel`), and nothing on a desk.
+export function PhoneUnitChoice({
+  value,
+  onChange,
+  emptyLabel = "All units",
+  title = "Unit",
+}: {
+  value: string
+  onChange: (unitId: string) => void
+  emptyLabel?: string
+  title?: string
+}) {
+  const map = useLocations()
+  const units = map.data?.locations ?? []
+  const options = [
+    { value: "", label: emptyLabel },
+    ...units.map((unit) => ({
+      value: unit.unit_id,
+      label: unitLabel(unit),
+    })),
+  ]
+  // A value the list does not carry (retired since, or not read yet) is kept
+  // rather than reset, as `<UnitSelect>` keeps it.
+  if (value !== "" && !options.some((one) => one.value === value)) {
+    options.push({ value, label: map.isPending ? "…" : value })
+  }
+  return (
+    <PhoneChoice
+      title={title}
+      value={value}
+      onChange={onChange}
+      options={options}
+    />
   )
 }

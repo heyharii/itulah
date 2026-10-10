@@ -102,13 +102,13 @@ const catalogue: AppModule = {
   sections: [
     {
       items: [
-        { path: "/catalogue", label: "Catalogue", icon: LayoutGrid },
         {
-          path: "/catalogue/product",
-          label: "Article",
+          path: "/catalogue",
+          label: "Catalogue",
           icon: LayoutGrid,
-          hidden: true,
-          back: "/catalogue",
+          // An article is a sheet over the catalogue now (`?sku=`), not a
+          // page of its own: old links land on the sheet.
+          moved: ["/catalogue/product"],
         },
       ],
     },
@@ -346,6 +346,15 @@ const HIDDEN_FROM_RAIL: ReadonlySet<string> = new Set(["people", "ga"])
 export const modules: readonly AppModule[] = everyColumn.filter(
   (module) => !HIDDEN_FROM_RAIL.has(module.id),
 )
+
+/// Whether a module is one of the shop's own — in the rail's column, or kept
+/// out of it (People, GA). The drawer and the screens panel open the module
+/// you are IN even when the rail does not list it, so its screens are never
+/// reachable only by a link: a phone has no strip of chips to move between
+/// them (owner, 2026-10-06 — nothing scrolls sideways).
+export function isShopModule(module: AppModule): boolean {
+  return everyColumn.includes(module)
+}
 
 /// This machine: the one module that is about the node rather than the shop.
 /// It sits at the foot of the rail as a bare icon, the way the hub's System

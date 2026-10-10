@@ -1132,7 +1132,7 @@ async fn append_movement(
     site_id: Option<&str>,
     actor: &str,
     note: Option<&str>,
- ) -> Result<Uuid, AppError> {
+) -> Result<Uuid, AppError> {
     let movement_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO voucher_movement (movement_id, voucher_id, seq, kind,
@@ -1584,13 +1584,12 @@ pub async fn commit_voucher_hold_for_fact(
             "sale {sale_id} names a voucher hold that was never granted ({authorization_id})"
         ))
     })?;
-    let voucher = sqlx::query(
-        "SELECT code, balance_minor FROM voucher WHERE voucher_id = $1 FOR UPDATE",
-    )
-    .bind(voucher_id)
-    .fetch_optional(&mut **tx)
-    .await?
-    .ok_or_else(|| AppError::Conflict(format!("sale {sale_id} names a missing voucher")))?;
+    let voucher =
+        sqlx::query("SELECT code, balance_minor FROM voucher WHERE voucher_id = $1 FOR UPDATE")
+            .bind(voucher_id)
+            .fetch_optional(&mut **tx)
+            .await?
+            .ok_or_else(|| AppError::Conflict(format!("sale {sale_id} names a missing voucher")))?;
     let actual_code: String = voucher.try_get("code")?;
     let balance: i64 = voucher.try_get("balance_minor")?;
 

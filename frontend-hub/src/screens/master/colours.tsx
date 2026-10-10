@@ -8,9 +8,12 @@ import { useCallback, useMemo, useState } from "react"
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DockTools } from "@/components/shell/dock-tools"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
+import { Fab } from "@/components/ui/fab"
 import { Field, Input } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
+import { Status } from "@/components/ui/pill"
 import {
   BarSpacer,
   ColumnsMenu,
@@ -24,6 +27,7 @@ import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
 import { count } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { toast } from "@/lib/toast"
 import {
   colourKeys,
@@ -117,13 +121,13 @@ function curated(colours: readonly ColourTerm[]): ColourRow[] {
   )
 }
 
-const columns: ColumnDef<TableSetup, ColourRow>[] = [
+const baseColumns: ColumnDef<TableSetup, ColourRow>[] = [
   {
     id: "colour",
     accessorFn: (row) => `${row.term.label} ${row.term.code}`,
     header: "Color",
     size: 260,
-    meta: { grow: 260 },
+    meta: { grow: 260, card: "hide" },
     cell: ({ row }) => (
       <span
         className={
@@ -151,6 +155,7 @@ const columns: ColumnDef<TableSetup, ColourRow>[] = [
     accessorFn: (row) => row.term.code,
     header: "Code",
     size: 170,
+    meta: { card: "hide" },
     // Shown beside the label, not instead of it: the code is what an article
     // row points at and what survives a rename, so somebody reading a colourway
     // in the database has to be able to find it here.
@@ -166,6 +171,7 @@ const columns: ColumnDef<TableSetup, ColourRow>[] = [
     // curator tidying up wants that set, not the top of an order.
     meta: {
       align: "right",
+      card: "hide",
       filter: { kind: "number", label: "In Use", unit: "articles" },
     },
     // Zero is drawn as 0, not as "Unused". It was worded, on the argument that
@@ -188,10 +194,114 @@ const columns: ColumnDef<TableSetup, ColourRow>[] = [
     header: "Action",
     size: 80,
     enableSorting: false,
-    meta: { align: "right" },
+    meta: { align: "right", card: "hide" },
     cell: ({ row }) => <RowActions label={row.original.term.label} />,
   },
+  // Four columns that exist only on a card (`cardLead`; a phone): the colour —
+  // its swatch, name and code — the figure the card leads with, how many SKUs
+  // are made in it, and a foot with whether it is Active and an Edit button.
+  // The button opens the sheet the card's own tap opens: a card that only reads
+  // as a summary does not say it can be changed (owner, 2026-10-06). A word,
+  // not a pencil, as every other card's button.
+  {
+    id: "head",
+    accessorFn: (row) => row.term.label,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <span
+        className={
+          row.original.active
+            ? "inline-flex items-center gap-2"
+            : "inline-flex items-center gap-2 opacity-60"
+        }
+      >
+        {!row.original.active && (
+          <EyeOff
+            aria-label="Inactive"
+            className="size-4 shrink-0 text-mute"
+          />
+        )}
+        {/* No code: BLACK under Black says it twice. The sheet has it. */}
+        <ColourSwatch
+          hex={row.original.term.hex_code}
+          label={row.original.term.label}
+        />
+      </span>
+    ),
+  },
+  {
+    id: "lead",
+    accessorFn: (row) => row.term.in_use,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "lead" },
+    cell: ({ row }) => {
+      const n = row.original.term.in_use
+      return (
+        <span className="flex flex-col items-end tabular-nums">
+          <span
+            className={
+              n === 0
+                ? "text-[1.5rem] leading-tight font-semibold tracking-tight text-mute"
+                : "text-[1.5rem] leading-tight font-semibold tracking-tight text-ink"
+            }
+          >
+            {count(n)}
+          </span>
+          <span className="text-[0.875rem] text-mute">
+            {n === 1 ? "SKU" : "SKUs"}
+          </span>
+        </span>
+      )
+    },
+  },
 ]
+
+/// The card-only foot, a column each for what its two sides say: the status on
+/// the left, the Edit button on the right.
+function footColumns(
+  onEdit: (code: string) => void
+): ColumnDef<TableSetup, ColourRow>[] {
+  return [
+    {
+      id: "foot",
+      accessorFn: (row) => row.active,
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "foot" },
+      cell: ({ row }) => (
+        <Status tone={row.original.active ? "ok" : "neutral"}>
+          {row.original.active ? "Active" : "Inactive"}
+        </Status>
+      ),
+    },
+    {
+      id: "edit",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { align: "right", card: "status" },
+      cell: ({ row }) => (
+        <Button
+          variant="tint"
+          size="card"
+          aria-label={`Edit ${row.original.term.label}`}
+          onClick={(event) => {
+            event.stopPropagation()
+            onEdit(row.original.term.code)
+          }}
+        >
+          Edit
+        </Button>
+      ),
+    },
+  ]
+}
 
 /// Edit: the row's own click opens the sheet; the button only says so. Inactive
 /// and Delete live in the sheet (owner, 2026-10-05).
@@ -254,7 +364,16 @@ export function Colours() {
     [all, tab, inUseOnly]
   )
 
+  const edit = useCallback((code: string) => {
+    setCreating(false)
+    setEditing(code)
+  }, [])
+  const columns = useMemo(
+    () => [...baseColumns, ...footColumns(edit)],
+    [edit]
+  )
   const filters = useFilters(columns)
+  const phone = useLayout() === "phone"
 
   const table = useTable(
     useMemo(
@@ -267,11 +386,13 @@ export function Colours() {
           columnFilters: filters.columnFilters,
           globalFilter: query,
           sorting,
+          // The card's own columns are drawn on a phone and never on a desk.
+          columnVisibility: { head: phone, lead: phone, foot: phone, edit: phone },
         },
         onSortingChange: setSorting,
         onGlobalFilterChange: setQuery,
       }),
-      [rows, filters.columns, filters.columnFilters, query, sorting]
+      [rows, filters.columns, filters.columnFilters, query, sorting, phone]
     )
   )
 
@@ -306,6 +427,9 @@ export function Colours() {
       </KpiStrip>
 
       <SubTabs
+        // The status is the button in the drawer over the bottom bar on a
+        // phone (`DockTools`), as on the order list.
+        className="max-md:hidden"
         tabs={[
           {
             value: "ACTIVE",
@@ -324,23 +448,28 @@ export function Colours() {
         onChange={(next) => setTab(next as StatusTab)}
       />
 
-      <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
-        <ExpandingSearch
-          value={query}
-          onChange={setQuery}
-          label="Search Colors"
-        />
-        <SwitchPill
-          on={inUseOnly}
-          label="In Use"
-          onToggle={() => setInUseOnly((was) => !was)}
-        />
+      <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
+        <span className="contents max-md:hidden">
+          <ExpandingSearch
+            value={query}
+            onChange={setQuery}
+            label="Search Colors"
+          />
+        </span>
+        <span className="contents max-md:hidden">
+          <SwitchPill
+            on={inUseOnly}
+            label="In Use"
+            onToggle={() => setInUseOnly((was) => !was)}
+          />
+        </span>
         <BarSpacer />
         <div className="hidden md:contents">
           <ColumnsMenu table={table} />
         </div>
         <Button
           variant="primary"
+          className="max-md:hidden"
           onClick={() => {
             setEditing(null)
             setCreating(true)
@@ -350,7 +479,32 @@ export function Colours() {
         </Button>
       </div>
 
-      <Card className="overflow-clip">
+      <Fab
+        label="New Color"
+        onClick={() => {
+          setEditing(null)
+          setCreating(true)
+        }}
+      />
+      <DockTools
+        search={{ value: query, onChange: setQuery, label: "Search Colors" }}
+        filter={{
+          count: filters.filters.length,
+          panel: { model: filters, table },
+        }}
+        sort={dockSortOf(table)}
+        status={{
+          value: tab,
+          options: [
+            { value: "ACTIVE", label: "Active", count: all.length - retired },
+            { value: "INACTIVE", label: "Inactive", count: retired },
+            { value: "ALL", label: "All", count: all.length },
+          ],
+          onChange: (next) => setTab(next as StatusTab),
+        }}
+      />
+
+      <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(colours, {
           loading: "Reading the vocabulary…",
           render: () =>
@@ -367,6 +521,7 @@ export function Colours() {
               </EmptyState>
             ) : (
               <DataTable<ColourRow>
+                refresh={[colours]}
                 table={table}
                 onRowClick={(row) => {
                   setCreating(false)
@@ -375,6 +530,9 @@ export function Colours() {
                 isSelected={(row) => row.term.code === editing}
                 empty="No color matches that search."
                 pageScroll
+                cardSort={false}
+                cardsApart
+                cardLead
               />
             ),
         })}
@@ -522,7 +680,10 @@ function ColourForm({
     mutationFn: () => deleteColour(colour!.term.code, colour!.term.version),
     onSuccess: () => {
       setDeleting(false)
-      void client.invalidateQueries({ queryKey: colourKeys.all })
+      void client.invalidateQueries({ queryKey: colourKeys.list() })
+      void client.invalidateQueries({
+        queryKey: colourKeys.usage(colour!.term.code),
+      })
       onSaved()
     },
     onError: (error) => toast.error(said(error)),
@@ -562,10 +723,17 @@ function ColourForm({
           )
     },
     onSuccess: () => {
-      // The whole prefix: the list on this screen and the picker on every
-      // article form are the same read, and a colour renamed in one that still
-      // reads the old way in the other is the drift this table exists to end.
-      void client.invalidateQueries({ queryKey: colourKeys.all })
+      // The list and the edited colour's usage panel: the list on this screen
+      // and the picker on every article form are the same read, and a colour
+      // renamed in one that still reads the old way in the other is the drift
+      // this table exists to end. A colour being created has never been used,
+      // so only an edit narrows to its own usage panel.
+      void client.invalidateQueries({ queryKey: colourKeys.list() })
+      if (colour !== null) {
+        void client.invalidateQueries({
+          queryKey: colourKeys.usage(colour.term.code),
+        })
+      }
       idempotency.rotate()
       onSaved()
     },

@@ -1,100 +1,68 @@
-import { PackageCheck, Truck } from "lucide-react"
 import { useMemo, useState } from "react"
 
-import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
-import { ListTable, type ListColumn } from "@/components/ui/list-table"
-import { Pill } from "@/components/ui/pill"
+import { DockTools } from "@/components/shell/dock-tools"
+import { CardList } from "@/components/ui/card-list"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
+import { LeadCard } from "@/components/ui/lead-card"
+import { Status } from "@/components/ui/pill"
 import { Screen } from "@/components/ui/screen"
 import { Segmented } from "@/components/ui/segmented"
-import { Stat, StatStrip } from "@/components/ui/stat-strip"
-import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
-import { describe } from "@/lib/errors"
-import { count, day } from "@/lib/format"
-import { isoDay } from "@/lib/queries"
-import { DeliveryDetail, DeliverySheet } from "@/screens/stock/delivery-sheet"
 import {
-  INBOUND_POLL_MS,
+  Banner,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from "@/components/ui/states"
+import { describe } from "@/lib/errors"
+import { count, dateText, day } from "@/lib/format"
+import { isoDay } from "@/lib/queries"
+import { DeliverySheet } from "@/screens/stock/delivery-sheet"
+import {
   byArrival,
+  cartons,
   deliveryName,
   resultOf,
   useInbound,
   verdictOf,
 } from "@/screens/stock/inbound"
-import { StockStrip, Toolbar } from "@/screens/stock/parts"
+import { useOpenRecord } from "@/screens/stock/open-record"
+import { sourceName } from "@/screens/stock/shared"
 import type { StoreInboundDelivery } from "@itulah/contract"
 
 /// Receive — the deliveries on their way to this shop, and what arrived.
 ///
-/// **Receiving needs no reader** (owner, 29 Sep 2026). Opening a delivery
-/// still in transit offers Receive: a blind count per SKU, scanned or typed,
-/// without being shown what was packed — the same ceremony a handheld's sweep
-/// always was, just without the handheld. This screen is the list of what is
-/// still on the road and, for each one already counted, what came in against
-/// what was sent.
+/// **Receiving needs no reader** (owner, 29 Sep 2026). A delivery still in
+/// transit carries the word Receive: it opens the delivery as a sheet and takes
+/// a blind count per SKU, scanned or typed, without being shown what was
+/// packed — the same ceremony a handheld's sweep always was, just without the
+/// handheld. This screen is the list of what is still on the road and, for each
+/// one already counted, what came in against what was sent.
 ///
 /// **In transit is blind.** The node does not send what was packed until the
 /// count is in, and nothing on this screen would draw it if it did
 /// (`resultOf`): a count made by somebody who knows the number tends to stop
 /// at that number.
 ///
-/// Laid out as the other Stock screens: the figures across the top, a filter
-/// over a table, and a row opening its delivery in a sheet — a sheet rather
-/// than in place, because a received delivery is a record with a table of its
-/// own inside it. The list polls, so a count finished at another till shows up
-/// here without anybody touching this one.
-export function Receive() {
-  const inbound = useInbound()
-  const deliveries = inbound.data?.deliveries
-
-  return (
-    <Screen className="[&>div:first-child]:md:mb-6">
-      <StockStrip />
-      {deliveries === undefined ? (
-        inbound.isError ? (
-          <Card>
-            <Unreadable
-              error={inbound.error}
-              onRetry={() => void inbound.refetch()}
-            />
-          </Card>
-        ) : (
-          <LoadingState>Reading this shop's deliveries…</LoadingState>
-        )
-      ) : (
-        <Deliveries
-          rows={deliveries}
-          checkedAt={inbound.dataUpdatedAt}
-          // A failed poll is said beside the last answer rather than instead
-          // of it — the Sync screen's rule. One dropped request every fifteen
-          // seconds must not blank a list somebody is reading.
-          failure={inbound.isError ? inbound.error : null}
-        />
-      )}
-    </Screen>
-  )
-}
-
+/// Nothing at the top but the title (the top bar's) and the three figures. In
+/// transit / Received / All is the dock's status chip on a phone and a
+/// `Segmented` on a desk. A delivery is a card — its surat jalan number, the
+/// cartons (or, once counted, the pieces) as the one figure, and in the foot
+/// when it left beside Receive, or its verdict once it is in — and opens as a
+/// sheet over the list (`?delivery=`). The list polls, so a count finished at
+/// another till shows up here without anybody touching this one.
 type View = "IN_TRANSIT" | "RECEIVED" | "ALL"
 
 const DAY_MS = 24 * 60 * 60_000
 
-function Deliveries({
-  rows,
-  checkedAt,
-  failure,
-}: {
-  rows: readonly StoreInboundDelivery[]
-  checkedAt: number
-  failure: unknown
-}) {
-  /// Null until somebody picks: then the screen opens where the work is —
-  /// on what is still coming when anything is, on what arrived when not.
+export function Receive() {
+  const inbound = useInbound()
+  const record = useOpenRecord("delivery")
+  const deliveries = inbound.data?.deliveries
+  const rows = useMemo(() => deliveries ?? [], [deliveries])
+  const checkedAt = inbound.dataUpdatedAt
+  /// Null until somebody picks: then the screen opens where the work is — on
+  /// what is still coming when anything is, on what arrived when not.
   const [chosen, setChosen] = useState<View | null>(null)
-  /// The delivery whose sheet is open, by id, so it is read from each poll.
-  const [opened, setOpened] = useState<string | null>(null)
-  const live =
-    opened === null ? undefined : rows.find((one) => one.delivery_id === opened)
 
   const sorted = useMemo(() => [...rows].sort(byArrival), [rows])
   const inTransit = sorted.filter((one) => one.status === "IN_TRANSIT")
@@ -129,105 +97,130 @@ function Deliveries({
     (one) => (resultOf(one)?.missing_units ?? 0) > 0,
   ).length
 
-  if (rows.length === 0) {
-    return (
-      <>
-        {failure !== null && <Stale failure={failure} checkedAt={checkedAt} />}
-        <Card>
-          <EmptyState>
-            No delivery has been sent to this shop yet. When the DC or head
-            office sends one, it shows here as in transit — then receive it with
-            a count when it arrives.
-          </EmptyState>
-        </Card>
-      </>
-    )
-  }
+  const options = [
+    {
+      value: "IN_TRANSIT" as const,
+      label: "In transit",
+      count: inTransit.length,
+    },
+    { value: "RECEIVED" as const, label: "Received", count: received.length },
+    { value: "ALL" as const, label: "All", count: sorted.length },
+  ]
 
   return (
-    <>
-      <StatStrip className="md:grid-cols-3">
-        <Stat
-          label="In transit"
-          value={count(inTransit.length)}
-          sub={
-            inTransit.length === 0
-              ? "Nothing on its way"
-              : `${count(koli)} koli on the way`
-          }
-        />
-        <Stat
-          label="Received today"
-          value={count(receivedToday.length)}
-          sub={
-            receivedToday.length === 0
-              ? "None counted yet"
-              : `${count(unitsToday)} units counted`
-          }
-        />
-        <Stat
-          label="Units missing"
-          value={count(missing)}
-          tone={missing > 0 ? "bad" : undefined}
-          sub={
-            missing > 0
-              ? `30 days · ${deliveryCount(short)}`
-              : "None in 30 days"
-          }
-        />
-      </StatStrip>
+    <Screen counter>
+      <DockTools
+        status={{
+          value: view,
+          options,
+          onChange: (next) => setChosen(next as View),
+        }}
+      />
 
-      {failure !== null && <Stale failure={failure} checkedAt={checkedAt} />}
+      {deliveries === undefined ? (
+        inbound.isError ? (
+          <ErrorState
+            error={inbound.error}
+            onRetry={() => void inbound.refetch()}
+          />
+        ) : (
+          <LoadingState>Reading this shop's deliveries…</LoadingState>
+        )
+      ) : rows.length === 0 ? (
+        <>
+          {inbound.isError && (
+            <Stale failure={inbound.error} checkedAt={checkedAt} />
+          )}
+          <EmptyState>No delivery has been sent to this shop yet.</EmptyState>
+        </>
+      ) : (
+        <>
+          <KpiStrip>
+            <Kpi
+              label="In transit"
+              value={count(inTransit.length)}
+              delta={
+                inTransit.length === 0
+                  ? "Nothing on its way"
+                  : `${cartons(koli)} on the way`
+              }
+              tone="flat"
+            />
+            <Kpi
+              label="Received today"
+              value={count(receivedToday.length)}
+              delta={
+                receivedToday.length === 0
+                  ? "None counted yet"
+                  : `${count(unitsToday)} pcs counted`
+              }
+              tone="flat"
+            />
+            <Kpi
+              label="Pcs missing"
+              value={count(missing)}
+              delta={
+                missing > 0
+                  ? `30 days · ${deliveryCount(short)}`
+                  : "None in 30 days"
+              }
+              tone={missing > 0 ? "down" : "flat"}
+            />
+          </KpiStrip>
 
-      <Toolbar>
-        <Segmented<View>
-          value={view}
-          onChange={setChosen}
-          // The compact control under a mouse, the touch floor under a finger
-          // — the Movements filter's classes, with less padding on a phone,
-          // where three labels with their counts only just share 343px.
-          className="md:w-auto [&>button]:px-2 [&>button]:whitespace-nowrap md:[&>button]:px-3.5 pointer-coarse:[&>button]:h-tap md:pointer-fine:[&>button]:h-8"
-          options={[
-            {
-              value: "IN_TRANSIT",
-              label: `In transit · ${count(inTransit.length)}`,
-            },
-            {
-              value: "RECEIVED",
-              label: `Received · ${count(received.length)}`,
-            },
-            { value: "ALL", label: `All · ${count(sorted.length)}` },
-          ]}
-        />
-        <p className="text-meta text-mute tabular-nums md:text-right">
-          Checked {clock(checkedAt)} · every {INBOUND_POLL_MS / 1000} seconds
-        </p>
-      </Toolbar>
+          {/* A poll that failed after one that did not is said beside the last
+              answer rather than instead of it: one dropped request every
+              fifteen seconds must not blank a list somebody is reading. */}
+          {inbound.isError && (
+            <Stale failure={inbound.error} checkedAt={checkedAt} />
+          )}
 
-      <Card>
-        <ListTable
-          roomy
-          rows={shown}
-          columns={COLUMNS}
-          rowKey={(one) => one.delivery_id}
-          detail={(one) => <DeliveryDetail delivery={one} />}
-          onOpen={(one) => setOpened(one.delivery_id)}
-          empty={
-            view === "IN_TRANSIT"
-              ? "Nothing is on its way to this shop right now."
-              : "Nothing has been received yet."
-          }
-        />
-      </Card>
+          {/* The desk's switch; on a phone it is the dock's status chip. */}
+          <div className="mb-3.5 flex items-center max-md:hidden">
+            <Segmented<View>
+              value={view}
+              onChange={setChosen}
+              options={options.map((one) => ({
+                value: one.value,
+                label: `${one.label} · ${count(one.count)}`,
+              }))}
+            />
+          </div>
 
-      {live !== undefined && (
-        <DeliverySheet delivery={live} open onClose={() => setOpened(null)} />
+          {shown.length === 0 ? (
+            <EmptyState>
+              {view === "IN_TRANSIT"
+                ? "Nothing is on its way to this shop right now."
+                : "Nothing has been received yet."}
+            </EmptyState>
+          ) : (
+            <CardList grid>
+              {shown.map((one) => (
+                <DeliveryCard
+                  key={one.delivery_id}
+                  delivery={one}
+                  selected={record.value === one.delivery_id}
+                  onOpen={() => record.open(one.delivery_id)}
+                />
+              ))}
+            </CardList>
+          )}
+
+          <p className="mt-4 text-center text-meta text-mute tabular-nums">
+            Checked {clock(checkedAt)}
+          </p>
+        </>
       )}
-    </>
+
+      <DeliverySheet
+        delivery={rows.find((one) => one.delivery_id === record.value)}
+        onClose={record.close}
+      />
+    </Screen>
   )
 }
 
-/// "1 delivery", "3 deliveries" — the stat strip's small print.
+/// "1 delivery", "3 deliveries" — the strip's small print.
 function deliveryCount(n: number): string {
   return `${count(n)} ${n === 1 ? "delivery" : "deliveries"}`
 }
@@ -235,10 +228,7 @@ function deliveryCount(n: number): string {
 /// The hour and minute of the last answer — this list is re-read four times a
 /// minute, so the day would be the same word on every look.
 function clock(at: number): string {
-  return new Date(at).toLocaleTimeString("id-ID", {
-    hour: "2-digit",
-    minute: "2-digit",
-  })
+  return dateText(new Date(at), { hour: "2-digit", minute: "2-digit" })
 }
 
 /// A poll that failed after one that did not.
@@ -250,173 +240,71 @@ function Stale({
   checkedAt: number
 }) {
   return (
-    <Banner tone="bad" className="mb-4">
-      Could not check for newer deliveries: {describe(failure)}. This is what
-      the node said at {clock(checkedAt)}.
+    <Banner tone="bad" className="mb-3.5">
+      Could not check for newer deliveries: {describe(failure)}. Showing the
+      answer from {clock(checkedAt)}.
     </Banner>
   )
 }
 
-/// The node never answered this screen at all — `ErrorState`'s sentence, with
-/// the one line that says what could not be read.
-function Unreadable({
-  error,
-  onRetry,
+/// One delivery as the uniform card: its surat jalan number over where it came
+/// from, the cartons on the road — or, once it is counted, the pieces counted —
+/// as the one figure, and in the foot when it left or arrived. A delivery still
+/// in transit carries Receive; one that is in carries its verdict.
+///
+/// **Nothing here draws what was packed for a delivery in transit**: the figure
+/// is the cartons, which the driver hands over, and only a received delivery
+/// has a count to show (`resultOf`).
+function DeliveryCard({
+  delivery,
+  selected,
+  onOpen,
 }: {
-  error: unknown
-  onRetry: () => void
+  delivery: StoreInboundDelivery
+  selected: boolean
+  onOpen: () => void
 }) {
+  const verdict = verdictOf(delivery)
+  const inTransit = delivery.status === "IN_TRANSIT"
+  const result = resultOf(delivery)
   return (
-    <div className="mx-auto flex max-w-[28em] flex-col items-center gap-4 px-4 py-12 text-center">
-      <div>
-        <p className="text-cell font-medium text-ink">
-          Cannot read this shop's deliveries.
-        </p>
-        <p className="mt-1 text-meta text-bad">{describe(error)}</p>
-      </div>
-      <Button variant="ghost" onClick={onRetry}>
-        Try again
-      </Button>
-    </div>
+    <LeadCard
+      onOpen={onOpen}
+      selected={selected}
+      tone={result !== null && result.missing_units > 0 ? "alert" : undefined}
+      title={deliveryName(delivery)}
+      lines={[
+        delivery.shipment_reference === null
+          ? null
+          : `From ${sourceName(delivery.source_site_id)}`,
+      ]}
+      lead={
+        result === null
+          ? {
+              figure: count(delivery.koli_count),
+              caption: delivery.koli_count === 1 ? "carton" : "cartons",
+            }
+          : { figure: count(result.received_units), caption: "pcs counted" }
+      }
+      foot={{
+        info: inTransit ? (
+          `Departed ${day(delivery.departed_at)}`
+        ) : (
+          <>
+            Received {day(delivery.received_at)}
+            {result !== null && result.missing_units > 0 && (
+              <span className="text-bad-fg">
+                {" "}
+                · {count(result.missing_units)} missing
+              </span>
+            )}
+          </>
+        ),
+        action: inTransit ? { label: "Receive", onClick: onOpen } : undefined,
+        status: inTransit ? undefined : (
+          <Status tone={verdict.tone}>{verdict.label}</Status>
+        ),
+      }}
+    />
   )
 }
-
-/// The received count as one line: what came in over what was sent, then the
-/// difference in its colour. Null for anything not received — this column is
-/// where an in-transit delivery would give its number away.
-function Result({ delivery }: { delivery: StoreInboundDelivery }) {
-  const result = resultOf(delivery)
-  if (delivery.status === "IN_TRANSIT") {
-    return <span className="text-meta text-mute">Not received yet</span>
-  }
-  if (result === null) return <span className="text-mute">—</span>
-  return (
-    <span className="tabular-nums">
-      <span className="font-medium text-ink">
-        {count(result.received_units)}
-      </span>
-      <span className="text-mute"> / {count(result.expected_units)}</span>
-      {result.missing_units > 0 && (
-        <span className="ml-2.5 text-bad-fg">
-          {count(result.missing_units)} missing
-        </span>
-      )}
-    </span>
-  )
-}
-
-/// The phone's second line: when, how many koli — and the result
-/// in words, or the quiet note that it is still to be counted.
-function phoneLine(delivery: StoreInboundDelivery): string {
-  return [
-    `departed ${day(delivery.departed_at)}`,
-    `${count(delivery.koli_count)} koli`,
-  ].join(" · ")
-}
-
-function phoneResult(delivery: StoreInboundDelivery): string {
-  if (delivery.status === "IN_TRANSIT") return "Not received yet"
-  const result = resultOf(delivery)
-  if (result === null) return `Received ${day(delivery.received_at)}`
-  return [
-    `${count(result.received_units)} of ${count(result.expected_units)} received`,
-    result.missing_units > 0 ? `${count(result.missing_units)} missing` : null,
-  ]
-    .filter(Boolean)
-    .join(" · ")
-}
-
-const COLUMNS: readonly ListColumn<StoreInboundDelivery>[] = [
-  {
-    id: "delivery",
-    header: "Delivery",
-    className: "max-w-[16rem]",
-    cell: (delivery) => {
-      const Glyph = delivery.status === "IN_TRANSIT" ? Truck : PackageCheck
-      return (
-        <span className="block w-full">
-          <span className="flex min-w-0 items-center gap-2.5">
-            <span className="grid size-[1.6875rem] shrink-0 place-items-center rounded-inner border border-hairline-2 bg-canvas text-line-ico max-md:hidden [&_svg]:size-[0.9375rem]">
-              <Glyph aria-hidden />
-            </span>
-            <span className="block min-w-0 truncate font-medium text-ink">
-              {deliveryName(delivery)}
-            </span>
-          </span>
-        </span>
-      )
-    },
-  },
-  {
-    id: "departed",
-    header: "Departed",
-    card: "hide",
-    cell: (delivery) => (
-      <span className="text-body tabular-nums">
-        {day(delivery.departed_at)}
-      </span>
-    ),
-  },
-  {
-    id: "received",
-    header: "Received",
-    card: "hide",
-    className: "max-xl:hidden",
-    cell: (delivery) =>
-      delivery.received_at === null ? (
-        <span className="text-mute">—</span>
-      ) : (
-        <span className="text-body tabular-nums">
-          {day(delivery.received_at)}
-        </span>
-      ),
-  },
-  {
-    id: "koli",
-    header: "Koli",
-    align: "right",
-    card: "hide",
-    className: "w-16",
-    cell: (delivery) => (
-      <span className="tabular-nums">{count(delivery.koli_count)}</span>
-    ),
-  },
-  {
-    id: "status",
-    header: "Status",
-    card: "status",
-    cell: (delivery) => {
-      const verdict = verdictOf(delivery)
-      return <Pill tone={verdict.tone}>{verdict.label}</Pill>
-    },
-  },
-  {
-    id: "result",
-    header: "Result",
-    card: "hide",
-    // In transit, the row's action: it opens the sheet straight into the
-    // count (the press reaches the row, which opens the sheet).
-    cell: (delivery) =>
-      delivery.status === "IN_TRANSIT" ? (
-        <Button variant="primary" className="h-9">
-          Count receive
-        </Button>
-      ) : (
-        <Result delivery={delivery} />
-      ),
-  },
-  {
-    id: "phone-facts",
-    header: "",
-    card: "meta",
-    className: "hidden",
-    cell: phoneLine,
-  },
-  {
-    id: "phone-result",
-    header: "",
-    card: "meta",
-    className: "hidden",
-    cell: phoneResult,
-  },
-]

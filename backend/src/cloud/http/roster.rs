@@ -69,7 +69,9 @@ pub struct ShiftView {
 /// When each shift's break starts, by shift id (0807). Kept beside the shift
 /// rather than in it: a roster day embeds its shift, and the hour of a break
 /// is not something a planned day was ever measured against.
-async fn break_starts(state: &AppState) -> Result<std::collections::HashMap<String, i32>, AppError> {
+async fn break_starts(
+    state: &AppState,
+) -> Result<std::collections::HashMap<String, i32>, AppError> {
     let rows: Vec<(String, Option<i32>)> =
         sqlx::query_as("SELECT id, break_start_minute FROM attendance_shift")
             .fetch_all(&state.db)
@@ -304,12 +306,22 @@ pub async fn define_shift(
 
     // Where the break sits, checked against the shift's own span: minutes
     // from the start of the shift's first day, a next-day end counted on.
-    let break_start = match body.break_starts_at.as_deref().map(str::trim).filter(|b| !b.is_empty()) {
+    let break_start = match body
+        .break_starts_at
+        .as_deref()
+        .map(str::trim)
+        .filter(|b| !b.is_empty())
+    {
         None => None,
         Some(raw) => {
-            let at = i32::from(MinuteOfDay::parse(raw).map_err(infrastructure::attendance_error)?.minutes());
+            let at = i32::from(
+                MinuteOfDay::parse(raw)
+                    .map_err(infrastructure::attendance_error)?
+                    .minutes(),
+            );
             let start = i32::from(shift.start().minutes());
-            let end = i32::from(shift.end().minutes()) + if body.crosses_midnight { 1440 } else { 0 };
+            let end =
+                i32::from(shift.end().minutes()) + if body.crosses_midnight { 1440 } else { 0 };
             let at = if at < start { at + 1440 } else { at };
             let length = i32::try_from(body.unpaid_break_minutes).unwrap_or(i32::MAX);
             if body.unpaid_break_minutes == 0 {

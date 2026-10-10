@@ -1,13 +1,15 @@
 import { useQuery } from "@tanstack/react-query"
 
+import { DockTools } from "@/components/shell/dock-tools"
 import { Card } from "@/components/ui/card"
-import { ListTable, type ListColumn } from "@/components/ui/list-table"
-import { Pill } from "@/components/ui/pill"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
+import type { ListColumn } from "@/components/ui/list-table"
+import { Pill, Status } from "@/components/ui/pill"
 import { KeyValue, TotalsLadder } from "@/components/ui/rows"
 import { Section } from "@/components/ui/screen"
-import { Stat, StatStrip } from "@/components/ui/stat-strip"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { moment } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { useParam } from "@/lib/params"
 import { queryState } from "@/lib/query-state"
 import {
@@ -18,13 +20,13 @@ import {
   type TenderTotal,
 } from "@/lib/queries"
 import { useOpenDrawers, useTillSeats } from "@/lib/queries/reconciliation"
-import { signed, spanWords, tenderOf } from "@/screens/money/format"
+import { dayYear, signed, spanWords, tenderOf } from "@/screens/money/format"
 import {
   CardHead,
+  DeskBar,
   MoneyScreen,
-  Note,
+  Rows,
   SpanPicker,
-  Toolbar,
   TwoLine,
 } from "@/screens/money/parts"
 import type { CashMovementView, ShiftReport, TillSeat } from "@itulah/contract"
@@ -75,6 +77,14 @@ export function Reconciliation() {
 
   return (
     <MoneyScreen>
+      {/* The span the capture half is read over, as the dock's status chip. */}
+      <DockTools
+        status={{
+          value: chosen,
+          options: SPANS,
+          onChange: (next) => span.set(next),
+        }}
+      />
       <Section
         className="mb-8"
         title="Cash"
@@ -91,7 +101,7 @@ export function Reconciliation() {
       </Section>
 
       <Section title="Card, QRIS and others">
-        <Toolbar>
+        <DeskBar>
           <SpanPicker
             options={SPANS}
             value={chosen}
@@ -100,7 +110,7 @@ export function Reconciliation() {
           <span className="text-meta text-mute tabular-nums">
             {spanWords(range.from, range.to)}
           </span>
-        </Toolbar>
+        </DeskBar>
         {queryState(captured, {
           loading: "Loading…",
           render: (taken) => <Captured taken={taken} days={chosen} />,
@@ -148,17 +158,34 @@ function Counter({ reports }: { reports: readonly ShiftReport[] }) {
   return (
     <>
       {seats.data !== undefined && seats.data.length > 0 && (
-        <Card className="mb-4">
-          <CardHead
+        <div className="mb-4">
+          <Rows
             title="Tills"
-          />
-          <ListTable
             rows={seats.data}
             columns={seatColumns(reports)}
             rowKey={(seat) => seat.terminal_id}
             empty="No tills."
+            card={(seat) => ({
+              title: seat.label,
+              lines: [
+                seat.current ? undefined : "Removed · drawer open",
+                seat.held_by === null ? undefined : `Held by ${seat.held_by}`,
+              ],
+              foot: {
+                info:
+                  seat.held_since === null
+                    ? undefined
+                    : `Since ${moment(seat.held_since)}`,
+                status:
+                  seat.shift_id === null ? (
+                    <Status tone="neutral">Free</Status>
+                  ) : (
+                    <Status tone="info">Open</Status>
+                  ),
+              },
+            })}
           />
-        </Card>
+        </div>
       )}
       {reports.length === 0 ? (
         <NoDrawer />
@@ -183,9 +210,9 @@ function Counter({ reports }: { reports: readonly ShiftReport[] }) {
 /// never slips a day in a timezone behind UTC.
 function businessDay(date: string | null): string {
   if (date === null) return "—"
-  const parsed = new Date(`${date}T00:00:00`)
-  if (Number.isNaN(parsed.getTime())) return "—"
-  return parsed.toLocaleDateString("id-ID", { day: "2-digit", month: "short" })
+  return Number.isNaN(new Date(`${date}T00:00:00`).getTime())
+    ? "—"
+    : dayYear(date)
 }
 
 /// The seat table's columns. A seat is free when it has no shift; the columns
@@ -218,12 +245,12 @@ function seatColumns(
       id: "since",
       header: "Since",
       className: "tabular-nums",
-      cell: (seat) => (seat.held_since === null ? dash : moment(seat.held_since)),
+      cell: (seat) =>
+        seat.held_since === null ? dash : moment(seat.held_since),
     },
     {
       id: "day",
       header: "Business date",
-      card: "hide",
       className: "tabular-nums max-md:hidden",
       cell: (seat) => {
         const report = opened(seat)
@@ -234,12 +261,11 @@ function seatColumns(
       id: "status",
       header: "Status",
       align: "right",
-      card: "status",
       cell: (seat) =>
         seat.shift_id === null ? (
-          <Pill tone="neutral">Free</Pill>
+          <Status tone="neutral">Free</Status>
         ) : (
-          <Pill tone="info">Open</Pill>
+          <Status tone="info">Open</Status>
         ),
     },
   ]
@@ -256,9 +282,7 @@ function seatColumns(
 function NoDrawer() {
   return (
     <Card>
-      <EmptyState>
-        No drawer is open.
-      </EmptyState>
+      <EmptyState>No drawer is open.</EmptyState>
     </Card>
   )
 }
@@ -302,23 +326,15 @@ function Drawer({ report: given }: { report: ShiftReport }) {
           }`}
       </p>
 
-      <StatStrip>
-        <Stat
+      <KpiStrip>
+        <Kpi
           label="Difference"
           // Over is not painted as a loss: a drawer that is OVER is a
           // mis-ring to find, not money gone. The banner under the strip is
           // where the sentence somebody acts on lives.
           value={uncounted ? "Not counted" : signed(variance)}
-          tone={
-            uncounted
-              ? undefined
-              : variance === 0
-                ? "ok"
-                : variance < 0
-                  ? "bad"
-                  : "warn"
-          }
-          sub={
+          tone={uncounted ? "flat" : variance < 0 ? "down" : "flat"}
+          delta={
             uncounted
               ? "counted at the close"
               : variance === 0
@@ -328,26 +344,25 @@ function Drawer({ report: given }: { report: ShiftReport }) {
                   : "over"
           }
         />
-        <Stat
+        <Kpi
           label="Counted"
           value={counted === null ? "—" : money(counted)}
-          sub={counted === null ? "blind, at the close" : "at the close"}
+          delta={counted === null ? "blind, at the close" : "at the close"}
         />
-        <Stat
+        <Kpi
           label="Should be in the drawer"
           value={money(report.expected_cash_minor)}
-          sub="the node's own figure"
         />
-        <Stat
+        <Kpi
           label="Sales rung"
           value={units(report.sale_count)}
-          sub={
+          delta={
             report.voided_count > 0
               ? `${units(report.voided_count)} voided`
               : `${money(report.sales_total_minor)} in all`
           }
         />
-      </StatStrip>
+      </KpiStrip>
 
       {uncounted ? (
         <UncountedDrawer expected={report.expected_cash_minor} />
@@ -406,24 +421,40 @@ function Drawer({ report: given }: { report: ShiftReport }) {
           </div>
         </Card>
 
-        <Card className="min-w-0 self-start">
-          <CardHead
+        <div className="min-w-0 self-start">
+          <Rows
             title="Cash in and out"
-          />
-          <ListTable
             rows={report.movements}
             columns={MOVEMENT_COLUMNS}
             rowKey={(movement) => movement.id}
             empty="No cash in or out."
+            card={(movement) => ({
+              title: MOVEMENT_WORD[movement.kind] ?? movement.kind,
+              lines: [movement.reason],
+              lead: {
+                figure:
+                  movement.amount_minor < 0
+                    ? `−${money(Math.abs(movement.amount_minor))}`
+                    : money(movement.amount_minor),
+              },
+              foot: {
+                info: `${moment(movement.occurred_at)}${
+                  movement.approved_by === null
+                    ? ""
+                    : ` · signed by ${movement.approved_by}`
+                }`,
+              },
+            })}
           />
-        </Card>
+        </div>
       </div>
 
       {report.non_cash_minor > 0 && (
-        <Note>
-          Non-cash this shift:{" "}
-          <span className="tabular-nums">{money(report.non_cash_minor)}</span>
-        </Note>
+        <div className="mt-4 rounded-card border border-hairline bg-canvas px-4 py-1 shadow-soft">
+          <KeyValue term="Non-cash this shift">
+            {money(report.non_cash_minor)}
+          </KeyValue>
+        </div>
       )}
     </>
   )
@@ -524,7 +555,6 @@ const MOVEMENT_COLUMNS: readonly ListColumn<CashMovementView>[] = [
   {
     id: "signed",
     header: "Signed by",
-    card: "hide",
     className: "max-lg:hidden",
     cell: (movement) =>
       movement.approved_by === null ? (
@@ -537,7 +567,6 @@ const MOVEMENT_COLUMNS: readonly ListColumn<CashMovementView>[] = [
     id: "amount",
     header: "Amount",
     align: "right",
-    card: "status",
     cell: (movement) => (
       <span
         className={
@@ -581,9 +610,7 @@ function Captured({ taken, days }: { taken: SalesWindow; days: Span }) {
     return (
       <Card>
         <EmptyState>
-          {days === "1"
-            ? "No sales today."
-            : "No sales in this period."}
+          {days === "1" ? "No sales today." : "No sales in this period."}
         </EmptyState>
       </Card>
     )
@@ -592,9 +619,7 @@ function Captured({ taken, days }: { taken: SalesWindow; days: Span }) {
   if (nonCash.length === 0) {
     return (
       <Card>
-        <EmptyState>
-          All payments were cash.
-        </EmptyState>
+        <EmptyState>All payments were cash.</EmptyState>
       </Card>
     )
   }
@@ -612,42 +637,51 @@ function Captured({ taken, days }: { taken: SalesWindow; days: Span }) {
 
   return (
     <>
-      <StatStrip>
-        <Stat
-          label="Captured"
-          value={money(total)}
-        />
-        <Stat
+      <KpiStrip>
+        <Kpi label="Captured" value={money(total)} />
+        <Kpi
           label="Payments"
           value={units(count)}
-          sub={`${units(nonCash.length)} ${nonCash.length === 1 ? "method" : "methods"}`}
+          delta={`${units(nonCash.length)} ${nonCash.length === 1 ? "method" : "methods"}`}
         />
-        <Stat
-          label="Bank confirmed"
-          value="—"
-          sub="At head office"
-        />
+        <Kpi label="Bank confirmed" value="—" delta="At head office" />
         {cash !== undefined && (
-          <Stat
-            label="Cash"
-            value={money(cash.amount_minor)}
-          />
+          <Kpi label="Cash" value={money(cash.amount_minor)} />
         )}
-      </StatStrip>
+      </KpiStrip>
 
-      <Card>
-        <CardHead
-          title="By method"
-        />
-        <ListTable
-          rows={lines}
-          columns={CAPTURE_COLUMNS}
-          rowKey={(line) => line.key}
-          empty="Nothing captured."
-        />
-      </Card>
-
+      <Methods lines={lines} />
     </>
+  )
+}
+
+/// What each method captured: cards on a phone, whose strip of figures already
+/// is the total, and the hub's table on a desk, which closes on it.
+function Methods({ lines }: { lines: readonly CaptureLine[] }) {
+  const phone = useLayout() === "phone"
+  const rows = phone ? lines.filter((line) => line.tender !== null) : lines
+  return (
+    <Rows
+      title="By method"
+      rows={rows}
+      columns={CAPTURE_COLUMNS}
+      rowKey={(line) => line.key}
+      empty="Nothing captured."
+      card={(line) => {
+        const kind = line.tender === null ? null : tenderOf(line.tender.method)
+        return {
+          title: kind === null ? "Total" : kind.word,
+          lines: [kind?.settles],
+          lead: {
+            figure: money(line.amount_minor),
+            caption: `${Math.round(line.share * 100)}%`,
+          },
+          foot: {
+            info: `${units(line.count)} ${line.count === 1 ? "tender" : "tenders"}`,
+          },
+        }
+      }}
+    />
   )
 }
 
@@ -658,9 +692,7 @@ const CAPTURE_COLUMNS: readonly ListColumn<CaptureLine>[] = [
     className: "min-w-[14rem]",
     cell: (line) => {
       if (line.tender === null) {
-        return (
-          <span className="font-semibold text-ink">Total</span>
-        )
+        return <span className="font-semibold text-ink">Total</span>
       }
       const kind = tenderOf(line.tender.method)
       return <TwoLine icon={kind.icon} top={kind.word} under={kind.settles} />
@@ -681,7 +713,6 @@ const CAPTURE_COLUMNS: readonly ListColumn<CaptureLine>[] = [
     id: "share",
     header: "Share",
     align: "right",
-    card: "hide",
     className: "tabular-nums max-md:hidden",
     cell: (line) =>
       line.tender === null ? (
@@ -694,7 +725,6 @@ const CAPTURE_COLUMNS: readonly ListColumn<CaptureLine>[] = [
     id: "captured",
     header: "Captured",
     align: "right",
-    card: "status",
     cell: (line) => (
       <span
         className={

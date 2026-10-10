@@ -296,10 +296,7 @@ pub async fn transaction_category_unmapped(
           ORDER BY c.family, c.sort_order, c.code"
     );
     let unit = unit_or_head_office(pool, unit_id).await?;
-    let rows = sqlx::query(&sql)
-        .bind(&unit)
-        .fetch_all(pool)
-        .await?;
+    let rows = sqlx::query(&sql).bind(&unit).fetch_all(pool).await?;
     rows.iter().map(to_category).collect()
 }
 

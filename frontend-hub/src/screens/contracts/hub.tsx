@@ -9,7 +9,7 @@ import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, LoadingState } from "@/components/ui/states"
 import { Meter } from "@/components/ui/meter"
 import { Pill } from "@/components/ui/pill"
-import { count, day, money, span } from "@/lib/format"
+import { compactFormat, day, money, percentBps, span } from "@/lib/format"
 import {
   archiveGaContract,
   gaContractHub,
@@ -484,14 +484,11 @@ function UsageTab({
   )
 }
 
-/// Thousands, said the way the prototype's usage strip says them: 40100
-/// above a bar is "40,1rb", because a nine-character figure over a 64px bar
-/// is wider than the bar. Names the abbreviation rule the JSX would not.
-function abbr(value: number): string {
-  return value >= 1000
-    ? `${(value / 1000).toLocaleString("id-ID", { maximumFractionDigits: 1 })}rb`
-    : count(value)
-}
+/// Large readings, short enough over a 64px bar: 40100 is "40,1 K" — the
+/// kit's own K / M / B letters, since a nine-character figure over a bar is
+/// wider than the bar.
+const compact = compactFormat()
+const abbr = (value: number) => compact.format(value)
 
 /// One reading: the month, the unit, opening → closing, and when it was read.
 ///
@@ -669,7 +666,7 @@ function TemplatesTab({
                     {money(template.expected_subtotal_minor)}
                   </MiniCell>
                   <MiniCell align="right" className="tabular-nums">
-                    {template.tolerance_bps / 100}%
+                    {percentBps(template.tolerance_bps)}
                   </MiniCell>
                   <MiniCell align="right" className="tabular-nums">
                     {template.due_day}

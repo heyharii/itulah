@@ -166,6 +166,13 @@ export default defineConfig({
       },
     },
   ],
+  // Which build this is, for the persisted query cache (`lib/query-persist.ts`):
+  // a new build starts with an empty one.
+  define: {
+    __BUILD_ID__: JSON.stringify(
+      process.env.BUILD_ID ?? new Date().toISOString()
+    ),
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

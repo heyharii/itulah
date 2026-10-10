@@ -8,7 +8,9 @@ import { Checkbox, Field, Input } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { EmptyState, Problem } from "@/components/ui/states"
+import { Fab } from "@/components/ui/fab"
 import { count } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   financeKeys,
   saveDimension,
@@ -17,6 +19,7 @@ import {
 import { queryState } from "@/lib/query-state"
 import { Code, Grid, Td, Th } from "@/screens/finance-final/parts"
 import { useDimensions } from "@/screens/finance/master-data"
+import { PhoneCard, PhoneList } from "@/components/ui/phone-cards"
 import {
   EditorCard,
   LinkAccountsButton,
@@ -34,6 +37,7 @@ import type { AccountingDimension, DimensionValue } from "@itulah/contract"
 /// automatic flow that writes such a line — the Dimension results report shows
 /// what the values are carrying before somebody makes it.
 export function Dimensions() {
+  const phone = useLayout() === "phone"
   const list = useDimensions()
   const [editing, setEditing] = useState<string | "new" | null>(null)
 
@@ -48,20 +52,53 @@ export function Dimensions() {
         crumb="Finance · Setup"
         title="Accounting Dimensions"
         sub="What a journal line can be cut by besides its unit, which values it takes, and where naming one is required."
+        // The new dimension is the dock's + on a phone.
         actions={
-          <Button variant="primary" onClick={() => setEditing("new")}>
-            New dimension
-          </Button>
+          phone ? undefined : (
+            <Button variant="primary" onClick={() => setEditing("new")}>
+              New dimension
+            </Button>
+          )
         }
       />
+      {phone && <Fab label="New dimension" onClick={() => setEditing("new")} />}
       <MasterLayout
         list={
-          <Card className="overflow-hidden">
+          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
             {queryState(list, {
               loading: "Reading the dimensions…",
               render: (rows) =>
                 rows.length === 0 ? (
                   <EmptyState>No accounting dimension yet.</EmptyState>
+                ) : phone ? (
+                  <PhoneList>
+                    {rows.map((row) => {
+                      const required = [
+                        row.mandatory_for_pl ? "P&L required" : null,
+                        row.mandatory_for_bs ? "Balance sheet required" : null,
+                      ].filter(Boolean)
+                      const values = row.values.filter(
+                        (value) => value.is_active
+                      ).length
+                      return (
+                        <PhoneCard
+                          key={row.code}
+                          title={row.name}
+                          muted={!row.is_active}
+                          line={`${row.code}${row.is_active ? "" : " · inactive"}`}
+                          lead={count(values)}
+                          caption={values === 1 ? "value" : "values"}
+                          tone={values === 0 ? "quiet" : undefined}
+                          foot={
+                            required.length === 0
+                              ? "Not required"
+                              : required.join(" · ")
+                          }
+                          onOpen={() => setEditing(row.code)}
+                        />
+                      )
+                    })}
+                  </PhoneList>
                 ) : (
                   <Grid>
                     <thead>
@@ -159,6 +196,7 @@ function DimensionForm({
     <EditorCard
       title={dimension === null ? "New dimension" : dimension.name}
       onClose={onDone}
+      pinLast={dimension === null}
     >
       <Problem error={save.error} />
       <Field

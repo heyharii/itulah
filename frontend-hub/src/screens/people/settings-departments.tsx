@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
+import { Fab } from "@/components/ui/fab"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Field, Input } from "@/components/ui/field"
@@ -23,10 +25,11 @@ import { useRetire, useSheetTarget } from "@/screens/people/settings-hooks"
 import type { DepartmentView } from "@itulah/contract"
 
 /// Settings › Departments: what somebody works in, across stores and head
-/// office — Operasional, Keuangan, HR. Where each person sits is on their own
+/// office — Operations, Finance, HR. Where each person sits is on their own
 /// sheet (Position); the whole of it is the Org chart.
 export function DepartmentSettings() {
   const canWrite = useCanWrite()
+  const phone = useLayout() === "phone"
   const list = useQuery({
     queryKey: orgKeys.departments(),
     queryFn: ({ signal }) => departments(signal),
@@ -35,11 +38,15 @@ export function DepartmentSettings() {
 
   return (
     <PageContent>
+      {canWrite && (
+        <Fab label="New department" onClick={() => sheet.show(null)} />
+      )}
       <PageHeader
         crumb="People"
         title="Departments"
         sub="What somebody works in, across stores and head office."
         actions={
+          !phone &&
           canWrite && (
             <Button variant="primary" onClick={() => sheet.show(null)}>
               New department
@@ -57,8 +64,8 @@ export function DepartmentSettings() {
                 {rows.length === 0 ? (
                   <EmptyState>
                     No department yet. A department is what somebody works in,
-                    across stores and head office — Operasional, Keuangan, HR.
-                    New department adds the first.
+                    across stores and head office — Operations, Finance, HR. New
+                    department adds the first.
                   </EmptyState>
                 ) : (
                   <MiniTable

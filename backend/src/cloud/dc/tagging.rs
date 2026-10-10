@@ -24,8 +24,8 @@ use crate::edge::contracts::{
     EdgeError, TaggingConfirmRequest, TaggingConfirmResult, TaggingWorkJob, TaggingWorkLine,
 };
 use crate::edge::domain::inventory::{
-    InventoryState, MovementCause, MovementCommand, MovementGroupId, MovementLine,
-    OperationalPool, Place, SiteId, SubjectId, SystemPlace,
+    InventoryState, MovementCause, MovementCommand, MovementGroupId, MovementLine, OperationalPool,
+    Place, SiteId, SubjectId, SystemPlace,
 };
 use crate::edge::printing::{
     self as edge_printing, ClaimedLabel, LabelPreview, LabelPreviewRequest,
@@ -188,12 +188,10 @@ async fn check_printer_address(host: &str, port: u16) -> Result<(), AppError> {
     if print_bridge::bridge_name(&host).is_some() {
         return Ok(());
     }
-    tokio::task::spawn_blocking(move || {
-        edge_printing::resolve_printer(&host, port).map(|_| ())
-    })
-    .await
-    .map_err(|error| AppError::Configuration(format!("printer check stopped: {error}")))?
-    .map_err(edge_error)
+    tokio::task::spawn_blocking(move || edge_printing::resolve_printer(&host, port).map(|_| ()))
+        .await
+        .map_err(|error| AppError::Configuration(format!("printer check stopped: {error}")))?
+        .map_err(edge_error)
 }
 
 // ---- the job as the Gudang reads it -----------------------------------------
@@ -296,9 +294,7 @@ async fn open_tagging_jobs(State(state): State<AppState>) -> Result<Json<Value>,
             issued_at: stamp(row.get("issued_at")),
             po_number: row.get("po_number"),
             supplier_name: row.get("supplier_name"),
-            delivered_at: row
-                .get::<Option<DateTime<Utc>>, _>("counted_at")
-                .map(stamp),
+            delivered_at: row.get::<Option<DateTime<Utc>>, _>("counted_at").map(stamp),
             lines,
         });
     }
@@ -420,6 +416,15 @@ pub(crate) async fn stock_issued_job_tx(
     }
 
     let lines = job_lines(&mut **tx, job_id).await?;
+    let sku_codes: Vec<&str> = lines.iter().map(|line| line.sku_code.as_str()).collect();
+    let sku_ids: std::collections::HashMap<String, Uuid> =
+        sqlx::query("SELECT id, sku_code FROM sku WHERE sku_code = ANY($1)")
+            .bind(&sku_codes)
+            .fetch_all(&mut **tx)
+            .await?
+            .into_iter()
+            .map(|row| (row.get("sku_code"), row.get("id")))
+            .collect();
     let mut unit_ids = Vec::new();
     let mut unit_skus = Vec::new();
     let mut unit_epcs = Vec::new();
@@ -433,10 +438,8 @@ pub(crate) async fn stock_issued_job_tx(
                 line.epcs.len()
             )));
         }
-        let sku_id: Uuid = sqlx::query_scalar("SELECT id FROM sku WHERE sku_code = $1")
-            .bind(&line.sku_code)
-            .fetch_optional(&mut **tx)
-            .await?
+        let sku_id = *sku_ids
+            .get(&line.sku_code)
             .ok_or_else(|| AppError::NotFound(format!("sku {}", line.sku_code)))?;
         for epc in &line.epcs {
             unit_ids.push(Uuid::new_v4());
@@ -590,7 +593,12 @@ async fn confirm_tagging(
     .fetch_all(&mut *tx)
     .await?
     .iter()
-    .map(|row| (row.get::<String, _>("sku_code").trim().to_owned(), row.get("quantity")))
+    .map(|row| {
+        (
+            row.get::<String, _>("sku_code").trim().to_owned(),
+            row.get("quantity"),
+        )
+    })
     .collect();
     if lines.is_empty() {
         return Err(AppError::Conflict(format!(
@@ -614,10 +622,12 @@ async fn confirm_tagging(
         confirmed_at,
         lines: lines
             .iter()
-            .map(|(sku_code, quantity)| crate::cloud::domain::TaggingCompletedLine {
-                sku_code: sku_code.clone(),
-                quantity: *quantity,
-            })
+            .map(
+                |(sku_code, quantity)| crate::cloud::domain::TaggingCompletedLine {
+                    sku_code: sku_code.clone(),
+                    quantity: *quantity,
+                },
+            )
             .collect(),
     };
     crate::cloud::postgres::apply_tagging_completed(&mut tx, &done).await?;
@@ -748,12 +758,13 @@ async fn open_print_session(
     let mut tx = state.db.begin().await?;
     // Locked, so two benches opening the same job at once queue behind each
     // other and the second is told the run exists.
-    let job = sqlx::query("SELECT article_name, site_id FROM tagging_job WHERE job_id = $1 FOR UPDATE")
-        .bind(job_id)
-        .fetch_optional(&mut *tx)
-        .await?
-        .filter(|row| row.get::<String, _>("site_id") == gudang)
-        .ok_or_else(|| AppError::NotFound(format!("tagging job {job_id}")))?;
+    let job =
+        sqlx::query("SELECT article_name, site_id FROM tagging_job WHERE job_id = $1 FOR UPDATE")
+            .bind(job_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .filter(|row| row.get::<String, _>("site_id") == gudang)
+            .ok_or_else(|| AppError::NotFound(format!("tagging job {job_id}")))?;
     let article_name: String = job.get("article_name");
 
     let existing: bool =
@@ -969,8 +980,12 @@ async fn preview_job_label(
                     epc: found.get("epc"),
                     sku_code: found.get("sku_code"),
                     article_name: found.get("article_name"),
-                    colour_label: found.get::<Option<String>, _>("colour_label").unwrap_or_default(),
-                    size_label: found.get::<Option<String>, _>("size_label").unwrap_or_default(),
+                    colour_label: found
+                        .get::<Option<String>, _>("colour_label")
+                        .unwrap_or_default(),
+                    size_label: found
+                        .get::<Option<String>, _>("size_label")
+                        .unwrap_or_default(),
                     barcode_payload: found.get("barcode_payload"),
                     price_minor: found.get("price_minor"),
                 },
@@ -1141,8 +1156,12 @@ async fn claim_chunk(db: &PgPool, session_id: Uuid) -> Result<Claimed, AppError>
             epc: row.get("epc"),
             sku_code: row.get("sku_code"),
             article_name: row.get("article_name"),
-            colour_label: row.get::<Option<String>, _>("colour_label").unwrap_or_default(),
-            size_label: row.get::<Option<String>, _>("size_label").unwrap_or_default(),
+            colour_label: row
+                .get::<Option<String>, _>("colour_label")
+                .unwrap_or_default(),
+            size_label: row
+                .get::<Option<String>, _>("size_label")
+                .unwrap_or_default(),
             barcode_payload: row.get("barcode_payload"),
             price_minor: row.get("price_minor"),
         };
@@ -1420,13 +1439,12 @@ async fn reprint_labels(
     }
 
     let mut tx = state.db.begin().await?;
-    let status: String = sqlx::query_scalar(
-        "SELECT status FROM dc_print_session WHERE session_id = $1 FOR UPDATE",
-    )
-    .bind(session_id)
-    .fetch_optional(&mut *tx)
-    .await?
-    .ok_or_else(|| AppError::NotFound(format!("print session {session_id}")))?;
+    let status: String =
+        sqlx::query_scalar("SELECT status FROM dc_print_session WHERE session_id = $1 FOR UPDATE")
+            .bind(session_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("print session {session_id}")))?;
     if status == "CANCELLED" {
         return Err(AppError::Validation(format!(
             "print session {session_id} is cancelled"

@@ -7,7 +7,7 @@ import type {
   RuleScope,
 } from "@itulah/contract"
 
-import { count, day, money, span } from "@/lib/format"
+import { count, day, money, percentBps, span } from "@/lib/format"
 import type { PromotionTotals } from "@/lib/queries/commercial-performance"
 import { oxford } from "@/screens/commercial/compose"
 import { allNavItems } from "@/lib/navigation"
@@ -56,7 +56,7 @@ export function useGo() {
 /// integer minor units the server sent; this exists so a *proportion* — how
 /// deep a markdown is, how much of a budget is gone — can be said in one word.
 export function percent(bps: number): string {
-  return `${(bps / 100).toFixed(bps % 100 === 0 ? 0 : 1)}%`
+  return percentBps(bps)
 }
 
 /// How much of a budget has been spent, as 0–1 for `<Meter>`.

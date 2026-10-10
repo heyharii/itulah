@@ -22,20 +22,22 @@ import {
 import { useCallback, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { AppLink } from "@/components/ui/app-link"
 import { Day } from "@/components/ui/day"
 import { FindMany, type Found } from "@/components/ui/find"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
+import { Fab } from "@/components/ui/fab"
 import { Field, Input, Money, Textarea } from "@/components/ui/field"
 import { ConfirmButton } from "@/components/ui/dialog"
 import { Choices, Section, type Tile } from "@/components/ui/form"
 import { RecordPanel } from "@/components/ui/record-panel"
 import { Meter } from "@/components/ui/meter"
-import { DockedFilters } from "@/components/ui/list-chrome"
+import { DeskFilterButton, DeskFilterChips } from "@/components/ui/desk-filter"
 import { PageHeader } from "@/components/ui/page-header"
-import { Status } from "@/components/ui/pill"
+import { Pill, Status } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
@@ -44,15 +46,16 @@ import { commercialKeys, promotionCatalogue } from "@/lib/queries/commercial"
 import { listMembers } from "@/lib/queries/members"
 import { useFilters } from "@/lib/filters"
 import { count, day, money, moment } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   describeKind,
   describeMovement,
   issueVoucher,
-  listVouchers,
   redeemVoucher,
   voidVoucher,
   voucherDetail,
   voucherKeys,
+  voucherPagesQuery,
   voucherScopeFromFilters,
   VOUCHER_DATE_OPERATORS,
   VOUCHER_NUMBER_OPERATORS,
@@ -67,6 +70,12 @@ import { tableSetup, type TableSetup } from "@/lib/table"
 import { cn } from "@/lib/utils"
 import { useDebounced } from "@/lib/use-debounced"
 import { ROOMY } from "@/screens/operations/roomy"
+import {
+  CardFigure,
+  CardName,
+  Fig,
+  Sentence,
+} from "@/components/ui/phone-cards"
 
 /// Vouchers — value a customer already holds and can pay with.
 ///
@@ -153,7 +162,7 @@ const columns: ColumnDef<TableSetup, VoucherRow>[] = [
       `${row.code} ${row.member_name ?? ""} ${row.member_id ?? ""}`,
     header: "Voucher",
     size: 260,
-    meta: { grow: 260 },
+    meta: { grow: 260, card: "hide" },
     cell: ({ row }) => (
       <span className="flex min-w-0 flex-col gap-1">
         <span className="truncate font-mono text-ink">{row.original.code}</span>
@@ -169,7 +178,7 @@ const columns: ColumnDef<TableSetup, VoucherRow>[] = [
     header: "Member",
     size: 200,
     // The first to go on a narrow table: the code already names the voucher.
-    meta: { priority: 2 },
+    meta: { priority: 2, card: "hide" },
     // Sorted by the server, which has no holder order — a sort over the pages
     // loaded would put page two's Adi below page one's Yusuf.
     enableSorting: false,
@@ -198,6 +207,7 @@ const columns: ColumnDef<TableSetup, VoucherRow>[] = [
     // carry, and one clause per column — see `voucherScopeFromFilters`.
     meta: {
       align: "right",
+      card: "hide",
       filter: {
         kind: "number",
         label: "Face value",
@@ -222,6 +232,7 @@ const columns: ColumnDef<TableSetup, VoucherRow>[] = [
     // "is 0" is a spent card that has not been marked SPENT.
     meta: {
       align: "right",
+      card: "hide",
       filter: {
         kind: "number",
         label: "Left on it",
@@ -268,6 +279,7 @@ const columns: ColumnDef<TableSetup, VoucherRow>[] = [
     // page of the book, and a value missing from page one still exists.
     enableSorting: false,
     meta: {
+      card: "hide",
       filter: {
         kind: "option",
         label: "Status",
@@ -302,6 +314,7 @@ const columns: ColumnDef<TableSetup, VoucherRow>[] = [
     // box and no sort can be made to answer.
     meta: {
       align: "right",
+      card: "hide",
       filter: {
         kind: "date",
         label: "Issued",
@@ -314,6 +327,65 @@ const columns: ColumnDef<TableSetup, VoucherRow>[] = [
         {day(row.original.issued_at)}
       </span>
     ),
+  },
+  // Four columns that exist only on a card (`cardLead`; a phone): who holds it
+  // over its code, what is left on it as the figure (the face value under it),
+  // when it was issued, and where it stands as a pill (owner, 2026-10-06).
+  {
+    id: "head",
+    accessorFn: (row) => holder(row),
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <CardName
+        name={holder(row.original)}
+        code={row.original.code}
+        muted={row.original.status !== "ACTIVE"}
+      />
+    ),
+  },
+  {
+    id: "lead",
+    accessorFn: (row) => row.balance_minor,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "lead" },
+    cell: ({ row }) => (
+      <CardFigure
+        value={money(row.original.balance_minor)}
+        caption={`left of ${money(row.original.issued_minor)}`}
+        tone={row.original.balance_minor === 0 ? "quiet" : undefined}
+      />
+    ),
+  },
+  {
+    id: "foot",
+    accessorFn: (row) => row.issued_at,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => <span>Issued {day(row.original.issued_at)}</span>,
+  },
+  {
+    id: "tag",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { align: "right", card: "status" },
+    // Past its date wins over the stored word: the card is still live with a
+    // balance on it, and what somebody needs to see is that nobody may spend it.
+    cell: ({ row }) =>
+      row.original.expired && row.original.status === "ACTIVE" ? (
+        <Pill tone="warn">Expired</Pill>
+      ) : (
+        <Pill tone={statusTone(row.original.status)}>
+          {statusWord(row.original.status)}
+        </Pill>
+      ),
   },
 ]
 
@@ -368,6 +440,9 @@ function Figure({
 }
 
 export function Vouchers() {
+  // A phone draws the rows as cards and keeps the search, the status, the
+  // filter and New in the drawer over the bottom bar (`DockTools`, `Fab`).
+  const phone = useLayout() === "phone"
   const search = useSheet("q")
   const open = useSheet("voucher")
   const [shown, setShown] = useState<Shown>("ALL")
@@ -403,16 +478,7 @@ export function Vouchers() {
   /// A page at a time, on the server's cursor — the book is not capped, it is
   /// paged, and the table fetches the next one as its foot nears view. Its own
   /// key beside the plain list's: the Overview reads that one as a single page.
-  const list = useInfiniteQuery({
-    queryKey: [...voucherKeys.list(scope), "pages"] as const,
-    queryFn: ({ pageParam, signal }) =>
-      listVouchers({ ...scope, cursor: pageParam }, signal),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-    // The rows already drawn stay while a new filter's first page is on its
-    // way, rather than the table blinking to a spinner on every keystroke.
-    placeholderData: (previous) => previous,
-  })
+  const list = useInfiniteQuery(voucherPagesQuery(scope))
 
   const rows = useMemo(
     () => list.data?.pages.flatMap((page) => page.rows) ?? [],
@@ -446,13 +512,22 @@ export function Vouchers() {
         getRowId: (row: VoucherRow) => row.code,
         // No column filters and no global filter here: the server has already
         // applied both, and applying them again would only re-check its work.
-        state: { sorting },
+        state: {
+          sorting,
+          // The card's own columns are drawn on a phone and never on a desk.
+          columnVisibility: {
+            head: phone,
+            lead: phone,
+            foot: phone,
+            tag: phone,
+          },
+        },
         // The rows arrive in the order the request asked for. Sorting them
         // again here would sort what has loaded, not the book.
         manualSorting: true,
         onSortingChange: setSorting,
       }),
-      [rows, filters.columns, sorting]
+      [rows, filters.columns, sorting, phone]
     )
   )
 
@@ -464,19 +539,37 @@ export function Vouchers() {
         crumb="Marketing"
         title="Vouchers"
         actions={
-          // Coupons live here as a READER only — no list screen, no menu
-          // row. A coupon is a gate on a promotion and cannot exist without
-          // one, so it is authored on the promotion form; what it lacks is a
-          // place to answer "which codes are out there", and a sheet on the
-          // screen people already associate with codes answers it without
-          // implying a coupon is a thing of its own.
-          <Button variant="soft" onClick={() => setCoupons(true)}>
-            Coupons
-          </Button>
+          phone ? undefined : (
+            // Coupons live here as a READER only — no list screen, no menu
+            // row. A coupon is a gate on a promotion and cannot exist without
+            // one, so it is authored on the promotion form; what it lacks is a
+            // place to answer "which codes are out there", and a sheet on the
+            // screen people already associate with codes answers it without
+            // implying a coupon is a thing of its own.
+            <Button variant="soft" onClick={() => setCoupons(true)}>
+              Coupons
+            </Button>
+          )
         }
       />
 
-      {ledger && (
+      {/* The five tiles are one sentence on a phone. */}
+      {ledger && phone && (
+        <Sentence>
+          <Fig>{money(ledger.outstanding_minor)}</Fig> is still out on{" "}
+          <Fig>{count(ledger.outstanding_count)}</Fig> live vouchers.{" "}
+          <Fig>{money(ledger.redeemed_minor)}</Fig> has been spent.
+          {ledger.expired_count > 0 && (
+            <>
+              {" "}
+              <Fig tone="warn">{money(ledger.expired_minor)}</Fig> on{" "}
+              {count(ledger.expired_count)} is past its date.
+            </>
+          )}
+        </Sentence>
+      )}
+
+      {ledger && !phone && (
         <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-3 2xl:grid-cols-5">
           {/* Outstanding leads, because it is the only figure here that is a
               number on the balance sheet: money taken for vouchers nobody has
@@ -499,52 +592,56 @@ export function Vouchers() {
         </div>
       )}
 
-      {/* The module's list shape: rows at the left, filters docked at the
-          right. The last of the four lists still wearing a Filter button — a
-          screen that narrows its rows differently from the three beside it is
-          a screen people have to learn twice. */}
-      <div className="grid min-w-0 items-start gap-5 dock:grid-cols-[minmax(0,1fr)_16rem]">
+      {/* Purchase Orders' shape: the tabs, the search and one filter button
+          over the table, the clauses in force under them. */}
+      <div className="min-w-0">
         <div className="flex min-w-0 flex-col">
           {/* Tabs, then search and the one CTA — the same toolbar as
               Promotions. */}
-          <Toolbar className="mb-5">
-            <Segmented
-              options={[
-                { value: "ALL", label: "All" },
-                { value: "ACTIVE", label: "Live" },
-                { value: "SPENT", label: "Spent" },
-                { value: "VOIDED", label: "Cancelled" },
-              ]}
-              value={shown}
-              onChange={setShown}
-            />
-            <div className="ml-auto flex items-center gap-4">
-              {/* The server's count of every voucher the list matches — the
+          {!phone && (
+            <Toolbar className="mb-5">
+              <Segmented
+                options={[
+                  { value: "ALL", label: "All" },
+                  { value: "ACTIVE", label: "Live" },
+                  { value: "SPENT", label: "Spent" },
+                  { value: "VOIDED", label: "Cancelled" },
+                ]}
+                value={shown}
+                onChange={setShown}
+              />
+              <div className="ml-auto flex items-center gap-4">
+                {/* The server's count of every voucher the list matches — the
                   rest arrive as the table scrolls, so the loaded share is not
                   a number anybody needs. */}
-              <span className="text-[0.875rem] text-mute tabular-nums">
-                {`${count(total)} vouchers`}
-              </span>
-              <Input
-                value={search.value ?? ""}
-                onChange={(event) =>
-                  event.target.value === ""
-                    ? search.close()
-                    : search.replace(event.target.value)
-                }
-                className="h-9 w-64"
-              />
-              <Button variant="primary" onClick={() => setIssuing(true)}>
-                New voucher
-              </Button>
-            </div>
-          </Toolbar>
+                <span className="text-[0.875rem] text-mute tabular-nums">
+                  {`${count(total)} vouchers`}
+                </span>
+                <Input
+                  value={search.value ?? ""}
+                  onChange={(event) =>
+                    event.target.value === ""
+                      ? search.close()
+                      : search.replace(event.target.value)
+                  }
+                  className="h-9 w-64"
+                />
+                <DeskFilterButton model={filters} table={table} />
+                <Button variant="primary" onClick={() => setIssuing(true)}>
+                  New voucher
+                </Button>
+              </div>
+            </Toolbar>
+          )}
+          {!phone && (
+            <DeskFilterChips model={filters} table={table} className="-mt-2" />
+          )}
 
           {/* The strip above is the liability over every voucher ever issued and
               does not move with any of this; what moves is the list. The
               search, the segment and the docked filters are all asked of the
               server, so the list below is always the whole answer, paged. */}
-          <Card className="overflow-hidden">
+          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
             {queryState(list, {
               loading: "Loading vouchers…",
               // No second New voucher here: the toolbar's is the one CTA.
@@ -565,11 +662,15 @@ export function Vouchers() {
                   )
                 ) : (
                   <DataTable<VoucherRow>
+                    refresh={[list]}
                     table={table}
                     onRowClick={(row) => open.open(row.code)}
                     isSelected={(row) => row.code === open.value}
                     empty="No vouchers match."
                     more={list}
+                    cardSort={false}
+                    cardsApart
+                    cardLead
                     className={`${ROOMY} max-h-[calc(100dvh-24rem)]`}
                   />
                 ),
@@ -577,8 +678,37 @@ export function Vouchers() {
           </Card>
         </div>
 
-        <DockedFilters model={filters} id="vouchers" subject="Voucher" />
       </div>
+
+      <Fab label="New voucher" onClick={() => setIssuing(true)} />
+      {/* On a phone the status, the search, the filter and the sort live in
+          the drawer over the bottom bar, not at the top of the list. */}
+      <DockTools
+        search={{
+          value: search.value ?? "",
+          onChange: (next) =>
+            next === "" ? search.close() : search.replace(next),
+          label: "Search Vouchers",
+        }}
+        filter={{
+          count: filters.filters.length,
+          panel: { model: filters, table },
+        }}
+        sort={dockSortOf(table)}
+        // Coupons, which a desk keeps in the header: the last row of the ⚙ sheet
+        // on a phone.
+        actions={[{ label: "Coupons", onClick: () => setCoupons(true) }]}
+        status={{
+          value: shown,
+          options: [
+            { value: "ALL", label: "All" },
+            { value: "ACTIVE", label: "Live" },
+            { value: "SPENT", label: "Spent" },
+            { value: "VOIDED", label: "Cancelled" },
+          ],
+          onChange: (next) => setShown(next as Shown),
+        }}
+      />
 
       <CouponSheet open={coupons} onClose={() => setCoupons(false)} />
 

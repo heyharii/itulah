@@ -115,7 +115,8 @@ fn take(
     if ok == 0 || output.pbData.is_null() {
         return Err(format!("DPAPI failed: {}", std::io::Error::last_os_error()));
     }
-    let bytes = unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize) }.to_vec();
+    let bytes =
+        unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize) }.to_vec();
     unsafe {
         windows_sys::Win32::Foundation::LocalFree(output.pbData as _);
     }

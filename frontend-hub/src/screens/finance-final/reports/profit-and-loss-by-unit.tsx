@@ -7,6 +7,7 @@ import { ExportButton } from "@/components/ui/export-button"
 import { PageHeader } from "@/components/ui/page-header"
 import { EmptyState } from "@/components/ui/states"
 import { fileSafe, type ExportSheet } from "@/lib/export-xlsx"
+import { useLayout } from "@/lib/layout"
 import { financeKeys, statement } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
 import { Code, Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
@@ -27,6 +28,10 @@ import { YearMonthControl } from "@/screens/finance-final/reports/two-year-contr
 import { periodResult } from "@/screens/finance/chart"
 import { useUnitName } from "@/screens/finance/hooks"
 import { UnitSelect } from "@/screens/finance/parts"
+import {
+  PhoneStatement,
+  type StatementLine,
+} from "@/screens/finance/phone-parts"
 import { ReportFilters, ReportSummary } from "@/screens/finance/report"
 import type { Statement } from "@itulah/contract"
 
@@ -56,6 +61,7 @@ import type { Statement } from "@itulah/contract"
 /// flipped for reading by `asPresented()`, shared with every other statement
 /// so no two can disagree about a sign.
 export function ProfitAndLossByUnit() {
+  const phone = useLayout() === "phone"
   const [unit, setUnit] = useState("")
   const [year, setYear] = useState(() => new Date().getFullYear())
   const [monthDraft, setMonthDraft] = useState<number | null>(null)
@@ -135,7 +141,13 @@ export function ProfitAndLossByUnit() {
       <PageHeader
         crumb="Finance · Financial Reports"
         title="Profit and Loss by Unit"
-        actions={<ExportButton build={build} disabled={rows === null} />}
+        // On a phone Export is a row of the Filters sheet, not a button at the
+        // top of the page.
+        actions={
+          phone ? undefined : (
+            <ExportButton build={build} disabled={rows === null} />
+          )
+        }
       />
 
       <ReportFilters note={note}>
@@ -155,6 +167,7 @@ export function ProfitAndLossByUnit() {
           }}
           onMonth={setMonthDraft}
         />
+        {phone && <ExportButton build={build} disabled={rows === null} />}
       </ReportFilters>
 
       {queryState(now, {
@@ -202,10 +215,10 @@ function exportRow(row: Line): (string | number | null)[] {
   ]
 }
 
-/// 7Soft's names for the lines it derives.
-const GROSS_PROFIT = "LABA (RUGI) USAHA KOTOR"
+/// 7Soft's lines it derives, named in English.
+const GROSS_PROFIT = "GROSS PROFIT (LOSS)"
 const OPERATING_PROFIT = "GROSS OPERATING PROFIT"
-const NET_RESULT = "LABA (RUGI) BERSIH"
+const NET_RESULT = "NET PROFIT (LOSS)"
 
 function linesOf(report: Statement, prior: Statement): readonly Line[] {
   const now = figuresOf(report)
@@ -291,6 +304,7 @@ function Body({
   year: number
   rows: readonly Line[]
 }) {
+  const phone = useLayout() === "phone"
   const result = periodResult(report.result_minor)
   const net = rows.find((row) => row.key === "net")
   const sales = rows.find((row) => row.kind === "section" && row.code === "4")
@@ -326,90 +340,127 @@ function Body({
           },
         ]}
       />
-      <Grid>
-        <thead>
-          <tr>
-            <Th width="26rem">Account</Th>
-            <Th align="right" width="10.5rem">
-              {year}
-            </Th>
-            <Th align="right" width="5.5rem">
-              %
-            </Th>
-            <Th align="right" width="10.5rem">
-              {year - 1}
-            </Th>
-            <Th align="right" width="5.5rem">
-              %
-            </Th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows
-            .filter((row) => row.key !== "net")
-            .map((row) => {
-              const bold = row.kind !== "line"
-              const figure = bold ? "font-medium text-ink" : undefined
-              return (
-                <tr
-                  key={row.key}
-                  className={
-                    row.kind === "derived"
-                      ? "border-t border-hairline-strong"
-                      : row.kind === "section"
-                        ? "bg-soft"
-                        : undefined
-                  }
-                >
-                  <Td className={figure}>
-                    <span
-                      className="flex items-baseline gap-1.5"
-                      style={{ paddingLeft: indentOf(row.level) }}
-                    >
-                      {row.code !== "" && <Code>{row.code}</Code>}
-                      <span className="min-w-0">{row.name}</span>
-                    </span>
-                  </Td>
-                  <Td align="right" className={figure}>
-                    {signed(row.now)}
-                  </Td>
-                  <Td align="right" className="text-mute">
-                    {percent(share(row.now, row.baseNow))}
-                  </Td>
-                  <Td align="right" className={figure}>
-                    {signed(row.before)}
-                  </Td>
-                  <Td align="right" className="text-mute">
-                    {percent(share(row.before, row.baseBefore))}
-                  </Td>
-                </tr>
-              )
-            })}
-          {net !== undefined && (
-            <TotalRow>
-              <Td>{net.name}</Td>
-              <Td align="right">
-                <span
-                  className={(net.now ?? 0) < 0 ? "text-bad-fg" : undefined}
-                >
-                  {signed(net.now)}
-                </span>
-              </Td>
-              <Td align="right">{percent(share(net.now, net.baseNow))}</Td>
-              <Td align="right">
-                <span
-                  className={(net.before ?? 0) < 0 ? "text-bad-fg" : undefined}
-                >
-                  {signed(net.before)}
-                </span>
-              </Td>
-              <Td align="right">
-                {percent(share(net.before, net.baseBefore))}
-              </Td>
-            </TotalRow>
-          )}
-        </tbody>
-      </Grid>
+      {phone ? (
+        <PhoneStatement lines={phoneLines(rows, year)} />
+      ) : (
+        <Grid>
+          <thead>
+            <tr>
+              <Th width="26rem">Account</Th>
+              <Th align="right" width="10.5rem">
+                {year}
+              </Th>
+              <Th align="right" width="5.5rem">
+                %
+              </Th>
+              <Th align="right" width="10.5rem">
+                {year - 1}
+              </Th>
+              <Th align="right" width="5.5rem">
+                %
+              </Th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows
+              .filter((row) => row.key !== "net")
+              .map((row) => {
+                const bold = row.kind !== "line"
+                const figure = bold ? "font-medium text-ink" : undefined
+                return (
+                  <tr
+                    key={row.key}
+                    className={
+                      row.kind === "derived"
+                        ? "border-t border-hairline-strong"
+                        : row.kind === "section"
+                          ? "bg-soft"
+                          : undefined
+                    }
+                  >
+                    <Td className={figure}>
+                      <span
+                        className="flex items-baseline gap-1.5"
+                        style={{ paddingLeft: indentOf(row.level) }}
+                      >
+                        {row.code !== "" && <Code>{row.code}</Code>}
+                        <span className="min-w-0">{row.name}</span>
+                      </span>
+                    </Td>
+                    <Td align="right" className={figure}>
+                      {signed(row.now)}
+                    </Td>
+                    <Td align="right" className="text-mute">
+                      {percent(share(row.now, row.baseNow))}
+                    </Td>
+                    <Td align="right" className={figure}>
+                      {signed(row.before)}
+                    </Td>
+                    <Td align="right" className="text-mute">
+                      {percent(share(row.before, row.baseBefore))}
+                    </Td>
+                  </tr>
+                )
+              })}
+            {net !== undefined && (
+              <TotalRow>
+                <Td>{net.name}</Td>
+                <Td align="right">
+                  <span
+                    className={(net.now ?? 0) < 0 ? "text-bad-fg" : undefined}
+                  >
+                    {signed(net.now)}
+                  </span>
+                </Td>
+                <Td align="right">{percent(share(net.now, net.baseNow))}</Td>
+                <Td align="right">
+                  <span
+                    className={
+                      (net.before ?? 0) < 0 ? "text-bad-fg" : undefined
+                    }
+                  >
+                    {signed(net.before)}
+                  </span>
+                </Td>
+                <Td align="right">
+                  {percent(share(net.before, net.baseBefore))}
+                </Td>
+              </TotalRow>
+            )}
+          </tbody>
+        </Grid>
+      )}
     </>
   )
+}
+
+/// The statement as a phone reads it: this year's figure on each line, and the
+/// share of net sales, last year and its share in the sheet a tap opens.
+function phoneLines(rows: readonly Line[], year: number): StatementLine[] {
+  return rows.map((row) => ({
+    key: row.key,
+    kind:
+      row.key === "net"
+        ? "total"
+        : row.kind === "section" || row.kind === "derived"
+          ? "section"
+          : "line",
+    code: row.code === "" ? undefined : row.code,
+    name: row.name,
+    level: row.level,
+    figure: signed(row.now),
+    tone: (row.now ?? 0) < 0 ? "bad" : undefined,
+    facts: [
+      { label: String(year), value: signed(row.now) },
+      {
+        label: `Share of sales ${year}`,
+        value: percent(share(row.now, row.baseNow)),
+      },
+      { label: String(year - 1), value: signed(row.before) },
+      {
+        label: `Share of sales ${year - 1}`,
+        value: percent(share(row.before, row.baseBefore)),
+      },
+    ],
+  }))
 }

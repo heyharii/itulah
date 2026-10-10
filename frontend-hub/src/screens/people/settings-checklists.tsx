@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
+import { Fab } from "@/components/ui/fab"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { Field, Input } from "@/components/ui/field"
@@ -47,6 +49,7 @@ const LISTS = [
 /// ones already open keep what they were opened with.
 export function ChecklistSettings() {
   const canWrite = useCanWrite()
+  const phone = useLayout() === "phone"
   const sheet = useSheetTarget<TaskRow>()
   const list = useQuery({
     queryKey: orgKeys.checklistTemplates(),
@@ -55,11 +58,13 @@ export function ChecklistSettings() {
 
   return (
     <PageContent>
+      {canWrite && <Fab label="New task" onClick={() => sheet.show(null)} />}
       <PageHeader
         crumb="People"
         title="Checklists"
         sub="The tasks every hire and every leaver gets, in order, and who does each."
         actions={
+          !phone &&
           canWrite && (
             <Button variant="primary" onClick={() => sheet.show(null)}>
               New task

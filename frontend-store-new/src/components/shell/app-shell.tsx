@@ -2,31 +2,47 @@ import { Outlet, useRouter } from "@tanstack/react-router"
 import { useCallback, useEffect, useState } from "react"
 
 import { BottomBar } from "@/components/shell/bottom-bar"
-import { Sidebar } from "@/components/shell/sidebar"
+import { DockProvider, useDockRow } from "@/components/shell/dock"
+import { Rail } from "@/components/shell/rail"
+import {
+  DrawerNav,
+  SubSidebar,
+  useSubSidebar,
+} from "@/components/shell/sidebar"
 import { TopBar } from "@/components/shell/top-bar"
 import { atLeast, useLayout } from "@/lib/layout"
 import { usePriceBookWatch } from "@/lib/price-book-watch"
 import { cn } from "@/lib/utils"
 
-/// The shell: rail · sidebar · (bar over content) — the hub's
-/// (`frontend-hub/src/components/shell/app-shell.tsx`), so the till reads as
-/// the same product as the console.
+/// The shell: rail · panel · (bar over page) — the hub's
+/// (`frontend-hub/src/components/shell/app-shell.tsx`), so the shop's back
+/// office reads as the same product as the console.
+///
+/// The charcoal rail (`rail.tsx`) answers *which part of the shop* — the
+/// modules as icons, full height. The light panel beside it (`sidebar.tsx`)
+/// answers *which screen* — the module you are in, its screens down the body;
+/// a module with one screen has no panel. The bar spans only the page.
+///
+/// ⌘B folds the PANEL away, so a wide grid gets the width back without the rail
+/// ever leaving the screen. Whether it is folded is remembered per browser — a
+/// convenience, not a record.
 ///
 /// **One shell, three widths.** From 64rem (a counter monitor, a laptop, a
-/// tablet held landscape) the rail and the sidebar are columns and ⌘B folds
-/// the sidebar away. Between 48 and 64rem both fold into one drawer behind the
-/// bar's menu button. Under 48rem a phone navigates from the bottom bar, whose
-/// last tab opens the same drawer.
+/// tablet held landscape) the rail and the panel are columns. Between 48 and
+/// 64rem both fold into one drawer behind the bar's menu button. Under 48rem a
+/// phone navigates from the bottom bar (`bottom-bar.tsx`), whose last tab opens
+/// the same drawer, and whose dock row carries the screen's own search, status
+/// and "+" (`dock.tsx`).
 ///
 /// The page scrolls here, not on `body`: a screen that holds its own scrolling
-/// list — the basket, the catalogue grid — needs a box of known height to do
-/// it in, and a page that grew instead would put a second scrollbar around
-/// the lot.
+/// list needs a box of known height to do it in, and a page that grew instead
+/// would put a second scrollbar around the lot.
 export function AppShell() {
   const layout = useLayout()
   const docked = atLeast(layout, "desktop")
   const phone = layout === "phone"
   const router = useRouter()
+  const sub = useSubSidebar()
   usePriceBookWatch()
 
   /// Whether the drawer is over the content. A boolean, closed by whatever
@@ -38,6 +54,8 @@ export function AppShell() {
   // A drawer belongs to the undocked shell, so it does not survive docking.
   if (docked && drawerOpen) setDrawerOpen(false)
 
+  // Docked, ⌘B folds the screens panel away and the rail stays; undocked, it
+  // opens and shuts the drawer that holds the whole menu.
   const toggleSidebar = useCallback(() => {
     if (docked) {
       setSidebarOpen((open) => {
@@ -67,53 +85,78 @@ export function AppShell() {
   }, [toggleSidebar])
 
   return (
-    <div className="app-shell flex h-svh w-full overflow-hidden bg-soft-3">
-      {/* One sidebar (v2): every module a row, the open one unfolded; ⌘B
-          folds it to its icons rather than hiding it. */}
-      {docked && (
-        <Sidebar folded={!sidebarOpen} onToggle={toggleSidebar} />
-      )}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-canvas">
-        <TopBar
-          onOpenNav={docked || phone ? undefined : () => setDrawerOpen(true)}
-        />
-        {/* `isolate`: a screen's z-index — a sticky basket footer, a frozen
-            column — is a statement about that screen and never read against
-            the shell's. Portalled layers are unaffected. */}
-        <div className="isolate flex min-h-0 min-w-0 flex-1 flex-col">
-          <div
-            className={cn(
-              "flex min-h-0 flex-1 flex-col overflow-y-auto",
-              // The last row clears the bottom bar on a phone.
-              phone && "pb-[calc(3.5rem+env(safe-area-inset-bottom,0px))]",
-            )}
-          >
-            <Outlet />
+    <DockProvider phone={phone}>
+      <div className="app-shell flex h-full w-full overflow-hidden bg-soft-3">
+        {docked && (
+          <Rail
+            panelOpen={sub === null || sidebarOpen}
+            onToggleNav={toggleSidebar}
+          />
+        )}
+        {docked && sub !== null && sidebarOpen && (
+          <SubSidebar module={sub} onFold={toggleSidebar} />
+        )}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <TopBar
+            onOpenNav={docked || phone ? undefined : () => setDrawerOpen(true)}
+            onOpenAccount={phone ? () => setDrawerOpen(true) : undefined}
+          />
+          {/* `isolate`: a screen's z-index — a sticky footer, a frozen column —
+              is a statement about that screen and never read against the
+              shell's. Portalled layers are unaffected. */}
+          <div className="isolate flex min-h-0 min-w-0 flex-1 flex-col">
+            <PageScroller phone={phone} />
           </div>
         </div>
-      </div>
 
-      {phone && <BottomBar onOpenMenu={() => setDrawerOpen(true)} />}
-      {!docked && (
-        <NavDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
+        {phone && <BottomBar onOpenMenu={() => setDrawerOpen(true)} />}
+        {!docked && (
+          <NavDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
+        )}
+      </div>
+    </DockProvider>
+  )
+}
+
+/// The page's scroll container: the one place the bottom bar's height is read.
+/// On a phone the last row clears the bottom bar, and, while a screen has put
+/// its search or its action in the context row above it (`dock.tsx`), that row
+/// too.
+function PageScroller({ phone }: { phone: boolean }) {
+  const row = useDockRow()
+  return (
+    <div
+      className={cn(
+        "flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-contain",
+        phone &&
+          (row
+            ? "pb-[calc(7rem+env(safe-area-inset-bottom,0px))]"
+            : "pb-[calc(3.25rem+env(safe-area-inset-bottom,0px))]"),
       )}
+    >
+      <Outlet />
     </div>
   )
 }
 
-/// Both columns, over the content instead of beside it. Stays mounted and
-/// slides, so it has somewhere to travel from; `inert` while shut, so a Tab
-/// key cannot walk into rows nobody can see.
+/// The menu, over the content instead of beside it. Stays mounted and slides,
+/// so it has somewhere to travel from; `inert` while shut, so a Tab key cannot
+/// walk into rows nobody can see.
+///
+/// The iOS sheet curve, in at `--t-sheet` and out at `--t-exit`: the same pace
+/// every other panel in the app keeps.
 function NavDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
     <>
+      {/* The veil is WHITE, like every other overlay in this system: the screen
+          behind a drawer washes toward near-white and never darkens. */}
       <button
         type="button"
         tabIndex={-1}
         aria-hidden
         onClick={onClose}
         className={cn(
-          "fixed inset-0 z-40 bg-[var(--scrim)] transition-opacity duration-200",
+          "fixed inset-0 z-40 bg-[var(--scrim)] transition-opacity duration-(--t-sheet) ease-(--ease-out)",
           open ? "opacity-100" : "pointer-events-none opacity-0",
         )}
       />
@@ -121,12 +164,14 @@ function NavDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
         inert={!open}
         data-motion="travel"
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex transition-transform duration-200 ease-out",
-          open ? "translate-x-0 shadow-shell" : "-translate-x-full",
+          "fixed inset-y-0 left-0 z-50 flex transition-transform ease-(--ease-drawer)",
+          open
+            ? "translate-x-0 shadow-shell duration-(--t-sheet)"
+            : "-translate-x-full duration-(--t-exit)",
         )}
       >
-        {/* Any link inside shuts it — including the row for the screen you
-            are already on, which resolves to the same route and so gives the
+        {/* Any link inside shuts it — including the row for the screen you are
+            already on, which resolves to the same route and so gives the
             navigation subscription nothing to announce. */}
         <div
           className="contents"
@@ -134,17 +179,17 @@ function NavDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
             if ((event.target as HTMLElement).closest("a") !== null) onClose()
           }}
         >
-          <Sidebar variant="drawer" onClose={onClose} />
+          <DrawerNav onClose={onClose} />
         </div>
       </div>
     </>
   )
 }
 
-/// The sidebar as a column, folded by sliding rather than by narrowing: a
-/// column whose width animates makes every list beside it re-measure on every
-/// frame. The width changes once per fold.
-const SIDEBAR_KEY = "till.sidebar-open"
+/// The panel, folded by sliding rather than by narrowing: a column whose width
+/// animates makes every list beside it re-measure on every frame. The width
+/// changes once per fold.
+const SIDEBAR_KEY = "store.sidebar-open"
 
 function readSidebarOpen(): boolean {
   try {

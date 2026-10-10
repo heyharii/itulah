@@ -153,7 +153,12 @@ async fn bearer(app: &axum::Router, username: &str, password: &str) -> Vec<(Stri
         Some(json!({ "username": username, "password": password })),
     )
     .await;
-    assert_eq!(login.status, StatusCode::OK, "{username} login: {:?}", login.body);
+    assert_eq!(
+        login.status,
+        StatusCode::OK,
+        "{username} login: {:?}",
+        login.body
+    );
     let token = login.body["token"]
         .as_str()
         .unwrap_or_else(|| panic!("token: {:?}", login.body));
@@ -168,12 +173,31 @@ async fn the_node_refuses_before_anything_leaves_the_shop() {
         .unwrap_or_else(|error| panic!("store router: {error}"));
 
     // Nobody signed in.
-    let anonymous = send(&app, "GET", "/api/v1/store/central/employees/me/reach", vec![], None).await;
-    assert_eq!(anonymous.status, StatusCode::UNAUTHORIZED, "{:?}", anonymous.body);
+    let anonymous = send(
+        &app,
+        "GET",
+        "/api/v1/store/central/employees/me/reach",
+        vec![],
+        None,
+    )
+    .await;
+    assert_eq!(
+        anonymous.status,
+        StatusCode::UNAUTHORIZED,
+        "{:?}",
+        anonymous.body
+    );
 
     // A LOCAL break-glass account has nobody behind it at head office.
     let local = bearer(&app, "admin", LOCAL_ADMIN_PASSWORD).await;
-    let refused = send(&app, "GET", "/api/v1/store/central/employees/me/reach", local, None).await;
+    let refused = send(
+        &app,
+        "GET",
+        "/api/v1/store/central/employees/me/reach",
+        local,
+        None,
+    )
+    .await;
     assert_eq!(refused.status, StatusCode::FORBIDDEN, "{:?}", refused.body);
     assert!(
         refused.body["error"]
@@ -215,13 +239,25 @@ async fn the_node_refuses_before_anything_leaves_the_shop() {
         None,
     )
     .await;
-    assert_eq!(unreachable.status, StatusCode::SERVICE_UNAVAILABLE, "{:?}", unreachable.body);
+    assert_eq!(
+        unreachable.status,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "{:?}",
+        unreachable.body
+    );
 
     // A node with sign-in switched off relays for nobody.
     let (open_edge, _) = store_edge();
     let open = store_router(open_edge, frontend_dir())
         .unwrap_or_else(|error| panic!("open store router: {error}"));
-    let refused = send(&open, "GET", "/api/v1/store/central/employees/me/reach", vec![], None).await;
+    let refused = send(
+        &open,
+        "GET",
+        "/api/v1/store/central/employees/me/reach",
+        vec![],
+        None,
+    )
+    .await;
     assert_eq!(refused.status, StatusCode::FORBIDDEN, "{:?}", refused.body);
 }
 
@@ -383,7 +419,14 @@ async fn a_managers_call_reaches_head_office_through_the_node(pool: PgPool) {
     assert_eq!(reach.body["role"], "SUPERVISOR");
 
     // The shop's own supply requests, and only its own.
-    let supplies = send(&app, "GET", "/api/v1/store/central/ga/supplies", manager.clone(), None).await;
+    let supplies = send(
+        &app,
+        "GET",
+        "/api/v1/store/central/ga/supplies",
+        manager.clone(),
+        None,
+    )
+    .await;
     assert_eq!(supplies.status, StatusCode::OK, "{:?}", supplies.body);
     let rows = supplies
         .body
@@ -402,7 +445,12 @@ async fn a_managers_call_reaches_head_office_through_the_node(pool: PgPool) {
         None,
     )
     .await;
-    assert_eq!(elsewhere.status, StatusCode::FORBIDDEN, "{:?}", elsewhere.body);
+    assert_eq!(
+        elsewhere.status,
+        StatusCode::FORBIDDEN,
+        "{:?}",
+        elsewhere.body
+    );
     assert!(
         elsewhere.body["error"]
             .as_str()

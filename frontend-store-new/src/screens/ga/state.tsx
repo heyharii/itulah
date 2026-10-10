@@ -1,5 +1,10 @@
+import { useQuery } from "@tanstack/react-query"
+
 import { Button } from "@/components/ui/button"
+import { LoadingState } from "@/components/ui/states"
+import { hrKeys, teamAt, useReach } from "@/lib/queries/hr"
 import { ApiError } from "@itulah/contract/client"
+import type { EmployeeList } from "@itulah/contract"
 
 /// The three-way render a GA query does — `hr/centre.tsx`'s `centreState`,
 /// with GA's own sentences.
@@ -19,18 +24,13 @@ export function gaState<T>(
     refetch: () => void
   },
   options: {
+    /// What is being read: "Reading the repairs…".
     loading?: string
     render: (data: T) => React.ReactNode
   },
 ): React.ReactNode {
   if (query.isPending) {
-    return (
-      <div className="mx-auto max-w-[28em] px-4 py-12 text-center">
-        <p className="text-meta text-body">
-          {options.loading ?? "Loading…"}
-        </p>
-      </div>
-    )
+    return <LoadingState>{options.loading ?? "Reading…"}</LoadingState>
   }
   if (query.isError) {
     return (
@@ -75,4 +75,23 @@ export function describeGa(error: unknown): string {
     }
   }
   return "Can't reach head office. Try again when the line is back."
+}
+
+/// Who works at this shop, so a record that carries a LOGIN ("reported by",
+/// "recorded by") can be shown by the person's full name.
+///
+/// Asked only once the gate is open, and the answer is a convenience, never a
+/// condition: a session that may not read the team list (or a head office that
+/// is slow) leaves `undefined`, and the screen falls back to the login it was
+/// given — the same list the People screens read, under the same key, so a
+/// shop that has opened one of them has already paid for this.
+export function useGaTeam(enabled: boolean): EmployeeList | undefined {
+  const reach = useReach(enabled)
+  const unit = reach.data?.scope === "ONE_UNIT" ? reach.data.unit_id : null
+  const team = useQuery({
+    queryKey: hrKeys.team(unit ?? ""),
+    queryFn: ({ signal }) => teamAt(unit ?? "", signal),
+    enabled: unit !== null,
+  })
+  return team.data
 }

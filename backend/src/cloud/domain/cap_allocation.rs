@@ -159,7 +159,12 @@ mod tests {
 
     #[test]
     fn half_the_limit_is_split_evenly_the_first_time() {
-        let shops = [shop("a", None, 0), shop("b", None, 0), shop("c", None, 0), shop("d", None, 0)];
+        let shops = [
+            shop("a", None, 0),
+            shop("b", None, 0),
+            shop("c", None, 0),
+            shop("d", None, 0),
+        ];
         let changes = rebalance(1_000_000, &shops, Split::default());
         assert_eq!(changes.len(), 4);
         assert!(changes.values().all(|grant| *grant == 125_000));
@@ -167,10 +172,17 @@ mod tests {
 
     #[test]
     fn a_busy_shop_is_topped_up_from_the_pool_and_a_quiet_one_is_not() {
-        let shops = [shop("a", Some(125_000), 100_000), shop("b", Some(125_000), 0)];
+        let shops = [
+            shop("a", Some(125_000), 100_000),
+            shop("b", Some(125_000), 0),
+        ];
         let changes = rebalance(500_000, &shops, Split::default());
         assert_eq!(changes.get("a"), Some(&250_000));
-        assert_eq!(changes.get("b"), None, "nobody has sold there; nothing is moved to it");
+        assert_eq!(
+            changes.get("b"),
+            None,
+            "nobody has sold there; nothing is moved to it"
+        );
     }
 
     #[test]
@@ -187,12 +199,19 @@ mod tests {
             }
         }
         assert!(total(&shops, &changes) <= 1_000_000);
-        assert_eq!(changes.get("a"), Some(&450_000), "the pool was fifty thousand, all to the busiest");
+        assert_eq!(
+            changes.get("a"),
+            Some(&450_000),
+            "the pool was fifty thousand, all to the busiest"
+        );
     }
 
     #[test]
     fn an_exhausted_pool_moves_nothing() {
-        let shops = [shop("a", Some(500_000), 500_000), shop("b", Some(500_000), 10)];
+        let shops = [
+            shop("a", Some(500_000), 500_000),
+            shop("b", Some(500_000), 10),
+        ];
         assert!(rebalance(1_000_000, &shops, Split::default()).is_empty());
     }
 
@@ -200,13 +219,23 @@ mod tests {
     fn a_limit_lowered_below_what_was_granted_takes_nothing_back() {
         let shops = [shop("a", Some(600_000), 0), shop("b", None, 0)];
         let changes = rebalance(500_000, &shops, Split::default());
-        assert_eq!(changes.get("b"), Some(&0), "a new shop is granted from an empty pool");
+        assert_eq!(
+            changes.get("b"),
+            Some(&0),
+            "a new shop is granted from an empty pool"
+        );
         assert_eq!(changes.get("a"), None);
     }
 
     #[test]
     fn a_limit_too_small_to_split_is_refused() {
-        assert!(!can_split(10, 30, Split::default()), "five across thirty is nought each");
-        assert!(can_split(60, 30, Split::default()), "thirty across thirty is one each");
+        assert!(
+            !can_split(10, 30, Split::default()),
+            "five across thirty is nought each"
+        );
+        assert!(
+            can_split(60, 30, Split::default()),
+            "thirty across thirty is one each"
+        );
     }
 }

@@ -3,6 +3,7 @@ import { Download, Printer, Search } from "lucide-react"
 import { useMemo, useRef, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Dialog } from "@/components/ui/dialog"
@@ -22,11 +23,13 @@ import {
   type PurchaseReturnWork,
 } from "@/lib/api"
 import { useEdgeActor } from "@/lib/edge-session"
-import { count } from "@/lib/format"
+import { count, quantity } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { keys } from "@/lib/operations/keys"
 import { useNameOfLogin } from "@/lib/queries/hr-employees"
 import { problemOf } from "@/lib/problem"
 import { procurementKeys } from "@/lib/queries/procurement"
+import { supplierReturnKeys } from "@/lib/queries/supplier-returns"
 import { useSheet } from "@/lib/sheets"
 import { idempotencyKey } from "@itulah/contract/client"
 import { BoardHeader } from "@/screens/operations/board/parts"
@@ -43,7 +46,10 @@ import {
   withNoteLink,
 } from "@/screens/procurement/return-note-link"
 import type { PrintableNote } from "@/screens/procurement/return-print"
-import { useSupplierName } from "@/screens/procurement/supplier-name"
+import {
+  useSupplierContact,
+  useSupplierName,
+} from "@/screens/procurement/supplier-name"
 import { returnLineParts } from "@/screens/procurement/return-lines"
 import {
   noteOf,
@@ -83,9 +89,9 @@ function NoteButtons({ note }: { note: PrintableNote }) {
 }
 
 /// **Return PO** — everything going back to a supplier, a card per
-/// supplier (the owner, 2026-10-04: a list, not a board, and the surat jalan is
+/// supplier (the owner, 2026-10-04: a list, not a board, and the delivery note is
 /// per supplier, not per order). Each card's band carries the supplier, what is
-/// going back to them in total, and the next step: **Generate Surat Jalan**
+/// going back to them in total, and the next step: **Generate Delivery Note**
 /// names the person in charge and makes the note — kept on the returns
 /// themselves, so Procurement reads the same — then **Print**, **Download** and
 /// **Confirm**, which is when the hand-over is done.
@@ -105,6 +111,7 @@ export function SuppliersBoard() {
   })
   const confirm = useConfirmReturn()
   const supplierName = useSupplierName()
+  const contact = useSupplierContact()
   const nameOfLogin = useNameOfLogin()
   const actor = useEdgeActor()
   const sheet = useSheet("allotment")
@@ -114,6 +121,7 @@ export function SuppliersBoard() {
   /// Active: not handed over yet. Completed: handed over, and never mixed with
   /// the ones whose surat jalan is not made (owner, 10 Oct 2026).
   const [tab, setTab] = useState<"active" | "completed">("active")
+  const phone = useLayout() === "phone"
   /// What has been typed into Person in Charge, by supplier, before the note
   /// is generated.
   const [drafts, setDrafts] = useState<Readonly<Record<string, string>>>({})
@@ -131,11 +139,13 @@ export function SuppliersBoard() {
       ...edge
         .filter((one) => !known.has(one.return_id))
         .map((one) =>
-          fromEdge(one, supplierName, (login) => titled(nameOfLogin(login)))
+          fromEdge(one, supplierName, contact, (login) =>
+            titled(nameOfLogin(login))
+          )
         ),
     ]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [register.all, edge, supplierName, nameOfLogin])
+  }, [register.all, edge, supplierName, contact, nameOfLogin])
 
   const groups = useMemo(() => {
     const needle = typed.trim().toLowerCase()
@@ -174,8 +184,11 @@ export function SuppliersBoard() {
         pic: typedPic.trim(),
       }),
     onSuccess: () => {
+      // The list reads this node's returns AND head office's register: both
+      // are asked again, so the card says "Generated" without a reload.
       void client.invalidateQueries({ queryKey: keys.purchaseReturns() })
       void client.invalidateQueries({ queryKey: procurementKeys.returns() })
+      void client.invalidateQueries({ queryKey: supplierReturnKeys.all })
       setMaking(null)
     },
   })
@@ -204,7 +217,7 @@ export function SuppliersBoard() {
 
   return (
     <PageContent fill>
-      <BoardHeader board="suppliers" actions={search} />
+      <BoardHeader board="suppliers" actions={phone ? undefined : search} />
       <SubTabs
         value={tab}
         onChange={(next) => setTab(next as "active" | "completed")}
@@ -212,6 +225,14 @@ export function SuppliersBoard() {
           { value: "active", label: `Active ${count(all.length - doneCount)}` },
           { value: "completed", label: `Completed ${count(doneCount)}` },
         ]}
+      />
+      {/* A phone's search is the dock's, as on every list. */}
+      <DockTools
+        search={{
+          value: typed,
+          onChange: setTyped,
+          label: "Search Returns",
+        }}
       />
       {confirm.dialog}
       {pending ? (
@@ -240,7 +261,7 @@ export function SuppliersBoard() {
                 <NoteButtons note={noteFor(group)} />
                 <Button
                   variant="primary"
-                  size="sm"
+                  size="card"
                   onClick={() => confirm.start(group.supplier, waiting)}
                 >
                   Confirm
@@ -249,10 +270,10 @@ export function SuppliersBoard() {
             ) : (
               <Button
                 variant="primary"
-                size="sm"
+                size="card"
                 onClick={() => setMaking(group.supplier)}
               >
-                Generate Surat Jalan
+                Generate Delivery Note
               </Button>
             )
           }}
@@ -269,7 +290,7 @@ export function SuppliersBoard() {
             generate.reset()
           }
         }}
-        title="Generate Surat Jalan"
+        title="Generate Delivery Note"
         caption={making ?? undefined}
         footer={
           <div className="flex justify-end">
@@ -279,7 +300,7 @@ export function SuppliersBoard() {
               pending={generate.isPending}
               onClick={() => makingGroup && generate.mutate(makingGroup)}
             >
-              Generate Surat Jalan
+              Generate Delivery Note
             </Button>
           </div>
         }
@@ -347,6 +368,7 @@ export function SuppliersBoard() {
 function fromEdge(
   row: PurchaseReturnWork,
   supplierName: ReturnType<typeof useSupplierName>,
+  contact: ReturnType<typeof useSupplierContact>,
   person: (login: string) => string
 ): Row {
   const open = row.status === "OPEN"
@@ -356,6 +378,7 @@ function fromEdge(
     supplier: supplierName(row.supplier_id, row.supplier_name),
     reason: "Over-delivery",
     reference: row.po_number,
+    ...contact(row.supplier_id, row.supplier_name),
     poId: null,
     pcs: row.quantity,
     settleBy: null,
@@ -422,7 +445,11 @@ function useConfirmReturn() {
       }
     },
     onSuccess: () => {
+      // Confirm hands the goods over: the node's returns and the register are
+      // both asked again, so the card moves to Completed without a reload.
       void client.invalidateQueries({ queryKey: keys.purchaseReturns() })
+      void client.invalidateQueries({ queryKey: procurementKeys.returns() })
+      void client.invalidateQueries({ queryKey: supplierReturnKeys.all })
     },
   })
 
@@ -455,7 +482,7 @@ function useConfirmReturn() {
       ) : (
         <p className="text-body">
           {target
-            ? `${count(target.returns.length)} ${target.returns.length === 1 ? "return" : "returns"}, ${count(pieces)} pcs go back to ${target.supplier}.`
+            ? `${count(target.returns.length)} ${target.returns.length === 1 ? "return" : "returns"}, ${quantity(pieces)} go back to ${target.supplier}.`
             : ""}
         </p>
       )}

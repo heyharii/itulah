@@ -4,8 +4,9 @@ import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Card } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Input } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
@@ -15,6 +16,7 @@ import { EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilterState, type Filter, type FilterField } from "@/lib/filters"
 import { count, moment } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { queryState } from "@/lib/query-state"
 import {
   auditKeys,
@@ -144,6 +146,7 @@ const columns: ColumnDef<TableSetup, AuditEntry>[] = [
     accessorKey: "at",
     header: "Time",
     size: 150,
+    meta: { card: "hide" },
     cell: ({ row }) => (
       <span className="text-body tabular-nums">{moment(row.original.at)}</span>
     ),
@@ -152,6 +155,7 @@ const columns: ColumnDef<TableSetup, AuditEntry>[] = [
     accessorKey: "display_name",
     header: "Actor",
     size: 170,
+    meta: { card: "hide" },
     cell: ({ row }) => (
       <span className="font-medium text-ink">{row.original.display_name}</span>
     ),
@@ -162,6 +166,7 @@ const columns: ColumnDef<TableSetup, AuditEntry>[] = [
     header: "Activity",
     size: 130,
     enableSorting: false,
+    meta: { card: "hide" },
     cell: ({ row }) => readAction(row.original),
   },
   {
@@ -170,6 +175,7 @@ const columns: ColumnDef<TableSetup, AuditEntry>[] = [
     header: "Document",
     size: 300,
     enableSorting: false,
+    meta: { card: "hide" },
     cell: ({ row }) => {
       const doc = documentOf(row.original)
       return doc === null ? (
@@ -185,15 +191,81 @@ const columns: ColumnDef<TableSetup, AuditEntry>[] = [
     header: "Flow",
     size: 170,
     enableSorting: false,
+    meta: { card: "hide" },
     cell: ({ row }) => <Tag>{flowOf(row.original)}</Tag>,
   },
   {
     accessorKey: "status",
     header: "Answer",
     size: 110,
+    meta: { card: "hide" },
     // The code itself, not a word for it: this is the column that tells a
     // 403 from a 409 — somebody who may not do a thing from somebody who
     // may and was too late.
+    cell: ({ row }) => (
+      <Pill tone={row.original.status >= 400 ? "bad" : "ok"}>
+        {row.original.status}
+      </Pill>
+    ),
+  },
+  // Three columns that exist only on a card (a phone): what was done over the
+  // flow it belongs to and the document it was done to, who and when under a
+  // hairline, and the answer where a thumb rests. A log has no figure to lead
+  // with, so the head is the act alone.
+  {
+    id: "head",
+    accessorFn: (row) => readAction(row),
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => {
+      const flow = flowOf(row.original)
+      const doc = documentOf(row.original)
+      return (
+        <span className="flex min-w-0 flex-col gap-1">
+          <span className="min-w-0 break-words">
+            {readAction(row.original)}
+          </span>
+          {(flow !== "Other" || doc !== null) && (
+            <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[0.875rem] font-normal text-mute">
+              {flow !== "Other" && <span>{flow}</span>}
+              {flow !== "Other" && doc !== null && (
+                <span className="text-faint">·</span>
+              )}
+              {doc !== null && (
+                <span className="min-w-0 font-mono break-all">{doc}</span>
+              )}
+            </span>
+          )}
+        </span>
+      )
+    },
+  },
+  {
+    id: "foot",
+    accessorFn: (row) => row.display_name,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => (
+      <span className="block min-w-0">
+        <span className="font-medium text-ink">
+          {row.original.display_name}
+        </span>
+        <span className="text-faint"> · </span>
+        <span className="tabular-nums">{moment(row.original.at)}</span>
+      </span>
+    ),
+  },
+  {
+    id: "answer",
+    accessorFn: (row) => row.status,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "status" },
     cell: ({ row }) => (
       <Pill tone={row.original.status >= 400 ? "bad" : "ok"}>
         {row.original.status}
@@ -221,6 +293,7 @@ export function OpsActivityLog() {
   const [flow, setFlow] = useState<FlowTab>("All")
   const [query, setQuery] = useState("")
   const [only, setOnly] = useState<"all" | "refused">("all")
+  const phone = useLayout() === "phone"
   const [sorting, setSorting] = useState<SortingState>([
     { id: "at", desc: true },
   ])
@@ -327,14 +400,31 @@ export function OpsActivityLog() {
         data: visible,
         columns,
         getRowId: (row: AuditEntry) => String(row.audit_id),
-        state: { sorting },
+        state: {
+          sorting,
+          // The card's own columns are drawn on a phone and never on a desk.
+          columnVisibility: { head: phone, foot: phone, answer: phone },
+        },
         // The rows arrive in the order the request asked for.
         manualSorting: true,
         onSortingChange: setSorting,
       }),
-      [visible, sorting]
+      [visible, sorting, phone]
     )
   )
+
+  // One choice of a few for the dock: the flow, or the refusals. The two are
+  // separate controls on a desk and a refused list across every flow is what
+  // the second is for, so on a phone Refused is a place of its own.
+  const place = only === "refused" ? "Refused" : flow
+  const places = [
+    ...FLOWS.map((one) => ({ value: one, label: one })),
+    {
+      value: "Refused",
+      label: "Refused",
+      ...(refused === undefined ? {} : { count: refused }),
+    },
+  ]
 
   return (
     <PageContent>
@@ -344,7 +434,7 @@ export function OpsActivityLog() {
         sub="What the centre recorded, newest first, sorted into the flows Ops runs. Work done on this warehouse's edge node never passes the cloud, so floor actions do not appear here."
       />
 
-      <div className="mb-4 flex flex-wrap items-center gap-3">
+      <div className="mb-4 flex flex-wrap items-center gap-3 max-md:hidden">
         <Segmented
           options={FLOWS.map((one) => ({ value: one, label: one }))}
           value={flow}
@@ -357,7 +447,34 @@ export function OpsActivityLog() {
         )}
       </div>
 
-      <Toolbar>
+      {/* On a phone the flow, the search, the filter and the sort are the dock's. */}
+      <DockTools
+        search={{ value: query, onChange: setQuery, label: "Search the log" }}
+        filter={{
+          count: filters.filters.length,
+          panel: {
+            model: filters,
+            filterModel: { ...filters, fields: counted },
+            table,
+          },
+        }}
+        sort={dockSortOf(table)}
+        status={{
+          value: place,
+          options: places,
+          onChange: (next) => {
+            if (next === "Refused") {
+              setOnly("refused")
+              setFlow("All")
+              return
+            }
+            setOnly("all")
+            setFlow(next as FlowTab)
+          },
+        }}
+      />
+
+      <Toolbar className="max-md:hidden">
         <Segmented
           options={[
             { value: "all", label: "Everything" },
@@ -386,7 +503,7 @@ export function OpsActivityLog() {
         />
       </Toolbar>
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(feed, {
           loading: "Reading the log…",
           render: () =>
@@ -403,9 +520,13 @@ export function OpsActivityLog() {
               </EmptyState>
             ) : (
               <DataTable<AuditEntry>
+                refresh={[feed]}
                 table={table}
                 more={feed}
                 className="max-h-[calc(100dvh-19rem)]"
+                cardSort={false}
+                cardsApart
+                cardLead
               />
             ),
         })}

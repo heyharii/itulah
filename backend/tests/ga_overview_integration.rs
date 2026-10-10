@@ -21,7 +21,8 @@ fn day(year: i32, month: u32, day: u32) -> chrono::NaiveDate {
 /// is testing would pass on the day somebody added a twelfth build to both
 /// halves of the same mistake.
 const BUILDS: [&str; 11] = [
-    "LAND", "BUILDING", "TECH", "VEHICLE", "FFE", "IT", "AUDIO", "OE", "SOFTWARE", "DEFERRED", "CIP",
+    "LAND", "BUILDING", "TECH", "VEHICLE", "FFE", "IT", "AUDIO", "OE", "SOFTWARE", "DEFERRED",
+    "CIP",
 ];
 
 fn an_asset(number: &str, class: &str) -> cloud::RegisterAssetRequest {
@@ -51,7 +52,10 @@ async fn every_class_is_filled_in_on_one_of_the_eleven_builds(pool: PgPool) {
         .await
         .unwrap_or_else(|error| panic!("classes: {error}"))
         .classes;
-    assert!(classes.len() > 40, "the register keeps the client's own list");
+    assert!(
+        classes.len() > 40,
+        "the register keeps the client's own list"
+    );
 
     for class in &classes {
         assert!(

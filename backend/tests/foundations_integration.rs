@@ -178,7 +178,10 @@ async fn a_number_series_is_gapless_editable_and_never_repeats(pool: PgPool) {
         .unwrap_or_else(|error| panic!("again: {error:?}"));
     tx.commit().await.unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(first, again, "a rolled-back number is issued again");
-    assert!(first.starts_with("COR-"), "the seeded pattern spells COR-: {first}");
+    assert!(
+        first.starts_with("COR-"),
+        "the seeded pattern spells COR-: {first}"
+    );
 
     // A monthly series must print its month.
     let refused = number_series::put_number_series(
@@ -192,7 +195,10 @@ async fn a_number_series_is_gapless_editable_and_never_repeats(pool: PgPool) {
         day(),
     )
     .await;
-    assert!(refused.is_err(), "a monthly series without {{MM}} would repeat");
+    assert!(
+        refused.is_err(),
+        "a monthly series without {{MM}} would repeat"
+    );
 
     // A kind whose documents name no unit cannot print one.
     let refused = number_series::put_number_series(
@@ -253,7 +259,11 @@ async fn a_number_series_is_gapless_editable_and_never_repeats(pool: PgPool) {
     )
     .await
     .unwrap_or_else(|error| panic!("next month: {error:?}"));
-    assert_eq!(october, format!("{code}-BKK-26-10-00001"), "a monthly series restarts");
+    assert_eq!(
+        october,
+        format!("{code}-BKK-26-10-00001"),
+        "a monthly series restarts"
+    );
 
     // Back to the old pattern: its counter resumes rather than restarting.
     let before: i64 = sqlx::query_scalar(
@@ -320,7 +330,10 @@ async fn a_master_record_keeps_every_change_field_by_field(pool: PgPool) {
     assert_eq!(change.changes.len(), 1, "only the name moved: {change:?}");
     assert_eq!(change.changes[0].field, "name");
     assert_eq!(change.changes[0].from, serde_json::json!(name));
-    assert_eq!(change.changes[0].to, serde_json::json!(format!("{name} Baru")));
+    assert_eq!(
+        change.changes[0].to,
+        serde_json::json!(format!("{name} Baru"))
+    );
 
     let edited = sqlx::query("UPDATE record_version SET actor = 'someone else'")
         .execute(&pool)
@@ -575,11 +588,12 @@ async fn a_giro_clearing_can_be_taken_back_bounced_after_and_replaced(pool: PgPo
     cloud::post_payment(&pool, recorded.payment_id, None, ACTOR)
         .await
         .unwrap_or_else(|error| panic!("giro payment posts: {error:?}"));
-    let giro_id: Uuid = sqlx::query_scalar("SELECT giro_id FROM giro WHERE supplier_payment_id = $1")
-        .bind(recorded.payment_id)
-        .fetch_one(&pool)
-        .await
-        .unwrap_or_else(|error| panic!("the giro exists: {error:?}"));
+    let giro_id: Uuid =
+        sqlx::query_scalar("SELECT giro_id FROM giro WHERE supplier_payment_id = $1")
+            .bind(recorded.payment_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("the giro exists: {error:?}"));
 
     // Cleared, then taken back: Batal Cair.
     let cleared = cloud::giro_clear(&pool, giro_id, later(10), None, ACTOR)
@@ -642,16 +656,22 @@ async fn a_giro_clearing_can_be_taken_back_bounced_after_and_replaced(pool: PgPo
     )
     .await
     .unwrap_or_else(|error| panic!("replace: {error:?}"));
-    assert_eq!(replaced.replaced_by_payment_id, Some(replacement.payment_id));
-    assert!(cloud::giro_replace(
-        &pool,
-        giro_id,
-        &cloud::ReplaceGiroRequest {
-            payment_id: Some(replacement.payment_id),
-            cash_document_id: None,
-        },
-        ACTOR,
-    )
-    .await
-    .is_err(), "a giro is replaced once");
+    assert_eq!(
+        replaced.replaced_by_payment_id,
+        Some(replacement.payment_id)
+    );
+    assert!(
+        cloud::giro_replace(
+            &pool,
+            giro_id,
+            &cloud::ReplaceGiroRequest {
+                payment_id: Some(replacement.payment_id),
+                cash_document_id: None,
+            },
+            ACTOR,
+        )
+        .await
+        .is_err(),
+        "a giro is replaced once"
+    );
 }

@@ -257,6 +257,7 @@ async fn a_published_price_is_what_the_shop_charges() {
             actor_id: "kasir".into(),
             epcs: vec!["EPC00000001".into()],
             tenders: cash(149_000),
+            coupon_authorizations: Vec::new(),
         })
         .unwrap_or_else(|e| panic!("sale: {e}"));
 
@@ -304,6 +305,7 @@ async fn a_shop_specific_price_beats_the_company_one_at_the_counter() {
             actor_id: "kasir".into(),
             epcs: vec!["EPC00000002".into()],
             tenders: cash(119_000),
+            coupon_authorizations: Vec::new(),
         })
         .unwrap_or_else(|e| panic!("sale: {e}"));
     assert_eq!(sale.total_minor, 119_000);
@@ -344,6 +346,7 @@ async fn a_second_price_book_changes_the_price_the_till_takes() {
             actor_id: "kasir".into(),
             epcs: vec!["EPC00000003".into()],
             tenders: cash(99_000),
+            coupon_authorizations: Vec::new(),
         })
         .unwrap_or_else(|e| panic!("sale: {e}"));
     assert_eq!(
@@ -369,6 +372,7 @@ async fn a_shop_that_has_never_received_a_price_book_can_still_sell() {
             actor_id: "kasir".into(),
             epcs: vec!["EPC00000004".into()],
             tenders: cash(INTAKE_PRICE),
+            coupon_authorizations: Vec::new(),
         })
         .unwrap_or_else(|e| panic!("sale: {e}"));
     assert_eq!(sale.total_minor, INTAKE_PRICE);
@@ -400,6 +404,7 @@ async fn an_item_missing_from_a_live_price_book_is_refused_not_guessed() {
         actor_id: "kasir".into(),
         epcs: vec!["EPC00000005".into()],
         tenders: cash(INTAKE_PRICE),
+        coupon_authorizations: Vec::new(),
     });
     assert!(
         refused.is_err(),
@@ -543,6 +548,7 @@ impl Shop {
                 actor_id: "kasir".into(),
                 epcs: vec![epc.into()],
                 tenders: cash(handed_over),
+                coupon_authorizations: Vec::new(),
             })
             .unwrap_or_else(|e| panic!("sale: {e}"))
     }
@@ -919,6 +925,7 @@ async fn the_centre_accepts_the_sale_it_is_told_about() {
             actor_id: "kasir".into(),
             epcs: vec!["EPC20000002".into(), "EPC20000003".into()],
             tenders: cash(405_000),
+            coupon_authorizations: Vec::new(),
         })
         .unwrap_or_else(|e| panic!("sale: {e}"));
     // 150,000 + 300,000 = 450,000, less ten per cent = 405,000.
@@ -1174,9 +1181,12 @@ impl Shop {
     /// caught up with every sale they rang.
     async fn deliver_usage(&mut self, counts: Vec<serde_json::Value>) {
         let (origin_id, generation, head) = self.stream_head();
-        self.deliver_usage_through(counts, json!([{
-            "origin_id": origin_id, "generation": generation, "applied_seq": head,
-        }]))
+        self.deliver_usage_through(
+            counts,
+            json!([{
+                "origin_id": origin_id, "generation": generation, "applied_seq": head,
+            }]),
+        )
         .await;
     }
 
@@ -1231,7 +1241,9 @@ impl Shop {
             )
             .unwrap_or_else(|e| panic!("prepare: {e}"));
         let rows = statement
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
+            .query_map([], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })
             .unwrap_or_else(|e| panic!("query: {e}"));
         rows.map(|row| row.unwrap_or_else(|e| panic!("row: {e}")))
             .collect()
@@ -1280,6 +1292,7 @@ async fn a_sale_tells_the_centre_which_promotion_came_off_and_who_bought_it() {
             actor_id: "kasir".into(),
             epcs: vec!["EPC40000001".into()],
             tenders: cash(160_000),
+            coupon_authorizations: Vec::new(),
         })
         .unwrap_or_else(|e| panic!("sale: {e}"));
     assert_eq!(sale.total_minor, 160_000);
@@ -2333,7 +2346,10 @@ async fn a_single_use_coupon_is_spent_at_this_till_before_the_centre_counts_it()
     shop.stock_one("EPC43000011", "KEM001");
     shop.stock_one("EPC43000012", "KEM001");
 
-    assert_eq!(shop.sell("EPC43000011", 160_000, &["SEKALI"]).total_minor, 160_000);
+    assert_eq!(
+        shop.sell("EPC43000011", 160_000, &["SEKALI"]).total_minor,
+        160_000
+    );
     let second = shop.sell("EPC43000012", 200_000, &["SEKALI"]);
     assert_eq!(
         second.total_minor, 200_000,
@@ -2376,7 +2392,10 @@ async fn the_centres_count_takes_over_once_it_has_applied_the_sale() {
         json!({ "kind": "RULE", "key": "R1", "uses": 1, "spent_minor": 40_000 }),
     ])
     .await;
-    assert!(shop.local_usage().is_empty(), "the sale is inside the centre's figure now");
+    assert!(
+        shop.local_usage().is_empty(),
+        "the sale is inside the centre's figure now"
+    );
     assert_eq!(
         shop.sell("EPC43000002", 190_000, &[]).total_minor,
         190_000,
@@ -2397,7 +2416,10 @@ async fn a_count_taken_before_the_sale_was_applied_keeps_the_tills_own() {
         json!([{ "origin_id": origin_id, "generation": generation, "applied_seq": 0 }]),
     )
     .await;
-    assert!(!shop.local_usage().is_empty(), "the centre has not counted it yet");
+    assert!(
+        !shop.local_usage().is_empty(),
+        "the centre has not counted it yet"
+    );
     assert_eq!(
         shop.sell("EPC43000002", 190_000, &[]).total_minor,
         190_000,
@@ -2433,7 +2455,10 @@ async fn an_older_centre_releases_only_what_it_has_received() {
         "kind": "CAMPAIGN", "key": "C1", "uses": 1, "spent_minor": 40_000,
     })])
     .await;
-    assert!(!shop.local_usage().is_empty(), "nothing acknowledged yet, so kept");
+    assert!(
+        !shop.local_usage().is_empty(),
+        "nothing acknowledged yet, so kept"
+    );
 
     let (origin_id, generation, head) = shop.stream_head();
     shop.execute(&format!(
@@ -2445,7 +2470,10 @@ async fn an_older_centre_releases_only_what_it_has_received() {
         "kind": "CAMPAIGN", "key": "C1", "uses": 1, "spent_minor": 40_000,
     })])
     .await;
-    assert!(shop.local_usage().is_empty(), "received, so inside the count");
+    assert!(
+        shop.local_usage().is_empty(),
+        "received, so inside the count"
+    );
     assert_eq!(shop.sell("EPC43000002", 190_000, &[]).total_minor, 190_000);
 }
 

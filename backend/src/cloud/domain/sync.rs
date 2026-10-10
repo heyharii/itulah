@@ -873,7 +873,10 @@ pub fn parse_commercial_usage(payload: &Value) -> Result<CommercialUsagePayload,
             || allowance.own_uses < 0
             || allowance.own_spent_minor < 0
         {
-            return Err(format!("an allowance for {} is out of range", allowance.key));
+            return Err(format!(
+                "an allowance for {} is out of range",
+                allowance.key
+            ));
         }
     }
     for stream in &parsed.applied_through {
@@ -2273,6 +2276,12 @@ pub struct SalesCompletedPayload {
     pub occurred_at: DateTime<Utc>,
     pub currency: String,
     pub total_minor: i64,
+    /// Fees on the bill that are not goods — a shopping bag, a delivery.
+    /// `total_minor` is what the shopper owes, so it is the lines plus these.
+    /// Absent (nought) from a shop whose build does not send it, which is also
+    /// a shop that cannot put a fee on a bill.
+    #[serde(default)]
+    pub charge_total_minor: i64,
     pub paid_minor: i64,
     pub change_minor: i64,
     /// The basket's own split. See `SaleFactLine`: absent is not recorded.
@@ -2382,6 +2391,12 @@ pub struct SaleFactPromotion {
     /// and refused is never counted as redeemed.
     #[serde(default)]
     pub coupon_code: Option<String>,
+    /// Head office's hold on that code, when it is a limited coupon the till
+    /// had held online before applying it. Committed into the sale's
+    /// redemption as the fact is applied. Absent from older shops, and from
+    /// every uncapped coupon, which needs no hold.
+    #[serde(default)]
+    pub coupon_authorization_id: Option<String>,
     pub benefit_minor: i64,
     /// Which sold units it came off, and for how much each.
     ///
@@ -2435,11 +2450,27 @@ pub fn parse_sales_completed(payload: &Value) -> Result<SalesCompletedPayload, S
             .checked_add(amount)
             .ok_or_else(|| "sale total overflows".to_string())?;
     }
-    if computed != sale.total_minor {
-        return Err(format!(
-            "sale lines add up to {computed} but the total says {}",
-            sale.total_minor
-        ));
+    if sale.charge_total_minor < 0 {
+        return Err("a sale's charges cannot be negative".into());
+    }
+    // The lines are the goods; the bill also carries its fees (a bag), so the
+    // total the shopper owes is both. Before the fees were sent, a sale with a
+    // bag on it was refused here and held up every later fact of its shop.
+    let owed = computed
+        .checked_add(sale.charge_total_minor)
+        .ok_or_else(|| "sale total overflows".to_string())?;
+    if owed != sale.total_minor {
+        return Err(if sale.charge_total_minor == 0 {
+            format!(
+                "sale lines add up to {computed} but the total says {}",
+                sale.total_minor
+            )
+        } else {
+            format!(
+                "sale lines add up to {computed} and its charges to {}, but the total says {}",
+                sale.charge_total_minor, sale.total_minor
+            )
+        });
     }
     // Tender must cover the sale, and the change must be exactly what is
     // left over — a till that hands back the wrong change is a cash
@@ -2532,10 +2563,9 @@ pub fn parse_sales_completed(payload: &Value) -> Result<SalesCompletedPayload, S
                     tender.tender_seq
                 ));
             }
-            let method = <crate::tender::PaymentMethod as std::str::FromStr>::from_str(
-                &tender.method,
-            )
-            .map_err(|_| format!("unknown tender method {}", tender.method))?;
+            let method =
+                <crate::tender::PaymentMethod as std::str::FromStr>::from_str(&tender.method)
+                    .map_err(|_| format!("unknown tender method {}", tender.method))?;
             match method {
                 crate::tender::PaymentMethod::Voucher => {
                     let hold_id = tender
@@ -2555,7 +2585,11 @@ pub fn parse_sales_completed(payload: &Value) -> Result<SalesCompletedPayload, S
                     // Older valid facts carry the authorization ID but not
                     // the new convenience spelling. Cloud still binds those
                     // through the voucher row referenced by the hold.
-                    if tender.voucher_code.as_deref().is_some_and(|code| code.trim().is_empty()) {
+                    if tender
+                        .voucher_code
+                        .as_deref()
+                        .is_some_and(|code| code.trim().is_empty())
+                    {
                         return Err("a VOUCHER tender's code cannot be blank".into());
                     }
                 }
@@ -2658,7 +2692,8 @@ mod sales_fact_tests {
             "amount_minor": 25_000
         }]);
         assert!(parse_sales_completed(&fact)
-            .expect_err("VOUCHER requires a hold").contains("authorization"));
+            .expect_err("VOUCHER requires a hold")
+            .contains("authorization"));
     }
 
     #[test]
@@ -2682,7 +2717,8 @@ mod sales_fact_tests {
             }
         ]);
         assert!(parse_sales_completed(&fact)
-            .expect_err("a hold can pay only once").contains("reuse one authorization"));
+            .expect_err("a hold can pay only once")
+            .contains("reuse one authorization"));
     }
 
     #[test]
@@ -2709,7 +2745,8 @@ mod sales_fact_tests {
             "voucher_authorization_id": Uuid::new_v4()
         }]);
         assert!(parse_sales_completed(&fact)
-            .expect_err("only VOUCHER has a hold").contains("only a VOUCHER"));
+            .expect_err("only VOUCHER has a hold")
+            .contains("only a VOUCHER"));
     }
 }
 
@@ -3797,16 +3834,26 @@ pub struct PaymentMethodBook {
 }
 
 pub fn parse_payment_method_book(payload: &Value) -> Result<PaymentMethodBook, String> {
-    let book: PaymentMethodBook = serde_json::from_value(payload.clone())
-        .map_err(|error| format!("payment.methods.replace payload is not a method book: {error}"))?;
+    let book: PaymentMethodBook = serde_json::from_value(payload.clone()).map_err(|error| {
+        format!("payment.methods.replace payload is not a method book: {error}")
+    })?;
     let mut seen = std::collections::BTreeSet::new();
     for method in &book.methods {
         if method.code.trim().is_empty() || !seen.insert(method.code.clone()) {
-            return Err(format!("payment method code {:?} is empty or repeated", method.code));
+            return Err(format!(
+                "payment method code {:?} is empty or repeated",
+                method.code
+            ));
         }
         if !matches!(
             method.tender_type.as_str(),
-            "CASH" | "DEBIT_CARD" | "CREDIT_CARD" | "QRIS" | "EWALLET" | "VOUCHER" | "POINTS"
+            "CASH"
+                | "DEBIT_CARD"
+                | "CREDIT_CARD"
+                | "QRIS"
+                | "EWALLET"
+                | "VOUCHER"
+                | "POINTS"
                 | "BENEFIT"
         ) {
             return Err(format!(

@@ -83,7 +83,9 @@ pub fn hand_over(data_dir: &Path) {
             return;
         }
         let target = installed_executable(data_dir);
-        let current = std::env::current_exe().ok().and_then(|p| std::fs::canonicalize(p).ok());
+        let current = std::env::current_exe()
+            .ok()
+            .and_then(|p| std::fs::canonicalize(p).ok());
         let wanted = std::fs::canonicalize(&target).ok();
         if wanted.is_none() || current == wanted {
             return;
@@ -187,7 +189,8 @@ fn verify(bytes: &[u8], update: &UpdatePayload) -> Result<(), String> {
         return Err("this build carries no release key, so it accepts no updates".into());
     };
     let key = hex::decode(key_hex).map_err(|_| "the compiled release key is not hex".to_owned())?;
-    let signature = hex::decode(&update.signature).map_err(|_| "the signature is not hex".to_owned())?;
+    let signature =
+        hex::decode(&update.signature).map_err(|_| "the signature is not hex".to_owned())?;
     ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, key)
         .verify(&digest, &signature)
         .map_err(|_| "the signature does not verify against the release key".into())
@@ -224,7 +227,9 @@ pub async fn install(
         tracing::error!(%error, version = %update.version, "update refused");
         return;
     }
-    let staged = data_dir.join("updates").join(format!("store-{}", update.version));
+    let staged = data_dir
+        .join("updates")
+        .join(format!("store-{}", update.version));
     if let Err(error) = std::fs::create_dir_all(data_dir.join("updates"))
         .and_then(|()| std::fs::write(&staged, &bytes))
     {
@@ -305,5 +310,9 @@ async fn fetch(url: &str) -> Result<Vec<u8>, String> {
     if !response.status().is_success() {
         return Err(format!("download answered {}", response.status()));
     }
-    Ok(response.bytes().await.map_err(|error| error.to_string())?.to_vec())
+    Ok(response
+        .bytes()
+        .await
+        .map_err(|error| error.to_string())?
+        .to_vec())
 }

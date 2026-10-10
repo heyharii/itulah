@@ -5,6 +5,7 @@ import { PageContent } from "@/components/shell/app-shell"
 import { PageHeader } from "@/components/ui/page-header"
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
 import { count, money } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   accountLedger,
   financeKeys,
@@ -12,6 +13,7 @@ import {
 } from "@/lib/queries/finance"
 import { Code, Grid, Td, Th } from "@/screens/finance-final/parts"
 import { useAsOf } from "@/screens/finance/hooks"
+import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
 import { AsOfControl, UnitName, UnitSelect } from "@/screens/finance/parts"
 import { ReportFilters } from "@/screens/finance/report"
 
@@ -134,16 +136,22 @@ export function AccountsReceivable() {
     }),
   })
 
+  const phone = useLayout() === "phone"
+
   return (
     <PageContent>
-      <PageHeader crumb="Finance · Receivables" title="Accounts Receivable" />
+      <PageHeader
+        className="max-md:hidden"
+        crumb="Finance · Receivables"
+        title="Accounts Receivable"
+      />
 
       <ReportFilters
         note={
           <>
             {asOf.chip}
             {unit === "" ? (
-              " · every unit"
+              " · all units"
             ) : (
               <>
                 {" · "}
@@ -173,52 +181,76 @@ export function AccountsReceivable() {
           {/* No total row: an allowance subtracts, an advance is work owed
               rather than cash, and the last row is a liability read backwards.
               Adding them would make a figure with no name. */}
-          <Grid>
-            <thead>
-              <tr>
-                <Th>Party Type</Th>
-                <Th width="20rem">Account</Th>
-                <Th width="8rem">Account No</Th>
-                <Th align="right" width="11rem">
-                  Outstanding Amount
-                </Th>
-              </tr>
-            </thead>
-            <tbody>
-              {families.rows.map(({ family, name, balance }) => (
-                <tr key={family.key}>
-                  <Td>
-                    <span
-                      className="font-medium text-ink"
-                      title={family.reading}
-                    >
-                      {family.what}
+          {phone ? (
+            <PhoneList
+              rows={families.rows.map(({ family, name, balance }) => ({
+                key: family.key,
+                title: family.what,
+                line: family.covers,
+                lead: (
+                  <CardFigure
+                    value={balance === null ? "—" : money(balance)}
+                    tone={balance !== null && balance < 0 ? "bad" : undefined}
+                  />
+                ),
+                foot: (
+                  <span className="flex flex-col">
+                    <span>{name ?? "—"}</span>
+                    <span className="font-mono">
+                      {family.codes.join(" · ")}
                     </span>
-                    <span className="mt-0.5 block text-[0.875rem] text-mute">
-                      {family.covers}
-                    </span>
-                  </Td>
-                  <Td>
-                    {name === null ? (
-                      <span className="text-faint">—</span>
-                    ) : (
-                      name
-                    )}
-                  </Td>
-                  <Td>
-                    {family.codes.map((code) => (
-                      <span key={code} className="block">
-                        <Code>{code}</Code>
-                      </span>
-                    ))}
-                  </Td>
-                  <Td align="right">
-                    <Balance minor={balance} />
-                  </Td>
+                  </span>
+                ),
+              }))}
+            />
+          ) : (
+            <Grid>
+              <thead>
+                <tr>
+                  <Th>Party Type</Th>
+                  <Th width="20rem">Account</Th>
+                  <Th width="8rem">Account No</Th>
+                  <Th align="right" width="11rem">
+                    Outstanding Amount
+                  </Th>
                 </tr>
-              ))}
-            </tbody>
-          </Grid>
+              </thead>
+              <tbody>
+                {families.rows.map(({ family, name, balance }) => (
+                  <tr key={family.key}>
+                    <Td>
+                      <span
+                        className="font-medium text-ink"
+                        title={family.reading}
+                      >
+                        {family.what}
+                      </span>
+                      <span className="mt-0.5 block text-[0.875rem] text-mute">
+                        {family.covers}
+                      </span>
+                    </Td>
+                    <Td>
+                      {name === null ? (
+                        <span className="text-faint">—</span>
+                      ) : (
+                        name
+                      )}
+                    </Td>
+                    <Td>
+                      {family.codes.map((code) => (
+                        <span key={code} className="block">
+                          <Code>{code}</Code>
+                        </span>
+                      ))}
+                    </Td>
+                    <Td align="right">
+                      <Balance minor={balance} />
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Grid>
+          )}
 
           <Settlement asOf={asOf.value} unit={unit} />
         </>
@@ -339,6 +371,7 @@ function Balance({ minor }: { minor: number | null }) {
 /// screen that worked it out by looking for "card" in the name would get it
 /// wrong the first time somebody added a key containing the word.
 function Settlement({ asOf, unit }: { asOf: string; unit: string }) {
+  const phone = useLayout() === "phone"
   const overview = useQuery({
     queryKey: financeKeys.money(asOf, unit || null),
     queryFn: ({ signal }) =>
@@ -380,41 +413,62 @@ function Settlement({ asOf, unit }: { asOf: string; unit: string }) {
           {count(rows.length)} accounts · {count(holding)} with a balance
         </span>
       </div>
-      <Grid>
-        <thead>
-          <tr>
-            <Th>Account</Th>
-            <Th width="9rem">Unit</Th>
-            <Th width="8rem">Ledger</Th>
-            <Th width="13rem">Meaning</Th>
-            <Th align="right" width="11rem">
-              Outstanding Amount
-            </Th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={`${row.account_code}@${row.unit_id}`}>
-              <Td>
-                {/* The client's name, untrimmed, ending in their own code for
+      {phone ? (
+        <PhoneList
+          rows={rows.map((row) => ({
+            key: `${row.account_code}@${row.unit_id}`,
+            title: row.account_name,
+            code: row.account_code,
+            line: <UnitName id={row.unit_id} />,
+            lead: (
+              <CardFigure
+                value={money(row.per_books_minor)}
+                tone={row.per_books_minor < 0 ? "bad" : undefined}
+              />
+            ),
+          }))}
+        />
+      ) : (
+        <Grid>
+          <thead>
+            <tr>
+              <Th>Account</Th>
+              <Th width="9rem">Unit</Th>
+              <Th width="8rem">Ledger</Th>
+              <Th width="13rem">Meaning</Th>
+              <Th align="right" width="11rem">
+                Outstanding Amount
+              </Th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={`${row.account_code}@${row.unit_id}`}>
+                <Td>
+                  {/* The client's name, untrimmed, ending in their own code for
                     the shop — `… C001`. That suffix is THEIR name for the
                     place; the unit column beside it is ours. */}
-                <span className="font-medium text-ink">{row.account_name}</span>
-              </Td>
-              <Td>
-                <UnitName id={row.unit_id} />
-              </Td>
-              <Td>
-                <Code>{row.account_code}</Code>
-              </Td>
-              <Td className="text-[0.875rem] text-mute">{row.semantic_key}</Td>
-              <Td align="right">
-                <Balance minor={row.per_books_minor} />
-              </Td>
-            </tr>
-          ))}
-        </tbody>
-      </Grid>
+                  <span className="font-medium text-ink">
+                    {row.account_name}
+                  </span>
+                </Td>
+                <Td>
+                  <UnitName id={row.unit_id} />
+                </Td>
+                <Td>
+                  <Code>{row.account_code}</Code>
+                </Td>
+                <Td className="text-[0.875rem] text-mute">
+                  {row.semantic_key}
+                </Td>
+                <Td align="right">
+                  <Balance minor={row.per_books_minor} />
+                </Td>
+              </tr>
+            ))}
+          </tbody>
+        </Grid>
+      )}
     </>
   )
 }

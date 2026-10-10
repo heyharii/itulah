@@ -1,0 +1,1597 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Goods flow · how far back, in the hub</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<style>
+/* Measured on the running hub (pos-e2e :5480, 8 Oct 2026): Receiving list,
+   Review Count dialog, PO sheet, Count receive sheet. */
+:root {
+  --ink: #20242c; --text: #394150; --body: #565f6d; --mute: #666f7d; --faint: #89919d;
+  --hairline: #e6e6e9; --edge: #dadade; --soft: #f8f8f9; --soft-2: #f0f0f2; --soft-3: #f6f6f7;
+  --accent: #2563eb; --info-fg: #2c57bf; --tint: #eff5ff;
+  --bad-fg: #be123c; --bad-bg: #fbeaea; --warn-fg: #a64a08; --ok-fg: #137a37;
+  --rail: #242526;
+  --r-card: 10px; --r-inner: 8px; --r-sheet: 16px;
+  --shadow-soft: 0 1px 3px rgba(24, 39, 60, .04);
+  --shadow-sheet: 0 8px 24px rgba(24, 39, 60, .06), 0 24px 64px rgba(24, 39, 60, .12);
+  --ease-out: cubic-bezier(.23, 1, .32, 1);
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; }
+body {
+  font: 400 15px/1.45 "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  letter-spacing: -0.09px; color: var(--ink); background: #fff;
+  -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent;
+}
+button, input, textarea, select { font: inherit; letter-spacing: inherit; color: inherit; }
+button { cursor: pointer; border: 0; background: none; padding: 0; }
+.mono { font-family: var(--mono); }
+.num { font-variant-numeric: tabular-nums; }
+svg.lucide { width: 18px; height: 18px; stroke-width: 1.75; flex-shrink: 0; }
+
+/* ── prototype bar ───────────────────────────────────────── */
+.proto {
+  position: fixed; inset: 0 0 auto 0; z-index: 100; min-height: 48px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 16px;
+  background: #fff; border-bottom: 1px solid var(--hairline);
+}
+.seg { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; background: var(--soft-2); border-radius: 10px; }
+.seg button { height: 30px; padding: 0 12px; border-radius: 7px; font-size: 14px; font-weight: 500; color: var(--body); transition: background-color 150ms ease, color 150ms ease; }
+.seg button[aria-pressed="true"] { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgba(24, 39, 60, .08), 0 0 0 1px var(--hairline); }
+.seg .live { margin-left: 6px; font-size: 14px; color: var(--ok-fg); }
+.proto .reset { margin-left: auto; height: 30px; padding: 0 10px; border-radius: 7px; font-size: 14px; color: var(--body); }
+.proto .reset:hover { background: var(--soft-2); }
+
+/* ── shell ───────────────────────────────────────────────── */
+.shell { position: fixed; inset: 48px 0 0 0; display: grid; grid-template-columns: 68px 232px minmax(0, 1fr); }
+.rail { background: var(--rail); display: flex; flex-direction: column; align-items: center; padding: 12px 0; gap: 4px; }
+.rail .logo { width: 28px; height: 28px; border-radius: 8px; background: #fff; color: var(--rail); font-weight: 700; display: grid; place-items: center; margin-bottom: 14px; font-size: 16px; }
+.rail .ic { width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; color: #b9bcc2; position: relative; }
+.rail .ic.on { background: rgba(255, 255, 255, .1); color: #fff; }
+.rail .gap { flex: 1; }
+.rail .badge { position: absolute; top: 2px; right: 1px; background: var(--accent); color: #fff; font-size: 14px; line-height: 16px; padding: 0 4px; border-radius: 8px; transform: scale(.75); transform-origin: top right; }
+.rail .me { width: 28px; height: 28px; border-radius: 50%; background: #3a3b3d; color: #fff; display: grid; place-items: center; font-size: 14px; font-weight: 600; margin-top: 6px; }
+.dept { background: #fff; border-right: 1px solid var(--hairline); display: flex; flex-direction: column; }
+.dept .head { height: 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; font-weight: 600; }
+.dept .head svg { color: var(--mute); }
+.dept nav { display: flex; flex-direction: column; gap: 2px; padding: 4px 10px; }
+.dept nav a { height: 36px; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; border-radius: 8px; color: var(--text); text-decoration: none; font-size: 14px; }
+.dept nav a.on { background: var(--tint); color: var(--accent); font-weight: 500; }
+.dept nav a .n { color: var(--warn-fg); font-size: 14px; }
+.dept .clock { margin-top: auto; border-top: 1px solid var(--hairline); height: 52px; display: flex; align-items: center; gap: 8px; padding: 0 16px; font-size: 14px; color: var(--text); }
+.content { overflow-y: auto; padding: 14px 32px 40px; }
+.page-title { font-size: 15px; font-weight: 600; margin: 0 0 8px; line-height: 22px; }
+
+/* tabs */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--hairline); margin-bottom: 18px; }
+.tabs span { padding: 8px 12px 10px; font-size: 14px; font-weight: 500; color: var(--body); position: relative; }
+.tabs span.on { color: var(--ink); }
+.tabs span.on::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--ink); }
+
+/* cards + tables */
+.card { background: #fff; border: 1px solid var(--hairline); border-radius: var(--r-card); box-shadow: var(--shadow-soft); overflow: hidden; }
+table { border-collapse: collapse; width: 100%; }
+.dt th { height: 40px; padding: 0 12px; background: var(--soft); border-bottom: 1px solid var(--hairline); color: var(--body); font-size: 14px; font-weight: 500; letter-spacing: .04em; text-align: left; white-space: nowrap; }
+.dt td { padding: 12px; color: var(--text); border-bottom: 1px solid var(--hairline); vertical-align: middle; }
+.dt tbody tr:last-child td { border-bottom: 0; }
+.dt tr.row { height: 75px; }
+.dt tr.click { cursor: pointer; transition: background-color 150ms ease; }
+@media (hover: hover) and (pointer: fine) { .dt tr.click:hover { background: var(--soft); } }
+.r { text-align: right !important; }
+.two { display: flex; flex-direction: column; line-height: 20px; gap: 2px; min-width: 0; }
+.two .a { color: var(--ink); font-weight: 500; }
+.two .b { color: var(--mute); font-size: 14px; }
+.two .q { color: var(--body); }
+.counted { display: inline-flex; flex-direction: column; align-items: flex-end; line-height: 20px; }
+.counted b { font-weight: 500; color: var(--ink); }
+.counted span { color: var(--mute); font-size: 14px; }
+
+/* buttons */
+.btn { height: 36px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 8px; font-size: 15px; font-weight: 500; white-space: nowrap; transition: transform 160ms var(--ease-out), background-color 150ms ease, opacity 150ms ease; }
+.btn:active:not(:disabled) { transform: scale(.97); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn.primary { background: var(--accent); color: #fff; }
+.btn.soft { background: var(--soft-2); border: 1px solid var(--edge); color: var(--ink); box-shadow: var(--shadow-soft); }
+.btn.ghost { color: var(--ink); }
+.btn.ghost:hover { background: var(--soft-2); }
+.btn.tint { height: 32px; padding: 0 14px; background: var(--tint); color: var(--accent); font-weight: 600; }
+.btn.icon { width: 36px; padding: 0; justify-content: center; }
+.btn.sm { height: 32px; }
+
+/* list stamps + status words */
+.stamp-s { display: inline-block; transform: rotate(-6deg); border: 2px solid currentColor; border-radius: 6px; padding: 1px 8px; font-size: 14px; font-weight: 700; letter-spacing: .1em; line-height: 17px; text-align: center; opacity: .55; white-space: nowrap; }
+.ok { color: var(--ok-fg); } .bad { color: var(--bad-fg); } .warn { color: var(--warn-fg); } .info { color: var(--info-fg); }
+
+/* KPI strip + toolbar (PO list) */
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.kpi { background: #fff; border: 1px solid var(--hairline); border-radius: var(--r-card); padding: 12px 16px; box-shadow: var(--shadow-soft); }
+.kpi .l { font-size: 14px; color: var(--body); }
+.kpi .v { font-size: 18px; font-weight: 600; margin-top: 2px; }
+.toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+.field { height: 34px; display: inline-flex; align-items: center; gap: 8px; padding: 0 10px; border: 1px solid var(--edge); border-radius: 8px; font-size: 14px; color: var(--mute); background: #fff; }
+
+/* ── sheets / dialogs ────────────────────────────────────── */
+.scrim { position: fixed; inset: 48px 0 0 0; background: rgba(248, 248, 249, .72); z-index: 20; transition: opacity 200ms ease; }
+.scrim.top { z-index: 40; background: rgba(248, 248, 249, .5); }
+.sheet {
+  position: fixed; top: 68px; right: 20px; bottom: 20px; z-index: 30; width: min(928px, calc(100vw - 40px));
+  background: #fff; border: 1px solid var(--hairline); border-radius: var(--r-sheet); box-shadow: var(--shadow-sheet);
+  display: flex; flex-direction: column; overflow: hidden;
+  transition: opacity 220ms var(--ease-out), transform 220ms var(--ease-out);
+}
+.sheet.review { width: min(896px, calc(100vw - 40px)); }
+.sheet.top { z-index: 50; }
+.enter-from { opacity: 0 !important; transform: translateX(12px) scale(.99); }
+.scrim.enter-from { transform: none; }
+.sh-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 12px 28px; border-bottom: 1px solid var(--hairline); min-height: 68px; }
+.sh-head h2 { margin: 0; font-size: 18px; font-weight: 600; line-height: 24px; letter-spacing: -0.18px; }
+.sh-head h2.s16 { font-size: 16px; line-height: 23px; display: flex; align-items: center; gap: 8px; }
+.sh-head .sub { color: var(--mute); }
+.sh-head .x { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; color: var(--faint); margin-top: 6px; margin-right: -6px; }
+.sh-head .x:hover { background: var(--soft-2); }
+.sh-body { flex: 1; overflow-y: auto; padding: 20px 28px 28px; display: flex; flex-direction: column; gap: 18px; position: relative; }
+.sh-body > * { flex-shrink: 0; }
+.sh-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 16px 24px; border-top: 1px solid var(--hairline); }
+.sh-foot .grow { flex: 1; }
+.sh-foot .said { color: var(--body); }
+
+.facts { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 24px; }
+.facts .l { font-size: 14px; color: var(--body); line-height: 18px; }
+.facts .v { font-size: 14px; color: var(--ink); line-height: 22px; margin-top: 4px; }
+.factline { display: flex; flex-wrap: wrap; gap: 8px 48px; }
+.factline span { color: var(--mute); margin-right: 10px; }
+
+/* tables inside sheets */
+.st { border: 1px solid var(--hairline); border-radius: var(--r-card); overflow: hidden; }
+.st th { padding: 10px 16px; background: var(--soft); border-bottom: 1px solid var(--hairline); color: var(--body); font-size: 14px; font-weight: 500; text-align: left; white-space: nowrap; }
+.st td { padding: 14px 16px; vertical-align: middle; border-bottom: 1px solid var(--hairline); color: var(--ink); }
+.st tbody tr:last-child td { border-bottom: 0; }
+.st tfoot td { background: var(--soft-2); padding: 14px 16px; border-top: 1px solid var(--hairline); }
+.st tfoot tr + tr td { background: var(--soft); }
+.st tr.off td { color: var(--mute); }
+.st td.ok { color: var(--ok-fg); } .st td.warn { color: var(--warn-fg); } .st td.bad { color: var(--bad-fg); }
+.st tr.pick { cursor: pointer; }
+.st .item { display: flex; gap: 12px; align-items: flex-start; }
+.st .thumb { width: 32px; height: 32px; border-radius: 6px; background: var(--soft-2); display: grid; place-items: center; color: var(--ink); flex-shrink: 0; }
+.pill { display: inline-block; padding: 4px 10px; border-radius: 8px; font-weight: 500; }
+.pill.bad { background: var(--bad-bg); color: var(--bad-fg); }
+.pill.over { background: var(--bad-bg); color: var(--bad-fg); }
+.cb { width: 18px; height: 18px; border-radius: 5px; border: 1.5px solid var(--edge); display: inline-grid; place-items: center; background: #fff; transition: background-color 120ms ease, border-color 120ms ease; vertical-align: middle; }
+.cb.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.cb.on svg { width: 13px; height: 13px; stroke-width: 3; }
+.cb.dis { background: var(--soft-2); }
+.note { display: flex; align-items: center; gap: 10px; padding: 0 4px; color: var(--body); }
+.note b { color: var(--ink); font-weight: 500; }
+.ask { display: flex; flex-direction: column; gap: 12px; }
+.ask h3 { margin: 0; font-size: 16px; font-weight: 600; line-height: 23px; }
+textarea { width: 100%; min-height: 88px; resize: vertical; padding: 10px 12px; border: 1px solid var(--edge); border-radius: 8px; font-size: 15px; line-height: 22px; outline: none; transition: border-color 150ms ease, box-shadow 150ms ease; }
+textarea:focus, .qty:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37, 99, 235, .12); }
+.qty { width: 76px; height: 34px; padding: 0 10px; border: 1px solid var(--edge); border-radius: 8px; text-align: center; font-variant-numeric: tabular-nums; outline: none; background: #fff; }
+.qty:disabled { background: var(--soft-2); color: var(--mute); }
+.unit { width: 88px; height: 34px; padding: 0 10px; border: 1px solid var(--edge); border-radius: 8px; display: inline-flex; align-items: center; justify-content: space-between; background: #fff; }
+.unit svg { width: 14px; height: 14px; color: var(--mute); }
+.another { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; color: var(--body); font-size: 14px; }
+.another svg { width: 14px; height: 14px; }
+.cnt { display: flex; gap: 8px; align-items: center; }
+
+/* the PO sheet's stamp: it changes with the order, so it is pressed on, not swapped */
+.stamp { position: absolute; top: 18px; right: 30px; z-index: 2; transform: rotate(-6deg); border: 2px solid currentColor; border-radius: 8px; padding: 2px 12px; font-size: 18px; font-weight: 700; letter-spacing: .14em; line-height: 26px; opacity: .4; pointer-events: none; white-space: nowrap; transition: opacity 220ms var(--ease-out), transform 220ms var(--ease-out), filter 220ms ease; }
+.stamp.pressing { opacity: 0; transform: rotate(-6deg) scale(1.12); filter: blur(2px); }
+.fold { display: flex; align-items: center; gap: 6px; color: var(--ink); padding-top: 16px; border-top: 1px solid var(--hairline); }
+.fold svg { width: 16px; height: 16px; color: var(--mute); }
+.fold .c { color: var(--mute); }
+.change { color: var(--mute); font-size: 14px; line-height: 20px; }
+.change.hl { color: var(--info-fg); }
+
+/* the PO sheet's count banner (live: CountBanner) */
+.banner { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: var(--r-card); }
+.banner.info { background: #eef4fd; color: var(--info-fg); }
+.banner.warn { background: #fdf3ea; color: var(--warn-fg); }
+.banner svg { width: 20px; height: 20px; }
+.banner b { display: block; font-weight: 600; }
+.banner span span { display: block; font-size: 14px; }
+svg.lucide.inl { width: 15px; height: 15px; vertical-align: -2px; }
+.acts { display: flex; flex-direction: column; gap: 10px; margin: 2px 0 0 22px; }
+.acts li { list-style: none; display: flex; flex-direction: column; line-height: 20px; }
+.acts li span { color: var(--mute); font-size: 14px; }
+.acts li.new b { color: var(--info-fg); }
+.acts b { font-weight: 500; }
+
+/* toast */
+.toast { position: fixed; left: 50%; bottom: 28px; z-index: 90; transform: translate(-50%, 0); display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: var(--ink); color: #fff; border-radius: 10px; box-shadow: var(--shadow-sheet); font-size: 15px; transition: opacity 200ms var(--ease-out), transform 200ms var(--ease-out); }
+.toast.enter-from { opacity: 0; transform: translate(-50%, 8px); }
+.toast svg { color: #7ee2a0; }
+
+/* phone (414 baseline): no rail/department column, sheets full screen, actions stay in the foot */
+@media (max-width: 767px) {
+  .shell { grid-template-columns: minmax(0, 1fr); }
+  .rail, .dept { display: none; }
+  .content { padding: 12px 16px 32px; }
+  .kpis { grid-template-columns: 1fr 1fr; }
+  .toolbar .field:not(:first-child), .toolbar .hide-p { display: none; }
+  .hide-p { display: none; }
+  .sheet, .sheet.review { top: 48px; right: 0; bottom: 0; width: 100vw; border-radius: 0; border: 0; }
+  .sh-head { padding: 10px 16px; }
+  .sh-body { padding: 16px; }
+  .sh-foot { padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); }
+  .sh-foot .btn { height: 44px; }
+  .st th, .st td, .st tfoot td { padding-left: 10px; padding-right: 10px; }
+  .facts { grid-template-columns: 1fr; }
+  .stamp { right: 16px; top: 12px; font-size: 15px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sheet, .toast, .stamp { transition: opacity 150ms ease !important; }
+  .enter-from, .toast.enter-from, .stamp.pressing { transform: none !important; filter: none !important; }
+}
+
+/* ── additions: dialogs, chips, board, store app ─────────── */
+.proto label.tg { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--body); cursor: pointer; }
+.proto .lbl { font-size: 14px; color: var(--mute); }
+.proto a.ext { font-size: 14px; color: var(--accent); text-decoration: none; }
+.dlg { position: fixed; z-index: 60; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(480px, calc(100vw - 32px)); max-height: calc(100vh - 80px); display: flex; flex-direction: column; background: #fff; border: 1px solid var(--hairline); border-radius: var(--r-sheet); box-shadow: var(--shadow-sheet); overflow: hidden; transition: opacity 200ms var(--ease-out), transform 200ms var(--ease-out); }
+.dlg.wide { width: min(560px, calc(100vw - 32px)); }
+.dlg .d-head { padding: 20px 24px 0; }
+.dlg h2 { margin: 0; font-size: 18px; font-weight: 600; line-height: 24px; letter-spacing: -0.18px; }
+.dlg .d-body { padding: 10px 24px 18px; color: var(--body); display: flex; flex-direction: column; gap: 14px; overflow-y: auto; }
+.dlg .d-foot { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; padding: 14px 24px 20px; }
+.dlg.enter-from { transform: translate(-50%, calc(-50% + 8px)) scale(.985); }
+.scrim.z60 { z-index: 55; background: rgba(248, 248, 249, .55); }
+.btn.danger { background: var(--bad-bg); color: var(--bad-fg); }
+.btn.warnsoft { background: #fdf3ea; color: var(--warn-fg); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { height: 36px; padding: 0 14px; border: 1px solid var(--edge); border-radius: 18px; font-weight: 500; color: var(--text); background: #fff; transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease, transform 160ms var(--ease-out); }
+.chip:active { transform: scale(.97); }
+.chip.on { background: var(--tint); border-color: var(--accent); color: var(--accent); }
+.lab { font-weight: 500; color: var(--ink); margin-bottom: 6px; display: block; }
+.ack { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: var(--r-inner); background: var(--bad-bg); color: var(--bad-fg); cursor: pointer; }
+.stagerow { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 10px 0; border-top: 1px solid var(--hairline); }
+.stagerow:first-child { border-top: 0; padding-top: 0; }
+.stagerow .a { color: var(--ink); font-weight: 500; }
+.stagerow .q { text-align: right; color: var(--ink); font-variant-numeric: tabular-nums; }
+.stagerow .s { grid-column: 1 / -1; color: var(--mute); }
+.stagerow .s.red { color: var(--bad-fg); }
+.step { display: inline-flex; align-items: center; border: 1px solid var(--edge); border-radius: 8px; overflow: hidden; background: #fff; }
+.step button { width: 34px; height: 34px; display: grid; place-items: center; color: var(--text); }
+.step button:hover:not(:disabled) { background: var(--soft-2); }
+.step button:disabled { opacity: .35; cursor: default; }
+.step input { width: 52px; height: 34px; border: 0; border-left: 1px solid var(--edge); border-right: 1px solid var(--edge); text-align: center; font-variant-numeric: tabular-nums; outline: none; background: #fff; }
+.step input:focus { background: var(--tint); }
+.tone-ok { color: var(--ok-fg); } .tone-info { color: var(--info-fg); } .tone-warn { color: var(--warn-fg); } .tone-bad { color: var(--bad-fg); } .tone-mute { color: var(--mute); }
+.dotw { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.dotw::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+.dotw.ok::before { background: #36b827; } .dotw.info::before { background: var(--accent); } .dotw.warn::before { background: #c9892e; } .dotw.bad::before { background: #d05151; }
+.lane-note { color: var(--mute); padding: 6px 2px 14px; }
+
+/* board */
+.lanes { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; align-items: start; }
+.lane .lh { display: flex; align-items: center; gap: 8px; height: 34px; font-weight: 600; color: var(--ink); }
+.lane .lh i { width: 8px; height: 8px; border-radius: 50%; }
+.lane .lh .c { color: var(--mute); font-weight: 400; }
+.lane .lh .p { margin-left: auto; color: var(--mute); font-weight: 400; font-variant-numeric: tabular-nums; }
+.lane .none { padding: 14px; border: 1px dashed var(--edge); border-radius: var(--r-card); color: var(--faint); }
+.tile { position: relative; background: #fff; border: 1px solid var(--hairline); border-radius: var(--r-card); box-shadow: var(--shadow-soft); overflow: hidden; display: flex; flex-direction: column; margin-bottom: 10px; cursor: pointer; transition: border-color 150ms ease, box-shadow 150ms ease, transform 160ms var(--ease-out); text-align: left; width: 100%; }
+@media (hover: hover) and (pointer: fine) { .tile:hover { border-color: var(--edge); } }
+.tile:active { transform: scale(.99); }
+.tile .strip { padding: 5px 14px; color: #fff; font-weight: 500; }
+.tile .strip.bad { background: var(--bad-fg); } .tile .strip.warn { background: var(--warn-fg); }
+.tile .t1 { display: flex; justify-content: space-between; gap: 10px; padding: 14px 14px 4px; }
+.tile .nm { color: var(--ink); font-weight: 500; overflow-wrap: anywhere; }
+.tile .dc { color: var(--mute); }
+.tile .fg { text-align: right; font-weight: 600; font-size: 22px; line-height: 1.1; color: var(--ink); font-variant-numeric: tabular-nums; }
+.tile .fg span { display: block; font-weight: 400; font-size: 14px; color: var(--mute); }
+.tile .chg { padding: 2px 14px 10px; color: var(--body); font-variant-numeric: tabular-nums; }
+.tile .chg b { color: var(--ink); font-weight: 600; } .tile .chg .m { color: var(--bad-fg); font-weight: 500; }
+.tile .ft { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--hairline); color: var(--mute); }
+.tile.off { background-image: repeating-linear-gradient(135deg, rgba(24, 39, 60, .04) 0 6px, transparent 6px 12px); }
+.tile.off .t1 { opacity: .55; }
+.tile .stampb { display: grid; place-items: center; padding: 10px 0 14px; }
+.tile .stampb span { transform: rotate(-7deg); border: 3px solid var(--bad-fg); color: var(--bad-fg); border-radius: 10px; padding: 0 14px; font-size: 22px; line-height: 32px; font-weight: 700; letter-spacing: .06em; }
+.tile .btn.tint { height: 32px; }
+
+/* store app (frontend-store-new) */
+.phonewrap { display: grid; place-items: start center; padding: 22px 16px 40px; background: var(--soft-3); min-height: 100%; }
+.phone { width: 414px; max-width: 100%; height: min(820px, calc(100vh - 110px)); border: 1px solid var(--edge); border-radius: 30px; overflow: hidden; background: var(--soft-3); position: relative; display: flex; flex-direction: column; box-shadow: var(--shadow-sheet); }
+.phone .ptop { height: 54px; display: flex; align-items: center; justify-content: space-between; padding: 0 18px; background: #fff; border-bottom: 1px solid var(--hairline); font-weight: 600; font-size: 16px; }
+.phone .ptop .me { width: 30px; height: 30px; border-radius: 50%; background: var(--tint); color: var(--accent); display: grid; place-items: center; font-size: 14px; font-weight: 600; }
+.phone .pscroll { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.phone .dock { height: 64px; display: grid; grid-template-columns: repeat(5, 1fr); background: #fff; border-top: 1px solid var(--hairline); }
+.phone .dock span { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--mute); font-size: 14px; }
+.phone .dock span.on { color: var(--accent); }
+.lead { background: #fff; border: 1px solid var(--hairline); border-radius: var(--r-card); box-shadow: var(--shadow-soft); overflow: hidden; text-align: left; width: 100%; cursor: pointer; transition: transform 160ms var(--ease-out); }
+.lead:active { transform: scale(.99); }
+.lead .l1 { display: flex; justify-content: space-between; gap: 12px; padding: 14px 16px 12px; }
+.lead .tt { color: var(--ink); font-weight: 600; }
+.lead .sb { color: var(--mute); }
+.lead .big { text-align: right; font-size: 24px; font-weight: 600; line-height: 1.1; color: var(--ink); font-variant-numeric: tabular-nums; }
+.lead .big span { display: block; font-size: 14px; font-weight: 400; color: var(--mute); }
+.lead .l2 { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 16px; border-top: 1px solid var(--hairline); color: var(--body); }
+.pstrip { display: grid; grid-template-columns: 1fr 1fr; background: #fff; border: 1px solid var(--hairline); border-radius: var(--r-card); }
+.pstrip div { padding: 12px 16px; } .pstrip div + div { border-left: 1px solid var(--hairline); }
+.pstrip b { display: block; font-size: 18px; font-weight: 600; color: var(--ink); } .pstrip span { color: var(--body); }
+.psheet { position: absolute; inset: 14px 0 0 0; background: #fff; border-radius: 18px 18px 0 0; box-shadow: 0 -8px 30px rgba(24, 39, 60, .14); display: flex; flex-direction: column; z-index: 5; transition: transform 240ms var(--ease-out), opacity 200ms ease; }
+.psheet.enter-from { transform: translateY(24px); opacity: 0; }
+.pscrim { position: absolute; inset: 0; background: rgba(24, 39, 60, .25); z-index: 4; }
+.psheet .ph { padding: 14px 18px 10px; border-bottom: 1px solid var(--hairline); display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.psheet .ph h3 { margin: 0; font-size: 17px; font-weight: 600; } .psheet .ph .x { width: 36px; height: 36px; display: grid; place-items: center; color: var(--faint); border-radius: 8px; }
+.psheet .pb { flex: 1; overflow-y: auto; padding: 14px 18px; display: flex; flex-direction: column; gap: 14px; }
+.psheet .pf { padding: 12px 18px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--hairline); display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
+.psheet .pf .btn { height: 44px; }
+.prow { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 10px 0; border-top: 1px solid var(--hairline); align-items: center; }
+.prow:first-child { border-top: 0; }
+.prow .a { color: var(--ink); font-weight: 500; } .prow .b { grid-column: 1 / -1; color: var(--mute); }
+.passbadge { display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 13px; background: #fdf3ea; color: var(--warn-fg); font-weight: 500; }
+.passbadge.ok { background: #e8f6e6; color: var(--ok-fg); }
+.badge-s { display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 13px; font-weight: 500; white-space: nowrap; }
+.badge-s.warn { background: #fdf3ea; color: var(--warn-fg); } .badge-s.ok { background: #e8f6e6; color: var(--ok-fg); } .badge-s.info { background: #eef4fd; color: var(--info-fg); } .badge-s.bad { background: var(--bad-bg); color: var(--bad-fg); }
+.hint { color: var(--mute); }
+@media (max-width: 767px) {
+  .lanes { grid-template-columns: 1fr; }
+  .dlg { top: auto; bottom: 0; left: 0; transform: none; width: 100vw; border-radius: 16px 16px 0 0; max-height: 90vh; }
+  .dlg.enter-from { transform: translateY(16px); }
+  .dlg .d-foot { padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); }
+  .dlg .d-foot .btn { height: 44px; flex: 1; }
+  .dlg .d-head, .dlg .d-body { padding-left: 16px; padding-right: 16px; }
+  .chip { height: 44px; }
+  .phonewrap { padding: 0; } .phone { width: 100vw; height: calc(100vh - 100px); border-radius: 0; border: 0; box-shadow: none; }
+}
+
+/* ── inventory exceptions, journey hint ── */
+.inbox { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 14px; align-items: start; }
+.clist { display: flex; flex-direction: column; gap: 8px; }
+.cli { text-align: left; background: #fff; border: 1px solid var(--hairline); border-radius: var(--r-card); box-shadow: var(--shadow-soft); padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; transition: border-color 120ms ease, transform 160ms cubic-bezier(.23, 1, .32, 1); }
+.cli:active { transform: scale(.99); }
+.cli.on { border-color: var(--accent); background: var(--tint); }
+.cli .l1, .cli .l3 { display: flex; justify-content: space-between; gap: 10px; }
+.cli .l1 .a { color: var(--ink); font-weight: 500; }
+.cli .l2 { display: flex; justify-content: space-between; gap: 10px; color: var(--body); }
+.cli .l3 { color: var(--mute); }
+.cpane { overflow: hidden; }
+.cpane .chead { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 18px 22px 12px; border-bottom: 1px solid var(--hairline); }
+.cpane .chead h2 { margin: 0; font-size: 18px; font-weight: 600; line-height: 24px; }
+.cpane .chead .sub { color: var(--mute); }
+.cpane .cbody { padding: 16px 22px; display: flex; flex-direction: column; gap: 16px; }
+.cpane .cfoot { display: flex; gap: 10px; align-items: center; padding: 14px 22px; border-top: 1px solid var(--hairline); flex-wrap: wrap; }
+.cpane .sec { font-weight: 600; color: var(--ink); }
+.quote { border-left: 3px solid var(--accent); padding: 8px 12px; background: var(--soft-3); border-radius: 0 var(--r-inner) var(--r-inner) 0; color: var(--body); }
+.quote b { display: block; color: var(--ink); font-weight: 500; }
+.dt tr.grp td { background: var(--soft-3); color: var(--mute); font-weight: 500; padding: 8px 16px; }
+.show-p { display: none; }
+.proto .jh { flex-basis: 100%; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 12px; border-radius: 10px; background: var(--tint); color: var(--info-fg); }
+.proto .jh b { color: var(--accent); font-weight: 600; white-space: nowrap; }
+.proto .jh .t { color: var(--ink); font-weight: 500; }
+.proto .jh .d { color: var(--body); }
+.proto .jh .btn.sm { height: 30px; }
+@media (max-width: 767px) {
+  .inbox { grid-template-columns: 1fr; }
+  .show-p { display: block; }
+  .proto .jh .d { display: none; }
+  .proto #flows { flex-basis: 100%; max-width: 100%; overflow-x: auto; flex-wrap: nowrap; }
+  .proto #flows button { flex: none; }
+  .proto a.ext { display: none; }
+  .proto select.scr { flex: 1; max-width: none; }
+  .proto .jh { padding: 6px 10px; gap: 8px; }
+  .proto .jh .t { flex: 1 1 100px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .proto .jh .btn.tint { margin-left: auto; }
+  .proto .jh .btn.soft { display: none; }
+}
+.proto select.scr { height: 30px; border: 1px solid var(--edge); border-radius: 7px; padding: 0 8px; background: #fff; font: inherit; font-size: 14px; color: var(--ink); max-width: 260px; }
+
+
+/* ── layout overrides: the bar can wrap, so insets read --barh ── */
+.shell { inset: var(--barh, 48px) 0 0 0; }
+.scrim { inset: var(--barh, 48px) 0 0 0; }
+.sheet { top: calc(var(--barh, 48px) + 20px); }
+.phonewrap { position: fixed; inset: var(--barh, 48px) 0 0 0; overflow: auto; }
+.tabs span { cursor: pointer; }
+.proto a.ext { margin-left: auto; }
+.proto .reset { margin-left: 0; }
+.proto { gap: 8px 14px; }
+@media (max-width: 767px) { .sheet, .sheet.review { top: var(--barh, 48px); } .phone { height: calc(100vh - var(--barh, 48px)); } }
+
+</style>
+</head>
+<body>
+<div class="proto" id="bar"></div>
+<div id="app"></div>
+<script>
+const $ = (s) => document.querySelector(s)
+const ic = (name, cls = "") => `<i data-lucide="${name}" class="${cls}"></i>`
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c])
+const pcs = (n) => `${n.toLocaleString("id-ID")} ${n === 1 ? "pc" : "pcs"}`
+const rp = (n) => `Rp ${n.toLocaleString("id-ID")}`
+
+let S
+let shown = new Set()
+let clock = 9 * 60 + 40
+const INIT = {}, SCREENS = {}, OVL = {}, A = {}, FLOWS = [], BADGE = {}
+const DEPT = {}
+const NAV = {
+  ops: [["Workload", "ops-workload"], ["Receiving", "ops-receiving"], ["Allotment", "ops-board"], ["Return from Store", "ops-store-returns"], ["Return PO", "ops-return-po"], ["Activity Log", "ops-log"]],
+  buy: [["Purchase Orders", "buy-po"], ["Suppliers"], ["Sourcing"], ["Return PO", "buy-return"]],
+  md: [["Allotments", "md-allot"], ["Return to HO", "md-return"], ["New Allotment", "md-new"]],
+  inv: [["Stock", "inv-stock"], ["Exceptions", "inv-exceptions"], ["Counts"], ["Movements", "inv-movements"]],
+}
+const DEPT_HOME = { buy: "buy-po", ops: "ops-workload", md: "md-allot", inv: "inv-stock" }
+const DEPT_NAME = { ops: "Ops", buy: "Procurement", md: "Allotment", inv: "Inventory" }
+const RAIL = [["shopping-cart", "buy"], ["shirt"], ["truck", "ops"], ["split", "md"], ["boxes", "inv"], ["megaphone"], ["store"], ["landmark"], ["users"], ["book-open"]]
+
+/* ── the ledger every screen reads: one place per pool, one line per movement ── */
+const PLACES = ["DC · Stockroom", "DC · Pick area", "DC · Packed", "DC · In transit", "C001 · Warehouse", "C002 · Warehouse", "C003 · Warehouse", "C004 · Warehouse", "DC · Return in transit", "DC · Return stock", "Written off"]
+function mv(doc, cause, from, to, qty, by) { if (!qty) return; S.ledger.unshift({ t: stamp(), doc, cause, from, to, qty, by: by || "Operations" }) }
+function pool(place) { return S.ledger.reduce((n, e) => n + (e.to === place ? e.qty : 0) - (e.from === place ? e.qty : 0), 0) }
+function seed(place, qty, doc) { S.ledger.push({ t: "08 Oct 2026, 08:00", doc: doc || "Opening balance", cause: "Opening balance", from: "Supplier", to: place, qty, by: "Inventory" }) }
+function evt(who, text, doc) { S.events.unshift({ t: stamp(), who, text, doc: doc || "" }) }
+
+function stamp() {
+  clock += 2 + Math.floor(Math.random() * 5)
+  return `09 Oct 2026, ${String(Math.floor(clock / 60)).padStart(2, "0")}:${String(clock % 60).padStart(2, "0")}`
+}
+function fresh(flowId) {
+  clock = 9 * 60 + 40
+  const def = FLOWS.find((f) => f.id === (flowId || "all")) || FLOWS[0]
+  const base = { flow: def.id, screen: def.start, ov: [], race: false, toast: null, opsTab: "po", sstore: "C001", psheet: null, ledger: [], events: [], cases: [], notices: [], caseSel: null }
+  for (const k of Object.keys(INIT)) base[k] = INIT[k]()
+  S = base
+  if (def.setup) def.setup(base)
+  return base
+}
+
+/* ── shell: rail, department column, content ──────────────── */
+function shell(dept, body) {
+  const nav = NAV[dept] || []
+  return `<div class="shell">
+    <aside class="rail"><div class="logo">C</div>
+      ${RAIL.map(([n, d]) => `<span class="ic ${d === dept ? "on" : ""}" ${d ? `data-go="${DEPT_HOME[d]}"` : ""}>${ic(n)}</span>`).join("")}
+      <span class="gap"></span>
+      <span class="ic">${ic("message-square-text")}</span><span class="ic">${ic("bell")}<span class="badge">89</span></span>
+      <span class="ic">${ic("sparkles")}</span><span class="ic">${ic("sliders-horizontal")}</span><span class="me">R</span>
+    </aside>
+    <aside class="dept"><div class="head">${DEPT_NAME[dept]}${ic("panel-left")}</div>
+      <nav>${nav.map(([l, id]) => { const n = id && BADGE[id] ? BADGE[id]() : 0; return `<a class="${id && id === S.screen ? "on" : ""}" ${id ? `data-go="${id}"` : ""}>${l}${n ? `<span class="n">${n}</span>` : ""}</a>` }).join("")}</nav>
+      <div class="clock">${ic("clock-3")}Fri 09 Oct 2026 · ${String(Math.floor(clock / 60)).padStart(2, "0")}:${String(clock % 60).padStart(2, "0")}</div>
+    </aside>
+    <main class="content">${body}</main>
+  </div>`
+}
+
+/* ── sheets and dialogs ─────────────────────────────────── */
+const enterCls = (id) => (shown.has(id) ? "" : " enter-from")
+function sheetEl(id, { title, sub, mono, body, foot, cls = "", top = false }) {
+  return `<div class="scrim${top ? " top" : ""}${enterCls("s-" + id)}" data-close="${id}"></div>
+  <section class="sheet ${cls}${top ? " top" : ""}${enterCls(id)}" data-sheet="${id}" role="dialog" aria-label="${esc(title)}">
+    <header class="sh-head"><div>${sub ? `<div class="sub ${mono ? "mono" : ""}">${sub}</div>` : ""}<h2>${title}</h2></div>
+      <button class="x" data-close="${id}" aria-label="Close">${ic("x")}</button></header>
+    <div class="sh-body">${body}</div>
+    <footer class="sh-foot">${foot}</footer>
+  </section>`
+}
+function dlgEl(id, { title, body, foot, wide = false }) {
+  return `<div class="scrim z60${enterCls("s-" + id)}" data-close="${id}"></div>
+  <section class="dlg${wide ? " wide" : ""}${enterCls(id)}" data-sheet="${id}" role="alertdialog" aria-label="${esc(title)}">
+    <div class="d-head"><h2>${title}</h2></div><div class="d-body">${body}</div><div class="d-foot">${foot}</div>
+  </section>`
+}
+function openOv(id) { if (!S.ov.includes(id)) S.ov.push(id); render() }
+function closeOv(id) { const i = S.ov.indexOf(id); if (i >= 0) S.ov.length = i; render() }
+function say(msg) {
+  S.toast = msg; render()
+  clearTimeout(say.t)
+  say.t = setTimeout(() => { S.toast = null; render() }, 2600)
+}
+const stepper = (key, val, min, max, off = false) => `<span class="step"><button data-act="step" data-key="${key}" data-d="-1" ${off || val <= min ? "disabled" : ""} aria-label="One less">${ic("minus")}</button><input value="${val}" inputmode="numeric" data-input="${key}" ${off ? "disabled" : ""} aria-label="Quantity"><button data-act="step" data-key="${key}" data-d="1" ${off || val >= max ? "disabled" : ""} aria-label="One more">${ic("plus")}</button></span>`
+
+/* ── prototype bar + render ─────────────────────────────── */
+function barHtml() {
+  const def = FLOWS.find((f) => f.id === S.flow)
+  const known = def.screens.some(([id]) => id === S.screen)
+  const scr = def.screens.length <= 3
+    ? `<div class="seg">${def.screens.map(([id, label]) => `<button data-go="${id}" aria-pressed="${id === S.screen}">${label}</button>`).join("")}</div>`
+    : `<select class="scr" data-input="scr" aria-label="Go to screen">${def.screens.map(([id, label]) => `<option value="${id}" ${id === S.screen ? "selected" : ""}>${label}</option>`).join("")}${known ? "" : `<option value="${S.screen}" selected>Elsewhere</option>`}</select>`
+  return `<div class="seg" id="flows">${FLOWS.map((f) => `<button data-flow="${f.id}" aria-pressed="${f.id === S.flow}">${f.label}</button>`).join("")}</div>
+    ${scr}
+    ${def.bar ? def.bar() : ""}
+    <a class="ext" href="inventory-issues-prototype.html" target="_blank">Inventory cases ↗</a>
+    <button class="reset" id="reset">Reset</button>
+    ${window.journeyHint && S.flow === "all" ? journeyHint() : ""}`
+}
+function render() {
+  const active = document.activeElement
+  const fi = active && active.dataset ? active.dataset.input : null
+  const pos = fi && typeof active.selectionStart === "number" ? active.selectionStart : null
+  $("#bar").innerHTML = barHtml()
+  const screen = SCREENS[S.screen]()
+  const ovs = S.ov.map((id) => OVL[id]()).join("")
+  const toast = S.toast ? `<div class="toast ${shown.has("toast") ? "" : "enter-from"}" role="status">${ic("check")}${esc(S.toast)}</div>` : ""
+  $("#app").innerHTML = (screen.startsWith("<!--phone-->") ? screen : shell(DEPT[S.screen] || "ops", screen)) + ovs + toast
+  if (window.lucide) lucide.createIcons()
+  document.documentElement.style.setProperty("--barh", $("#bar").offsetHeight + "px")
+  const next = new Set()
+  for (const id of S.ov) { next.add(id); next.add("s-" + id) }
+  if (S.toast) next.add("toast")
+  if (S.psheet) { next.add("p-" + S.psheet); next.add("ps-" + S.psheet) }
+  shown = next
+  requestAnimationFrame(() => requestAnimationFrame(() => document.querySelectorAll(".enter-from").forEach((el) => el.classList.remove("enter-from"))))
+  if (fi) {
+    const el = document.querySelector(`[data-input="${fi}"]`)
+    if (el) { el.focus(); try { el.setSelectionRange(pos, pos) } catch (e) {} }
+  }
+}
+
+/* ── events ─────────────────────────────────────────────── */
+document.addEventListener("click", (e) => {
+  const fl = e.target.closest("[data-flow]")
+  if (fl) { S = fresh(fl.dataset.flow); shown = new Set(); render(); return }
+  const c = e.target.closest("[data-close]")
+  if (c) { closeOv(c.dataset.close); return }
+  const g = e.target.closest("[data-go]")
+  if (g) { S.screen = g.dataset.go; S.ov = []; S.psheet = null; render(); return }
+  const a = e.target.closest("[data-act]")
+  if (a && !a.disabled && A[a.dataset.act]) A[a.dataset.act](a, e)
+})
+document.addEventListener("input", (e) => {
+  const k = e.target.dataset && e.target.dataset.input
+  if (k && A["input:" + k]) { A["input:" + k](e.target.value, e.target); render() }
+  else if (k && A["input:*"]) { A["input:*"](k, e.target.value); render() }
+})
+document.addEventListener("click", (e) => {
+  if (e.target.id === "reset" || e.target.closest("#reset")) { S = fresh(S.flow); shown = new Set(); render() }
+})
+A["input:scr"] = (v) => { S.screen = v; S.ov = []; S.psheet = null }
+A.step = (el) => {
+  const k = el.dataset.key, d = Number(el.dataset.d)
+  if (A["step:" + k]) { A["step:" + k](d); render() }
+  else if (A["step:*"]) { A["step:*"](k, d); render() }
+}
+A["ops-tab"] = (el) => { S.opsTab = el.dataset.tab; render() }
+
+/* ═══ Flow 1 · Supplier → PO → DC: Recall before acceptance, a correction after ═══ */
+FLOWS.push({
+  id: "po", label: "1 · PO → DC", start: "ops-receiving",
+  screens: [["ops-receiving", "Ops › Receiving"], ["buy-po", "Procurement › Purchase Orders"]],
+  bar: () => `<div class="seg"><button data-act="po-mode" data-m="over" aria-pressed="${S.po.mode === "over"}">Extra: 20 of 12</button><button data-act="po-mode" data-m="short" aria-pressed="${S.po.mode === "short"}">Short: 585 of 600</button></div>
+    <label class="tg"><input type="checkbox" data-act="race" ${S.race ? "checked" : ""}>The other side acts first</label>`,
+})
+A.race = (el) => { S.race = el.checked; render() }
+DEPT["ops-receiving"] = "ops"; DEPT["buy-po"] = "buy"
+
+/* The two ways a count can differ. "Extra" is a PO counted above its order; "Short" is a PO counted below it, with pieces that are not what was ordered. */
+const PDATA = {
+  over: { po: "PO-041026-007", sup: "Indorama, PT", art: "Kaos Uji UJI4", sub: "Pria · Kaos", ordered: 12, counted: 20, nao: 0, price: 40000, delivery: "07 Oct 2026", created: "07 Oct 2026",
+    others: [["PO-041026-010", "Garmen AA, UD"], ["PO-041026-011", "Indorama, PT"]] },
+  short: { po: "PO-041026-010", sup: "Garmen AA, UD", art: "Kemeja Blus", sub: "Wanita · Blus", ordered: 600, counted: 585, nao: 15, price: 85000, delivery: "08 Oct 2026", created: "07 Oct 2026",
+    others: [["PO-041026-007", "Indorama, PT"], ["PO-041026-011", "Indorama, PT"]] },
+}
+const PD = () => PDATA[S.po.mode]
+const poFresh = (mode, isNew = false) => {
+  const d = PDATA[mode]
+  const base = { mode, status: "counted", ordered: d.ordered, counted: d.counted, nao: d.nao, accepted: 0, by: "Rina Kusuma", at: "08 Oct 2026, 09:40",
+    was: null, reason: "", recalledAt: null, edit: null, rmode: "decide", why: "", evidenceText: "",
+    log: [{ t: `Counted ${pcs(d.counted)}`, who: "Rina Kusuma", at: "08 Oct 2026, 09:40" }, { t: "Issued", who: "Rina Kusuma", at: d.created + ", 10:12" }] }
+  if (isNew) return { ...base, status: "new", counted: 0, nao: 0, by: "", at: "", edit: { qty: String(d.counted), nao: String(d.nao) }, log: [{ t: "Issued", who: "Rina Kusuma", at: d.created + ", 10:12" }] }
+  return base
+}
+INIT.po = () => poFresh("over")
+A["po-mode"] = (el) => { S.po = poFresh(el.dataset.m); S.ov = []; render() }
+const poDone = () => ["accepted", "closed"].includes(S.po.status)
+/* what an acceptance does to the world: stock comes in, wrong and extra pieces become a Return PO */
+function poAccepted(how) {
+  const p = S.po, d = PD(), stockIn = Math.min(p.counted, p.ordered), back = Math.max(0, p.counted - p.ordered) + p.nao
+  mv(d.po, "Receipt", "Supplier", "DC · Stockroom", stockIn, "Rina Kusuma")
+  if (back > 0) mv(d.po, "Receipt · to return", "Supplier", "DC · To supplier", back, "Rina Kusuma")
+  evt("Buying", `${d.po}: ${how}. ${pcs(stockIn)} in stock${back ? `, ${pcs(back)} go back to the supplier` : ""}`, d.po)
+  if (back > 0) {
+    const no = `RS-${String(7 + (S.sup ? 1 : 0)).padStart(8, "0")}`
+    S.sup = supMk({ no, n: back, reason: "over", po: d.po, sup: d.sup, art: d.art, sub: d.sub, at: stamp() })
+  }
+}
+
+/* Operations › Receiving ------------------------------------------------ */
+function poReceivingTable() {
+  const p = S.po, d = PD()
+  const row = ([po, sup]) => `<tr class="row"><td><span class="two"><span class="a">${sup}</span><span class="b mono">${po}</span></span></td>
+    <td class="r num hide-p">1</td><td class="r"><button class="btn tint" data-act="po-other">Count receive</button></td></tr>`
+  let cell
+  if (p.status === "new") {
+    cell = `<button class="btn tint" data-act="open-count">Count receive</button>`
+  } else if (p.status === "recalled") {
+    cell = `<span class="counted"><button class="btn tint" data-act="open-count">Count again</button><span>${p.reason ? "Sent back · " + esc(p.reason) : "Recalled · was " + pcs(p.was)}</span></span>`
+  } else {
+    cell = `<span class="counted num"><b>${pcs(p.counted)}</b><span>${p.by} · ${p.at}</span>${p.nao ? `<span>+ ${pcs(p.nao)} Not as Ordered</span>` : ""}<span class="${poDone() ? "ok" : "info"}">${poDone() ? "Accepted" : "Waiting for review"}${p.was ? " · was " + pcs(p.was) : ""}</span></span>`
+  }
+  return `<div class="card"><table class="dt">
+    <thead><tr><th>PO ⌃</th><th class="r hide-p" style="width:120px">Items</th><th class="r" style="width:320px">Count</th></tr></thead>
+    <tbody>${d.others.map(row).join("")}
+      <tr class="row ${!["recalled", "new"].includes(p.status) ? "click" : ""}" ${!["recalled", "new"].includes(p.status) ? 'data-act="open-count"' : ""}><td><span class="two"><span class="a">${d.sup}</span><span class="b mono">${d.po}</span></span></td>
+        <td class="r num hide-p">1</td><td class="r">${cell}</td></tr></tbody></table></div>`
+}
+SCREENS["ops-receiving"] = () => {
+  const tab = S.opsTab || "po"
+  return `<h1 class="page-title">Receiving</h1>
+    <div class="tabs"><span class="${tab === "po" ? "on" : ""}" data-act="ops-tab" data-tab="po">Purchase orders · 3</span><span class="${tab === "ret" ? "on" : ""}" data-act="ops-tab" data-tab="ret">Store returns</span></div>
+    ${tab === "po" ? poReceivingTable() : storeReturnsTable()}`
+}
+
+/* the Count sheet -------------------------------------------------------- */
+OVL.count = () => {
+  const p = S.po, d = PD(), edit = ["recalled", "new"].includes(p.status)
+  const qty = edit ? p.edit.qty : String(p.counted)
+  const total = Number(qty) || 0
+  const naoQ = edit ? p.edit.nao : String(p.nao)
+  const body = `${edit ? "" : `<div class="factline"><div><span>Counted</span>${p.by} · ${p.at}</div><div class="${poDone() ? "ok" : "info"}"><span>Review</span>${poDone() ? "Accepted · stock recorded" : "Waiting"}</div></div>`}
+    <div class="st"><table>
+      <thead><tr><th>Article</th><th style="width:${edit ? 280 : 200}px">Counted</th><th class="r" style="width:130px">In pieces</th></tr></thead>
+      <tbody><tr><td><span class="two"><span class="a" style="font-weight:400">${d.art}</span><span class="b">${d.sub}</span></span></td>
+        <td>${edit ? `<div class="cnt"><input class="qty" inputmode="numeric" data-input="po-qty" value="${esc(qty)}" aria-label="Counted, ${d.art}"><span class="unit">Piece${ic("chevron-down")}</span></div>` : `<span class="num">${qty}</span> <span style="color:var(--mute)">Piece</span>`}</td>
+        <td class="r num">${total ? pcs(total) : "—"}</td></tr></tbody>
+      <tfoot><tr><td colspan="2">Total Counted</td><td class="r num">${pcs(total)}</td></tr>
+        <tr><td><span class="two"><span class="a" style="font-weight:400">Not as Ordered</span><span class="b">Damaged or wrong items</span></span></td>
+          <td>${edit ? `<div class="cnt"><input class="qty" inputmode="numeric" data-input="po-nao" value="${esc(naoQ)}" placeholder="0" aria-label="Not as ordered"><span class="unit">Piece${ic("chevron-down")}</span></div>` : `<span class="num">${p.nao}</span> <span style="color:var(--mute)">Piece</span>`}</td><td class="r num">${Number(naoQ) ? pcs(Number(naoQ)) : "—"}</td></tr></tfoot></table></div>`
+  let foot
+  if (edit) foot = `${p.status === "new" ? "" : `<button class="btn ghost" data-act="po-back">${ic("arrow-left")}Back</button>`}<span class="grow"></span><button class="btn primary" data-act="po-submit-count" ${total || Number(naoQ) ? "" : "disabled"}>Submit count</button>`
+  else if (p.status === "counted") foot = `<span class="grow"></span><button class="btn soft" data-act="po-recall">${ic("rotate-ccw")}Recall Count</button>`
+  else foot = `<span class="said">Accepted by Rina Kusuma · stock recorded</span><span class="grow"></span><button class="btn soft" data-act="po-evidence">Count again as evidence</button><button class="btn soft" data-act="po-diff">Report a difference</button>`
+  return sheetEl("count", { title: d.sup, sub: d.po, mono: true, body, foot })
+}
+A["input:po-qty"] = (v) => { S.po.edit.qty = v.replace(/[^0-9]/g, "") }
+A["input:po-nao"] = (v) => { S.po.edit.nao = v.replace(/[^0-9]/g, "") }
+A["open-count"] = () => { if (S.po.status === "recalled" && !S.po.edit) S.po.edit = { qty: String(S.po.was || S.po.counted), nao: String(S.po.nao) }; openOv("count") }
+A["po-other"] = () => say("Another PO: the same count, nothing to go back yet")
+A["po-back"] = () => closeOv("count")
+A["po-recall"] = () => openOv("recall")
+OVL.recall = () => dlgEl("recall", { title: "Recall this count?",
+  body: `<span>The count stays in history as Recalled. Stock does not change. You count again for the same arrival.</span>
+    <span class="hint">It can only be recalled while nobody has accepted it.</span>`,
+  foot: `<button class="btn ghost" data-close="recall">Keep</button><button class="btn primary" data-act="recall-go">Recall count</button>` })
+A["recall-go"] = () => {
+  const p = S.po
+  if (S.race) { p.status = "accepted"; p.accepted = p.counted; p.log.unshift({ t: "Count accepted", who: "Rina Kusuma", at: stamp() }); poAccepted("accepted"); S.ov = S.ov.filter((o) => o !== "recall"); S.ov.push("refused"); render(); return }
+  p.was = p.counted; p.status = "recalled"; p.reason = ""; p.recalledAt = stamp(); p.edit = { qty: String(p.counted), nao: String(p.nao) }
+  p.log.unshift({ t: `Count recalled · was ${pcs(p.was)}`, who: "Rina Kusuma", at: p.recalledAt })
+  S.ov = ["count"]; say("Count recalled. It stays in history")
+}
+OVL.refused = () => dlgEl("refused", { title: "This count cannot be recalled",
+  body: `<span>Rina Kusuma accepted it at ${stamp().split(", ")[1]}. Stock is recorded.</span><span class="hint">You can add a new count as evidence. The receipt stays.</span>`,
+  foot: `<button class="btn ghost" data-close="refused">Close</button><button class="btn soft" data-act="po-evidence">Count again as evidence</button>` })
+A["po-submit-count"] = () => {
+  const p = S.po, q = Number(p.edit.qty) || 0, nao = Number(p.edit.nao) || 0
+  if (!q && !nao) return
+  const first = p.status === "new"
+  p.counted = q; p.nao = nao; p.by = "Rina Kusuma"; p.at = stamp(); p.status = "counted"; p.edit = null
+  p.log.unshift({ t: `Counted ${pcs(q)}${nao ? ` and ${pcs(nao)} Not as Ordered` : ""}${p.was ? " again" : ""}`, who: "Rina Kusuma", at: p.at })
+  if (first) p.log.push({ t: "Goods arrived at the DC", who: "Operations", at: p.at })
+  evt("Operations", `${PD().po}: counted ${pcs(q)}${nao ? ` + ${pcs(nao)} Not as Ordered` : ""}, waiting for review`, PD().po)
+  S.ov = []; say("Count submitted. Waiting for review")
+}
+A["po-evidence"] = () => { S.ov = S.ov.filter((o) => o !== "refused"); openOv("evidence") }
+OVL.evidence = () => dlgEl("evidence", { title: "Count again as evidence",
+  body: `<span>A new count is kept next to the first one. The receipt and the stock stay as they are.</span>`,
+  foot: `<button class="btn ghost" data-close="evidence">Cancel</button><button class="btn primary" data-act="evidence-go">Start a new count</button>` })
+A["evidence-go"] = () => { S.po.log.unshift({ t: "New count started as evidence", who: "Rina Kusuma", at: stamp() }); S.ov = []; say("New count started. The receipt stays") }
+A["po-diff"] = () => openOv("diff")
+OVL.diff = () => dlgEl("diff", { title: "Report a difference",
+  body: `<span>Inventory looks at the difference. The delivery stays as it is.</span>
+    <textarea data-input="po-diff" aria-label="What differs?" placeholder="What differs?">${esc(S.po.evidenceText)}</textarea>`,
+  foot: `<button class="btn ghost" data-close="diff">Cancel</button><button class="btn primary" data-act="diff-go" ${S.po.evidenceText.trim() ? "" : "disabled"}>Send to Inventory</button>` })
+A["input:po-diff"] = (v) => { S.po.evidenceText = v }
+A["diff-go"] = () => { S.po.log.unshift({ t: "Difference reported to Inventory", who: "Rina Kusuma", at: stamp() }); S.po.evidenceText = ""; S.ov = []; say("Sent to Inventory. The receipt stays") }
+
+/* Procurement › Purchase Orders ----------------------------------------- */
+SCREENS["buy-po"] = () => {
+  const p = S.po, d = PD()
+  const st = p.status === "new" ? `<span style="color:var(--body)">Issued</span>`
+    : p.status === "counted" ? `<button class="btn primary sm" data-act="po-review">Review Count</button>`
+    : p.status === "recalled" ? `<span class="info">Recounting</span>`
+    : p.status === "closed" ? `<span class="bad">Short received</span>`
+    : p.accepted >= p.ordered ? `<span class="ok">Fully received</span>` : `<span class="info">Partially received</span>`
+  const val = d.ordered * d.price
+  const line = ([s, po, it, dd, q, v, status]) => `<tr class="row"><td><span class="two"><span class="a">${s}</span><span class="b"><span class="mono">${po}</span> · ${it}</span></span></td>
+    <td class="hide-p">${dd}</td><td class="r num hide-p"><span class="two"><span class="a" style="font-weight:400">${pcs(q)}</span><span class="b">${rp(v)}</span></span></td><td class="r hide-p">—</td><td>${status}</td></tr>`
+  return `<h1 class="page-title">Purchase Orders</h1>
+    <div class="kpis"><div class="kpi"><div class="l">Orders</div><div class="v num">8</div></div><div class="kpi"><div class="l">Still open</div><div class="v num">6</div></div><div class="kpi"><div class="l">Overdue</div><div class="v num">0</div></div><div class="kpi"><div class="l">On order</div><div class="v num">Rp 75.160.000</div></div></div>
+    <div class="tabs"><span class="on">Active PO 8</span><span>Completed PO 12</span><span>Cancelled PO 1</span></div>
+    <div class="card"><table class="dt"><thead><tr><th>PO</th><th class="hide-p">Delivery Date</th><th class="r hide-p">Ordered</th><th class="r hide-p">Received</th><th style="width:200px">Status</th></tr></thead>
+      <tbody><tr class="row click" data-act="po-open"><td><span class="two"><span class="a">${d.sup}</span><span class="b"><span class="mono">${d.po}</span> · 1 item</span></span></td>
+        <td class="hide-p">${d.delivery}</td><td class="r num hide-p"><span class="two"><span class="a" style="font-weight:400">${pcs(d.ordered)}</span><span class="b">${rp(val)}</span></span></td><td class="r num hide-p">${poDone() ? pcs(Math.min(p.accepted, p.ordered)) : "—"}</td><td>${st}</td></tr>
+      ${line(["Indorama, PT", "PO-051026-001", "1 item", "09 Oct 2026", 6, 240000, "Issued"])}${line(["Garmen AA, UD", "PO-051026-003", "1 item", "10 Oct 2026", 24, 960000, "Issued"])}
+      ${line(["Indorama, PT", "PO-051026-002", "1 item", "10 Oct 2026", 12, 480000, "Issued"])}</tbody></table></div>`
+}
+A["po-open"] = () => openOv("po")
+A["po-review"] = (el, e) => { e.stopPropagation(); S.po.rmode = "decide"; S.po.why = ""; S.ov = ["po", "review"]; render() }
+OVL.po = () => {
+  const p = S.po, d = PD(), got = poDone() ? Math.min(p.accepted, p.ordered) : 0
+  const banner = p.status === "counted" ? `<div class="banner info">${ic("clipboard-check")}<span><b>${p.was ? "Counted again at the warehouse" : "Counted at the warehouse"}</b><span>${p.by}, ${p.at}${p.was ? ` · was ${pcs(p.was)}` : ""}</span></span></div>`
+    : p.status === "recalled" ? `<div class="banner warn">${ic("rotate-ccw")}<span><b>${p.reason ? "Sent back to count" : "Recalled by the warehouse"}</b><span>${p.reason ? esc(p.reason) : `${p.by}, ${p.recalledAt} · was ${pcs(p.was)}`}</span></span></div>` : ""
+  const stamp = p.status === "closed" ? ["CLOSED SHORT", "bad"] : poDone() ? (p.accepted >= p.ordered ? ["FULLY RECEIVED", "ok"] : ["PARTIALLY RECEIVED", "warn"]) : null
+  const extra = poDone() && p.counted > p.ordered ? p.counted - p.ordered : 0
+  const body = `${stamp ? `<span class="stamp ${stamp[1]}">${stamp[0]}</span>` : ""}${banner}
+    <div class="facts"><div><div class="l">Supplier</div><div class="v">${d.sup}</div></div><div><div class="l">Delivery Date</div><div class="v">${d.delivery}</div></div>
+      <div><div class="l">Payment Method</div><div class="v">Giro</div></div><div><div class="l">Received</div><div class="v num">${got} of ${d.ordered} pcs · ${rp(got * d.price)} of ${rp(d.ordered * d.price)}</div></div></div>
+    <div style="font-size:14px;color:var(--mute);margin-bottom:-6px">Items (1)</div>
+    <div class="st"><table><thead><tr><th>Item</th><th class="r hide-p">Quantity</th><th class="r">Received</th><th class="r hide-p">Unit Price</th><th class="r">Amount</th></tr></thead>
+      <tbody><tr><td><div class="item"><span class="thumb">${ic("shirt")}</span><span class="two"><span class="a" style="font-weight:400">${d.art}</span><span class="b">${d.sub}</span>${got ? `<span class="change">Received 09 Oct 2026 · ${pcs(got)}</span>` : ""}</span></div></td>
+        <td class="r num hide-p">${pcs(d.ordered)}</td><td class="r num ${got ? "ok" : ""}">${got ? pcs(got) : "—"}</td><td class="r num hide-p">${rp(d.price)} / pc</td><td class="r num">${rp(d.ordered * d.price)}</td></tr></tbody>
+      <tfoot><tr><td colspan="4" class="hide-p" style="font-weight:600">Grand Total</td><td class="r num" style="font-weight:600">${rp(d.ordered * d.price)}</td></tr></tfoot></table></div>
+    ${extra ? `<p class="note" style="margin:0"><span class="info">${ic("undo-2")}</span><span><b>${pcs(extra)}</b> extra were returned to the supplier on a Return PO</span></p>` : ""}
+    ${poDone() && p.nao ? `<p class="note" style="margin:0"><span class="info">${ic("undo-2")}</span><span><b>${pcs(p.nao)}</b> Not as Ordered were returned to the supplier on a Return PO</span></p>` : ""}
+    ${p.status === "accepted" && p.accepted < p.ordered ? `<p class="note" style="margin:0"><span class="info">${ic("info")}</span><span>The other ${pcs(p.ordered - p.accepted)} of the order stay open for the next delivery.</span></p>` : ""}
+    <div><div class="fold" style="border:0;padding-top:0">${ic("chevron-down")}Activity <span class="c">(${p.log.length})</span></div>
+      <ul class="acts" style="padding:0;margin-top:10px">${p.log.map((a, i) => `<li class="${i === 0 && p.log.length > 2 ? "new" : ""}"><b>${a.t}</b><span>${a.who} · ${a.at}</span></li>`).join("")}</ul></div>`
+  return sheetEl("po", { title: d.po, sub: `Created by Rina Kusuma · ${d.created}`, body,
+    foot: `<button class="btn soft icon" aria-label="Print">${ic("printer")}</button><span class="grow"></span>${p.status === "counted" ? `<button class="btn primary" data-act="po-review">Review Count</button>` : ""}` })
+}
+OVL.review = () => {
+  const p = S.po, d = PD(), diff = p.counted - p.ordered, recount = p.rmode === "recount", short = diff < 0
+  const off = diff === 0 ? "—" : `<span class="pill over num">${diff > 0 ? "+" : "−"}${pcs(Math.abs(diff))}</span>`
+  const body = `<div class="factline"><div><span>Supplier</span>${d.sup}</div><div><span>Counted</span>${p.by} · ${p.at}</div>${p.was ? `<div class="info">${ic("rotate-ccw", "inl")} Recounted · was ${pcs(p.was)}</div>` : ""}</div>
+    <div class="st"><table><thead><tr>${recount ? `<th style="width:44px"></th>` : ""}<th class="hide-p" style="width:56px">No.</th><th>Article</th><th>Ordered Quantity</th><th>Counted Quantity</th><th>Difference</th></tr></thead>
+      <tbody><tr>${recount ? `<td><span class="cb on">${ic("check")}</span></td>` : ""}<td class="hide-p num" style="color:var(--body)">1</td><td><span class="two"><span class="a">${d.art}</span><span class="b">${d.sub}</span></span></td><td class="num">${pcs(p.ordered)}</td><td class="num">${pcs(p.counted)}</td><td>${off}</td></tr></tbody>
+      <tfoot><tr>${recount ? "<td></td>" : ""}<td class="hide-p"></td><td>Total</td><td class="num">${pcs(p.ordered)}</td><td class="num">${pcs(p.counted)}</td><td class="${diff ? "bad" : ""} num">${diff > 0 ? `${pcs(diff)} extra` : diff < 0 ? `${pcs(-diff)} short` : "—"}</td></tr></tfoot></table></div>
+    ${recount ? `<div class="ask"><h3>Why should it be counted again?</h3><textarea data-input="po-why" aria-label="Why should it be counted again?">${esc(p.why)}</textarea></div>`
+      : `${diff > 0 ? `<p class="note" style="margin:0"><span class="info">${ic("undo-2")}</span><span><b>${pcs(diff)}</b> extra will be returned to the supplier</span></p>` : ""}
+         ${p.nao ? `<p class="note" style="margin:0"><span class="info">${ic("undo-2")}</span><span><b>${pcs(p.nao)}</b> Not as Ordered will be returned to the supplier</span></p>` : ""}`}`
+  const foot = recount ? `<button class="btn soft" data-act="review-back">${ic("arrow-left")}Back</button><span class="grow said">1 of 1 item ticked</span><button class="btn primary" data-act="review-send" ${p.why.trim() ? "" : "disabled"}>Send 1 item back to count</button>`
+    : short ? `<button class="btn soft" data-act="review-recount">${ic("rotate-ccw")}Recount</button><span class="grow"></span><button class="btn soft" data-act="review-close">Close Short</button><button class="btn primary" data-act="review-partial">${ic("check")}Partial Receive</button>`
+    : `<button class="btn soft" data-act="review-recount">${ic("rotate-ccw")}Recount</button><span class="grow"></span><button class="btn primary" data-act="review-submit">${ic("check")}Submit</button>`
+  return sheetEl("review", { title: `Review Count ${diff ? `<span class="bad">${ic("circle-alert")}</span>` : ""}`, sub: d.po, mono: true, cls: "review", top: true, body, foot })
+}
+A["review-recount"] = () => { S.po.rmode = "recount"; render() }
+A["review-back"] = () => { S.po.rmode = "decide"; render() }
+A["input:po-why"] = (v) => { S.po.why = v }
+A["review-send"] = () => {
+  const p = S.po
+  p.was = p.counted; p.status = "recalled"; p.reason = p.why.trim(); p.recalledAt = stamp(); p.edit = { qty: String(p.counted), nao: String(p.nao) }
+  p.log.unshift({ t: `Sent back to count: ${p.reason}`, who: "Rina Kusuma", at: p.recalledAt })
+  S.ov = ["po"]; say("Sent back to count. The old count stays in history")
+}
+/* the reviewer decides; a race with a recall is refused */
+function reviewGuard() {
+  const p = S.po
+  if (S.race) { p.was = p.counted; p.status = "recalled"; p.reason = ""; p.recalledAt = stamp(); p.edit = { qty: String(p.counted), nao: String(p.nao) }; p.log.unshift({ t: `Count recalled · was ${pcs(p.was)}`, who: "Rina Kusuma", at: p.recalledAt }); S.ov = ["po", "review", "refusedb"]; render(); return true }
+  return false
+}
+A["review-submit"] = () => {
+  if (reviewGuard()) return
+  const p = S.po
+  p.status = "accepted"; p.accepted = p.counted; p.log.unshift({ t: "Count accepted · receipt and stock recorded", who: "Rina Kusuma", at: stamp() })
+  poAccepted("accepted")
+  S.ov = ["po"]; say(p.counted > p.ordered ? `Count received. ${pcs(p.counted - p.ordered)} go back to the supplier` : "Count received. Stock recorded")
+}
+A["review-partial"] = () => {
+  if (reviewGuard()) return
+  const p = S.po
+  p.status = "accepted"; p.accepted = p.counted; p.log.unshift({ t: `Partial receive: ${pcs(p.counted)} accepted, the rest of the PO stays open`, who: "Rina Kusuma", at: stamp() })
+  poAccepted("partly received")
+  S.ov = ["po"]; say(`Received ${pcs(p.counted)}. ${pcs(p.ordered - p.counted)} stay open on the PO${p.nao ? `, ${pcs(p.nao)} go back to the supplier` : ""}`)
+}
+A["review-close"] = () => {
+  if (reviewGuard()) return
+  const p = S.po
+  p.status = "closed"; p.accepted = p.counted; p.log.unshift({ t: `Close short: ${pcs(p.counted)} accepted, the rest of the PO closed`, who: "Rina Kusuma", at: stamp() })
+  poAccepted("closed short")
+  S.ov = ["po"]; say(`Received ${pcs(p.counted)}. The other ${pcs(p.ordered - p.counted)} are closed`)
+}
+OVL.refusedb = () => dlgEl("refusedb", { title: "This count was recalled",
+  body: `<span>Rina Kusuma recalled it before you accepted. There is nothing to accept now.</span><span class="hint">The new count will wait for your review.</span>`,
+  foot: `<button class="btn primary" data-act="refusedb-ok">Close</button>` })
+A["refusedb-ok"] = () => { S.ov = ["po"]; render() }
+
+/* ═══ Flow 2 · DC → store: edit and cancel until sent, Move back, then a count that never blocks ═══ */
+FLOWS.push({
+  id: "dc", label: "2 · DC → store", start: "md-allot",
+  setup: (b) => { b.dc.list = [mkAlloc("ALT-00000004", "dc", [["C001", "C001 · Cikupa", 60], ["C002", "C002 · Muaro Bungo", 40]])]; seed("DC · Stockroom", 585) },
+  screens: [["md-allot", "Allotment › Allotments"], ["ops-board", "Ops › Allotment"], ["store-receive", "Store app › Receive"]],
+  bar: () => storeSwitch(),
+})
+DEPT["md-allot"] = "md"; DEPT["md-new"] = "md"; DEPT["ops-board"] = "ops"
+const ITEM = { name: "Kemeja Blus", sub: "Wanita · Putih", sku: "00000005004" }
+
+function mkAlloc(no, src, stores) {
+  return { no, src, cancelled: false, reason: "", ack: false, editing: false, draft: {}, log: [{ t: "Allotment issued", who: "Rina Kusuma", at: stamp() }],
+    stores: stores.map(([code, name, q]) => ({ id: no + "~" + code, code, name, al: no, target: q, b: { pick: q, picked: 0, packed: 0, transit: 0, received: 0 }, owe: { picked: 0, packed: 0 }, sent: 0, got: null, issue: false, short: null, trip: 0 })) }
+}
+INIT.dc = () => ({ list: [], cur: 0, tile: null, mb: null, trips: 0, short: null, nf: null })
+const DC = () => S.dc.list[S.dc.cur]
+const allStores = () => S.dc.list.flatMap((a) => a.stores)
+const storeOf = (id) => allStores().find((s) => s.id === id)
+const alOf = (s) => S.dc.list.find((a) => a.no === s.al)
+const srcPlace = (s) => (alOf(s).src === "dc" ? "DC · Stockroom" : "DC · Return stock")
+const unsentOf = (s) => s.b.pick + s.b.picked + s.b.packed
+const floorOf = (s) => s.b.transit + s.b.received
+const sumOf = (al, f) => al.stores.reduce((n, s) => n + f(s), 0)
+const tripNo = (s) => `DSP-HO-GUDANG-${String(s.trip).padStart(6, "0")}`
+
+/* MD reduces or raises a store's target (never below what is sent) */
+function mdTarget(s, to) {
+  const floor = floorOf(s)
+  to = Math.max(floor, to)
+  let r = unsentOf(s) - (to - floor)
+  if (r < 0) { s.b.pick += -r }
+  else {
+    const fromPick = Math.min(r, s.b.pick); s.b.pick -= fromPick; r -= fromPick
+    const fromPicked = Math.min(r, s.b.picked - s.owe.picked); s.owe.picked += fromPicked; r -= fromPicked
+    const fromPacked = Math.min(r, s.b.packed - s.owe.packed); s.owe.packed += fromPacked; r -= fromPacked
+  }
+  s.target = to
+}
+function moveBack(s, from, to, q) {
+  const owedHere = Math.min(q, s.owe[from])
+  s.b[from] -= q; s.owe[from] -= owedHere
+  if (to === "pick") s.b.pick += q - owedHere
+  else { s.b.picked += q; s.owe.picked += owedHere }
+  const al = alOf(s)
+  if (from === "picked") mv(al.no, "Move back", "DC · Pick area", srcPlace(s), q)
+  else if (to === "picked") mv(al.no, "Move back", "DC · Packed", "DC · Pick area", q)
+  else mv(al.no, "Move back", "DC · Packed", srcPlace(s), q)
+}
+function allotStatus(al) {
+  if (al.cancelled) return ["Cancelled", "bad"]
+  const live = al.stores.filter((s) => s.target > 0)
+  const done = live.length && live.every((s) => s.got !== null)
+  if (done) return live.some((s) => s.issue) ? ["Completed · issue", "warn"] : ["Completed", "ok"]
+  if (al.stores.some((s) => s.sent > 0)) return ["Part sent", "info"]
+  return ["Active", "info"]
+}
+function storeSwitch() {
+  if (!["store-receive", "store-return"].includes(S.screen)) return ""
+  return `<div class="seg">${["C001", "C002", "C003", "C004"].map((c) => `<button data-act="sstore" data-c="${c}" aria-pressed="${S.sstore === c}">${c}</button>`).join("")}</div>`
+}
+A.sstore = (el) => { S.sstore = el.dataset.c; S.psheet = null; render() }
+
+/* Allotment › Allotments ------------------------------------------------ */
+SCREENS["md-allot"] = () => {
+  const old = (no, stores, q) => `<tr class="row"><td><span class="two"><span class="a mono">${no}</span><span class="b">${stores}</span></span></td><td class="r num">${pcs(q)}</td><td class="r num hide-p">${pcs(q)}</td><td><span class="dotw ok">Completed</span></td></tr>`
+  const rows = S.dc.list.map((al, i) => {
+    const st = allotStatus(al), rec = sumOf(al, (s) => s.got || 0), sent = sumOf(al, (s) => s.sent)
+    return `<tr class="row click" data-act="allot-open" data-i="${i}"><td><span class="two"><span class="a mono">${al.no}</span><span class="b">${al.stores.map((s) => s.name).join(", ")}</span></span></td>
+      <td class="r num">${pcs(sumOf(al, (s) => s.target))}</td><td class="r num hide-p">${rec ? `${pcs(rec)} of ${pcs(sent)}` : "—"}</td><td><span class="dotw ${st[1]}">${st[0]}</span></td></tr>`
+  }).join("")
+  const notes = S.notices.filter((n) => !n.done).map((n) => `<div class="banner warn" style="margin-bottom:12px">${ic("circle-alert")}<span><b>${esc(n.title)}</b><span>${esc(n.text)}</span></span><span style="margin-left:auto;display:flex;gap:8px"><button class="btn ghost" data-act="notice-ok" data-id="${n.id}">Got it</button>${n.kind === "close" ? `<button class="btn tint" data-act="notice-close" data-id="${n.id}">Close remaining ${n.qty}</button>` : n.kind === "new" ? `<button class="btn tint" data-act="notice-go" data-id="${n.id}">New allotment</button>` : ""}</span></div>`).join("")
+  return `<h1 class="page-title">Allotments</h1>${notes}
+    <div class="tabs"><span>Unallotted 5</span><span class="on">Allotted ${S.dc.list.length + 2}</span><span>Overdue 0</span><span>Still needed 0</span><span>Closed short 0</span></div>
+    <div class="toolbar"><span class="field" style="width:180px">${ic("search")}Search allotments</span><span style="flex:1"></span><button class="btn primary" data-go="md-new">New allotment</button></div>
+    <div class="card"><table class="dt"><thead><tr><th>Allotment</th><th class="r" style="width:140px">Quantity</th><th class="r hide-p" style="width:160px">Received</th><th style="width:210px">Status</th></tr></thead>
+      <tbody>${rows}${old("ALT-00000001", "C001 · Cikupa, C002 · Muaro Bungo, C003 · Purbalingga", 200)}${old("ALT-00000007", "C001 · Cikupa, C002 · Muaro Bungo", 12)}</tbody></table></div>`
+}
+A["allot-open"] = (el) => { S.dc.cur = Number(el.dataset.i || 0); DC().editing = false; openOv("allot") }
+
+function whereOf(s) {
+  const out = []
+  if (s.b.pick) out.push(`To pick ${s.b.pick}${s.short ? " · Short pick" : ""}`)
+  if (s.b.picked) out.push(`Picked ${s.b.picked}${s.owe.picked ? ` · ${s.owe.picked} to move back` : ""}`)
+  if (s.b.packed) out.push(`Packed ${s.b.packed}${s.owe.packed ? ` · ${s.owe.packed} to move back` : ""}`)
+  if (s.b.transit) out.push(`In transit ${s.b.transit}`)
+  if (s.got !== null) out.push(`Received ${s.got} of ${s.sent}${s.issue ? " · issue" : ""}`)
+  return out.join(" · ") || "—"
+}
+OVL.allot = () => {
+  const al = DC(), st = allotStatus(al), edit = al.editing
+  const tot = sumOf(al, (s) => s.target)
+  const lines = al.stores.map((s) => {
+    const floor = floorOf(s)
+    const cur = edit ? al.draft[s.id] : s.target
+    return `<tr><td><span class="two"><span class="a" style="font-weight:400">${s.name}</span><span class="b">${edit ? (cur !== s.target ? `Was ${s.target} → Now ${cur}` : whereOf(s)) : whereOf(s)}</span></span></td>
+      <td class="r num">${edit ? stepper("dcd~" + s.id, cur, floor, 999) : pcs(s.target)}</td></tr>
+      ${edit && floor > 0 ? `<tr><td colspan="2" class="hint" style="padding-top:0">${floor} pcs already sent</td></tr>` : ""}`
+  }).join("")
+  const canCancel = !al.cancelled && al.stores.some((s) => unsentOf(s) > 0)
+  const draftTot = al.stores.reduce((n, s) => n + (edit ? al.draft[s.id] : s.target), 0)
+  const body = `${al.cancelled ? `<span class="stamp bad">CANCELLED</span>` : ""}
+    <div class="facts"><div><div class="l">Created by</div><div class="v">Rina Kusuma · 09 Oct 2026</div></div><div><div class="l">Status</div><div class="v"><span class="dotw ${st[1]}">${st[0]}</span></div></div>
+      <div><div class="l">From</div><div class="v">${al.src === "dc" ? "DC stock" : "Return stock"}</div></div>${al.cancelled ? `<div><div class="l">Cancelled</div><div class="v">${esc(al.reason)}</div></div>` : ""}</div>
+    <div style="font-size:14px;color:var(--mute);margin-bottom:-6px">Lines (${al.stores.length})</div>
+    <div class="st"><table><thead><tr><th>Store</th><th class="r" style="width:${edit ? 220 : 140}px">Quantity</th></tr></thead><tbody>${lines}</tbody>
+      <tfoot><tr><td>Total</td><td class="r num">${pcs(edit ? draftTot : tot)}</td></tr></tfoot></table></div>
+    <div><div class="fold" style="border:0;padding-top:0">${ic("chevron-down")}Activity <span class="c">(${al.log.length})</span></div>
+      <ul class="acts" style="padding:0;margin-top:10px">${al.log.slice(0, 6).map((a, i) => `<li class="${i === 0 && al.log.length > 1 ? "new" : ""}"><b>${a.t}</b><span>${a.who} · ${a.at}</span></li>`).join("")}</ul></div>`
+  let foot
+  if (edit) {
+    const changed = al.stores.some((s) => al.draft[s.id] !== s.target)
+    foot = `<span class="said">${changed ? "Quantities changed" : "No changes yet"}</span><span class="grow"></span><button class="btn ghost" data-act="allot-discard">Discard</button><button class="btn primary" data-act="allot-save" ${changed ? "" : "disabled"}>Save changes</button>`
+  } else if (al.cancelled) foot = `<span class="said">Cancelled · the warehouse moves back what was picked or packed</span>`
+  else foot = `${canCancel ? `<button class="btn danger" data-act="allot-cancel">Cancel allotment</button>` : `<span class="said">Everything has already been sent</span>`}<span class="grow"></span>${canCancel ? `<button class="btn primary" data-act="allot-edit">Edit</button>` : ""}`
+  return sheetEl("allot", { title: al.no, sub: "Allotment", body, foot })
+}
+A["allot-edit"] = () => { const al = DC(); al.editing = true; al.draft = Object.fromEntries(al.stores.map((s) => [s.id, s.target])); render() }
+A["allot-discard"] = () => { DC().editing = false; render() }
+A["step:*"] = (k, d) => {
+  if (k.startsWith("dcd~")) { const id = k.slice(4), al = DC(), s = storeOf(id); al.draft[id] = Math.max(floorOf(s), al.draft[id] + d * 5) }
+  else if (k === "mb") { const m = S.dc.mb; m.q = Math.max(0, Math.min(storeOf(m.store).b[m.from], m.q + d)) }
+  else if (k === "rc") S.rcCount = Math.max(0, Math.min(rcMax(), (S.rcCount ?? rcMax()) + d))
+  else if (k.startsWith("nf~")) { const f = S.dc.nf, c = k.slice(3); f.q[c] = Math.max(0, Math.min(newMax() - Object.entries(f.q).filter(([x]) => x !== c).reduce((n, [, v]) => n + v, 0), (f.q[c] || 0) + d * 5)) }
+  else if (k === "pk") { const f = S.dc.short; f.found = Math.max(0, Math.min(f.max, f.found + d)) }
+}
+A["input:*"] = (k, v) => {
+  const n = Number(String(v).replace(/\D/g, "")) || 0
+  if (k.startsWith("dcd~")) { const id = k.slice(4), s = storeOf(id); DC().draft[id] = Math.max(floorOf(s), n) }
+  else if (k === "mb") { const m = S.dc.mb; m.q = Math.max(0, Math.min(storeOf(m.store).b[m.from], n)) }
+  else if (k === "rc") S.rcCount = Math.max(0, Math.min(rcMax(), n))
+  else if (k === "pk") { const f = S.dc.short; f.found = Math.max(0, Math.min(f.max, n)) }
+}
+A["allot-save"] = () => {
+  const al = DC(); let owed = 0
+  al.stores.forEach((s) => {
+    if (al.draft[s.id] === s.target) return
+    const before = s.owe.picked + s.owe.packed, was = s.target; mdTarget(s, al.draft[s.id])
+    owed += s.owe.picked + s.owe.packed - before
+    al.log.unshift({ t: `${s.name}: ${was} → ${s.target} pcs`, who: "Rina Kusuma", at: stamp() })
+    evt("MD", `${al.no} ${s.name}: ${was} → ${s.target} pcs`, al.no)
+  })
+  al.editing = false
+  say(owed ? `Saved. ${pcs(owed)} the warehouse moves back` : "Saved")
+}
+A["allot-cancel"] = () => { const al = DC(); al.reason = ""; al.ack = false; openOv("cancel") }
+const CANCEL_WHY = ["Wrong quantity", "Wrong store", "Stock problem", "Supplier", "Other"]
+OVL.cancel = () => {
+  const al = DC()
+  const st = (f) => al.stores.reduce((a, s) => ({ n: a.n + (f(s) > 0 ? 1 : 0), p: a.p + f(s) }), { n: 0, p: 0 })
+  const pk = st((s) => s.b.pick), pd = st((s) => s.b.picked), pa = st((s) => s.b.packed), sn = st((s) => floorOf(s))
+  const work = pd.p + pa.p
+  const row = (name, o, text, red) => o.p ? `<div class="stagerow"><span class="a">${name}</span><span class="q">${pcs(o.p)}</span><span class="s ${red ? "red" : ""}">${o.n} ${o.n === 1 ? "store" : "stores"} · ${text}</span></div>` : ""
+  const body = `<div>${row("To pick", pk, "picklists removed")}${row("Picked", pd, "the warehouse puts it back", true)}${row("Packed", pa, "the warehouse unpacks it", true)}${row("Sent", sn, "keeps going")}</div>
+    ${work ? `<label class="ack" data-act="ack"><span class="cb ${al.ack ? "on" : ""}">${al.ack ? ic("check") : ""}</span><span>The warehouse has to move back ${pcs(work)} that are already picked or packed.</span></label>` : ""}
+    <div><span class="lab">Reason</span><div class="chips">${CANCEL_WHY.map((w) => `<button class="chip ${al.reason === w ? "on" : ""}" data-act="why" data-w="${w}">${w}</button>`).join("")}</div></div>`
+  return dlgEl("cancel", { title: `Cancel ${al.no}?`, body, wide: true,
+    foot: `<button class="btn ghost" data-close="cancel">Keep</button><button class="btn danger" data-act="cancel-go" ${al.reason && (!work || al.ack) ? "" : "disabled"}>Cancel allotment</button>` })
+}
+A.ack = () => { DC().ack = !DC().ack; render() }
+A.why = (el) => { DC().reason = el.dataset.w; render() }
+A["cancel-go"] = () => {
+  const al = DC(); al.stores.forEach((s) => mdTarget(s, floorOf(s)))
+  al.cancelled = true; al.log.unshift({ t: `Cancelled · ${al.reason}`, who: "Rina Kusuma", at: stamp() })
+  evt("MD", `${al.no} cancelled · ${al.reason}`, al.no)
+  S.ov = ["allot"]; say("Cancelled. The warehouse sees it at once")
+}
+
+/* Allotment › New Allotment (a page, as in the hub) ----------------------- */
+const srcStock = (src) => pool(src === "dc" ? "DC · Stockroom" : "DC · Return stock") - allStores().filter((s) => alOf(s).src === src).reduce((n, s) => n + s.b.pick, 0)
+const newMax = () => Math.max(0, srcStock(S.dc.nf.src))
+function nfInit(src, qty) {
+  const stores = ["C001", "C002", "C003", "C004"]
+  S.dc.nf = { src, q: Object.fromEntries(stores.map((c) => [c, 0])) }
+  if (qty) Object.assign(S.dc.nf.q, qty)
+}
+SCREENS["md-new"] = () => {
+  if (!S.dc.nf) { const j = S.flow === "all" && S.dc.list.length === 0; nfInit("dc", j ? { C001: 60, C002: 40 } : {}) }
+  const f = S.dc.nf, avail = newMax(), used = Object.values(f.q).reduce((n, v) => n + v, 0)
+  const names = { C001: "C001 · Cikupa", C002: "C002 · Muaro Bungo", C003: "C003 · Purbalingga", C004: "C004 · Bumiayu" }
+  return `<h1 class="page-title">New Allotment</h1>
+    <div class="card" style="max-width:760px"><div style="padding:20px 24px;display:flex;flex-direction:column;gap:16px">
+      <div><span class="lab">Take from</span><div class="chips"><button class="chip ${f.src === "dc" ? "on" : ""}" data-act="nf-src" data-s="dc">DC stock · ${pcs(Math.max(0, srcStock("dc")))}</button><button class="chip ${f.src === "ret" ? "on" : ""}" data-act="nf-src" data-s="ret">Return stock · ${pcs(Math.max(0, srcStock("ret")))}</button></div></div>
+      <div class="st"><table><thead><tr><th>Store</th><th class="r" style="width:200px">Quantity</th></tr></thead><tbody>
+        ${Object.keys(f.q).map((c) => `<tr><td><span class="two"><span class="a" style="font-weight:400">${names[c]}</span><span class="b">${ITEM.name} · ${ITEM.sub}</span></span></td><td class="r">${stepper("nf~" + c, f.q[c], 0, 999)}</td></tr>`).join("")}</tbody>
+        <tfoot><tr><td>Total</td><td class="r num">${pcs(used)} of ${pcs(avail)} available</td></tr></tfoot></table></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn primary" data-act="nf-submit" ${used > 0 ? "" : "disabled"}>Submit allotment</button></div></div></div>`
+}
+A["nf-src"] = (el) => { const src = el.dataset.s; nfInit(src, src === "ret" ? { C003: Math.max(0, srcStock("ret")) } : S.flow === "all" && S.dc.list.length === 0 ? { C001: 60, C002: 40 } : {}); render() }
+A["notice-go"] = (el) => {
+  const n = S.notices.find((x) => x.id === el.dataset.id); n.done = true
+  nfInit("dc", { [n.code]: Math.min(n.qty, Math.max(0, srcStock("dc"))) }); S.screen = "md-new"; S.ov = []; render()
+}
+A["notice-close"] = (el) => {
+  const n = S.notices.find((x) => x.id === el.dataset.id); n.done = true
+  const s = storeOf(n.sid), al = alOf(s)
+  mdTarget(s, s.target - n.qty); s.short = null
+  al.log.unshift({ t: `${s.name}: ${pcs(n.qty)} closed (stock check: lost)`, who: "Rina Kusuma", at: stamp() })
+  evt("MD", `${al.no} ${s.name}: closed the remaining ${pcs(n.qty)}`, al.no); say(`Closed the remaining ${pcs(n.qty)}`)
+}
+A["notice-ok"] = (el) => { S.notices.find((x) => x.id === el.dataset.id).done = true; render() }
+A["nf-submit"] = () => {
+  const f = S.dc.nf, no = `ALT-${String(4 + S.dc.list.length).padStart(8, "0")}`
+  const names = { C001: "C001 · Cikupa", C002: "C002 · Muaro Bungo", C003: "C003 · Purbalingga", C004: "C004 · Bumiayu" }
+  const stores = Object.entries(f.q).filter(([, q]) => q > 0).map(([c, q]) => [c, names[c], q])
+  S.dc.list.push(mkAlloc(no, f.src, stores)); S.dc.cur = S.dc.list.length - 1; S.dc.nf = null
+  evt("MD", `${no} issued: ${pcs(stores.reduce((n, [, , q]) => n + q, 0))} from ${f.src === "dc" ? "DC stock" : "the return stock"}`, no)
+  S.screen = "md-allot"; say(`${no} issued. The warehouse has the picklists`)
+}
+
+/* Ops › Allotment (the board) -------------------------------------------- */
+function cardsFor(lane) {
+  const out = []
+  allStores().forEach((s) => {
+    const n = s.b[lane]; if (!n && !(lane === "received" && s.got !== null)) return
+    const al = alOf(s), owe = s.owe[lane] || 0
+    const off = al.cancelled && owe > 0 && owe === n
+    const strip = owe && !off ? `<div class="strip bad">Edited −${owe}</div>` : lane === "pick" && s.short ? `<div class="strip warn">Short pick</div>` : ""
+    const chg = owe && !off ? `<div class="chg">${n} → <b>${n - owe}</b> pcs <span class="m">−${owe}</span></div>` : ""
+    const stampb = off ? `<div class="stampb"><span>CANCELLED</span></div>` : ""
+    const doc = lane === "transit" || lane === "received" ? tripNo(s) : s.al
+    const fig = lane === "received" ? s.got : n
+    let foot
+    if (owe) foot = `<span>${lane === "picked" ? "1 picklist" : "1 carton"}</span><span class="btn tint" data-act="mb-open" data-store="${s.id}" data-from="${lane}">Move back</span>`
+    else if (lane === "pick") foot = `<span>1 SKU</span><span class="btn tint" data-act="adv" data-store="${s.id}" data-from="pick">Pick</span>`
+    else if (lane === "picked") foot = `<span>1 picklist</span><span class="btn tint" data-act="adv" data-store="${s.id}" data-from="picked">Pack</span>`
+    else if (lane === "packed") foot = `<span>1 carton</span><span class="btn tint" data-act="adv" data-store="${s.id}" data-from="packed">Dispatch</span>`
+    else if (lane === "transit") foot = `<span>1 carton</span><span>On the road</span>`
+    else foot = `<span>${s.issue ? `<span class="warn">${s.sent - s.got} short · issue open</span>` : "Completed"}</span><span></span>`
+    out.push(`<button class="tile ${off ? "off" : ""}" data-act="tile-open" data-store="${s.id}" data-from="${lane}">${strip}
+      <div class="t1"><div><div class="nm">${s.name}</div><div class="dc mono">${doc}</div></div><div class="fg">${fig}<span>pcs</span></div></div>${chg}${stampb}<div class="ft">${foot}</div></button>`)
+  })
+  return out
+}
+SCREENS["ops-board"] = () => {
+  const lanes = [["pick", "Pick List", "#8a8f98"], ["picked", "Picked", "#c9892e"], ["packed", "Pack", "#566070"], ["transit", "Dispatch", "#2563eb"], ["received", "Received", "#36b827"]]
+  return `<h1 class="page-title">Allotment</h1>
+    <div class="lanes">${lanes.map(([k, t, c]) => { const cs = cardsFor(k); const p = allStores().reduce((n, s) => n + (k === "received" ? s.got || 0 : s.b[k]), 0)
+      return `<div class="lane"><div class="lh"><i style="background:${c}"></i>${t}<span class="c">${cs.length}</span><span class="p">${p} pcs</span></div>${cs.join("") || `<div class="none">Nothing</div>`}</div>` }).join("")}</div>`
+}
+A.adv = (el, e) => {
+  e.stopPropagation()
+  const s = storeOf(el.dataset.store), from = el.dataset.from, al = alOf(s)
+  if (from === "pick") { mv(al.no, "Pick", srcPlace(s), "DC · Pick area", s.b.pick); s.b.picked += s.b.pick; s.b.pick = 0; s.short = null; al.log.unshift({ t: `${s.name}: picked`, who: "Operations", at: stamp() }); evt("Operations", `${al.no} ${s.name}: picked`, al.no) }
+  else if (from === "picked") {
+    if (s.owe.picked) { say(`Move back ${s.owe.picked} pcs first`); return }
+    mv(al.no, "Pack", "DC · Pick area", "DC · Packed", s.b.picked); s.b.packed += s.b.picked; s.b.picked = 0; al.log.unshift({ t: `${s.name}: packed`, who: "Operations", at: stamp() }); evt("Operations", `${al.no} ${s.name}: packed`, al.no)
+  } else if (from === "packed") {
+    if (s.owe.packed) { say(`Move back ${s.owe.packed} pcs first`); return }
+    s.trip = ++S.dc.trips; mv(al.no, "Dispatch", "DC · Packed", "DC · In transit", s.b.packed)
+    s.sent += s.b.packed; s.b.transit += s.b.packed; s.b.packed = 0; al.log.unshift({ t: `${s.name}: dispatched on ${tripNo(s)}`, who: "Operations", at: stamp() }); evt("Operations", `${al.no} ${s.name}: dispatched on ${tripNo(s)}`, al.no)
+  }
+  if (el.dataset.closeAfter) S.ov = S.ov.filter((o) => o !== "tile")
+  render()
+}
+A["tile-open"] = (el) => { S.dc.tile = { store: el.dataset.store, from: el.dataset.from }; openOv("tile") }
+OVL.tile = () => {
+  const t = S.dc.tile, s = storeOf(t.store), lane = t.from, n = lane === "received" ? s.got : s.b[lane]
+  const locked = lane === "transit" || lane === "received"
+  const body = `<div class="facts"><div><div class="l">Store</div><div class="v">${s.name}</div></div><div><div class="l">Allotment</div><div class="v mono">${s.al}</div></div>
+      <div><div class="l">Here now</div><div class="v num">${pcs(n)}</div></div><div><div class="l">Where</div><div class="v">${{ pick: "To pick", picked: "Picked", packed: "Packed", transit: "In transit", received: "Received" }[lane]}</div></div></div>
+    <div class="st"><table><thead><tr><th>Item</th><th class="r">Pieces</th></tr></thead><tbody><tr><td><span class="two"><span class="a" style="font-weight:400">${ITEM.name}</span><span class="b">${ITEM.sub} · ${ITEM.sku}</span></span></td><td class="r num">${pcs(n)}</td></tr></tbody></table></div>
+    ${s.short && lane === "pick" ? `<p class="note" style="margin:0"><span class="warn">${ic("circle-alert")}</span><span>Short pick: ${s.short.why}. The rest stays on this picklist.</span></p>` : ""}
+    ${locked ? `<p class="note" style="margin:0"><span class="info">${ic("lock")}</span><span>${lane === "transit" ? "Sent stays sent. It cannot move back or be cancelled. The store counts it." : "Counted at the store. The delivery is " + (s.issue ? "Completed with an issue" : "Completed") + "."}</span></p>` : ""}`
+  const adv = { pick: "Pick", picked: "Pack", packed: "Dispatch" }[lane]
+  const foot = locked ? `<span class="grow"></span><button class="btn soft" data-close="tile">Close</button>`
+    : `${lane === "pick" ? `<button class="btn soft" data-act="pk-open" data-store="${s.id}">Cannot continue</button>` : `<button class="btn soft" data-act="mb-open" data-store="${s.id}" data-from="${lane}">${ic("undo-2")}Move back</button>`}<span class="grow"></span><button class="btn primary" data-act="adv" data-store="${s.id}" data-from="${lane}" data-close-after="1">${adv}</button>`
+  return sheetEl("tile", { title: s.name, sub: lane === "pick" ? "Picklist" : lane === "picked" ? "Pick sheet" : "Carton", body, foot })
+}
+
+/* Cannot continue: the picker reports, the shortfall stays ------------------ */
+const PK_WHY = [["Stock at rack could not be confirmed", true], ["Item not found at the rack", true], ["Item damaged", true], ["Label or equipment problem", false], ["Other", false]]
+A["pk-open"] = (el, e) => { e.stopPropagation(); const s = storeOf(el.dataset.store); S.dc.short = { store: s.id, max: s.b.pick, found: Math.max(0, s.b.pick - 5), why: "" }; S.ov = S.ov.filter((o) => o !== "tile"); openOv("pk") }
+OVL.pk = () => {
+  const f = S.dc.short, s = storeOf(f.store), miss = s.b.pick - f.found
+  return dlgEl("pk", { title: `Pick ${s.name}`, wide: true,
+    body: `<div class="st"><table><thead><tr><th>Item</th><th class="r">Asked</th><th class="r" style="width:190px">Found</th></tr></thead>
+      <tbody><tr><td><span class="two"><span class="a" style="font-weight:400">${ITEM.name}</span><span class="b">${ITEM.sub}</span></span></td><td class="r num">${s.b.pick}</td><td class="r">${stepper("pk", f.found, 0, f.max)}</td></tr></tbody></table></div>
+      ${miss > 0 ? `<div><span class="lab">Why? <span class="bad">*</span></span><div class="chips">${PK_WHY.map(([w]) => `<button class="chip ${f.why === w ? "on" : ""}" data-act="pk-why" data-w="${w}">${w}</button>`).join("")}</div></div>` : ""}`,
+    foot: `<span class="said" style="margin-right:auto">${miss > 0 ? `${pcs(miss)} short${f.why ? "" : " · choose why"}` : "Everything found"}</span><button class="btn ghost" data-close="pk">Keep</button><button class="btn primary" data-act="pk-go" ${f.found > 0 && (miss === 0 || f.why) ? "" : "disabled"}>Pick ${f.found}</button>` })
+}
+A["pk-why"] = (el) => { S.dc.short.why = el.dataset.w; render() }
+A["pk-go"] = () => {
+  const f = S.dc.short, s = storeOf(f.store), al = alOf(s), miss = s.b.pick - f.found
+  mv(al.no, "Pick", srcPlace(s), "DC · Pick area", f.found); s.b.picked += f.found; s.b.pick = miss
+  evt("Operations", `${al.no} ${s.name}: picked ${f.found}${miss ? `, ${miss} could not continue (${f.why})` : ""}`, al.no)
+  if (miss > 0) {
+    s.short = { n: miss, why: f.why }
+    if (PK_WHY.find(([w]) => w === f.why)[1]) openCase({ kind: "Stock check", doc: al.no, store: s.name, code: s.code, sid: s.id, short: miss, sent: f.found + miss, got: f.found, reason: f.why })
+  }
+  S.ov = []; say(miss ? `Picked ${f.found}. The other ${miss} stay on the picklist` : `Picked ${f.found}`)
+}
+
+/* the Move back sheet ---------------------------------------------------- */
+A["mb-open"] = (el, e) => {
+  e.stopPropagation()
+  const s = storeOf(el.dataset.store), from = el.dataset.from, owe = s.owe[from] || 0
+  S.dc.mb = { store: s.id, from, to: from === "packed" && !owe ? "picked" : "pick", q: owe || s.b[from] }
+  S.ov = S.ov.filter((o) => o !== "tile"); openOv("mb")
+}
+OVL.mb = () => {
+  const m = S.dc.mb, s = storeOf(m.store), have = s.b[m.from], owe = s.owe[m.from]
+  const q = Math.min(m.q, have)
+  const settled = Math.min(q, owe), again = m.to === "pick" ? q - settled : 0
+  const out = !q ? "Choose what goes back." : m.from === "packed"
+    ? `Carton opened, label reprinted · ${pcs(q)} ${m.to === "picked" ? "join the picked pile" : "go back to their racks"}${settled ? ` · ${pcs(settled)} of them were already taken out` : ""}${again ? ` · ${pcs(again)} to pick again` : ""}`
+    : `${pcs(q)} go back to their racks${settled ? ` · ${pcs(settled)} of them were already taken out` : ""}${again ? ` · ${pcs(again)} to pick again` : ""}`
+  const body = `${m.from === "packed" ? `<div><span class="lab">Move back to</span><div class="chips"><button class="chip ${m.to === "picked" ? "on" : ""}" data-act="mb-to" data-to="picked">Picked</button><button class="chip ${m.to === "pick" ? "on" : ""}" data-act="mb-to" data-to="pick">Pick List</button></div></div>` : ""}
+    <div class="st"><table><thead><tr><th>Item</th><th class="r">Now</th><th class="r" style="width:190px">Move back</th></tr></thead>
+      <tbody><tr><td><span class="two"><span class="a" style="font-weight:400">${ITEM.name}</span><span class="b">${ITEM.sub} · ${m.from === "packed" ? "Carton A00001" : "Picklist"}</span></span></td><td class="r num">${have}</td><td class="r">${stepper("mb", q, 0, have)}</td></tr></tbody></table></div>
+    <p class="note" style="margin:0">${out}</p>`
+  return dlgEl("mb", { title: `Move back from ${s.name}`, body, wide: true,
+    foot: `<button class="btn ghost" data-act="mb-all">${owe ? "What MD took out" : "All"}</button><span style="flex:1"></span><button class="btn ghost" data-close="mb">Keep</button><button class="btn primary" data-act="mb-go" ${q ? "" : "disabled"}>Move back ${q} pcs</button>` })
+}
+A["mb-to"] = (el) => { S.dc.mb.to = el.dataset.to; render() }
+A["mb-all"] = () => { const m = S.dc.mb, s = storeOf(m.store); m.q = s.owe[m.from] || s.b[m.from]; render() }
+A["mb-go"] = () => {
+  const m = S.dc.mb, s = storeOf(m.store), q = Math.min(m.q, s.b[m.from])
+  moveBack(s, m.from, m.to, q)
+  alOf(s).log.unshift({ t: `${s.name}: ${pcs(q)} moved back to ${m.to === "pick" ? "the Pick List" : "Picked"}`, who: "Operations", at: stamp() })
+  evt("Operations", `${s.al} ${s.name}: ${pcs(q)} moved back to ${m.to === "pick" ? "the Pick List" : "Picked"}`, s.al)
+  S.ov = []; say(`${pcs(q)} moved back${m.from === "packed" ? ". Label reprinted" : ""}`)
+}
+
+/* Store app › Receive ----------------------------------------------------- */
+const myDeliveries = () => allStores().filter((s) => s.code === S.sstore && (s.b.transit > 0 || s.got !== null))
+const rcStore = () => storeOf(S.rcId)
+const rcMax = () => (rcStore() ? rcStore().sent : 0)
+function phoneFrame(title, inner, sheet = "") {
+  return `<!--phone--><div class="phonewrap"><div class="phone"><div class="ptop"><span>${title}</span><span class="me">${S.sstore.slice(-1)}</span></div>${inner}
+    <div class="dock"><span>${ic("layout-grid")}Catalogue</span><span class="on">${ic("layers")}Stock</span><span>${ic("wallet")}Money</span><span>${ic("users")}People</span><span>${ic("ellipsis")}More</span></div>${sheet}</div></div>`
+}
+SCREENS["store-receive"] = () => {
+  const ds = myDeliveries(), waiting = ds.filter((s) => s.got === null).length, today = ds.filter((s) => s.got !== null).length
+  const card = (s) => s.got === null
+    ? `<button class="lead" data-act="rc-open" data-id="${s.id}"><div class="l1"><div><div class="tt">${tripNo(s).replace("DSP", "SJ")}</div><div class="sb">From DC</div></div><div class="big">1<span>carton</span></div></div><div class="l2"><span>Departed 09 Oct 2026</span><span class="btn tint">Receive</span></div></button>`
+    : `<button class="lead" data-act="rc-open" data-id="${s.id}"><div class="l1"><div><div class="tt">${tripNo(s).replace("DSP", "SJ")}</div><div class="sb">From DC</div></div><div class="big">${s.got}<span>pcs counted</span></div></div><div class="l2"><span>Received 09 Oct 2026${s.issue ? ` · <span class="bad">${s.sent - s.got} missing</span>` : ""}</span><span class="badge-s ${s.issue ? "warn" : "ok"}">${s.issue ? "Completed · issue" : "Completed"}</span></div></button>`
+  const s = S.psheet === "rc" && rcStore()
+  const done = s && s.got !== null
+  const cnt = S.rcCount ?? (s ? s.sent : 0)
+  const sheet = s ? `<div class="pscrim" data-act="rc-close"></div><section class="psheet${enterCls("p-rc")}">
+    <div class="ph"><div><h3>${tripNo(s).replace("DSP", "SJ")}</h3><span class="hint">${done ? "Received 09 Oct 2026" : "Departed 09 Oct 2026 · 1 carton"}</span></div><button class="x" data-act="rc-close" aria-label="Close">${ic("x")}</button></div>
+    <div class="pb"><span class="lab" style="margin:0">Count</span>
+      <div class="st"><table><thead><tr><th>Article</th>${done ? `<th class="r">Sent</th>` : ""}<th class="r">${done ? "Counted" : "In pieces"}</th></tr></thead>
+        <tbody><tr><td><span class="two"><span class="a" style="font-weight:400">${ITEM.name}</span><span class="b">${ITEM.sub}</span></span></td>${done ? `<td class="r num">${s.sent}</td>` : ""}
+          <td class="r">${done ? `<span class="num ${s.issue ? "bad" : ""}">${s.got}</span>` : stepper("rc", cnt, 0, s.sent)}</td></tr></tbody>
+        <tfoot><tr><td ${done ? 'colspan="2"' : ""}>Total Counted</td><td class="r num">${done ? s.got : cnt}</td></tr></tfoot></table></div>
+      ${done ? "" : `<span class="hint">The count is blind. Nothing about what was sent is shown.</span>`}
+      ${done && s.issue ? `<p class="note" style="margin:0"><span class="warn">${ic("circle-alert")}</span><span>${s.sent - s.got} pcs are missing. The delivery is Completed. Inventory looks at the difference.</span></p>` : ""}
+      ${done && !s.issue && s.sent !== s.got ? "" : ""}</div>
+    <div class="pf">${done ? `<button class="btn soft" data-act="rc-close">Close</button>` : `<button class="btn primary" data-act="rc-submit">Submit count</button>`}</div></section>` : ""
+  return phoneFrame("Receive", `<div class="pscroll"><div class="pstrip"><div><b>${waiting}</b><span>In transit</span></div><div><b>${today}</b><span>Received today</span></div></div>
+      ${ds.map(card).join("")}${ds.length ? "" : `<span class="hint" style="text-align:center;padding:24px">Nothing on its way to ${S.sstore} yet. Dispatch it from Ops › Allotment.</span>`}</div>`, sheet)
+}
+A["rc-open"] = (el) => { S.rcId = el.dataset.id; S.psheet = "rc"; S.rcCount = storeOf(el.dataset.id).sent; render() }
+A["rc-close"] = () => { S.psheet = null; render() }
+A["rc-submit"] = () => {
+  const s = rcStore(), al = alOf(s), got = Math.min(S.rcCount ?? s.sent, s.sent)
+  s.got = got; s.b.received = got; s.b.transit = 0
+  mv(al.no, "Store receive", "DC · In transit", `${s.code} · Warehouse`, got, "Maya")
+  al.log.unshift({ t: `${s.name} counted ${got} of ${s.sent}`, who: "Maya", at: stamp() })
+  evt("Store", `${al.no} ${s.name}: counted ${got} of ${s.sent}${got < s.sent ? ". Completed with an issue" : ". Completed"}`, al.no)
+  if (got < s.sent) { s.issue = true; openCase({ kind: "Receiving", doc: tripNo(s), store: s.name, code: s.code, sid: s.id, sent: s.sent, got, short: s.sent - got }) }
+  S.psheet = null; say(got < s.sent ? "Received. Completed with an issue" : "Received. Completed")
+}
+
+/* ═══ Flow 3 · Store → Return to HO → DC → back to a store: partial sends, then new documents ═══ */
+FLOWS.push({
+  id: "ret", label: "3 · Store return", start: "md-return",
+  screens: [["md-return", "Allotment › Return to HO"], ["store-return", "Store app › Return to HO"], ["ops-store-returns", "Ops › Receiving › Store returns"]],
+  setup: (b) => { b.sstore = "C004"; b.ret = retMk("C004", "C004 · Bumiayu", "Kaos Uji UJI3", "Pria · Black · L"); seed("C004 · Warehouse", 40) },
+  bar: () => storeSwitch(),
+})
+DEPT["md-return"] = "md"; DEPT["ops-store-returns"] = "ops"
+
+const STORES = { C001: "C001 · Cikupa", C002: "C002 · Muaro Bungo", C003: "C003 · Purbalingga", C004: "C004 · Bumiayu" }
+const retMk = (code, store, art, sub) => ({ no: "RHO-000012", code, store, art, sub, st: "none", asked: 20, sent: 0, received: 0, actual: 20, why: "", closedOpen: false, editing: false, askDraft: 20, rcount: 15, log: [] })
+INIT.ret = () => retMk("C001", STORES.C001, "Kemeja Blus", "Wanita · Putih")
+const R = () => S.ret
+const retCap = () => Math.max(1, pool(`${R().code} · Warehouse`))
+const retStatus = () => {
+  const r = R()
+  const recv = r.received < r.sent ? ["Completed · issue", "warn"] : r.asked > r.sent ? ["Received · open " + (r.asked - r.sent), "warn"] : ["Received", "ok"]
+  return { none: ["", ""], requested: ["Requested", "info"], transit: ["In transit", "info"], received: recv, closed: ["Closed", "ok"] }[r.st]
+}
+const retItem = (r) => `<span class="two"><span class="a" style="font-weight:400">${r.art}</span><span class="b">${r.sub}</span></span>`
+
+/* Allotment › Return to HO ------------------------------------------------ */
+SCREENS["md-return"] = () => {
+  const r = R(), st = retStatus()
+  const old = (n, store, q) => `<tr class="row"><td><span class="two"><span class="a mono">${n}</span><span class="b">${store}</span></span></td><td class="r num">${pcs(q)}</td><td class="r num hide-p">${pcs(q)}</td><td class="r num hide-p">${pcs(q)}</td><td><span class="dotw ok">Closed</span></td></tr>`
+  return `<h1 class="page-title">Return to HO</h1>
+    <div class="toolbar"><span class="field" style="width:180px">${ic("search")}Search returns</span><span style="flex:1"></span><button class="btn primary" data-act="ret-new" ${r.st !== "none" ? "disabled" : ""}>New return</button></div>
+    <div class="card"><table class="dt"><thead><tr><th>Return</th><th class="r" style="width:120px">Asked</th><th class="r hide-p" style="width:120px">Sent</th><th class="r hide-p" style="width:130px">Received</th><th style="width:210px">Status</th></tr></thead>
+      <tbody>${r.st !== "none" ? `<tr class="row click" data-act="ret-open"><td><span class="two"><span class="a mono">${r.no}</span><span class="b">${r.store}</span></span></td><td class="r num">${pcs(r.asked)}</td><td class="r num hide-p">${r.st === "requested" ? "—" : pcs(r.sent)}</td><td class="r num hide-p">${["received", "closed"].includes(r.st) ? pcs(r.received) : "—"}</td><td><span class="dotw ${st[1]}">${st[0]}</span></td></tr>` : ""}
+      ${old("RHO-000009", "C002 · Muaro Bungo", 8)}${old("RHO-000007", "C001 · Cikupa", 12)}</tbody></table></div>`
+}
+A["ret-new"] = () => { const r = R(); r.askDraft = Math.min(20, retCap()); openOv("retnew") }
+A["ret-store"] = (el) => { const r = R(); r.code = el.dataset.c; r.store = STORES[el.dataset.c]; r.askDraft = Math.min(r.askDraft, retCap()); render() }
+OVL.retnew = () => {
+  const r = R(), cap = pool(`${r.code} · Warehouse`)
+  return sheetEl("retnew", { title: "New return", sub: "Return to HO",
+    body: `<div><span class="lab">Store</span><div class="chips">${Object.keys(STORES).map((c) => `<button class="chip ${r.code === c ? "on" : ""}" data-act="ret-store" data-c="${c}">${STORES[c]}</button>`).join("")}</div></div>
+      <div class="st"><table><thead><tr><th>Item</th><th class="r hide-p" style="width:110px">In store</th><th class="r" style="width:190px">Quantity</th></tr></thead><tbody><tr><td>${retItem(r)}</td><td class="r num hide-p">${cap}</td><td class="r">${stepper("retq", r.askDraft, 1, Math.max(1, cap))}</td></tr></tbody>
+      <tfoot><tr><td colspan="2" class="hide-p">Total</td><td class="r num">${pcs(r.askDraft)}</td></tr></tfoot></table></div>
+      <p class="note" style="margin:0"><span>The store does not make returns by itself. MD asks, and the store answers with what it can send.</span></p>`,
+    foot: `<button class="btn ghost" data-close="retnew">${ic("arrow-left")}Back</button><span class="grow"></span><button class="btn primary" data-act="ret-submit" ${cap > 0 ? "" : "disabled"}>Submit return</button>` })
+}
+A["step:retq"] = (d) => { R().askDraft = Math.max(1, Math.min(retCap(), R().askDraft + d)) }
+A["input:retq"] = (v) => { R().askDraft = Math.max(1, Math.min(retCap(), Number(v.replace(/\D/g, "")) || 1)) }
+A["ret-submit"] = () => {
+  const r = R(); r.st = "requested"; r.asked = r.askDraft; r.actual = r.asked; r.sent = 0; r.received = 0
+  r.log.unshift({ t: `Return requested: ${pcs(r.asked)}`, who: "Rina Kusuma", at: stamp() }); evt("MD", `${r.no}: asked ${r.store} to return ${pcs(r.asked)}`, r.no)
+  S.ov = []; say("Return requested. The store was told")
+}
+A["ret-open"] = () => { R().editing = false; openOv("ret") }
+OVL.ret = () => {
+  const r = R(), st = retStatus(), edit = r.editing
+  const body = `${r.st === "closed" ? `<span class="stamp ok">CLOSED</span>` : ""}<div class="facts"><div><div class="l">Store</div><div class="v">${r.store}</div></div><div><div class="l">Status</div><div class="v"><span class="dotw ${st[1]}">${st[0]}</span></div></div></div>
+    <div class="st"><table><thead><tr><th>Item</th><th class="r">Asked</th><th class="r hide-p">Sent</th><th class="r hide-p">Received</th></tr></thead>
+      <tbody><tr><td>${retItem(r)}</td>
+        <td class="r num">${edit ? stepper("retask", r.askDraft, Math.max(1, r.sent), 99) : r.asked}</td><td class="r num hide-p">${r.st === "requested" ? "—" : r.sent}</td><td class="r num hide-p">${["received", "closed"].includes(r.st) ? r.received : "—"}</td></tr></tbody></table></div>
+    ${r.st === "received" && r.asked > r.sent ? `<p class="note" style="margin:0"><span class="info">${ic("info")}</span><span>Asked ${r.asked}, sent ${r.sent}, received ${r.received}. The receipt is complete. The open ${r.asked - r.sent} is not a receiving shortage.</span></p>` : ""}
+    ${r.st === "received" && r.received < r.sent ? `<p class="note" style="margin:0"><span class="warn">${ic("circle-alert")}</span><span>${r.sent - r.received} pcs are missing at the DC. Inventory looks at the difference. This return is not reopened.</span></p>` : ""}
+    ${r.st === "transit" ? `<p class="note" style="margin:0"><span class="info">${ic("lock")}</span><span>It is on the road. It cannot be cancelled. The DC counts it.</span></p>` : ""}
+    <div><div class="fold" style="border:0;padding-top:0">${ic("chevron-down")}Activity <span class="c">(${r.log.length})</span></div>
+      <ul class="acts" style="padding:0;margin-top:10px">${r.log.map((a, i) => `<li class="${i === 0 && r.log.length > 1 ? "new" : ""}"><b>${a.t}</b><span>${a.who} · ${a.at}</span></li>`).join("")}</ul></div>`
+  let foot
+  if (r.st === "requested") foot = edit
+    ? `<span class="grow"></span><button class="btn ghost" data-act="ret-edit-off">Discard</button><button class="btn primary" data-act="ret-edit-save">Save changes</button>`
+    : `<button class="btn danger" data-act="ret-cancel">Cancel the unsent part</button><span class="grow"></span><button class="btn primary" data-act="ret-edit-on">Edit</button>`
+  else if (r.st === "received" && r.received > 0 && !r.realloc) foot = `${r.asked > r.sent && !r.closedOpen ? `<button class="btn soft" data-act="ret-close-rest">Close the open ${r.asked - r.sent}</button>` : ""}<span class="grow"></span><button class="btn primary" data-act="ret-realloc">New allotment from the return stock</button>`
+  else foot = `<span class="said">${r.st === "closed" ? "Closed. It is not reopened" : r.realloc ? "The return stock was allotted. This return is not reopened" : "Nothing to change here"}</span>`
+  return sheetEl("ret", { title: r.no, sub: "Return to HO", body, foot })
+}
+A["ret-edit-on"] = () => { R().editing = true; R().askDraft = R().asked; render() }
+A["ret-edit-off"] = () => { R().editing = false; render() }
+A["step:retask"] = (d) => { R().askDraft = Math.max(Math.max(1, R().sent), Math.min(99, R().askDraft + d)) }
+A["input:retask"] = (v) => { R().askDraft = Math.max(1, Number(v.replace(/\D/g, "")) || 1) }
+A["ret-edit-save"] = () => { const r = R(); r.log.unshift({ t: `Asked ${r.asked} → ${r.askDraft}`, who: "Rina Kusuma", at: stamp() }); r.asked = r.askDraft; r.actual = r.asked; r.editing = false; say("Saved. The revision is logged") }
+A["ret-cancel"] = () => { const r = R(); r.st = "none"; r.log = []; S.ov = []; say("Return cancelled before anything was sent") }
+A["ret-close-rest"] = () => { const r = R(); const open = r.asked - r.sent; r.closedOpen = true; r.asked = r.sent; r.log.unshift({ t: `Open ${open} closed. The ${r.received} received stay`, who: "Rina Kusuma", at: stamp() }); evt("MD", `${r.no}: closed the open ${pcs(open)}`, r.no); say("Closed. The received pieces stay") }
+A["ret-realloc"] = () => {
+  const r = R(); r.realloc = true
+  r.log.unshift({ t: "New allotment started from the return stock. The old Return to HO is not reversed", who: "Rina Kusuma", at: stamp() })
+  const avail = Math.max(0, srcStock("ret")), to = r.code === "C003" ? "C002" : "C003"
+  nfInit("ret", { [to]: avail }); S.ov = []; S.screen = "md-new"; render()
+}
+
+/* Store app › Return to HO ------------------------------------------------ */
+SCREENS["store-return"] = () => {
+  const r = R(), mine = S.sstore === r.code
+  const card = !mine || r.st === "none"
+    ? `<span class="hint" style="text-align:center;padding:24px">No return has been asked of ${S.sstore}. MD asks, from Return to HO.</span>`
+    : r.st === "requested"
+      ? `<button class="lead" data-act="sr-open"><div class="l1"><div><div class="tt">${r.no}</div><div class="sb">Asked by MD</div></div><div class="big">${r.asked}<span>pcs</span></div></div><div class="l2"><span>Requested 09 Oct 2026</span><span class="btn tint">Pack and send</span></div></button>`
+      : `<button class="lead" data-act="sr-open"><div class="l1"><div><div class="tt">${r.no}</div><div class="sb">${r.st === "transit" ? "On the road to the DC" : "Counted at the DC"}</div></div><div class="big">${r.sent}<span>of ${r.asked} pcs</span></div></div><div class="l2"><span>${r.asked > r.sent ? `${r.asked - r.sent} stays open at MD` : "All sent"}</span><span class="badge-s ${r.st === "transit" ? "info" : "ok"}">${r.st === "transit" ? "In transit" : "Received"}</span></div></button>`
+  const short = r.actual < r.asked
+  const sheet = S.psheet === "sr" && mine ? `<div class="pscrim" data-act="sr-close"></div><section class="psheet${enterCls("p-sr")}">
+    <div class="ph"><div><h3>${r.no}</h3><span class="hint">Return to HO · ${r.asked} pcs asked</span></div><button class="x" data-act="sr-close" aria-label="Close">${ic("x")}</button></div>
+    <div class="pb"><div class="st"><table><thead><tr><th>Item</th><th class="r">Asked</th><th class="r" style="width:150px">Actual</th></tr></thead>
+      <tbody><tr><td>${retItem(r)}</td><td class="r num">${r.asked}</td><td class="r">${r.st === "requested" ? stepper("sr", r.actual, 0, r.asked) : `<span class="num">${r.sent}</span>`}</td></tr></tbody></table></div>
+      ${r.st === "requested" && short ? `<div><span class="lab">Why fewer? <span class="bad">*</span></span><div class="chips">${["Not on hand", "Damaged", "Sold", "Other"].map((w) => `<button class="chip ${r.why === w ? "on" : ""}" data-act="sr-why" data-w="${w}">${w}</button>`).join("")}</div>
+        <p class="hint" style="margin:10px 0 0">${r.asked - r.actual} stay open. MD decides what to do with them.</p></div>` : ""}
+      ${r.st === "transit" ? `<p class="note" style="margin:0"><span class="info">${ic("lock")}</span><span>Sent. It cannot be taken back. The DC counts it.</span></p>` : ""}</div>
+    <div class="pf">${r.st === "requested" ? `<button class="btn soft" data-act="sr-close">${ic("arrow-left")}Back</button><button class="btn primary" data-act="sr-send" ${r.actual > 0 && (!short || r.why) ? "" : "disabled"}>Pack and send ${r.actual}</button>` : `<button class="btn soft" data-act="sr-close">Close</button>`}</div></section>` : ""
+  return phoneFrame("Return to HO", `<div class="pscroll"><div class="pstrip"><div><b>${mine && r.st === "requested" ? 1 : 0}</b><span>To send</span></div><div><b>${mine && r.st === "transit" ? 1 : 0}</b><span>In transit</span></div></div>${card}</div>`, sheet)
+}
+A["sr-open"] = () => { S.psheet = "sr"; render() }
+A["sr-close"] = () => { S.psheet = null; render() }
+A["step:sr"] = (d) => { const r = R(); r.actual = Math.max(0, Math.min(r.asked, r.actual + d)); if (r.actual === r.asked) r.why = "" }
+A["input:sr"] = (v) => { const r = R(); r.actual = Math.max(0, Math.min(r.asked, Number(v.replace(/\D/g, "")) || 0)); if (r.actual === r.asked) r.why = "" }
+A["sr-why"] = (el) => { R().why = el.dataset.w; render() }
+A["sr-send"] = () => {
+  const r = R(); r.sent = r.actual; r.rcount = r.sent; r.st = "transit"
+  mv(r.no, "Return to HO", `${r.code} · Warehouse`, "DC · Return in transit", r.sent, "Dian")
+  r.log.unshift({ t: `Store sent ${r.sent} of ${r.asked}${r.why ? ` (${r.why})` : ""}`, who: "Dian", at: stamp() }); S.psheet = null
+  evt("Store", `${r.no}: ${r.store} sent ${r.sent} of ${r.asked}${r.why ? ` (${r.why})` : ""}`, r.no)
+  say(r.sent < r.asked ? `Sent ${r.sent}. The other ${r.asked - r.sent} stay open at MD` : "Sent")
+}
+
+/* Ops › Receiving › Store returns ------------------------------------------ */
+function storeReturnsTable() {
+  const r = R()
+  if (!["transit", "received", "closed"].includes(r.st)) return `<div class="card"><div style="padding:36px;text-align:center;color:var(--mute)">No store return is on the road. Send one from the Store app first.</div></div>`
+  const done = r.st !== "transit"
+  return `<div class="card"><table class="dt"><thead><tr><th>Return</th><th class="r hide-p" style="width:120px">Items</th><th class="r" style="width:320px">Count</th></tr></thead>
+    <tbody><tr class="row click" data-act="dc-open"><td><span class="two"><span class="a">${r.store}</span><span class="b mono">${r.no}</span></span></td><td class="r num hide-p">1</td>
+      <td class="r">${done ? `<span class="counted num"><b>${pcs(r.received)}</b><span>Rina Kusuma · 09 Oct 2026</span><span class="${r.received < r.sent ? "warn" : "ok"}">${r.received < r.sent ? "Completed · issue" : "Return stock"}</span></span>` : `<button class="btn tint" data-act="dc-open">Count receive</button>`}</td></tr></tbody></table></div>`
+}
+SCREENS["ops-store-returns"] = () => { S.opsTab = "ret"; return SCREENS["ops-receiving"]() }
+A["dc-open"] = (el, e) => { if (e) e.stopPropagation(); openOv("dccount") }
+OVL.dccount = () => {
+  const r = R(), done = r.st !== "transit", q = done ? r.received : r.rcount
+  return sheetEl("dccount", { title: r.store, sub: r.no, mono: true,
+    body: `${done ? `<div class="factline"><div><span>Counted</span>Rina Kusuma · 09 Oct 2026</div><div class="ok"><span>Receipt</span>Recorded as return stock</div></div>` : ""}
+      <div class="st"><table><thead><tr><th>Article</th><th style="width:${done ? 200 : 280}px">Counted</th><th class="r" style="width:130px">In pieces</th></tr></thead>
+        <tbody><tr><td>${retItem(r)}</td>
+          <td>${done ? `<span class="num">${q}</span> <span style="color:var(--mute)">Piece</span>` : `<div class="cnt"><input class="qty" inputmode="numeric" data-input="dc-q" value="${q}" aria-label="Counted"><span class="unit">Piece${ic("chevron-down")}</span></div>`}</td><td class="r num">${pcs(q)}</td></tr></tbody>
+        <tfoot><tr><td colspan="2">Total Counted</td><td class="r num">${pcs(q)}</td></tr></tfoot></table></div>
+      ${done ? `<p class="note" style="margin:0"><span class="info">${ic("lock")}</span><span>The receipt is recorded. It cannot be recalled. A recount or a correction is a new record.</span></p>` : `<span class="hint">The count is blind. The surat jalan quantity is not shown.</span>`}`,
+    foot: done ? `<span class="grow"></span><button class="btn soft" data-close="dccount">Close</button>` : `<span class="grow"></span><button class="btn primary" data-act="dc-submit" ${q ? "" : "disabled"}>Submit count</button>` })
+}
+A["input:dc-q"] = (v) => { R().rcount = Number(v.replace(/\D/g, "")) || 0 }
+A["dc-submit"] = () => {
+  const r = R(); r.received = Math.min(r.rcount, r.sent); r.st = "received"
+  mv(r.no, "Return receipt", "DC · Return in transit", "DC · Return stock", r.received, "Rina Kusuma")
+  r.log.unshift({ t: `DC counted ${pcs(r.received)}. Receipt recorded as return stock`, who: "Rina Kusuma", at: stamp() })
+  evt("Operations", `${r.no}: counted ${pcs(r.received)} of ${pcs(r.sent)}${r.received < r.sent ? ". Completed with an issue" : ""}`, r.no)
+  if (r.received < r.sent) openCase({ kind: "Return count", doc: r.no, store: r.store, code: r.code, sid: r.no, sent: r.sent, got: r.received, short: r.sent - r.received })
+  S.ov = []; say(r.received < r.sent ? "Received. Completed with an issue" : "Received. Return stock recorded")
+}
+
+/* ═══ Flow 4 · DC → supplier: cancel before it leaves, locked at hand-over, a settlement that stays open ═══ */
+FLOWS.push({
+  id: "sup", label: "4 · DC → supplier", start: "buy-return",
+  screens: [["buy-return", "Procurement › Return PO"], ["ops-return-po", "Ops › Return PO"]],
+  setup: (b) => { b.sup = supMk({ no: "RS-00000007", n: 20, reason: "defect", po: "PO-041026-010", sup: "Garmen AA, UD", art: "Kemeja Blus", sub: "Wanita · Putih" }); seed("DC · Stockroom", 120); seed("DC · To supplier", 20) },
+  bar: () => `<div class="seg"><button data-act="sup-reason" data-r="over" aria-pressed="${S.sup.reason === "over"}">Over-delivery</button><button data-act="sup-reason" data-r="defect" aria-pressed="${S.sup.reason === "defect"}">Defect or wrong item</button></div>`,
+})
+DEPT["buy-return"] = "buy"; DEPT["ops-return-po"] = "ops"
+
+const supMk = (o) => ({ st: "issued", kind: "Replacement", settled: 0, ...o, owed: o.n, qty: Math.min(10, o.n), log: [{ t: `Return issued: ${pcs(o.n)}${o.po ? " from " + o.po : ""}`, who: "Rina Kusuma", at: o.at || "09 Oct 2026, 08:55" }] })
+INIT.sup = () => null
+const SU = () => S.sup
+const supFrom = () => (SU().reason === "over" ? "DC · To supplier" : "DC · Stockroom")
+const supEmpty = `<div class="card"><div style="padding:36px;text-align:center;color:var(--mute)">No return to a supplier yet. A count with Not as Ordered or extra pieces makes one when Buying accepts it.</div></div>`
+A["sup-reason"] = (el) => { if (SU()) SU().reason = el.dataset.r; render() }
+const supStamp = () => ({ issued: ["ISSUED", "info"], packed: ["PACKED", "warn"], handed: ["HANDED OVER", "ok"], settle: ["SETTLEMENT OPEN", "warn"], closed: ["CLOSED", "ok"], cancelled: ["CANCELLED", "bad"] })[SU().st]
+const supStatusWord = () => {
+  const u = SU()
+  return { issued: ["Issued", "info"], packed: ["Picked and packed", "warn"], handed: [u.reason === "over" ? "Handed over" : "Handed over", "ok"], settle: ["Settlement open", "warn"], closed: [u.settled >= u.owed ? "Settled" : "Closed short", "ok"], cancelled: ["Cancelled", "bad"] }[u.st]
+}
+
+/* Procurement › Return PO --------------------------------------------------- */
+SCREENS["buy-return"] = () => {
+  const u = SU(); if (!u) return `<h1 class="page-title">Return PO</h1>${supEmpty}`
+  const st = supStatusWord()
+  const old = (n, q, w) => `<tr class="row"><td><span class="two"><span class="a mono">${n}</span><span class="b">Indorama, PT</span></span></td><td class="hide-p">Over-delivery</td><td class="r num">${pcs(q)}</td><td><span class="dotw ok">${w}</span></td></tr>`
+  return `<h1 class="page-title">Return PO</h1>
+    <div class="toolbar"><span class="field" style="width:180px">${ic("search")}Search returns</span><span style="flex:1"></span></div>
+    <div class="card"><table class="dt"><thead><tr><th>Return</th><th class="hide-p" style="width:200px">Reason</th><th class="r" style="width:120px">Quantity</th><th style="width:230px">Status</th></tr></thead>
+      <tbody><tr class="row click" data-act="sup-open"><td><span class="two"><span class="a mono">${u.no}</span><span class="b">${u.sup}</span></span></td><td class="hide-p">${u.reason === "over" ? "Over-delivery" : "Defect or wrong item"}</td><td class="r num">${pcs(u.n)}</td><td><span class="dotw ${st[1]}">${st[0]}</span></td></tr>
+      ${old("RS-00000005", 12, "Handed over")}${old("RS-00000003", 8, "Handed over")}</tbody></table></div>`
+}
+A["sup-open"] = () => openOv("sup")
+OVL.sup = () => {
+  const u = SU(), s = supStamp(), defect = u.reason === "defect"
+  const left = Math.max(0, u.owed - u.settled)
+  const body = `<span class="stamp ${s[1]}">${s[0]}</span>
+    <div class="facts"><div><div class="l">Supplier</div><div class="v">${u.sup}</div></div><div><div class="l">Reason</div><div class="v">${defect ? "Defect or wrong item" : "Over-delivery"}</div></div>
+      <div><div class="l">Quantity</div><div class="v num">${pcs(u.n)}</div></div><div><div class="l">Surat jalan</div><div class="v">${["packed", "handed", "settle", "closed"].includes(u.st) ? "SJ-" + u.no : "Not made yet"}</div></div></div>
+    <div class="st"><table><thead><tr><th>Item</th><th class="r">Quantity</th></tr></thead><tbody><tr><td><span class="two"><span class="a" style="font-weight:400">${u.art}</span><span class="b">${u.sub}</span></span></td><td class="r num">${pcs(u.n)}</td></tr></tbody></table></div>
+    ${u.st === "handed" && defect ? `<div class="ask"><h3>What the supplier owes</h3>
+      <div class="chips">${["Replacement", "Refund", "Credit note"].map((k) => `<button class="chip ${u.kind === k ? "on" : ""}" data-act="sup-kind" data-k="${k}">${k}</button>`).join("")}</div>
+      <div class="cnt"><span class="hint">Settled</span>${stepper("supq", u.qty, 1, left || 1)}<span class="hint">of ${left} open</span></div></div>` : ""}
+    ${u.st === "settle" ? `<div class="ask"><h3>${left} still owed</h3><div class="chips">${["Replacement", "Refund", "Credit note"].map((k) => `<button class="chip ${u.kind === k ? "on" : ""}" data-act="sup-kind" data-k="${k}">${k}</button>`).join("")}</div>
+      <div class="cnt"><span class="hint">Settled</span>${stepper("supq", Math.min(u.qty, left), 1, left || 1)}<span class="hint">of ${left} open</span></div></div>` : ""}
+    ${["handed", "settle"].includes(u.st) ? `<p class="note" style="margin:0"><span class="info">${ic("lock")}</span><span>The goods are with the supplier. They do not move back. ${defect ? "The settlement stays open until it is settled or closed short." : "Nothing comes back."}</span></p>` : ""}
+    <div><div class="fold" style="border:0;padding-top:0">${ic("chevron-down")}Activity <span class="c">(${u.log.length})</span></div>
+      <ul class="acts" style="padding:0;margin-top:10px">${u.log.map((a, i) => `<li class="${i === 0 && u.log.length > 1 ? "new" : ""}"><b>${a.t}</b><span>${a.who} · ${a.at}</span></li>`).join("")}</ul></div>`
+  let foot
+  if (u.st === "issued" || u.st === "packed") foot = `<button class="btn danger" data-act="sup-cancel">Cancel return</button><span class="grow"></span><span class="said">${u.st === "issued" ? "Nothing picked yet" : "Packed, not out yet"}</span>`
+  else if (u.st === "handed" && defect) foot = `<button class="btn soft" data-act="sup-short">Close short</button><span class="grow"></span><button class="btn primary" data-act="sup-record">Record ${u.kind.toLowerCase()}</button>`
+  else if (u.st === "settle") foot = `<button class="btn soft" data-act="sup-short">Close short the rest</button><span class="grow"></span><button class="btn primary" data-act="sup-record">Record ${u.kind.toLowerCase()}</button>`
+  else if (u.st === "handed") foot = `<span class="grow"></span><button class="btn primary" data-act="sup-closeover">Close</button>`
+  else foot = `<span class="said">${u.st === "cancelled" ? "Cancelled. It is not reopened" : "Done. It is not reopened"}</span>`
+  return sheetEl("sup", { title: u.no, sub: "Return PO", body, foot })
+}
+A["sup-kind"] = (el) => { SU().kind = el.dataset.k; render() }
+A["step:supq"] = (d) => { const u = SU(); const left = Math.max(1, u.owed - u.settled); u.qty = Math.max(1, Math.min(left, u.qty + d * 5)) }
+A["input:supq"] = (v) => { const u = SU(); u.qty = Math.max(1, Math.min(Math.max(1, u.owed - u.settled), Number(v.replace(/\D/g, "")) || 1)) }
+A["sup-cancel"] = () => openOv("supcancel")
+OVL.supcancel = () => {
+  const u = SU(), packed = u.st === "packed"
+  return dlgEl("supcancel", { title: `Cancel ${u.no}?`,
+    body: `<div><div class="stagerow"><span class="a">Stock and reservation</span><span class="q">${pcs(u.n)}</span><span class="s">freed, not only a status</span></div>
+      ${packed ? `<div class="stagerow"><span class="a">Surat jalan SJ-${u.no}</span><span class="q">voided</span><span class="s">the number stays in history</span></div><div class="stagerow"><span class="a">Operations</span><span class="q">${pcs(u.n)}</span><span class="s red">moves back the picked and packed pieces</span></div>` : `<div class="stagerow"><span class="a">Operations</span><span class="q">released</span><span class="s">nothing was picked yet</span></div>`}</div>`,
+    foot: `<button class="btn ghost" data-close="supcancel">Keep</button><button class="btn danger" data-act="sup-cancel-go">Cancel return</button>` })
+}
+A["sup-cancel-go"] = () => { const u = SU(); u.st = "cancelled"; u.log.unshift({ t: "Return cancelled. Stock freed, letter voided, the work released", who: "Rina Kusuma", at: stamp() }); evt("Buying", `${u.no} cancelled. Stock freed`, u.no); S.ov = ["sup"]; say("Cancelled. Stock and reservation are free") }
+A["sup-record"] = () => {
+  const u = SU(), left = Math.max(0, u.owed - u.settled), q = Math.min(u.qty, left)
+  u.settled += q; evt("Buying", `${u.no}: ${u.kind.toLowerCase()} agreed for ${pcs(q)}`, u.no); u.log.unshift({ t: `${u.kind} agreed for ${pcs(q)}`, who: "Rina Kusuma", at: stamp() })
+  u.st = u.settled >= u.owed ? "closed" : "settle"; u.qty = Math.max(1, Math.min(10, u.owed - u.settled))
+  say(u.st === "closed" ? "Settled. The return is closed" : `${pcs(u.owed - u.settled)} still owed`)
+}
+A["sup-short"] = () => { const u = SU(); u.log.unshift({ t: `Close short: ${pcs(Math.max(0, u.owed - u.settled))} not settled. The return is not reopened`, who: "Rina Kusuma", at: stamp() }); u.st = "closed"; say("Closed short. The original return stays") }
+A["sup-closeover"] = () => { const u = SU(); evt("Buying", `${u.no} closed at hand-over`, u.no); u.log.unshift({ t: "Over-delivery returned. Closed at hand-over", who: "Rina Kusuma", at: stamp() }); u.st = "closed"; u.settled = u.owed; say("Closed") }
+
+/* Ops › Return PO ---------------------------------------------------------- */
+SCREENS["ops-return-po"] = () => {
+  const u = SU(); if (!u) return `<h1 class="page-title">Return PO</h1>${supEmpty}`
+  const st = supStatusWord()
+  return `<h1 class="page-title">Return PO</h1>
+    <div class="card"><table class="dt"><thead><tr><th>Return</th><th class="r" style="width:120px">Quantity</th><th style="width:260px">Work</th></tr></thead>
+      <tbody><tr class="row click" data-act="ops-sup-open"><td><span class="two"><span class="a">${u.sup}</span><span class="b mono">${u.no}</span></span></td><td class="r num">${pcs(u.n)}</td>
+        <td>${u.st === "issued" ? `<button class="btn tint" data-act="ops-sup-open">Pick and pack</button>` : `<span class="dotw ${st[1]}">${st[0]}</span>`}</td></tr></tbody></table></div>`
+}
+A["ops-sup-open"] = (el, e) => { if (e) e.stopPropagation(); openOv("opssup") }
+OVL.opssup = () => {
+  const u = SU()
+  const body = `<div class="facts"><div><div class="l">Supplier</div><div class="v">${u.sup}</div></div><div><div class="l">Quantity</div><div class="v num">${pcs(u.n)}</div></div></div>
+    <div class="st"><table><thead><tr><th>Item</th><th class="r">Pieces</th></tr></thead><tbody><tr><td><span class="two"><span class="a" style="font-weight:400">${u.art}</span><span class="b">${u.sub}</span></span></td><td class="r num">${pcs(u.n)}</td></tr></tbody></table></div>
+    ${["handed", "settle", "closed"].includes(u.st) ? `<p class="note" style="margin:0"><span class="info">${ic("lock")}</span><span>Handed over to the supplier. It does not move back.</span></p>` : ""}
+    ${u.st === "cancelled" ? `<p class="note" style="margin:0"><span class="bad">${ic("circle-x")}</span><span>Cancelled by Buying. The work is released.</span></p>` : ""}`
+  let foot
+  if (u.st === "issued") foot = `<span class="grow"></span><button class="btn primary" data-act="opssup-pack">Pick and pack ${u.n}</button>`
+  else if (u.st === "packed") foot = `<button class="btn soft" data-act="opssup-back">${ic("undo-2")}Move back</button><span class="grow"></span><button class="btn primary" data-act="opssup-hand">Hand over to the supplier</button>`
+  else foot = `<span class="grow"></span><button class="btn soft" data-close="opssup">Close</button>`
+  return sheetEl("opssup", { title: u.no, sub: "Return PO · Operations", body, foot })
+}
+A["opssup-pack"] = () => { const u = SU(); u.st = "packed"; u.log.unshift({ t: `Picked and packed ${pcs(u.n)}. Surat jalan SJ-${u.no} made`, who: "Operations", at: stamp() }); evt("Operations", `${u.no}: picked and packed ${pcs(u.n)}`, u.no); S.ov = []; say("Packed. It can still go back until it leaves") }
+A["opssup-back"] = () => { const u = SU(); u.st = "issued"; u.log.unshift({ t: `Moved back ${pcs(u.n)}. The surat jalan is voided, the return stays issued`, who: "Operations", at: stamp() }); S.ov = []; say("Moved back. The letter is voided") }
+A["opssup-hand"] = () => {
+  const u = SU(); u.st = "handed"; u.settled = 0; u.log.unshift({ t: "Handed over to the supplier", who: "Operations", at: stamp() })
+  mv(u.no, "Return PO hand-over", supFrom(), "Supplier", u.n); evt("Operations", `${u.no}: handed ${pcs(u.n)} over to ${u.sup}`, u.no)
+  S.ov = []; say("Handed over. It cannot go back now")
+}
+
+/* ═══ Inventory + Operations home: Stock, Movements, Exceptions (cases), Workload, Activity Log ═══ */
+DEPT["inv-stock"] = "inv"; DEPT["inv-exceptions"] = "inv"; DEPT["inv-movements"] = "inv"; DEPT["ops-workload"] = "ops"; DEPT["ops-log"] = "ops"
+
+const STOCK_ART = () => (S.flow === "po" ? PD().art : S.flow === "ret" ? R().art : "Kemeja Blus")
+const CAUSES = { Receiving: ["DC packing", "In transit", "Store", "Unknown"], "Return count": ["Store packing", "In transit", "DC receiving", "Unknown"], "Stock check": ["Damaged", "Not at the rack", "Unknown"] }
+const KIND_NAME = { Receiving: "Delivery difference", "Return count": "Return difference", "Stock check": "Stock check" }
+BADGE["inv-exceptions"] = () => S.cases.filter((c) => c.st !== "done").length
+BADGE["md-allot"] = () => S.notices.filter((n) => !n.done).length
+BADGE["ops-workload"] = () => workItems().length
+
+/* ── cases ─────────────────────────────────────────────────────────────── */
+function openCase(spec) {
+  const id = `EX-${String(S.cases.length + 1).padStart(4, "0")}`
+  const c = { id, st: "open", ask: "", answer: "", found: 0, where: "dc", cause: "", result: "", at: stamp(), ...spec }
+  S.cases.unshift(c); if (!S.caseSel) S.caseSel = id
+  evt("Inventory", `${id} opened: ${KIND_NAME[c.kind]} on ${c.doc}, ${pcs(c.short)} short`, c.doc)
+}
+const curCase = () => S.cases.find((c) => c.id === S.caseSel)
+const lostOf = (c) => c.short - c.found
+
+function caseFacts(c) {
+  if (c.kind === "Stock check") return `<div><div class="l">Asked to pick</div><div class="v num">${pcs(c.sent)}</div></div><div><div class="l">Picked</div><div class="v num">${pcs(c.got)}</div></div><div><div class="l">Cannot continue</div><div class="v num bad">${pcs(c.short)}</div></div><div><div class="l">Reason</div><div class="v">${esc(c.reason)}</div></div>`
+  return `<div><div class="l">Sent</div><div class="v num">${pcs(c.sent)}</div></div><div><div class="l">Counted</div><div class="v num">${pcs(c.got)}</div></div><div><div class="l">Difference</div><div class="v num bad">−${pcs(c.short)}</div></div><div><div class="l">${c.kind === "Receiving" ? "Store" : "From"}</div><div class="v">${esc(c.store)}</div></div>`
+}
+function casePane(c) {
+  if (!c) return `<div class="card cpane"><div style="padding:36px;text-align:center;color:var(--mute)">Nothing waiting. Cases open themselves when a count differs or a pick cannot continue.</div></div>`
+  const done = c.st === "done", lost = lostOf(c), causes = CAUSES[c.kind]
+  const evidence = c.ask === "answered" ? `<div class="quote"><b>Operations</b>${esc(c.answer)}</div>` : c.ask === "asked" ? `<p class="note" style="margin:0"><span class="info">${ic("clock-3")}</span><span>Asked Operations. They answer from Ops › Workload.</span></p>` : ""
+  const decide = done ? `<div class="banner ok">${ic("circle-check")}<span><b>Decided</b><span>${esc(c.result)}</span></span></div>` : `
+    <div class="sec">Does the stock exist?</div>
+    <div class="st"><table><thead><tr><th>Item</th><th class="r">Difference</th><th class="r" style="width:190px">Found</th></tr></thead>
+      <tbody><tr><td><span class="two"><span class="a" style="font-weight:400">${STOCK_ART()}</span><span class="b">${c.kind === "Stock check" ? "At the rack" : c.kind === "Receiving" ? "Sent, not counted" : "Left the store, not counted"}</span></span></td><td class="r num">${c.short}</td><td class="r">${stepper("cf", c.found, 0, c.short)}</td></tr></tbody>
+      <tfoot><tr><td colspan="2">Lost</td><td class="r num ${lost ? "bad" : ""}">${pcs(lost)}</td></tr></tfoot></table></div>
+    ${c.found > 0 && c.kind !== "Stock check" ? `<div><span class="lab">Where are the ${c.found} found?</span><div class="chips"><button class="chip ${c.where === "dc" ? "on" : ""}" data-act="case-where" data-w="dc">${c.kind === "Receiving" ? "Still at the DC" : "At the DC"}</button><button class="chip ${c.where === "store" ? "on" : ""}" data-act="case-where" data-w="store">At the store</button></div></div>` : ""}
+    ${lost > 0 ? `<div><span class="lab">Where were the ${lost} lost? <span class="bad">*</span></span><div class="chips">${causes.map((w) => `<button class="chip ${c.cause === w ? "on" : ""}" data-act="case-cause" data-w="${w}">${w}</button>`).join("")}</div></div>` : ""}`
+  const foot = done ? "" : `<div class="cfoot">${c.ask ? "" : `<button class="btn soft" data-act="case-ask">Ask Operations for evidence</button>`}<span class="grow"></span>
+    <button class="btn primary" data-act="case-confirm" ${lost > 0 && !c.cause ? "disabled" : ""}>${c.kind === "Stock check" ? "Confirm" : "Confirm and send to MD"}</button></div>`
+  return `<div class="card cpane"><div class="chead"><div><div class="sub mono">${c.id} · ${c.doc}</div><h2>${KIND_NAME[c.kind]}</h2></div><span class="dotw ${done ? "ok" : c.ask === "asked" ? "info" : "warn"}">${done ? "Decided" : c.ask === "asked" ? "Asked Operations" : "Open"}</span></div>
+    <div class="cbody"><div class="facts">${caseFacts(c)}</div>${evidence}${decide}</div>${foot}</div>`
+}
+SCREENS["inv-exceptions"] = () => {
+  const tab = S.exTab || "open", open = S.cases.filter((c) => c.st !== "done"), decided = S.cases.filter((c) => c.st === "done")
+  const list = tab === "open" ? open : decided
+  if (!curCase() || (tab === "open" ? curCase().st === "done" : curCase().st !== "done")) S.caseSel = list[0] ? list[0].id : null
+  const item = (c) => `<button class="cli ${c.id === S.caseSel ? "on" : ""}" data-act="case-pick" data-id="${c.id}"><div class="l1"><span class="a">${KIND_NAME[c.kind]}</span><span class="num">${c.short} pcs</span></div><div class="l2"><span class="mono">${c.doc}</span><span>${esc(c.store)}</span></div><div class="l3"><span class="dotw ${c.st === "done" ? "ok" : c.ask === "asked" ? "info" : "warn"}">${c.st === "done" ? "Decided" : c.ask === "asked" ? "Asked Operations" : "Open"}</span><span>${c.at}</span></div></button>`
+  return `<h1 class="page-title">Exceptions</h1>
+    <div class="kpis"><div class="kpi"><div class="l">Open</div><div class="v num">${open.filter((c) => !c.ask).length}</div></div><div class="kpi"><div class="l">Asked Operations</div><div class="v num">${open.filter((c) => c.ask === "asked").length}</div></div><div class="kpi"><div class="l">Pieces in question</div><div class="v num">${open.reduce((n, c) => n + c.short, 0)}</div></div><div class="kpi"><div class="l">Decided</div><div class="v num">${decided.length}</div></div></div>
+    <div class="tabs"><span class="${tab === "open" ? "on" : ""}" data-act="ex-tab" data-tab="open">Open ${open.length}</span><span class="${tab === "done" ? "on" : ""}" data-act="ex-tab" data-tab="done">Decided ${decided.length}</span></div>
+    <div class="inbox"><div class="clist">${list.map(item).join("") || `<div class="none" style="padding:18px;border:1px dashed var(--edge);border-radius:var(--r-card);color:var(--faint)">Nothing here</div>`}</div>${casePane(curCase())}</div>`
+}
+A["ex-tab"] = (el) => { S.exTab = el.dataset.tab; render() }
+A["case-pick"] = (el) => { S.caseSel = el.dataset.id; render() }
+A["step:cf"] = (d) => { const c = curCase(); c.found = Math.max(0, Math.min(c.short, c.found + d)); if (!lostOf(c)) c.cause = "" }
+A["input:cf"] = (v) => { const c = curCase(); c.found = Math.max(0, Math.min(c.short, Number(v.replace(/\D/g, "")) || 0)); if (!lostOf(c)) c.cause = "" }
+A["case-where"] = (el) => { curCase().where = el.dataset.w; render() }
+A["case-cause"] = (el) => { curCase().cause = el.dataset.w; render() }
+A["case-ask"] = () => { const c = curCase(); c.ask = "asked"; evt("Inventory", `${c.id}: asked Operations for evidence on ${c.doc}`, c.doc); say("Asked Operations") }
+A["case-confirm"] = () => {
+  const c = curCase(), lost = lostOf(c), code = c.code || (c.store || "").slice(0, 4)
+  const foundTo = c.kind === "Stock check" ? "DC · Stockroom" : c.where === "store" ? `${code} · Warehouse` : c.kind === "Return count" ? "DC · Return stock" : "DC · Stockroom"
+  const from = c.kind === "Receiving" ? "DC · In transit" : c.kind === "Return count" ? "DC · Return in transit" : "DC · Stockroom"
+  if (c.kind !== "Stock check") mv(c.doc, "Found", from, foundTo, c.found, "Inventory")
+  mv(c.doc, `Lost · ${c.cause}`, from, "Written off", lost, "Inventory")
+  c.st = "done"
+  const parts = []
+  if (c.found) parts.push(`Found ${c.found}${c.kind === "Stock check" ? "" : c.where === "store" ? " at the store" : " at the DC"}`)
+  if (lost) parts.push(`Lost ${lost} · ${c.cause}`)
+  c.result = `${parts.join(" · ")}. ${c.kind === "Stock check" ? (lost ? "MD was told." : "Operations can continue.") : "MD was told. Nothing is reopened."}`
+  evt("Inventory", `${c.id}: ${parts.join(", ")}`, c.doc)
+  if (c.kind === "Receiving") {
+    const s = storeOf(c.sid); if (s) s.issue = false
+    const again = lost + (c.where === "dc" ? c.found : 0)
+    S.notices.push({ id: "N" + (S.notices.length + 1), kind: again ? "new" : "ok", qty: again, code, title: `${c.store}: ${pcs(c.short)} not counted on ${c.doc}`,
+      text: `Inventory: ${parts.join(", ")}. The allotment stays closed at ${c.got}.${again ? " A new allotment can send the rest." : ""}`, done: false })
+  } else if (c.kind === "Return count") {
+    S.notices.push({ id: "N" + (S.notices.length + 1), kind: "ok", qty: 0, code, title: `${c.doc}: ${pcs(c.short)} short at the DC`, text: `Inventory: ${parts.join(", ")}. The return stays closed at ${c.got}.`, done: false })
+  } else {
+    const s = storeOf(c.sid)
+    if (lost > 0 && s) S.notices.push({ id: "N" + (S.notices.length + 1), kind: "close", qty: lost, sid: s.id, code, title: `${c.store}: ${pcs(lost)} cannot be picked on ${c.doc}`, text: `Inventory: ${parts.join(", ")}. There is no stock for ${pcs(lost)}.`, done: false })
+    else if (s) s.short = null
+  }
+  S.exTab = "open"; say(c.kind === "Stock check" ? "Decided. Stock is updated" : "Decided. MD was told")
+}
+
+/* ── Operations answers an evidence request ─────────────────────────────── */
+const EVID = { Receiving: ["The carton was packed with the full quantity and the slip matched", "The carton was opened and recounted: the count differs", "No record of this carton"], "Return count": ["The return arrived sealed and the count matches the slip", "The return was opened and recounted: the count differs", "No record of this return"], "Stock check": ["The rack was recounted and the pieces are not there", "Some pieces are at the rack, in another bin", "No record"] }
+A["ans-open"] = (el) => { S.ansId = el.dataset.id; S.ansPick = ""; openOv("opsans") }
+OVL.opsans = () => {
+  const c = S.cases.find((x) => x.id === S.ansId)
+  return dlgEl("opsans", { title: "Answer Inventory", wide: true,
+    body: `<span>${KIND_NAME[c.kind]} on <b class="mono">${c.doc}</b> · ${pcs(c.short)} short</span><div class="chips" style="flex-direction:column;align-items:stretch">${EVID[c.kind].map((w) => `<button class="chip ${S.ansPick === w ? "on" : ""}" style="height:auto;min-height:36px;padding:8px 14px;text-align:left;border-radius:10px" data-act="ans-pick" data-w="${esc(w)}">${w}</button>`).join("")}</div>`,
+    foot: `<button class="btn ghost" data-close="opsans">Cancel</button><button class="btn primary" data-act="ans-send" ${S.ansPick ? "" : "disabled"}>Send answer</button>` })
+}
+A["ans-pick"] = (el) => { S.ansPick = el.dataset.w; render() }
+A["ans-send"] = () => { const c = S.cases.find((x) => x.id === S.ansId); c.ask = "answered"; c.answer = S.ansPick; evt("Operations", `${c.id}: answered Inventory on ${c.doc}`, c.doc); S.ov = []; say("Answer sent to Inventory") }
+
+/* ── Inventory › Stock ──────────────────────────────────────────────────── */
+SCREENS["inv-stock"] = () => {
+  const P = (n) => pool(n), sum = (...n) => n.reduce((a, b) => a + P(b), 0)
+  const dc = sum("DC · Stockroom", "DC · Pick area", "DC · Packed"), road = sum("DC · In transit", "DC · Return in transit")
+  const stores = sum("C001 · Warehouse", "C002 · Warehouse", "C003 · Warehouse", "C004 · Warehouse")
+  const grp = (title, rows) => `<tr class="grp"><td colspan="3">${title}</td></tr>${rows.map(([p, label, note]) => `<tr class="row click" data-act="stock-row" data-p="${esc(p)}"><td><span class="two"><span class="a" style="font-weight:400">${label}</span>${note ? `<span class="b">${note}</span>` : ""}</span></td><td class="r num">${pcs(P(p))}</td><td class="r hide-p num" style="color:var(--mute)">${(() => { const n = S.ledger.filter((e) => e.to === p || e.from === p).length; return n + (n === 1 ? " movement" : " movements") })()}</td></tr>`).join("")}`
+  return `<h1 class="page-title">Stock</h1>
+    <div class="kpis"><div class="kpi"><div class="l">At the DC</div><div class="v num">${pcs(dc)}</div></div><div class="kpi"><div class="l">On the road</div><div class="v num">${pcs(road)}</div></div><div class="kpi"><div class="l">At the stores</div><div class="v num">${pcs(stores)}</div></div><div class="kpi"><div class="l">Return stock</div><div class="v num">${pcs(P("DC · Return stock"))}</div></div></div>
+    <div class="toolbar"><span class="field" style="width:200px">${ic("search")}${STOCK_ART()}</span><span style="flex:1"></span><span class="hint">Written off ${pcs(P("Written off"))}</span></div>
+    <div class="card"><table class="dt"><thead><tr><th>Where</th><th class="r" style="width:150px">Quantity</th><th class="r hide-p" style="width:170px"></th></tr></thead><tbody>
+      ${grp("DC", [["DC · Stockroom", "Stockroom", "Available to allot"], ["DC · Pick area", "Picked", "Waiting to be packed"], ["DC · Packed", "Packed", "Waiting to be dispatched"], ["DC · Return stock", "Return stock", "Counted back from the stores"], ["DC · To supplier", "Waiting for the supplier", "Extra and Not as Ordered"]])}
+      ${grp("On the road", [["DC · In transit", "In transit to stores", "Dispatched, not counted yet"], ["DC · Return in transit", "Returns on the road", "Sent by stores, not counted at the DC"]])}
+      ${grp("Stores", ["C001", "C002", "C003", "C004"].map((c) => [`${c} · Warehouse`, STORES[c], ""]))}</tbody></table></div>`
+}
+A["stock-row"] = (el) => { S.mvPlace = el.dataset.p; S.screen = "inv-movements"; render() }
+
+/* ── Inventory › Movements ──────────────────────────────────────────────── */
+SCREENS["inv-movements"] = () => {
+  const pl = S.mvPlace, rows = S.ledger.filter((e) => !pl || e.to === pl || e.from === pl).slice(0, 60)
+  return `<h1 class="page-title">Movements</h1>
+    <div class="toolbar"><span class="field" style="width:200px">${ic("search")}Search documents</span>${pl ? `<span class="chip on" style="height:34px;display:inline-flex;align-items:center;gap:6px">${pl}<button data-act="mv-clear" aria-label="Clear" style="display:grid;place-items:center">${ic("x")}</button></span>` : ""}<span style="flex:1"></span><span class="hint">${rows.length} movements</span></div>
+    <div class="card"><table class="dt"><thead><tr><th style="width:170px">When</th><th>Document</th><th class="hide-p">Cause</th><th class="hide-p">From → To</th><th class="r" style="width:110px">Quantity</th></tr></thead><tbody>
+      ${rows.map((e) => `<tr class="row"><td style="color:var(--mute)">${e.t}</td><td><span class="two"><span class="a mono" style="font-weight:400">${e.doc}</span><span class="b">${e.by}</span></span></td><td class="hide-p">${esc(e.cause)}</td><td class="hide-p" style="color:var(--body)">${esc(e.from)} → ${esc(e.to)}</td><td class="r num">${pcs(e.qty)}</td></tr>`).join("") || `<tr><td colspan="5" style="padding:30px;text-align:center;color:var(--mute)">No movements yet</td></tr>`}</tbody></table></div>`
+}
+A["mv-clear"] = () => { S.mvPlace = null; render() }
+
+/* ── Ops › Workload ─────────────────────────────────────────────────────── */
+function workItems() {
+  const out = []
+  if (S.po && ["new", "recalled"].includes(S.po.status)) out.push(["Count the delivery", `${PD().po} · ${PD().sup}`, pcs(PD().ordered) + " ordered", "ops-receiving", "Count receive"])
+  allStores().forEach((s) => {
+    if (s.owe.picked + s.owe.packed > 0) out.push(["Move back", `${s.al} · ${s.name}`, pcs(s.owe.picked + s.owe.packed), "ops-board", "Open board"])
+    if (s.b.pick > 0 && !alOf(s).cancelled) out.push([s.short ? "Pick (short)" : "Pick", `${s.al} · ${s.name}`, pcs(s.b.pick), "ops-board", "Open board"])
+    if (s.b.picked - s.owe.picked > 0) out.push(["Pack", `${s.al} · ${s.name}`, pcs(s.b.picked - s.owe.picked), "ops-board", "Open board"])
+    if (s.b.packed - s.owe.packed > 0) out.push(["Dispatch", `${s.al} · ${s.name}`, pcs(s.b.packed - s.owe.packed), "ops-board", "Open board"])
+  })
+  if (S.ret && S.ret.st === "transit") out.push(["Count the store return", `${S.ret.no} · ${S.ret.store}`, pcs(S.ret.sent) + " sent", "ops-store-returns", "Count receive"])
+  if (S.sup && ["issued", "packed"].includes(S.sup.st)) out.push([S.sup.st === "issued" ? "Pick and pack the Return PO" : "Hand over the Return PO", `${S.sup.no} · ${S.sup.sup}`, pcs(S.sup.n), "ops-return-po", "Open"])
+  S.cases.filter((c) => c.ask === "asked").forEach((c) => out.push(["Answer Inventory", `${c.id} · ${c.doc}`, pcs(c.short) + " in question", null, "Answer", c.id]))
+  return out
+}
+SCREENS["ops-workload"] = () => {
+  const w = workItems()
+  return `<h1 class="page-title">Workload</h1>
+    <div class="kpis"><div class="kpi"><div class="l">Waiting for Operations</div><div class="v num">${w.length}</div></div><div class="kpi"><div class="l">To pick</div><div class="v num">${allStores().reduce((n, s) => n + s.b.pick, 0)}</div></div><div class="kpi"><div class="l">To move back</div><div class="v num">${allStores().reduce((n, s) => n + s.owe.picked + s.owe.packed, 0)}</div></div><div class="kpi"><div class="l">Asked by Inventory</div><div class="v num">${S.cases.filter((c) => c.ask === "asked").length}</div></div></div>
+    <div class="card"><table class="dt"><thead><tr><th>Task</th><th class="hide-p">Document</th><th class="r hide-p" style="width:150px">Quantity</th><th class="r" style="width:150px"></th></tr></thead><tbody>
+      ${w.map(([t, d, q, go, label, id]) => `<tr class="row"><td><span class="two"><span class="a">${t}</span><span class="b mono show-p">${d}</span></span></td><td class="hide-p mono" style="color:var(--body)">${d}</td><td class="r num hide-p">${q}</td><td class="r">${go ? `<button class="btn tint" data-go="${go}">${label}</button>` : `<button class="btn tint" data-act="ans-open" data-id="${id}">${label}</button>`}</td></tr>`).join("") || `<tr><td colspan="4" style="padding:30px;text-align:center;color:var(--mute)">Nothing waiting. Allot, count or return something and it shows up here.</td></tr>`}</tbody></table></div>`
+}
+
+/* ── Ops › Activity Log ─────────────────────────────────────────────────── */
+SCREENS["ops-log"] = () => `<h1 class="page-title">Activity Log</h1>
+  <div class="toolbar"><span class="field" style="width:200px">${ic("search")}Search the log</span><span style="flex:1"></span><span class="hint">${S.events.length} entries</span></div>
+  <div class="card"><table class="dt"><thead><tr><th style="width:170px">When</th><th style="width:130px">Who</th><th>What</th></tr></thead><tbody>
+    ${S.events.slice(0, 80).map((e) => `<tr class="row"><td style="color:var(--mute)">${e.t}</td><td>${e.who}</td><td><span class="two"><span class="a" style="font-weight:400">${esc(e.text)}</span>${e.doc ? `<span class="b mono">${e.doc}</span>` : ""}</span></td></tr>`).join("") || `<tr><td colspan="3" style="padding:30px;text-align:center;color:var(--mute)">Nothing has happened yet</td></tr>`}</tbody></table></div>`
+
+/* ═══ The whole journey: PO → DC → allotment → stores → a store returns → DC → allotted again ═══ */
+FLOWS.push({
+  id: "all", label: "★ Whole journey", start: "buy-po",
+  screens: [["buy-po", "Procurement › Purchase Orders"], ["buy-return", "Procurement › Return PO"], ["ops-workload", "Ops › Workload"], ["ops-receiving", "Ops › Receiving"], ["ops-board", "Ops › Allotment"], ["ops-store-returns", "Ops › Return from Store"], ["ops-return-po", "Ops › Return PO"], ["ops-log", "Ops › Activity Log"], ["md-allot", "Allotment › Allotments"], ["md-new", "Allotment › New Allotment"], ["md-return", "Allotment › Return to HO"], ["inv-stock", "Inventory › Stock"], ["inv-exceptions", "Inventory › Exceptions"], ["inv-movements", "Inventory › Movements"], ["store-receive", "Store app › Receive"], ["store-return", "Store app › Return to HO"]],
+  setup: (b) => {
+    b.po = poFresh("short", true)
+    seed("DC · Stockroom", 120, "Opening balance")
+    ;["C001", "C002", "C003", "C004"].forEach((c) => seed(`${c} · Warehouse`, 30, "Opening balance"))
+  },
+  bar: () => storeSwitch(),
+})
+window.journeyHint = function () {
+  const p = S.po, r = S.ret, dcs = S.dc.list.filter((a) => a.src === "dc"), rets = S.dc.list.filter((a) => a.src === "ret")
+  const inTransit = (als) => als.flatMap((a) => a.stores).find((s) => s.b.transit > 0 && s.got === null)
+  const notSent = (als) => als.some((a) => !a.cancelled && a.stores.some((s) => s.b.pick + s.b.picked + s.b.packed > 0))
+  let n = 12, t = "", d = "", go = "", store = ""
+  if (p.status === "new") { n = 1; t = "Goods arrive at the DC"; d = "Operations counts the delivery. 585 and 15 Not as Ordered are prefilled."; go = "ops-receiving" }
+  else if (["counted", "recalled"].includes(p.status)) { n = 2; t = p.status === "counted" ? "Buying reviews the count" : "The warehouse counts again"; d = p.status === "counted" ? "Open the PO, Review Count, then Partial Receive. You can also Recall it from Ops first." : "Submit the new count."; go = p.status === "counted" ? "buy-po" : "ops-receiving" }
+  else if (!dcs.length) { n = 3; t = "Stock is in. MD allots it"; d = "60 to C001 and 40 to C002 are prefilled."; go = "md-new" }
+  else if (notSent(dcs)) { n = 4; t = "The warehouse picks, packs and dispatches"; d = "MD can still edit or cancel until it is sent. Move back reverses picked and packed work. Cannot continue on a pick opens a Stock check."; go = "ops-board" }
+  else if (inTransit(dcs)) { n = 5; t = "Stores count what arrived"; d = "The count is blind. Try fewer than sent at one store to open an exception."; go = "store-receive"; store = inTransit(dcs).code }
+  else if (r.st === "none") { n = 6; t = "MD asks a store to send some back"; d = "C001 · Cikupa, 20 pcs. New return."; go = "md-return" }
+  else if (r.st === "requested") { n = 7; t = "The store packs and sends"; d = "Actual quantity, and why fewer if it is fewer."; go = "store-return"; store = r.code }
+  else if (r.st === "transit") { n = 8; t = "The DC counts the return"; d = "Blind count. It becomes return stock."; go = "ops-store-returns" }
+  else if (r.st === "received" && !r.realloc) { n = 9; t = "The return stock goes out again"; d = "Open the return, New allotment from the return stock."; go = "md-return" }
+  else if (notSent(rets)) { n = 10; t = "Dispatch the second allotment"; d = "Same board, same rules."; go = "ops-board" }
+  else if (inTransit(rets)) { n = 11; t = "The other store counts it"; d = "Blind count again."; go = "store-receive"; store = inTransit(rets).code }
+  else { n = 12; t = "Back where it started"; d = "Every number on Inventory › Stock and Movements follows from the clicks you made."; go = "inv-stock" }
+  const open = S.cases.filter((c) => c.st !== "done").length
+  const sup = S.sup && ["issued", "packed"].includes(S.sup.st) ? S.sup : null
+  return `<div class="jh" title="${esc(d)}"><b>Step ${n} of 12</b><span class="t">${t}</span><span class="d">${d}</span>
+    <button class="btn tint sm" data-act="jgo" data-s="${go}" data-store="${store}">Go</button>
+    ${open ? `<button class="btn soft sm" data-act="jgo" data-s="inv-exceptions">${open} ${open === 1 ? "exception" : "exceptions"} for Inventory</button>` : ""}
+    ${sup ? `<button class="btn soft sm" data-act="jgo" data-s="ops-return-po">Return PO ${sup.no} · ${pcs(sup.n)}</button>` : ""}</div>`
+}
+A.jgo = (el) => { if (el.dataset.store) S.sstore = el.dataset.store; S.screen = el.dataset.s; S.ov = []; S.psheet = null; render() }
+FLOWS.unshift(FLOWS.pop())
+
+S = fresh()
+render()
+</script>
+</body>
+</html>

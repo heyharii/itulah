@@ -279,9 +279,17 @@ pub async fn run_apply_agent(state: AppState) {
             applied.as_ref().err().map(ToString::to_string).as_deref(),
         )
         .await;
+        // Whether this pass owes the goods-receipt valuation below a look:
+        // facts landed, or a stream is blocked part-way through landing
+        // them. A pass that did neither applied nothing, so there is
+        // nothing new to value.
+        let owes_valuation = matches!(
+            &applied,
+            Ok(report) if report.applied > 0 || !report.blocked.is_empty()
+        );
         match applied {
             Ok(report) => {
-                if report.applied > 0 || !report.blocked.is_empty() {
+                if owes_valuation {
                     info!(
                         applied = report.applied,
                         skipped = report.skipped,
@@ -304,21 +312,27 @@ pub async fn run_apply_agent(state: AppState) {
         // A delivery is owed the moment it is accepted. The DC's verification
         // arrives here as receipt lines, and this values them straight after
         // the pass that applied them — outside it, so a month nobody has opened
-        // can hold up a debt but never the warehouse's stream. What cannot post
-        // yet is left to the one-minute sweep in `bin/cloud.rs`, which says so.
-        match infrastructure::receipts_post_pending(&state.db, true, "system:goods-receipt").await
-        {
-            Ok(sweep) => {
-                for posting in &sweep.posted {
-                    info!(
-                        receipt = %posting.receipt_number,
-                        entry = %posting.entry_number,
-                        value_minor = posting.value_minor,
-                        "accepted delivery owed to its supplier"
-                    );
+        // can hold up a debt but never the warehouse's stream. Only a pass
+        // that owes it runs the scan: the cycles that applied nothing have
+        // nothing to value, and asking walks the receiving lines. What cannot
+        // post yet is left to the one-minute sweep in `bin/cloud.rs`, which
+        // says so.
+        if owes_valuation {
+            match infrastructure::receipts_post_pending(&state.db, true, "system:goods-receipt")
+                .await
+            {
+                Ok(sweep) => {
+                    for posting in &sweep.posted {
+                        info!(
+                            receipt = %posting.receipt_number,
+                            entry = %posting.entry_number,
+                            value_minor = posting.value_minor,
+                            "accepted delivery owed to its supplier"
+                        );
+                    }
                 }
+                Err(error) => warn!(%error, "accepted deliveries could not be valued"),
             }
-            Err(error) => warn!(%error, "accepted deliveries could not be valued"),
         }
         // What promotions have cost, out to the fleet, and head office told
         // when a budget or basket cap has just been crossed. It runs here

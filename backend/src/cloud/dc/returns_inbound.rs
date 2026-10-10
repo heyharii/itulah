@@ -58,7 +58,10 @@ pub(super) struct StatusQuery {
 
 /// `?status=IN_TRANSIT|RECEIVED|ALL` → the status to filter on.
 fn parse_status(value: Option<&str>) -> Result<Option<&'static str>, AppError> {
-    match value.map(|value| value.trim().to_ascii_uppercase()).as_deref() {
+    match value
+        .map(|value| value.trim().to_ascii_uppercase())
+        .as_deref()
+    {
         None | Some("") | Some("ALL") => Ok(None),
         Some(STATUS_IN_TRANSIT) => Ok(Some(STATUS_IN_TRANSIT)),
         Some(STATUS_RECEIVED) => Ok(Some(STATUS_RECEIVED)),
@@ -185,12 +188,11 @@ async fn load_detail(
         missing_epcs: BTreeSet<String>,
         extra_epcs: BTreeSet<String>,
     }
-    let units = sqlx::query(
-        "SELECT sku_code, epc, outcome FROM dc_inbound_unit WHERE delivery_id = $1",
-    )
-    .bind(delivery_id)
-    .fetch_all(&mut *conn)
-    .await?;
+    let units =
+        sqlx::query("SELECT sku_code, epc, outcome FROM dc_inbound_unit WHERE delivery_id = $1")
+            .bind(delivery_id)
+            .fetch_all(&mut *conn)
+            .await?;
     let mut by_sku: BTreeMap<String, Tally> = BTreeMap::new();
     for unit in &units {
         let sku_code: String = unit.try_get("sku_code")?;
@@ -275,14 +277,7 @@ pub(super) async fn receive(
     hosted()?;
     let actor = actor_of(&principal)?;
     let key = require_key(&request.idempotency_key)?;
-    let detail = receive_epcs(
-        &state,
-        delivery_id.trim(),
-        &request.epcs,
-        &actor,
-        &key,
-    )
-    .await?;
+    let detail = receive_epcs(&state, delivery_id.trim(), &request.epcs, &actor, &key).await?;
     Ok(Json(detail))
 }
 
@@ -313,14 +308,15 @@ pub(super) async fn receive_count(
         }
         *counts.entry(sku_code).or_default() += line.quantity;
     }
-    let known: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM dc_inbound_koli WHERE delivery_id = $1)",
-    )
-    .bind(&delivery_id)
-    .fetch_one(&state.db)
-    .await?;
+    let known: bool =
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM dc_inbound_koli WHERE delivery_id = $1)")
+            .bind(&delivery_id)
+            .fetch_one(&state.db)
+            .await?;
     if !known {
-        return Err(AppError::NotFound(format!("inbound delivery {delivery_id}")));
+        return Err(AppError::NotFound(format!(
+            "inbound delivery {delivery_id}"
+        )));
     }
     let mut epcs = Vec::new();
     for (sku_code, quantity) in &counts {
@@ -384,7 +380,10 @@ async fn receive_epcs(
         ));
     }
     let digest = crate::security::sha256_hex(
-        epcs.iter().map(String::as_str).collect::<Vec<_>>().join("\n"),
+        epcs.iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .join("\n"),
     );
     common::ensure_origin(&state.db).await?;
 
@@ -441,7 +440,9 @@ async fn receive_epcs(
     .await?;
     let koli_count: i64 = header.try_get("koli_count")?;
     if koli_count == 0 {
-        return Err(AppError::NotFound(format!("inbound delivery {delivery_id}")));
+        return Err(AppError::NotFound(format!(
+            "inbound delivery {delivery_id}"
+        )));
     }
     let source_site_id: String = header.try_get("source_site_id")?;
     let destination_site_id: String = header.try_get("destination_site_id")?;
@@ -463,11 +464,13 @@ async fn receive_epcs(
     .await?
     {
         let epc: String = row.try_get("epc")?;
-        manifest.entry(epc.to_ascii_uppercase()).or_insert(ManifestUnit {
-            sku_code: row.try_get::<String, _>("sku_code")?.to_ascii_uppercase(),
-            koli_id: row.try_get("koli_id")?,
-            allotment_line_id: row.try_get("allotment_line_id")?,
-        });
+        manifest
+            .entry(epc.to_ascii_uppercase())
+            .or_insert(ManifestUnit {
+                sku_code: row.try_get::<String, _>("sku_code")?.to_ascii_uppercase(),
+                koli_id: row.try_get("koli_id")?,
+                allotment_line_id: row.try_get("allotment_line_id")?,
+            });
     }
 
     // Where the goods land: that shop's return pool here, to be inspected;
@@ -612,7 +615,11 @@ async fn receive_epcs(
         .bind(&unit.sku_code)
         .bind(unit.koli_id)
         .bind(unit.allotment_line_id)
-        .bind(if subject.is_some() { "RECEIVED" } else { "MISSING" })
+        .bind(if subject.is_some() {
+            "RECEIVED"
+        } else {
+            "MISSING"
+        })
         .bind(subject)
         .execute(&mut *tx)
         .await?;
@@ -685,7 +692,10 @@ async fn receive_epcs(
             entry.1 += 1;
         }
     }
-    let extra_units = booked.iter().filter(|(.., on_manifest)| !on_manifest).count() as i64;
+    let extra_units = booked
+        .iter()
+        .filter(|(.., on_manifest)| !on_manifest)
+        .count() as i64;
     let payload = InboundReceivedPayload {
         schema_version: FLOW_FACT_SCHEMA_VERSION,
         receipt_id,
@@ -697,12 +707,14 @@ async fn receive_epcs(
         koli_ids,
         lines: per_line
             .into_iter()
-            .map(|((allotment_line_id, sku_code), (expected, received))| InboundReceivedLine {
-                allotment_line_id: Some(allotment_line_id),
-                sku_code,
-                expected,
-                received,
-            })
+            .map(
+                |((allotment_line_id, sku_code), (expected, received))| InboundReceivedLine {
+                    allotment_line_id: Some(allotment_line_id),
+                    sku_code,
+                    expected,
+                    received,
+                },
+            )
             .collect(),
         extra_units,
         received_by: actor.to_owned(),
@@ -723,4 +735,3 @@ async fn receive_epcs(
     tx.commit().await?;
     Ok(detail)
 }
-

@@ -15,10 +15,11 @@ import { ChevronRight } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Field, Input } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import {
@@ -38,14 +39,15 @@ import { Tag } from "@/components/ui/tag"
 import { SHOW_MISSING, withoutMissing } from "@/lib/features"
 import { useFilters } from "@/lib/filters"
 import { ago, count, label as humanise, moment } from "@/lib/format"
-import { usePanelDock } from "@/lib/layout"
+import { useLayout, usePanelDock } from "@/lib/layout"
 import {
   allotmentsByPool,
   correctPlacement,
+  countsBoardQuery,
   fleetPools,
+  fleetPoolsQuery,
   idempotencyKey,
   inventoryKeys,
-  listCounts,
   poolDetail,
   sightingsPage,
   type FleetPool,
@@ -56,6 +58,7 @@ import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { cn } from "@/lib/utils"
 import { Choice } from "@/screens/inventory/parts"
+import { CardFigure, CardName } from "@/components/ui/phone-cards"
 import {
   age,
   percent,
@@ -211,7 +214,7 @@ function poolColumns(
       accessorFn: (row) => row.label,
       header: "Pool",
       size: 320,
-      meta: { filter: { kind: "text" } },
+      meta: { filter: { kind: "text" }, card: "hide" },
       cell: ({ row }) => {
         const site = row.original.pool === null
         return (
@@ -288,7 +291,11 @@ function poolColumns(
       /// is the only one whose values are a closed set. Blank on a site row:
       /// the heading is not a shelf, and a made-up kind on it would be a value
       /// somebody could filter by and get nothing.
-      meta: { priority: 2, filter: { kind: "option", format: humanise } },
+      meta: {
+        priority: 2,
+        card: "hide",
+        filter: { kind: "option", format: humanise },
+      },
       cell: ({ row }) =>
         row.original.group === null ? null : (
           <span className="text-mute">{humanise(row.original.group)}</span>
@@ -298,7 +305,11 @@ function poolColumns(
       accessorKey: "stock",
       header: "Stock",
       size: 100,
-      meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
+      meta: {
+        align: "right",
+        card: "hide",
+        filter: { kind: "number", unit: "pcs" },
+      },
       cell: ({ row }) => display.format(row.original.stock),
     },
     {
@@ -313,14 +324,14 @@ function poolColumns(
       /// Allotted or Observed answers neither of them any better. Eight rows of
       /// identical band buttons is what the panel looked like with all of them
       /// declared, and six of the eight were furniture.
-      meta: { align: "right" },
+      meta: { align: "right", card: "hide" },
       cell: ({ row }) => display.format(row.original.on_hand),
     },
     {
       accessorKey: "allotted",
       header: "Allotted",
       size: 100,
-      meta: { align: "right", priority: 2 },
+      meta: { align: "right", priority: 2, card: "hide" },
       /// A promise is made of instructions, and this is the only number on the
       /// row that names records rather than pieces. Clicking it asks which ones.
       cell: ({ row }) => {
@@ -340,7 +351,7 @@ function poolColumns(
       accessorKey: "observed",
       header: "Observed",
       size: 120,
-      meta: { align: "right", priority: 3 },
+      meta: { align: "right", priority: 3, card: "hide" },
       /// Distinct tags a reader saw in the window. Evidence rather than a
       /// balance, so what is behind it is a list of readings — which is a
       /// different record from the movements behind Stock, and opens its own
@@ -369,7 +380,11 @@ function poolColumns(
       accessorKey: "missing",
       header: "Missing",
       size: 100,
-      meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
+      meta: {
+        align: "right",
+        card: "hide",
+        filter: { kind: "number", unit: "pcs" },
+      },
       cell: ({ row }) => (
         <span
           className={
@@ -384,13 +399,128 @@ function poolColumns(
       accessorKey: "last_count",
       header: "Last Count",
       size: 120,
-      meta: { priority: 3, filter: { kind: "date" } },
+      meta: { priority: 3, card: "hide", filter: { kind: "date" } },
       cell: ({ row }) =>
         row.original.last_count === null ? (
           <span className="text-mute">Never</span>
         ) : (
           ago(row.original.last_count)
         ),
+    },
+  ]
+}
+
+/// The card a phone draws for a row, as columns of their own that exist only
+/// there (`cardLead`), so a desk's and a tablet's columns are exactly what they
+/// were: a site (a heading over its pools) with how many it holds and the
+/// button that opens or closes them, and a pool with its stock, what is on
+/// hand and allotted, and when somebody last stood in front of it.
+function poolCards(display: DisplayUnit): ColumnDef<TableSetup, PoolRow>[] {
+  return [
+    {
+      id: "head",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "title" },
+      accessorFn: (row) => row.label,
+      cell: ({ row }) => {
+        const site = row.original.pool === null
+        if (site) return <CardName name={row.original.label} />
+        let top = row
+        while (top.getParentRow() !== undefined) top = top.getParentRow()!
+        const parts = [
+          top.original.label,
+          row.original.group === null ? null : humanise(row.original.group),
+        ].filter(Boolean)
+        return (
+          <CardName
+            name={row.original.label}
+            muted={!row.original.counted}
+            line={
+              <>
+                {parts.join(" · ")}
+                {row.original.pool?.is_rollup === true && " · sum"}
+                {row.original.disputed !== null && (
+                  <span className="font-medium text-warn-fg"> · disputed</span>
+                )}
+              </>
+            }
+          />
+        )
+      },
+    },
+    {
+      id: "lead",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "lead" },
+      accessorFn: (row) => row.stock,
+      cell: ({ row }) => (
+        <CardFigure
+          value={display.format(row.original.stock)}
+          caption="stock"
+          tone={row.original.stock === 0 ? "quiet" : undefined}
+        />
+      ),
+    },
+    {
+      id: "foot",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "foot" },
+      accessorFn: (row) => row.on_hand,
+      cell: ({ row }) => {
+        const { pool, on_hand, allotted, last_count, subRows } = row.original
+        if (pool === null) {
+          const pools = subRows?.length ?? 0
+          return (
+            <span className="tabular-nums">
+              {count(pools)} {pools === 1 ? "pool" : "pools"} · On hand{" "}
+              {display.format(on_hand)}
+            </span>
+          )
+        }
+        return (
+          <span className="flex flex-col leading-6">
+            <span className="tabular-nums">
+              On hand {display.format(on_hand)}
+              {allotted !== null && ` · Allotted ${display.format(allotted)}`}
+            </span>
+            <span>
+              {last_count === null
+                ? "Never counted"
+                : `Counted ${ago(last_count)}`}
+            </span>
+          </span>
+        )
+      },
+    },
+    {
+      id: "act",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { align: "right", card: "status" },
+      accessorFn: (row) => row.key,
+      cell: ({ row }) =>
+        row.original.pool === null ? (
+          <Button
+            variant="tint"
+            size="card"
+            aria-expanded={row.getIsExpanded()}
+            onClick={(event) => {
+              event.stopPropagation()
+              row.toggleExpanded()
+            }}
+          >
+            {row.getIsExpanded() ? "Close" : "Open"}
+          </Button>
+        ) : row.original.disputed !== null ? (
+          <Pill tone="warn">Disputed</Pill>
+        ) : null,
     },
   ]
 }
@@ -410,6 +540,7 @@ export function PoolsBody({ display: given }: { display?: DisplayUnit } = {}) {
   // own and offers the picker itself.
   const own = useDisplayUnit()
   const display = given ?? own
+  const phone = useLayout() === "phone"
   const [query, setQuery] = useState("")
   /// Whether the filter panel has room to stand beside the list. Below it the
   /// same model is a sheet behind a Filter button, and the panel unmounts.
@@ -424,10 +555,7 @@ export function PoolsBody({ display: given }: { display?: DisplayUnit } = {}) {
   /// belas pool terbuka adalah daftar yang tak seorang pun minta.
   const [expanded, setExpanded] = useState<ExpandedState>({})
 
-  const fleet = useQuery({
-    queryKey: inventoryKeys.fleet(),
-    queryFn: ({ signal }) => fleetPools(signal),
-  })
+  const fleet = useQuery(fleetPoolsQuery())
 
   /// The count board, for one column of this table.
   ///
@@ -436,10 +564,7 @@ export function PoolsBody({ display: given }: { display?: DisplayUnit } = {}) {
   /// nothing else: a board that will not load leaves every row reading
   /// "Never", which is what an uncounted pool reads as anyway — losing the
   /// whole table over it would be the worse trade.
-  const counts = useQuery({
-    queryKey: inventoryKeys.counts(),
-    queryFn: ({ signal }) => listCounts(signal),
-  })
+  const counts = useQuery(countsBoardQuery())
 
   /// The newest count per pool, from a board the server hands over already
   /// partitioned. Whichever moment the count actually reached — closed,
@@ -708,16 +833,18 @@ export function PoolsBody({ display: given }: { display?: DisplayUnit } = {}) {
 
   const columns = useMemo(
     () =>
-      withoutMissing(
-        poolColumns(
+      withoutMissing([
+        ...poolColumns(
           {
             allotments: poolAllotments.open,
             sightings: poolSightings.open,
           },
           display
-        )
-      ),
-    [poolAllotments.open, poolSightings.open, display]
+        ),
+        // The card's own columns exist on a phone only.
+        ...(phone ? poolCards(display) : []),
+      ]),
+    [poolAllotments.open, poolSightings.open, display, phone]
   )
   const filters = useFilters(columns)
 
@@ -755,7 +882,17 @@ export function PoolsBody({ display: given }: { display?: DisplayUnit } = {}) {
           it is the same act: narrow a list, order it, name the question. */}
       <div className="grid min-w-0 items-start gap-5 dock:grid-cols-[minmax(0,1fr)_16rem]">
         <div className="flex min-w-0 flex-col">
-          <div className="group/bar mb-3 flex flex-wrap items-center gap-1.5">
+          {/* A phone's search, filter and order are the dock's. */}
+          <DockTools
+            search={{ value: query, onChange: setQuery, label: "Search pools" }}
+            filter={{
+              count: filters.filters.length,
+              panel: { model: filters, table },
+            }}
+            sort={dockSortOf(table)}
+          />
+
+          <div className="group/bar mb-3 flex flex-wrap items-center gap-1.5 max-md:hidden">
             <ExpandingSearch
               value={query}
               onChange={setQuery}
@@ -780,7 +917,7 @@ export function PoolsBody({ display: given }: { display?: DisplayUnit } = {}) {
             <span aria-hidden className="mx-1 h-5 w-px bg-hairline" />
           </div>
 
-          <Card className="overflow-hidden">
+          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
             {queryState(fleet, {
               loading: "Reading every node…",
               render: () =>
@@ -790,6 +927,7 @@ export function PoolsBody({ display: given }: { display?: DisplayUnit } = {}) {
                   </EmptyState>
                 ) : (
                   <DataTable<PoolRow>
+                    refresh={[fleet, counts]}
                     table={table}
                     // A pool row opens its own page; a site row has none, so
                     // the whole row is the chevron's click target rather than a
@@ -805,10 +943,21 @@ export function PoolsBody({ display: given }: { display?: DisplayUnit } = {}) {
                       row.pool !== null && row.pool.id === pool.value
                     }
                     className="max-h-[calc(100dvh-16rem)]"
+                    cardSort={false}
+                    cardsApart
+                    cardLead
                   />
                 ),
             })}
           </Card>
+
+          {/* The unit the quantities are read in: a desk has it in the bar
+              above, a phone at the foot of the list. */}
+          {given === undefined && (
+            <div className="mt-3 md:hidden">
+              <DisplayUnitPicker display={display} />
+            </div>
+          )}
 
           {/* The two windows the Observed and Missing columns are measured
               over. Under the table rather than over it: it explains two

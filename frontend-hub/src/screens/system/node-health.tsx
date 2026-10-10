@@ -128,7 +128,7 @@ export function NodeHealthSection({
             </span>
           </Banner>
           <p className="text-meta text-mute">
-            {assessment.since ? `Sejak ${moment(assessment.since)} · ` : ""}
+            {assessment.since ? `Since ${moment(assessment.since)} · ` : ""}
             Last heard {ago(health.last_heard_at)}
             {assessment.needs === "DEVELOPER" ? " · needs a developer" : ""}
           </p>

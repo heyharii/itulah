@@ -357,7 +357,11 @@ fn assessment(
 /// "1 h 50 min", "4 min", "12 s", "2 days 3 h".
 pub fn span(duration: Duration) -> String {
     let seconds = duration.num_seconds().max(0);
-    let (days, hours, minutes) = (seconds / 86_400, seconds % 86_400 / 3_600, seconds % 3_600 / 60);
+    let (days, hours, minutes) = (
+        seconds / 86_400,
+        seconds % 86_400 / 3_600,
+        seconds % 3_600 / 60,
+    );
     match (days, hours, minutes) {
         (0, 0, 0) => format!("{seconds} s"),
         (0, 0, m) => format!("{m} min"),
@@ -451,12 +455,19 @@ pub fn assess(status: &NodeStatus, now: DateTime<Utc>) -> Assessment {
             );
         }
     }
-    if let Some(power) = machine.power.as_ref().filter(|p| p.source == PowerSource::Battery) {
+    if let Some(power) = machine
+        .power
+        .as_ref()
+        .filter(|p| p.source == PowerSource::Battery)
+    {
         let left = power
             .runtime_seconds
             .map(|seconds| format!(", about {} left", span(Duration::seconds(seconds))))
             .unwrap_or_default();
-        let charge = power.charge_percent.map(|c| format!(" (battery {c} %)")).unwrap_or_default();
+        let charge = power
+            .charge_percent
+            .map(|c| format!(" (battery {c} %)"))
+            .unwrap_or_default();
         return if power.low {
             assessment(
                 Tone::Bad,
@@ -502,7 +513,9 @@ pub fn assess(status: &NodeStatus, now: DateTime<Utc>) -> Assessment {
         );
     }
     let silent_since = sync.last_success_at.unwrap_or(status.started_at);
-    if sync.consecutive_failures >= 3 && now - silent_since > Duration::seconds(SILENT_AFTER_SECONDS) {
+    if sync.consecutive_failures >= 3
+        && now - silent_since > Duration::seconds(SILENT_AFTER_SECONDS)
+    {
         return assessment(
             Tone::Warn,
             "OFFLINE",
@@ -519,13 +532,21 @@ pub fn assess(status: &NodeStatus, now: DateTime<Utc>) -> Assessment {
             if now - silent_since > Duration::minutes(30) { Needs::Shop } else { Needs::Nobody },
         );
     }
-    if let Some(oldest) = sync.oldest_pending_at.filter(|oldest| now - *oldest > Duration::minutes(30)) {
+    if let Some(oldest) = sync
+        .oldest_pending_at
+        .filter(|oldest| now - *oldest > Duration::minutes(30))
+    {
         return assessment(
             Tone::Warn,
             "SYNC_BEHIND",
             "Sync behind",
-            format!("{} records not sent yet, oldest {}", sync.pending_facts, span(now - oldest)),
-            "The server keeps trying to send them. If the number keeps growing, tell head office.".into(),
+            format!(
+                "{} records not sent yet, oldest {}",
+                sync.pending_facts,
+                span(now - oldest)
+            ),
+            "The server keeps trying to send them. If the number keeps growing, tell head office."
+                .into(),
             Some(oldest),
             Needs::Nobody,
         );
@@ -618,7 +639,8 @@ mod tests {
     use super::*;
 
     fn at(minutes: i64) -> DateTime<Utc> {
-        DateTime::<Utc>::from_timestamp(1_800_000_000, 0).unwrap_or_default() + Duration::minutes(minutes)
+        DateTime::<Utc>::from_timestamp(1_800_000_000, 0).unwrap_or_default()
+            + Duration::minutes(minutes)
     }
 
     fn healthy(now: DateTime<Utc>) -> NodeStatus {
@@ -664,7 +686,10 @@ mod tests {
     fn a_healthy_node_says_so_and_needs_nobody() {
         let now = at(0);
         let verdict = assess(&healthy(now), now);
-        assert_eq!((verdict.tone, verdict.code.as_str(), verdict.needs), (Tone::Ok, "OK", Needs::Nobody));
+        assert_eq!(
+            (verdict.tone, verdict.code.as_str(), verdict.needs),
+            (Tone::Ok, "OK", Needs::Nobody)
+        );
     }
 
     #[test]
@@ -678,7 +703,11 @@ mod tests {
         assert_eq!(verdict.code, "OFFLINE");
         assert_eq!(verdict.since, status.sync.last_success_at);
         assert!(verdict.sentence.contains("37 records"));
-        assert_eq!(verdict.needs, Needs::Shop, "past 30 minutes somebody should look at the router");
+        assert_eq!(
+            verdict.needs,
+            Needs::Shop,
+            "past 30 minutes somebody should look at the router"
+        );
     }
 
     #[test]
@@ -697,7 +726,10 @@ mod tests {
         status.sync.dead_lettered = 2;
         status.machine.disk_free_bytes = Some(1 << 30);
         let verdict = assess(&status, now);
-        assert_eq!((verdict.code.as_str(), verdict.needs), ("REJECTED_FACTS", Needs::Developer));
+        assert_eq!(
+            (verdict.code.as_str(), verdict.needs),
+            ("REJECTED_FACTS", Needs::Developer)
+        );
     }
 
     #[test]
@@ -723,33 +755,57 @@ mod tests {
         let now = at(0);
         let mut status = healthy(now);
         status.incidents = vec![
-            Incident::Hung { at: now - Duration::hours(2), stalled_seconds: 125 },
+            Incident::Hung {
+                at: now - Duration::hours(2),
+                stalled_seconds: 125,
+            },
             Incident::Started {
                 at: now - Duration::hours(5),
                 version: "0.1.0".into(),
-                previous: PreviousExit::Unclean { last_seen: now - Duration::hours(5), machine_restarted: Some(false) },
+                previous: PreviousExit::Unclean {
+                    last_seen: now - Duration::hours(5),
+                    machine_restarted: Some(false),
+                },
             },
-            Incident::Hung { at: now - Duration::hours(30), stalled_seconds: 125 },
+            Incident::Hung {
+                at: now - Duration::hours(30),
+                stalled_seconds: 125,
+            },
         ];
         let verdict = assess(&status, now);
-        assert_eq!((verdict.tone, verdict.code.as_str()), (Tone::Ok, "RECOVERED"));
+        assert_eq!(
+            (verdict.tone, verdict.code.as_str()),
+            (Tone::Ok, "RECOVERED")
+        );
         assert!(verdict.headline.contains("2 times"), "{}", verdict.headline);
 
         // Four in a day is a cause to find, even though each one healed.
         for hours in 6..8 {
-            status.incidents.push(Incident::Hung { at: now - Duration::hours(hours), stalled_seconds: 125 });
+            status.incidents.push(Incident::Hung {
+                at: now - Duration::hours(hours),
+                stalled_seconds: 125,
+            });
         }
         let verdict = assess(&status, now);
-        assert_eq!((verdict.tone, verdict.code.as_str(), verdict.needs), (Tone::Warn, "UNSTABLE", Needs::Developer));
+        assert_eq!(
+            (verdict.tone, verdict.code.as_str(), verdict.needs),
+            (Tone::Warn, "UNSTABLE", Needs::Developer)
+        );
     }
 
     #[test]
     fn from_afar_silence_is_the_news() {
         let now = at(0);
         let status = healthy(now);
-        assert_eq!(assess_from_afar(Some(&status), Some(now - Duration::seconds(30)), now).code, "OK");
+        assert_eq!(
+            assess_from_afar(Some(&status), Some(now - Duration::seconds(30)), now).code,
+            "OK"
+        );
         let silent = assess_from_afar(Some(&status), Some(now - Duration::minutes(15)), now);
-        assert_eq!((silent.code.as_str(), silent.needs), ("SILENT", Needs::Shop));
+        assert_eq!(
+            (silent.code.as_str(), silent.needs),
+            ("SILENT", Needs::Shop)
+        );
         assert_eq!(assess_from_afar(None, None, now).code, "NEVER_SEEN");
     }
 

@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Home 375 Options</title>
+<style>
+:root{
+  --ink:#20242c;--text:#394150;--body:#565f6d;--mute:#666f7d;--faint:#b9c0c9;--line-ico:#89919d;
+  --canvas:#fff;--soft:#f8f8f9;--soft-2:#f0f0f2;--page:#f6f6f7;--hairline:#e6e6e9;--hairline-2:#dadade;
+  --accent:#2563eb;--accent-bg:#eff5ff;--bad:#d05151;--bad-fg:#be123c;--bad-bg:#fbeaea;--warn-bg:#faeacd;--warn-fg:#a64a08;
+  --shadow-soft:0 1px 2px rgb(24 39 60 / 6%),0 1px 1px rgb(24 39 60 / 4%);
+  --ease-out:cubic-bezier(.23,1,.32,1);--t-press:120ms;
+  --w:375px;
+}
+*{box-sizing:border-box;margin:0}
+body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;background:#e4e4e8;color:var(--ink);-webkit-font-smoothing:antialiased;font-size:15px}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;text-align:inherit;-webkit-tap-highlight-color:transparent}
+svg{display:block;flex:none}
+.ico{width:1em;height:1em;stroke:currentColor;fill:none;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.9}
+
+/* ── prototype chrome (not part of the design under test) ── */
+.bar{position:sticky;top:0;z-index:20;display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center;padding:12px 20px;background:rgb(255 255 255 / .92);backdrop-filter:blur(10px);border-bottom:1px solid var(--hairline-2)}
+.bar h1{font-size:15px;font-weight:600;letter-spacing:-.01em;margin-right:6px}
+.seg{display:inline-flex;gap:2px;padding:2px;border-radius:9px;background:#d9d9de}
+.seg button{padding:5px 11px;border-radius:7px;font-size:14px;font-weight:500;color:#444}
+.seg button[aria-pressed=true]{background:#fff;color:#111;box-shadow:0 1px 2px rgb(0 0 0 / .15)}
+.lab{font-size:14px;color:#555;margin-right:8px}
+.stage{display:flex;gap:28px;padding:24px 20px 60px;overflow-x:auto;align-items:flex-start}
+.opt{flex:none}
+.opt h2{font-size:15px;font-weight:600;margin:0 4px 2px;letter-spacing:-.01em}
+.opt p{font-size:14px;color:#555;margin:0 4px 10px;max-width:var(--w);min-height:63px}
+
+/* ── the phone ── */
+.phone{width:var(--w);height:812px;background:var(--page);border-radius:30px;border:1px solid #cfcfd6;box-shadow:0 18px 40px rgb(0 0 0 / .14);overflow:hidden;display:flex;flex-direction:column;position:relative}
+.top{height:51px;flex:none;background:#fff;border-bottom:1px solid var(--hairline);display:flex;align-items:center;gap:10px;padding:0 12px 0 12px}
+.logo{width:28px;height:28px;border-radius:8px;background:#15171b;display:grid;place-items:center;color:#fff;font-weight:700;font-size:15px;position:relative}
+.logo i{position:absolute;right:5px;top:9px;width:5px;height:5px;border-radius:50%;background:#4a82f0}
+.top b{font-weight:500;font-size:17px;letter-spacing:-.01em}
+.top .sp{flex:1}
+.top .ib{width:36px;height:36px;display:grid;place-items:center;font-size:20px;color:var(--line-ico)}
+.top .ib.ac{color:var(--accent)}
+.av{width:32px;height:32px;border-radius:50%;background:var(--accent-bg);color:var(--accent);display:grid;place-items:center;font-weight:600;font-size:15px}
+.scroll{flex:1;overflow-y:auto;overflow-x:hidden;padding:20px 16px 24px}
+.tabs{height:56px;flex:none;background:#fff;border-top:1px solid var(--hairline);display:grid;grid-template-columns:repeat(4,1fr)}
+.tabs button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:14px;font-weight:500;color:var(--mute);position:relative}
+.tabs button .ico{font-size:22px;color:var(--line-ico)}
+.tabs button.on{color:var(--accent);background:linear-gradient(180deg,rgb(37 99 235 / .08),transparent)}
+.tabs button.on .ico{color:var(--accent)}
+.tabs button.on::before{content:"";position:absolute;top:0;left:30%;right:30%;height:2px;border-radius:0 0 2px 2px;background:var(--accent)}
+.tabs button.off{opacity:.45}
+.tabs .dot{position:absolute;top:7px;left:calc(50% + 6px);width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 2px #fff}
+.dock{flex:none;padding:8px 12px;background:rgb(255 255 255 / .96);border-top:1px solid var(--hairline)}
+.dock .field{display:flex;align-items:center;gap:8px;height:36px;border-radius:999px;background:var(--soft-2);padding:0 12px;color:var(--mute);font-size:14px}
+.dock .field .ico{font-size:16px}
+
+/* ── shared page parts ── */
+.date{font-size:14px;font-weight:500;color:var(--mute)}
+.hello{margin-top:4px;font-size:28px;line-height:1.12;font-weight:600;letter-spacing:-.025em;color:var(--ink);overflow-wrap:anywhere}
+.head{margin-bottom:20px}
+.note{display:flex;align-items:center;gap:12px;min-height:64px;padding:0 16px;margin-bottom:24px;border:1px solid var(--hairline);border-radius:16px;background:var(--canvas);box-shadow:var(--shadow-soft);width:100%;transition:scale var(--t-press) var(--ease-out)}
+.note:active{scale:.985}
+.note .bell{width:40px;height:40px;border-radius:50%;background:var(--accent-bg);color:var(--accent);display:grid;place-items:center;font-size:18px;flex:none}
+.note .t{min-width:0;flex:1}
+.note .t b{display:block;font-size:15px;font-weight:600;color:var(--ink)}
+.note .t span{display:block;font-size:14px;color:var(--mute)}
+.note .go{font-size:16px;color:var(--line-ico)}
+h3.h{font-size:15px;font-weight:600;letter-spacing:-.01em;margin:0 4px 10px;color:var(--ink)}
+.panel{background:var(--canvas);border:1px solid var(--hairline);border-radius:24px;box-shadow:var(--shadow-soft)}
+.empty{border:1px dashed #c6c6cc;border-radius:16px;padding:28px 20px;text-align:center;font-size:14px;line-height:1.55;color:var(--body)}
+
+.appico{display:grid;place-items:center;color:#fff;flex:none;position:relative;background:linear-gradient(180deg,rgb(255 255 255 / .2),rgb(255 255 255 / 0) 58%),var(--c);box-shadow:0 1px 2px rgb(24 39 60 / 12%),inset 0 0 0 .5px rgb(0 0 0 / 6%)}
+.appico .ico{stroke-width:1.9}
+.badge{position:absolute;top:-6px;right:-8px;min-width:22px;height:22px;padding:0 6px;border-radius:11px;background:var(--bad);color:#fff;font-size:14px;font-weight:600;line-height:22px;text-align:center;box-shadow:0 0 0 2px #fff;font-variant-numeric:tabular-nums}
+.tile{display:flex;flex-direction:column;align-items:center;gap:8px;width:100%;min-width:0}
+.tile .appico{transition:scale var(--t-press) var(--ease-out)}
+.tile:active .appico{scale:.92}
+.tile span.l{width:calc(100% + 8px);margin:0 -4px;text-align:center;font-size:14px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:-.01em}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px 0}
+
+/* rows */
+.rows{overflow:hidden}
+.row{display:flex;align-items:center;gap:12px;width:100%;height:56px;padding:0 14px 0 14px;border-top:1px solid var(--hairline);transition:background var(--t-press)}
+.row:first-child{border-top:0}
+.row:active{background:var(--soft)}
+.row .n{min-width:0;flex:1;font-size:16px;font-weight:500;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .go{font-size:16px;color:var(--line-ico)}
+.pill{min-width:28px;height:24px;padding:0 9px;border-radius:12px;background:var(--bad-bg);color:var(--bad-fg);font-size:14px;font-weight:600;line-height:24px;text-align:center;font-variant-numeric:tabular-nums}
+.pill.q{background:var(--accent-bg);color:var(--accent)}
+.sub{font-size:14px;color:var(--mute);white-space:nowrap}
+.wrow{height:auto;min-height:60px;padding-top:9px;padding-bottom:9px}
+.wrow .tx{min-width:0;flex:1}
+.wrow .tx b{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font-size:15px;font-weight:500;line-height:1.3;color:var(--ink)}
+.wrow .tx span{display:block;font-size:14px;color:var(--mute)}
+.groups{display:flex;flex-direction:column;gap:22px}
+.chips{display:flex;gap:8px;overflow-x:auto;margin:0 -16px 22px;padding:0 16px;scroll-snap-type:x proximity;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;scroll-snap-align:start;display:flex;align-items:center;gap:10px;height:56px;padding:0 14px 0 10px;border-radius:16px;background:var(--canvas);border:1px solid var(--hairline);box-shadow:var(--shadow-soft);transition:scale var(--t-press) var(--ease-out)}
+.chip:active{scale:.97}
+.chip b{display:block;font-size:14px;font-weight:600;color:var(--ink);white-space:nowrap;letter-spacing:-.01em}
+.chip span{display:block;font-size:14px;color:var(--mute);white-space:nowrap}
+.verdict{margin-top:10px;padding:0 4px;font-size:14px;color:#444;max-width:var(--w)}
+.verdict b{color:#111}
+</style>
+</head>
+<body>
+<div class="bar">
+  <h1>Home · Phone Options</h1>
+  <span><span class="lab">Data</span><span class="seg" id="data"></span></span>
+  <span><span class="lab">Width</span><span class="seg" id="width"></span></span>
+</div>
+<div class="stage" id="stage"></div>
+
+<script>
+const ICON = {"shopping-cart":"<circle cx=\"8\" cy=\"21\" r=\"1\"/><circle cx=\"19\" cy=\"21\" r=\"1\"/><path d=\"M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12\"/>","shirt":"<path d=\"M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z\"/>","truck":"<path d=\"M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2\"/><path d=\"M15 18H9\"/><path d=\"M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14\"/><circle cx=\"17\" cy=\"18\" r=\"2\"/><circle cx=\"7\" cy=\"18\" r=\"2\"/>","boxes":"<path d=\"M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z\"/><path d=\"m7 16.5-4.74-2.85\"/><path d=\"m7 16.5 5-3\"/><path d=\"M7 16.5v5.17\"/><path d=\"M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z\"/><path d=\"m17 16.5-5-3\"/><path d=\"m17 16.5 4.74-2.85\"/><path d=\"M17 16.5v5.17\"/><path d=\"M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z\"/><path d=\"M12 8 7.26 5.15\"/><path d=\"m12 8 4.74-2.85\"/><path d=\"M12 13.5V8\"/>","megaphone":"<path d=\"m3 11 18-5v12L3 14v-3z\"/><path d=\"M11.6 16.8a3 3 0 1 1-5.8-1.6\"/>","store":"<path d=\"m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7\"/><path d=\"M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8\"/><path d=\"M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4\"/><path d=\"M2 7h20\"/><path d=\"M22 7v3a2 2 0 0 1-2 2a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 16 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 12 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 8 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 4 12a2 2 0 0 1-2-2V7\"/>","landmark":"<line x1=\"3\" x2=\"21\" y1=\"22\" y2=\"22\"/><line x1=\"6\" x2=\"6\" y1=\"18\" y2=\"11\"/><line x1=\"10\" x2=\"10\" y1=\"18\" y2=\"11\"/><line x1=\"14\" x2=\"14\" y1=\"18\" y2=\"11\"/><line x1=\"18\" x2=\"18\" y1=\"18\" y2=\"11\"/><polygon points=\"12 2 20 7 4 7\"/>","users":"<path d=\"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2\"/><circle cx=\"9\" cy=\"7\" r=\"4\"/><path d=\"M22 21v-2a4 4 0 0 0-3-3.87\"/><path d=\"M16 3.13a4 4 0 0 1 0 7.75\"/>","messages-square":"<path d=\"M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z\"/><path d=\"M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1\"/>","book-open":"<path d=\"M12 7v14\"/><path d=\"M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z\"/>","folder-open":"<path d=\"m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2\"/>","file-chart-column":"<path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\"/><path d=\"M14 2v4a2 2 0 0 0 2 2h4\"/><path d=\"M8 18v-1\"/><path d=\"M12 18v-6\"/><path d=\"M16 18v-3\"/>","settings-2":"<path d=\"M20 7h-9\"/><path d=\"M14 17H5\"/><circle cx=\"17\" cy=\"17\" r=\"3\"/><circle cx=\"7\" cy=\"7\" r=\"3\"/>","bell":"<path d=\"M10.268 21a2 2 0 0 0 3.464 0\"/><path d=\"M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326\"/>","chevron-right":"<path d=\"m9 18 6-6-6-6\"/>","layout-grid":"<rect width=\"7\" height=\"7\" x=\"3\" y=\"3\" rx=\"1\"/><rect width=\"7\" height=\"7\" x=\"14\" y=\"3\" rx=\"1\"/><rect width=\"7\" height=\"7\" x=\"14\" y=\"14\" rx=\"1\"/><rect width=\"7\" height=\"7\" x=\"3\" y=\"14\" rx=\"1\"/>","message-square":"<path d=\"M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z\"/>","arrow-left":"<path d=\"m12 19-7-7 7-7\"/><path d=\"M19 12H5\"/>","search":"<circle cx=\"11\" cy=\"11\" r=\"8\"/><path d=\"m21 21-4.3-4.3\"/>","clock":"<circle cx=\"12\" cy=\"12\" r=\"10\"/><polyline points=\"12 6 12 12 16 14\"/>","sparkles":"<path d=\"M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z\"/><path d=\"M20 3v4\"/><path d=\"M22 5h-4\"/><path d=\"M4 17v2\"/><path d=\"M5 18H3\"/>","package-check":"<path d=\"m16 16 2 2 4-4\"/><path d=\"M21 10V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l2-1.14\"/><path d=\"m7.5 4.27 9 5.15\"/><polyline points=\"3.29 7 12 12 20.71 7\"/><line x1=\"12\" x2=\"12\" y1=\"22\" y2=\"12\"/>","clipboard-list":"<rect width=\"8\" height=\"4\" x=\"8\" y=\"2\" rx=\"1\" ry=\"1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"/><path d=\"M12 11h4\"/><path d=\"M12 16h4\"/><path d=\"M8 11h.01\"/><path d=\"M8 16h.01\"/>","undo-2":"<path d=\"M9 14 4 9l5-5\"/><path d=\"M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11\"/>","building-2":"<path d=\"M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z\"/><path d=\"M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2\"/><path d=\"M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2\"/><path d=\"M10 6h4\"/><path d=\"M10 10h4\"/><path d=\"M10 14h4\"/><path d=\"M10 18h4\"/>","chevron-down":"<path d=\"m6 9 6 6 6-6\"/>","x":"<path d=\"M18 6 6 18\"/><path d=\"m6 6 12 12\"/>","house":"<path d=\"M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8\"/><path d=\"M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z\"/>"};
+const svg = (name, cls = "") => `<svg class="ico ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICON[name]}</svg>`;
+
+/* The hub's own launcher: label, icon and hue as the app registers them. `waiting` is what its
+   badge would carry; the real launcher draws none today. */
+const APPS = [
+  { id:"buying",      label:"Procurement", icon:"shopping-cart",     c:"#2f6fed", waiting:8,  group:0 },
+  { id:"merchandise", label:"Merchandise", icon:"shirt",             c:"#e8456b", waiting:0,  group:0 },
+  { id:"ops",         label:"Ops",         icon:"truck",             c:"#1f9fb4", waiting:4,  group:0 },
+  { id:"inventory",   label:"Inventory",   icon:"boxes",             c:"#b7791f", waiting:2,  group:0 },
+  { id:"marketing",   label:"Marketing",   icon:"megaphone",         c:"#9b51e0", waiting:0,  group:0 },
+  { id:"selling",     label:"Sales",       icon:"store",             c:"#2ea44f", waiting:0,  group:0 },
+  { id:"finance",     label:"Finance",     icon:"landmark",          c:"#5856d6", waiting:5,  group:1 },
+  { id:"hr",          label:"HR",          icon:"users",             c:"#e9604f", waiting:3,  group:1 },
+  { id:"ga",          label:"GA",          icon:"messages-square",   c:"#0f9d8f", waiting:0,  group:1 },
+  { id:"master",      label:"Master",      icon:"book-open",         c:"#5b6472", waiting:0,  group:2 },
+  { id:"library",     label:"Files",       icon:"folder-open",       c:"#8b6b4a", waiting:0,  group:2 },
+  { id:"reports",     label:"Reports",     icon:"file-chart-column", c:"#6d6af2", waiting:0,  group:2 },
+  { id:"system",      label:"System",      icon:"settings-2",        c:"#5b6472", waiting:1,  group:2 },
+];
+const GROUPS = ["Buy and Sell", "Money and People", "Workspace"];
+const byId = Object.fromEntries(APPS.map(a => [a.id, a]));
+
+const DATA = {
+  "Demo": {
+    name:"Rina", greeting:"Good morning", unread:67, apps:APPS,
+    waiting:[
+      { app:"buying", n:8, text:"Orders Awaiting Review", sub:"Procurement" },
+      { app:"ops",    n:4, text:"Orders to Count",        sub:"Ops" },
+    ],
+    recent:[
+      { app:"ops", label:"Receiving", sub:"Ops" },
+      { app:"buying", label:"Purchase Orders", sub:"Procurement" },
+      { app:"inventory", label:"Stock", sub:"Inventory" },
+      { app:"buying", label:"Suppliers", sub:"Procurement" },
+    ],
+  },
+  "Worst Case": {
+    name:"Aleksandra", greeting:"Good afternoon", unread:128, apps:APPS.map((a,i)=>({...a, waiting:[142,0,7,0,1,0,23,0,0,0,0,0,100][i]})),
+    waiting:[
+      { app:"buying", n:142, text:"Orders Awaiting Review", sub:"Procurement" },
+      { app:"finance", n:23, text:"Supplier Bills Waiting for Approval", sub:"Finance" },
+      { app:"ops", n:7, text:"Orders to Count",            sub:"Ops" },
+    ],
+    recent:[
+      { app:"buying", label:"Return Purchase Orders", sub:"Procurement" },
+      { app:"finance", label:"Payables Due This Week", sub:"Finance" },
+      { app:"ops", label:"Receiving", sub:"Ops" },
+      { app:"inventory", label:"Stock", sub:"Inventory" },
+    ],
+  },
+  "One Alert": {
+    name:"Dian", greeting:"Good evening", unread:1, apps:APPS.slice(0,4).map(a=>({...a, waiting:a.id==="ops"?1:0})),
+    waiting:[{ app:"ops", n:1, text:"Order to Count", sub:"Ops" }],
+    recent:[{ app:"ops", label:"Receiving", sub:"Ops" }],
+  },
+  "No Apps": { name:"", greeting:"Good night", unread:0, apps:[], waiting:[], recent:[] },
+};
+const WIDTHS = [320, 360, 375, 414];
+let dataKey = new URLSearchParams(location.search).get("data") || "Demo";
+if (!DATA[dataKey]) dataKey = "Demo";
+let width = Number(new URLSearchParams(location.search).get("w")) || 375;
+
+const cap = n => n > 99 ? "99+" : String(n);
+const today = "Tuesday 6 October";
+
+/* ── parts ── */
+const topBar = `<div class="top"><div class="logo">C<i></i></div><b>Central</b><span class="sp"></span>
+  <span class="ib">${svg("clock")}</span><span class="ib ac">${svg("sparkles")}</span><div class="av">R</div></div>`;
+const tabs = `<div class="tabs"><button class="on">${svg("layout-grid")}Home</button><button>${svg("message-square")}Chat</button>
+  <button>${svg("bell")}Activity<span class="dot"></span></button><button class="off">${svg("arrow-left")}Back</button></div>`;
+
+function head(d) {
+  return `<header class="head"><p class="date">${today}</p><h1 class="hello">${d.greeting}${d.name ? ", " + d.name : ""}</h1></header>`;
+}
+function note(d) {
+  if (d.unread <= 0) return "";
+  return `<button class="note"><span class="bell">${svg("bell")}</span><span class="t"><b>${d.unread === 1 ? "1 unread notification" : d.unread + " unread notifications"}</b><span>What is waiting on you</span></span><span class="go">${svg("chevron-right")}</span></button>`;
+}
+function appico(a, size, badge) {
+  const r = Math.round(size * .3);
+  return `<span class="appico" style="--c:${a.c};width:${size}px;height:${size}px;border-radius:${r}px;font-size:${Math.round(size * .46)}px">${svg(a.icon)}${badge && a.waiting > 0 ? `<i class="badge" style="font-style:normal">${cap(a.waiting)}</i>` : ""}</span>`;
+}
+function tile(a, size, badge) {
+  return `<button class="tile">${appico(a, size, badge)}<span class="l">${a.label}</span></button>`;
+}
+function emptyBlock() {
+  return `<p class="empty">No office apps for this account. Your messages, notifications and profile are in the bar below.</p>`;
+}
+const phone = inner => `<div class="phone">${topBar}<div class="scroll">${inner}</div>${tabs}</div>`;
+const phoneDock = inner => `<div class="phone">${topBar}<div class="scroll">${inner.body}</div><div class="dock"><div class="field">${svg("search")}Search Apps and Screens</div></div>${tabs}</div>`;
+
+/* ── the options ── */
+const OPTIONS = [
+  { key:"A", name:"A · Three Across", blurb:"The current launcher at three columns. Labels get 114px each, so Procurement and Merchandise stop touching; counts sit on the icon.",
+    render: d => phone(head(d) + note(d) + `<h3 class="h">Apps</h3>` + (d.apps.length === 0 ? emptyBlock() :
+      `<div class="panel" style="padding:22px 4px"><div class="grid3">${d.apps.map(a => tile(a, 60, true)).join("")}</div></div>`)) },
+
+  { key:"B", name:"B · Grouped", blurb:"Same three columns in three named groups, so a short last row reads as the end of a group, not a leftover.",
+    render: d => phone(head(d) + note(d) + (d.apps.length === 0 ? emptyBlock() :
+      `<div class="groups">${GROUPS.map((g, i) => {
+        const set = d.apps.filter(a => a.group === i);
+        return set.length === 0 ? "" : `<section><h3 class="h">${g}</h3><div class="panel" style="padding:20px 4px"><div class="grid3">${set.map(a => tile(a, 56, true)).join("")}</div></div></section>`;
+      }).join("")}</div>`)) },
+
+  { key:"C", name:"C · Rows", blurb:"A list: name at 16px with room for any length, what is waiting on the right. The one option that fits a long department name.",
+    render: d => phone(head(d) + note(d) + `<h3 class="h">Apps</h3>` + (d.apps.length === 0 ? emptyBlock() :
+      `<div class="panel rows">${d.apps.map(a => `<button class="row">${appico(a, 36, false)}<span class="n">${a.label}</span>${a.waiting > 0 ? `<span class="pill">${cap(a.waiting)}</span>` : ""}<span class="go">${svg("chevron-right")}</span></button>`).join("")}</div>`)) },
+
+  { key:"D", name:"D · Waiting First", blurb:"What needs you leads, one tap into the screen; the apps follow, smaller. Replaces the notifications card with what is actually waiting.",
+    render: d => phone(head(d) +
+      (d.waiting.length + (d.unread > 0 ? 1 : 0) > 0 ? `<h3 class="h">Waiting on You</h3><div class="panel rows" style="margin-bottom:24px">${
+        d.waiting.map(w => `<button class="row wrow">${appico(byId[w.app], 36, false)}<span class="tx"><b>${cap(w.n)} ${w.text}</b><span>${w.sub}</span></span><span class="go">${svg("chevron-right")}</span></button>`).join("")}${
+        d.unread > 0 ? `<button class="row wrow"><span class="bell" style="width:36px;height:36px;border-radius:11px;background:var(--accent-bg);color:var(--accent);display:grid;place-items:center;font-size:18px;flex:none">${svg("bell")}</span><span class="tx"><b>${d.unread} Unread Notifications</b><span>Activity</span></span><span class="go">${svg("chevron-right")}</span></button>` : ""}</div>` : "") +
+      `<h3 class="h">Apps</h3>` + (d.apps.length === 0 ? emptyBlock() :
+      `<div class="panel" style="padding:20px 4px"><div class="grid3" style="gap:18px 0">${d.apps.map(a => tile(a, 52, false)).join("")}</div></div>`)) },
+
+  { key:"E", name:"E · Recent and Search", blurb:"Screens, not just departments: a row of the last screens opened, and search under the thumb in the dock like every other list.",
+    render: d => phoneDock({ body: head(d) + note(d) +
+      (d.recent.length > 0 ? `<h3 class="h">Recent</h3><div class="chips">${d.recent.map(r => `<button class="chip">${appico(byId[r.app], 36, false)}<span><b>${r.label}</b><span>${r.sub}</span></span></button>`).join("")}</div>` : "") +
+      `<h3 class="h">Apps</h3>` + (d.apps.length === 0 ? emptyBlock() :
+      `<div class="panel" style="padding:22px 4px"><div class="grid3">${d.apps.map(a => tile(a, 60, true)).join("")}</div></div>`) }) },
+];
+
+function paint() {
+  document.documentElement.style.setProperty("--w", width + "px");
+  const d = DATA[dataKey];
+  document.getElementById("stage").innerHTML = OPTIONS.map(o =>
+    `<section class="opt"><h2>${o.name}</h2><p>${o.blurb}</p>${o.render(d)}</section>`).join("");
+  seg("data", Object.keys(DATA), dataKey, v => { dataKey = v; paint(); sync(); });
+  seg("width", WIDTHS.map(String), String(width), v => { width = Number(v); paint(); sync(); });
+}
+function seg(id, values, current, on) {
+  const el = document.getElementById(id);
+  el.innerHTML = values.map(v => `<button aria-pressed="${v === current}">${v}</button>`).join("");
+  [...el.children].forEach((b, i) => b.onclick = () => on(values[i]));
+}
+function sync() {
+  const p = new URLSearchParams({ data: dataKey, w: String(width) });
+  history.replaceState(null, "", "?" + p);
+}
+paint();
+</script>
+</body>
+</html>

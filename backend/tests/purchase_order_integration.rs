@@ -676,16 +676,16 @@ async fn a_matching_invoice_raises_no_query(pool: PgPool) {
     // Exactly what was ordered: received without a review, so nobody is
     // asked to compare an invoice at all.
     dc.count_purchase(PurchaseCountRequest {
-            receipt_id: delivery(&dc),
-            po_line_id,
-            counted_quantity: 120,
-            wrong_quantity: 0,
-            counted_unit_code: None,
-            counted_unit_quantity: None,
-            actor_id: "penerima-1".into(),
-            idempotency_key: "count-1".into(),
-        })
-        .unwrap_or_else(|e| panic!("count: {e}"));
+        receipt_id: delivery(&dc),
+        po_line_id,
+        counted_quantity: 120,
+        wrong_quantity: 0,
+        counted_unit_code: None,
+        counted_unit_quantity: None,
+        actor_id: "penerima-1".into(),
+        idempotency_key: "count-1".into(),
+    })
+    .unwrap_or_else(|e| panic!("count: {e}"));
     assert!(dc
         .counts_awaiting_verification()
         .unwrap_or_else(|e| panic!("queue: {e}"))
@@ -1077,16 +1077,16 @@ async fn a_fully_received_line_cannot_be_closed_short(pool: PgPool) {
 
     // Exactly what was ordered: received without a review.
     dc.count_purchase(PurchaseCountRequest {
-            receipt_id: delivery(&dc),
-            po_line_id,
-            counted_quantity: 120,
-            wrong_quantity: 0,
-            counted_unit_code: None,
-            counted_unit_quantity: None,
-            actor_id: "penerima-1".into(),
-            idempotency_key: "count-1".into(),
-        })
-        .unwrap_or_else(|e| panic!("count: {e}"));
+        receipt_id: delivery(&dc),
+        po_line_id,
+        counted_quantity: 120,
+        wrong_quantity: 0,
+        counted_unit_code: None,
+        counted_unit_quantity: None,
+        actor_id: "penerima-1".into(),
+        idempotency_key: "count-1".into(),
+    })
+    .unwrap_or_else(|e| panic!("count: {e}"));
     sync(&dc, &pool).await;
 
     let error = cloud::close_purchase_line_short(&pool, po_line_id, "buyer-1", "sudah lengkap")
@@ -1545,5 +1545,170 @@ async fn an_exact_count_by_the_orders_creator_is_received_too(pool: PgPool) {
             .is_empty(),
         "the creator counted exactly what is owed, so nothing waits"
     );
+    assert_eq!(stock(&dc), (0, 120));
+}
+
+/// A two-line order: the sheet a checker actually submits when one delivery
+/// carries two articles.
+fn two_line_order(site: &str) -> NewPurchaseOrder {
+    let mut order = order_for(site);
+    order.lines.push(NewPurchaseLine {
+        article_code: "KAOS-HITAM".into(),
+        article_name: "Kaos Lengan Pendek Hitam".into(),
+        image_url: None,
+        division_code: Some("PRIA".into()),
+        tags: vec!["KAOS".into()],
+        ordered_quantity: 80,
+        unit_price_minor: 90_000,
+        promised_date: None,
+        unit_code: None,
+        unit_quantity: None,
+        order_unit_price_minor: None,
+    });
+    order
+}
+
+/// A whole count sheet is one command: every line of one order commits in
+/// one transaction, one idempotency key replays the sheet, and an exact
+/// sheet is received without a review just as a single exact count is.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_whole_sheet_is_counted_in_one_command(pool: PgPool) {
+    use inventory_backend::edge::{PurchaseCountBatchRequest, PurchaseCountEntry};
+
+    enrol_dc(&pool).await;
+    let dc = distribution_centre();
+    let (po_id, _, _) = cloud::create_purchase_order(&pool, &two_line_order(DC_SITE))
+        .await
+        .unwrap_or_else(|e| panic!("raise: {e}"));
+    sync(&dc, &pool).await;
+    let receipt_id = delivery(&dc);
+    let lines: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT po_line_id FROM purchase_order_line
+          WHERE purchase_order_id = $1 ORDER BY line_number",
+    )
+    .bind(po_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_else(|e| panic!("lines: {e}"));
+    assert_eq!(lines.len(), 2);
+
+    let sheet = |counts: Vec<(Uuid, i64)>, key: &str| PurchaseCountBatchRequest {
+        receipt_id,
+        counts: counts
+            .into_iter()
+            .map(|(po_line_id, counted_quantity)| PurchaseCountEntry {
+                po_line_id,
+                counted_quantity,
+                wrong_quantity: 0,
+                counted_unit_code: None,
+                counted_unit_quantity: None,
+                variants: Vec::new(),
+            })
+            .collect(),
+        actor_id: "penerima-1".into(),
+        idempotency_key: key.into(),
+    };
+
+    let counted = dc
+        .count_purchase_batch(sheet(vec![(lines[0], 120), (lines[1], 80)], "sheet-1"))
+        .unwrap_or_else(|e| panic!("sheet: {e}"));
+    assert_eq!(counted.items.len(), 2);
+    assert_eq!(counted.items[0].counted_quantity, 120);
+    assert_eq!(counted.items[1].counted_quantity, 80);
+
+    // The sheet came out exactly as ordered, so the whole order is received
+    // without a review — the same auto-receive a single exact count takes.
+    assert!(
+        dc.counts_awaiting_verification()
+            .unwrap_or_else(|e| panic!("queue: {e}"))
+            .is_empty(),
+        "the sheet matches exactly, so nothing waits"
+    );
+    assert_eq!(stock(&dc), (0, 200));
+
+    // The same key gets the same sheet back, not a second pair of counts.
+    let replay = dc
+        .count_purchase_batch(sheet(vec![(lines[0], 120), (lines[1], 80)], "sheet-1"))
+        .unwrap_or_else(|e| panic!("replay: {e}"));
+    assert_eq!(replay.items[0].count_id, counted.items[0].count_id);
+    assert_eq!(replay.items[1].count_id, counted.items[1].count_id);
+    assert_eq!(replay.receipt_id, counted.receipt_id);
+    assert!(
+        dc.counts_awaiting_verification()
+            .unwrap_or_else(|e| panic!("queue: {e}"))
+            .is_empty(),
+        "a replayed sheet writes nothing new"
+    );
+
+    sync(&dc, &pool).await;
+    let detail = cloud::purchase_order_status(&pool, po_id)
+        .await
+        .unwrap_or_else(|e| panic!("status: {e}"));
+    assert_eq!(detail["lifecycle"], "FULLY_RECEIVED");
+}
+
+/// One sheet, one order: lines of a second order are a caller's mistake, and
+/// the mistake must not silently split across two receipts.
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn a_sheet_cannot_mix_two_orders(pool: PgPool) {
+    use inventory_backend::edge::{PurchaseCountBatchRequest, PurchaseCountEntry};
+
+    enrol_dc(&pool).await;
+    let dc = distribution_centre();
+    let (first, _, _) = cloud::create_purchase_order(&pool, &order_for(DC_SITE))
+        .await
+        .unwrap_or_else(|e| panic!("raise first: {e}"));
+    let (second, _, _) = cloud::create_purchase_order(&pool, &two_line_order(DC_SITE))
+        .await
+        .unwrap_or_else(|e| panic!("raise second: {e}"));
+    sync(&dc, &pool).await;
+    let first_line = line_of(&pool, first).await;
+    let second_line = line_of(&pool, second).await;
+
+    let refused = dc.count_purchase_batch(PurchaseCountBatchRequest {
+        receipt_id: delivery(&dc),
+        counts: vec![
+            PurchaseCountEntry {
+                po_line_id: first_line,
+                counted_quantity: 10,
+                wrong_quantity: 0,
+                counted_unit_code: None,
+                counted_unit_quantity: None,
+                variants: Vec::new(),
+            },
+            PurchaseCountEntry {
+                po_line_id: second_line,
+                counted_quantity: 10,
+                wrong_quantity: 0,
+                counted_unit_code: None,
+                counted_unit_quantity: None,
+                variants: Vec::new(),
+            },
+        ],
+        actor_id: "penerima-1".into(),
+        idempotency_key: "mixed-sheet".into(),
+    });
+    let error = refused
+        .err()
+        .unwrap_or_else(|| panic!("a sheet carrying two orders must be refused"));
+    assert!(error.to_string().contains("one order's lines"), "{error}");
+
+    // The refusal committed nothing: both lines are still owed, and each
+    // order's own sheet still works.
+    assert_eq!(dc.open_purchase_lines().unwrap().len(), 3);
+    dc.count_purchase_batch(PurchaseCountBatchRequest {
+        receipt_id: delivery(&dc),
+        counts: vec![PurchaseCountEntry {
+            po_line_id: first_line,
+            counted_quantity: 120,
+            wrong_quantity: 0,
+            counted_unit_code: None,
+            counted_unit_quantity: None,
+            variants: Vec::new(),
+        }],
+        actor_id: "penerima-1".into(),
+        idempotency_key: "first-sheet".into(),
+    })
+    .unwrap_or_else(|e| panic!("first sheet: {e}"));
     assert_eq!(stock(&dc), (0, 120));
 }

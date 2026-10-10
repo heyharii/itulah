@@ -18,18 +18,17 @@ use crate::cloud::{
     domain::RecordKind,
     http::audit::DeclaredSubject,
     postgres::{
-        self as infrastructure, AccountBalance, AccountPage, AcquisitionGap,
-        AdjustmentRequest, AssessAssetRequest, AssetPage, AssetRow, AssetSchedule, BalanceMatrix,
-        BankInstitution, BankStatementLineRow, BankStatementPage, BankingSetupGap, BillPage,
-        BookBankLineRequest, CashCountRow, CompanyBankAccount, ConfirmMatchRequest,
-        CorrectionDocument, DecideInstructionRequest, DepositPage, DepreciationRun,
-        DescribeBankAccountRequest, DisposeAssetRequest, GeneralLedger, ImportOutcome,
-        ImportStatementRequest, InstructionPage, JournalEntryDetail, JournalPage,
-        LandDepositRequest, LedgerAccount, LineSuggestions, ManualJournalDraft,
-        ManualJournalDraftInput, MoneyOverview, PayablesAging, PaymentInstruction, PaymentPage,
-        PeriodPage, PostCountRequest, PostingIntent, PostingLine, RaiseInstructionRequest,
-        ReclassRequest, RecordBillRequest, RecordCountRequest, RecordDepositRequest,
-        RecordPaymentRequest, RegisterAssetRequest, SaleDayPage,
+        self as infrastructure, AccountBalance, AccountPage, AcquisitionGap, AdjustmentRequest,
+        AssessAssetRequest, AssetPage, AssetRow, AssetSchedule, BalanceMatrix, BankInstitution,
+        BankStatementLineRow, BankStatementPage, BankingSetupGap, BillPage, BookBankLineRequest,
+        CashCountRow, CompanyBankAccount, ConfirmMatchRequest, CorrectionDocument,
+        DecideInstructionRequest, DepositPage, DepreciationRun, DescribeBankAccountRequest,
+        DisposeAssetRequest, GeneralLedger, ImportOutcome, ImportStatementRequest, InstructionPage,
+        JournalEntryDetail, JournalPage, LandDepositRequest, LedgerAccount, LineSuggestions,
+        ManualJournalDraft, ManualJournalDraftInput, MoneyOverview, PayablesAging,
+        PaymentInstruction, PaymentPage, PeriodPage, PostCountRequest, PostingIntent, PostingLine,
+        RaiseInstructionRequest, ReclassRequest, RecordBillRequest, RecordCountRequest,
+        RecordDepositRequest, RecordPaymentRequest, RegisterAssetRequest, SaleDayPage,
         SettleInstructionRequest, Statement, StoreDeposit, SupplierBill, SupplierPayment,
         TransferAssetRequest, TrialBalance, UnbilledReceipt, UpdateBankLineRequest,
         WriteOffRequest,
@@ -137,8 +136,16 @@ pub async fn account_child_balances(
     State(state): State<AppState>,
     Query(query): Query<ChildBalancesQuery>,
 ) -> Result<Json<Vec<AccountBalance>>, AppError> {
-    let parent = query.parent.as_deref().map(str::trim).filter(|p| !p.is_empty());
-    let unit = query.unit.as_deref().map(str::trim).filter(|u| !u.is_empty());
+    let parent = query
+        .parent
+        .as_deref()
+        .map(str::trim)
+        .filter(|p| !p.is_empty());
+    let unit = query
+        .unit
+        .as_deref()
+        .map(str::trim)
+        .filter(|u| !u.is_empty());
     Ok(Json(
         infrastructure::child_balances(&state.db, parent, unit, query.as_of).await?,
     ))
@@ -457,7 +464,9 @@ pub async fn contractor_project(
     State(state): State<AppState>,
     Path(project_id): Path<Uuid>,
 ) -> Result<Json<infrastructure::ContractorProjectDetail>, AppError> {
-    Ok(Json(infrastructure::contractor_project(&state.db, project_id).await?))
+    Ok(Json(
+        infrastructure::contractor_project(&state.db, project_id).await?,
+    ))
 }
 
 pub async fn pay_project_advance(
@@ -540,7 +549,9 @@ pub async fn cogs_by_month(
     State(state): State<AppState>,
     Query(query): Query<CogsQuery>,
 ) -> Result<Json<Vec<infrastructure::CogsMonthRow>>, AppError> {
-    let year = query.year.unwrap_or_else(|| chrono::Datelike::year(&Utc::now().date_naive()));
+    let year = query
+        .year
+        .unwrap_or_else(|| chrono::Datelike::year(&Utc::now().date_naive()));
     Ok(Json(infrastructure::cogs_by_month(&state.db, year).await?))
 }
 
@@ -573,7 +584,9 @@ pub async fn store_cash_boxes(
     Query(query): Query<StoreCashQuery>,
 ) -> Result<Json<Vec<infrastructure::StoreCashBox>>, AppError> {
     let site = store_cash_site(&principal, query.site)?;
-    Ok(Json(infrastructure::store_cash_boxes(&state.db, &site).await?))
+    Ok(Json(
+        infrastructure::store_cash_boxes(&state.db, &site).await?,
+    ))
 }
 
 /// The shop's counts, newest first.
@@ -583,7 +596,9 @@ pub async fn store_cash_counts(
     Query(query): Query<StoreCashQuery>,
 ) -> Result<Json<Vec<CashCountRow>>, AppError> {
     let site = store_cash_site(&principal, query.site)?;
-    Ok(Json(infrastructure::list_counts(&state.db, None, Some(&site)).await?))
+    Ok(Json(
+        infrastructure::list_counts(&state.db, None, Some(&site)).await?,
+    ))
 }
 
 /// Count one of the shop's boxes, note by note.
@@ -617,8 +632,7 @@ pub async fn settle_accrual(
     Json(request): Json<infrastructure::SettleAccrualRequest>,
 ) -> Result<Json<infrastructure::AccrualRow>, AppError> {
     Ok(Json(
-        infrastructure::settle_accrual(&state.db, entry_id, &request, &principal.username)
-            .await?,
+        infrastructure::settle_accrual(&state.db, entry_id, &request, &principal.username).await?,
     ))
 }
 
@@ -673,7 +687,9 @@ pub async fn save_expense_category(
 pub async fn pay_component_postings(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<infrastructure::PayComponentPosting>>, AppError> {
-    Ok(Json(infrastructure::pay_component_postings(&state.db).await?))
+    Ok(Json(
+        infrastructure::pay_component_postings(&state.db).await?,
+    ))
 }
 
 pub async fn set_pay_component_posting(
@@ -732,7 +748,9 @@ pub async fn save_tax_type(
 pub async fn accounting_dimensions(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<infrastructure::AccountingDimension>>, AppError> {
-    Ok(Json(infrastructure::accounting_dimensions(&state.db).await?))
+    Ok(Json(
+        infrastructure::accounting_dimensions(&state.db).await?,
+    ))
 }
 
 pub async fn save_accounting_dimension(
@@ -750,7 +768,9 @@ pub async fn save_dimension_value(
     Path(code): Path<String>,
     Json(value): Json<infrastructure::DimensionValue>,
 ) -> Result<Json<Vec<infrastructure::AccountingDimension>>, AppError> {
-    Ok(Json(infrastructure::save_dimension_value(&state.db, &code, &value).await?))
+    Ok(Json(
+        infrastructure::save_dimension_value(&state.db, &code, &value).await?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -822,7 +842,9 @@ pub async fn remove_head_office_account(
     State(state): State<AppState>,
     Path(code): Path<String>,
 ) -> Result<Json<Vec<infrastructure::HeadOfficeAccount>>, AppError> {
-    Ok(Json(infrastructure::remove_head_office_account(&state.db, &code).await?))
+    Ok(Json(
+        infrastructure::remove_head_office_account(&state.db, &code).await?,
+    ))
 }
 
 /// Whether automatic posting runs, globally and per document kind.
@@ -927,8 +949,12 @@ pub async fn run_journal_repeats(
     Extension(principal): Extension<Principal>,
 ) -> Result<Json<infrastructure::JournalRepeatSweep>, AppError> {
     Ok(Json(
-        infrastructure::run_journal_repeats(&state.db, Utc::now().date_naive(), &principal.username)
-            .await?,
+        infrastructure::run_journal_repeats(
+            &state.db,
+            Utc::now().date_naive(),
+            &principal.username,
+        )
+        .await?,
     ))
 }
 
@@ -937,7 +963,9 @@ pub async fn site_payment_methods(
     State(state): State<AppState>,
     Path(site): Path<String>,
 ) -> Result<Json<Vec<infrastructure::SitePaymentMethod>>, AppError> {
-    Ok(Json(infrastructure::site_payment_methods(&state.db, &site).await?))
+    Ok(Json(
+        infrastructure::site_payment_methods(&state.db, &site).await?,
+    ))
 }
 
 pub async fn set_site_payment_methods(
@@ -1564,13 +1592,8 @@ pub async fn return_bill(
     Json(request): Json<ReturnBillRequest>,
 ) -> Result<Json<SupplierBill>, AppError> {
     Ok(Json(
-        infrastructure::return_bill(
-            &state.db,
-            invoice_id,
-            &request.reason,
-            &principal.username,
-        )
-        .await?,
+        infrastructure::return_bill(&state.db, invoice_id, &request.reason, &principal.username)
+            .await?,
     ))
 }
 
@@ -2203,8 +2226,11 @@ pub async fn company_bank_accounts(
 ) -> Result<Json<Vec<CompanyBankAccount>>, AppError> {
     refuse_unknown_parameters(&params, &["unit"])?;
     Ok(Json(
-        infrastructure::list_accounts(&state.db, scope.unit(single_value(&params, "unit"))?.as_deref())
-            .await?,
+        infrastructure::list_accounts(
+            &state.db,
+            scope.unit(single_value(&params, "unit"))?.as_deref(),
+        )
+        .await?,
     ))
 }
 
@@ -2220,7 +2246,9 @@ pub async fn banking_readiness(
     // Head office's books by the unit's kind, from the one lookup that says
     // how (0605).
     let head_office = infrastructure::sites::head_office_unit_id(&state.db).await?;
-    Ok(Json(infrastructure::banking_readiness(&state.db, &head_office).await?))
+    Ok(Json(
+        infrastructure::banking_readiness(&state.db, &head_office).await?,
+    ))
 }
 
 /// The institutions, from the master, with what we keep at each.

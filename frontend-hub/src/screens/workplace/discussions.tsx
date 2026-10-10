@@ -41,10 +41,12 @@ import {
 import { toast } from "sonner"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Dialog, Panel } from "@/components/ui/dialog"
+import { Fab } from "@/components/ui/fab"
 import { Field, Input, Select } from "@/components/ui/field"
 import { ChoiceMenu } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
@@ -60,6 +62,7 @@ import {
   LoadingState,
 } from "@/components/ui/states"
 import { count, moment } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { queryState } from "@/lib/query-state"
 import {
   REACTIONS,
@@ -97,6 +100,13 @@ import { recordRoute } from "@/lib/record-route"
 import { useIdentity } from "@/lib/session"
 import { useSheet, type SheetSearch } from "@/lib/sheets"
 import { cn } from "@/lib/utils"
+import {
+  CardFigure,
+  type CardSpec,
+  DESK_BAR,
+  PhoneCards,
+} from "@/components/ui/phone-cards"
+import { FilterSheet } from "@/components/ui/filter-sheet"
 import { useAttachments } from "@/screens/workplace/attachments"
 import {
   ago,
@@ -281,6 +291,9 @@ function Board({
   // A blank composer is not a record, so there is nothing to put in the URL:
   // `?thread=` names a thread that exists, and a half-typed one does not.
   const [opening, setOpening] = useState(false)
+  const [filtering, setFiltering] = useState(false)
+  const phone = useLayout() === "phone"
+  const me = useIdentity().data?.username
 
   // The search goes to the server, so it follows the keystrokes at React's
   // pace rather than at the typist's: one request per pause, not per letter.
@@ -392,31 +405,142 @@ function Board({
         title="Discussions"
         sub="Arguments about records, readable by everybody who comes after."
         actions={
-          <>
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              className="h-8 w-56"
-            />
-            <Button variant="primary" onClick={() => setOpening(true)}>
-              Open a thread
-            </Button>
-          </>
+          // On a phone the search, the scope, the filters and the order are the
+          // dock's, and the one thing this page makes is its round button.
+          phone ? undefined : (
+            <>
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                className="h-8 w-56"
+              />
+              <Button variant="primary" onClick={() => setOpening(true)}>
+                Open a thread
+              </Button>
+            </>
+          )
         }
+      />
+
+      <Fab label="Open a thread" onClick={() => setOpening(true)} />
+      <DockTools
+        search={{
+          value: search,
+          onChange: setSearch,
+          label: "Search discussions",
+        }}
+        filter={{
+          count:
+            (status === null ? 0 : 1) +
+            (subject === null ? 0 : 1) +
+            (subjectId === null ? 0 : 1) +
+            (tag === null ? 0 : 1),
+          onOpen: () => setFiltering(true),
+        }}
+        sort={{
+          label: "Order",
+          choices: {
+            options: [
+              { value: "created", label: "Newest" },
+              { value: "replies", label: "Replies" },
+              { value: "views", label: "Views" },
+              { value: "activity", label: "Activity" },
+            ],
+            value: order,
+            desc: true,
+            onChange: (next) => setOrder((next || "activity") as ThreadOrder),
+          },
+        }}
+        status={{
+          value: feed,
+          options: FEEDS.map((one) => ({ value: one.value, label: one.label })),
+          onChange: (next) => setFeed(next as Feed),
+        }}
+      />
+      <FilterSheet
+        open={filtering}
+        onOpenChange={setFiltering}
+        groups={[
+          {
+            key: "status",
+            label: "Show",
+            value: status,
+            options: STATUSES.map((one) => ({
+              value: one.value as string | null,
+              label: one.label,
+            })),
+            onChange: setStatus,
+          },
+          {
+            key: "category",
+            label: "Category",
+            value: subject,
+            options: [
+              {
+                value: null,
+                label: "All topics",
+                count: (subjects.data ?? []).reduce(
+                  (sum, row) => sum + row.threads,
+                  0
+                ),
+              },
+              ...(subjects.data ?? []).map((row) => ({
+                value: row.subject_kind as string | null,
+                label: row.label,
+                count: row.threads,
+              })),
+            ],
+            onChange: (next) => void setSubject(next),
+          },
+          ...((tags.data ?? []).length === 0
+            ? []
+            : [
+                {
+                  key: "tag",
+                  label: "Tag",
+                  value: tag,
+                  options: [
+                    { value: null as string | null, label: "Any tag" },
+                    ...(tags.data ?? []).slice(0, 24).map((row) => ({
+                      value: row.tag as string | null,
+                      label: row.tag,
+                      count: row.threads,
+                    })),
+                  ],
+                  onChange: setTag,
+                },
+              ]),
+          ...(subjectId === null
+            ? []
+            : [
+                {
+                  key: "record",
+                  label: "About",
+                  value: subjectId as string | null,
+                  options: [
+                    { value: null as string | null, label: "Any record" },
+                    { value: subjectId as string | null, label: subjectId },
+                  ],
+                  onChange: () => void clearRecord(),
+                },
+              ]),
+        ]}
       />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[12.5rem_minmax(0,1fr)]">
         {/* The forum's own left rail: every category, always visible, with the
             count beside it. A dropdown would hide the one thing this rail is
             for — seeing at a glance where the arguments are. */}
-        <Rail
-          subjects={subjects}
-          selected={subject}
-          onSelect={(kind) => void setSubject(kind)}
-          tags={tags}
-          tag={tag}
-          onTag={setTag}
-        />
+        <div className="contents max-md:hidden">
+          <Rail
+            subjects={subjects}
+            selected={subject}
+            onSelect={(kind) => void setSubject(kind)}
+            tags={tags}
+            tag={tag}
+            onTag={setTag}
+          />
+        </div>
 
         <div className="min-w-0">
           {/* One row of tabs, not two.
@@ -425,7 +549,7 @@ function Board({
               it is tabs. The status is a FILTER over whichever scope that is,
               at rest for most readers, and a filter sitting open as four pills
               claims the same rank as the scope above it. So it is one menu. */}
-          <Toolbar className="mb-3">
+          <div className={cn(DESK_BAR, "mb-3")}>
             <Segmented options={FEEDS} value={feed} onChange={setFeed} />
             <ChoiceMenu
               heading="Show"
@@ -459,10 +583,26 @@ function Board({
                   ? "thread"
                   : "threads"}
             </span>
-          </Toolbar>
+          </div>
+
+          {/* On a phone the toolbar is the dock's, and what is left of it is the
+              one sentence that says how many. */}
+          <p className="mb-3 text-meta text-body md:hidden">
+            <b className="font-medium text-ink">
+              {count(rows.length)}
+              {threads.hasNextPage ? "+" : ""}
+            </b>{" "}
+            {filtered
+              ? rows.length === 1
+                ? "thread matches"
+                : "threads match"
+              : rows.length === 1
+                ? "thread"
+                : "threads"}
+          </p>
 
           {(subjectId !== null || tag !== null) && (
-            <div className="mb-3 flex flex-wrap items-center gap-1.5">
+            <div className="mb-3 flex flex-wrap items-center gap-1.5 max-md:hidden">
               {subjectId !== null && (
                 <FilterChip onRemove={() => void clearRecord()}>
                   About <span className="font-mono text-id">{subjectId}</span>
@@ -515,6 +655,27 @@ function Board({
                         : "Nobody has opened a discussion yet."}
               </EmptyState>
             </Card>
+          ) : phone ? (
+            <>
+              <PhoneCards
+                rows={rows}
+                rowId={(row) => row.thread_id}
+                spec={threadCard(me)}
+                onOpen={(row) => onOpen(row.thread_id)}
+                more={threads}
+              />
+              {feed === "unread" && (
+                <Button
+                  variant="ghost"
+                  className="mt-3 w-full"
+                  pending={dismiss.isPending}
+                  onClick={() => dismiss.mutate()}
+                >
+                  <CheckCheck />
+                  Mark all read
+                </Button>
+              )}
+            </>
           ) : (
             <Card className="overflow-hidden">
               <BoardHeader order={order} onOrder={setOrder} />
@@ -830,6 +991,58 @@ function freshness(thread: DiscussionThread, me: string | undefined) {
   return null
 }
 
+/// A thread as a phone's card: the title (pinned and bookmarked marks before
+/// it), which record it is about and what it was filed under, how many replies
+/// it has, when it last moved and by whom, and what is new in it for this reader.
+function threadCard(me: string | undefined): CardSpec<DiscussionThread> {
+  return {
+    title: (thread) => (
+      <span className="flex items-start gap-1.5">
+        {thread.pinned_at !== null && (
+          <Pin
+            aria-label="Pinned"
+            className="mt-1 size-3.5 shrink-0 rotate-45 text-accent"
+          />
+        )}
+        {thread.bookmarked_by_me && (
+          <Bookmark
+            aria-label="Bookmarked"
+            className="mt-1 size-3.5 shrink-0 fill-accent text-accent"
+          />
+        )}
+        <span className="min-w-0 break-words">{thread.title}</span>
+      </span>
+    ),
+    meta: [
+      (thread) => `${thread.subject_label} · ${thread.subject_id}`,
+      (thread) => (thread.tags.length === 0 ? null : thread.tags.join(" · ")),
+    ],
+    lead: (thread) => (
+      <CardFigure
+        value={count(thread.reply_count)}
+        caption={thread.reply_count === 1 ? "reply" : "replies"}
+        tone={thread.reply_count === 0 ? "quiet" : undefined}
+      />
+    ),
+    foot: (thread) =>
+      thread.last_poster !== null && thread.reply_count > 0
+        ? `${ago(thread.last_activity_at)} · last by ${thread.last_poster}`
+        : ago(thread.last_activity_at),
+    action: (thread) => {
+      const fresh = freshness(thread, me)
+      return fresh === "unread" ? (
+        <Pill tone="new">{thread.unread_count} new</Pill>
+      ) : fresh === "new" ? (
+        <Pill tone="new">New</Pill>
+      ) : thread.status !== "open" ? (
+        <Pill tone={threadTone(thread.status)}>
+          {THREAD_STATUS_LABEL[thread.status] ?? thread.status}
+        </Pill>
+      ) : null
+    },
+  }
+}
+
 /// One row of the board: the title, its category and tags underneath, then the
 /// numbers.
 function TopicRow({
@@ -882,7 +1095,7 @@ function TopicRow({
           {fresh === "unread" && (
             <span
               title={`${thread.unread_count} new since you last read it`}
-              className="mt-px inline-flex h-[1.125rem] min-w-[1.125rem] shrink-0 items-center justify-center rounded-full bg-accent px-1 text-[0.6875rem] font-semibold text-canvas tabular-nums"
+              className="mt-px inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-accent px-1 text-[0.875rem] leading-none font-semibold text-canvas tabular-nums"
             >
               {thread.unread_count > 99 ? "99+" : thread.unread_count}
             </span>

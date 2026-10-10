@@ -12,6 +12,7 @@ import {
   listFinanceSettings,
   setFinanceSetting,
 } from "@/lib/queries/finance"
+import { useLayout } from "@/lib/layout"
 import { queryState } from "@/lib/query-state"
 import { Grid, Td, Th } from "@/screens/finance-final/parts"
 import type { FinanceSetting } from "@itulah/contract"
@@ -43,6 +44,7 @@ function tidy(value: string): string {
 }
 
 export function FinanceSettings() {
+  const phone = useLayout() === "phone"
   const list = useQuery({
     queryKey: financeKeys.settings(),
     queryFn: ({ signal }) => listFinanceSettings(signal),
@@ -54,12 +56,18 @@ export function FinanceSettings() {
         crumb="Finance · Accounting Masters"
         title="Accounts Settings"
       />
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(list, {
           loading: "Reading the settings…",
           render: (rows) =>
             rows.length === 0 ? (
               <EmptyState>No setting is kept on this node.</EmptyState>
+            ) : phone ? (
+              <ul className="flex flex-col gap-2.5">
+                {rows.map((row) => (
+                  <SettingRow key={row.setting_key} setting={row} phone />
+                ))}
+              </ul>
             ) : (
               <Grid>
                 <thead>
@@ -82,7 +90,14 @@ export function FinanceSettings() {
   )
 }
 
-function SettingRow({ setting }: { setting: FinanceSetting }) {
+function SettingRow({
+  setting,
+  phone = false,
+}: {
+  setting: FinanceSetting
+  /// A card of its own on a phone: the name, what it does, and the control.
+  phone?: boolean
+}) {
   const client = useQueryClient()
   const current = tidy(setting.value)
   const [draft, setDraft] = useState(current)
@@ -100,6 +115,66 @@ function SettingRow({ setting }: { setting: FinanceSetting }) {
   })
 
   const changed = draft.trim() !== current && draft.trim() !== ""
+  const note = (setting.note ?? "").replace(/\s*\(\d{4}\)/g, "")
+
+  const control = (
+    <>
+      <div className="flex items-center gap-2">
+        {setting.unit === "flag" ? (
+          <Select
+            value={draft}
+            onChange={setDraft}
+            className="h-8 w-36"
+            aria-label={setting.setting_key}
+          >
+            <option value="0">Off</option>
+            <option value="1">On</option>
+          </Select>
+        ) : setting.unit === "IDR" ? (
+          <Money
+            value={draft}
+            onChange={setDraft}
+            prefix="Rp"
+            className="h-8 w-36"
+            label={setting.setting_key}
+          />
+        ) : (
+          <Input
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            inputMode="decimal"
+            className="h-8 w-24"
+            aria-label={setting.setting_key}
+          />
+        )}
+        {setting.unit !== "flag" && setting.unit !== "IDR" && (
+          <span className="shrink-0 text-mute">{setting.unit}</span>
+        )}
+        <Button
+          size="sm"
+          variant={changed ? "primary" : "quiet"}
+          pending={save.isPending}
+          disabled={!changed}
+          onClick={() => save.mutate()}
+        >
+          {save.isPending ? "Submitting…" : "Submit"}
+        </Button>
+      </div>
+      <Problem error={save.error} className="mt-1.5" />
+    </>
+  )
+
+  if (phone) {
+    return (
+      <li className="flex flex-col gap-2 rounded-card border border-hairline bg-canvas p-4 shadow-soft">
+        <div className="text-card-title font-semibold text-ink">
+          {NAMES[setting.setting_key] ?? setting.setting_key}
+        </div>
+        {note !== "" && <p className="text-[0.875rem] text-mute">{note}</p>}
+        <div className="mt-1">{control}</div>
+      </li>
+    )
+  }
 
   return (
     <tr>
@@ -108,56 +183,11 @@ function SettingRow({ setting }: { setting: FinanceSetting }) {
           {NAMES[setting.setting_key] ?? setting.setting_key}
         </div>
       </Td>
-      <Td>
-        <div className="flex items-center gap-2">
-          {setting.unit === "flag" ? (
-            <Select
-              value={draft}
-              onChange={setDraft}
-              className="h-8 w-36"
-              aria-label={setting.setting_key}
-            >
-              <option value="0">Off</option>
-              <option value="1">On</option>
-            </Select>
-          ) : setting.unit === "IDR" ? (
-            <Money
-              value={draft}
-              onChange={setDraft}
-              prefix="Rp"
-              className="h-8 w-36"
-              label={setting.setting_key}
-            />
-          ) : (
-            <Input
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              inputMode="decimal"
-              className="h-8 w-24"
-              aria-label={setting.setting_key}
-            />
-          )}
-          {setting.unit !== "flag" && setting.unit !== "IDR" && (
-            <span className="shrink-0 text-mute">{setting.unit}</span>
-          )}
-          <Button
-            size="sm"
-            variant={changed ? "primary" : "quiet"}
-            pending={save.isPending}
-            disabled={!changed}
-            onClick={() => save.mutate()}
-          >
-            {save.isPending ? "Submitting…" : "Submit"}
-          </Button>
-        </div>
-        <Problem error={save.error} className="mt-1.5" />
-      </Td>
+      <Td>{control}</Td>
       <Td className="whitespace-normal">
         {/* The note as the owner reads it: without the migration numbers the
             server's copy carries for its own reference. */}
-        <span className="text-body">
-          {(setting.note ?? "").replace(/\s*\(\d{4}\)/g, "")}
-        </span>
+        <span className="text-body">{note}</span>
       </Td>
     </tr>
   )

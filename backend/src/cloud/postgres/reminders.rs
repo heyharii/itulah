@@ -157,8 +157,7 @@ pub async fn run_document_reminders(pool: &PgPool, on: NaiveDate) -> Result<Valu
     for row in &rows {
         let document_id: String = row.try_get("document_id")?;
         let expires_on: NaiveDate = row.try_get("expires_on")?;
-        let Some(band) = reminder::expiry_band(expires_on, on, reminder::DOCUMENT_WARN_DAYS)
-        else {
+        let Some(band) = reminder::expiry_band(expires_on, on, reminder::DOCUMENT_WARN_DAYS) else {
             continue;
         };
         let run_key = format!("document:{document_id}:{expires_on}:{}", band.as_str());
@@ -180,7 +179,9 @@ pub async fn run_document_reminders(pool: &PgPool, on: NaiveDate) -> Result<Valu
         };
         let body = format!(
             "{label}{} — expires {expires_on} ({}).",
-            issuer.map(|i| format!(", issued by {i}")).unwrap_or_default(),
+            issuer
+                .map(|i| format!(", issued by {i}"))
+                .unwrap_or_default(),
             days_phrase(expires_on, on),
         );
         let detail =
@@ -501,6 +502,9 @@ mod tests {
         assert_eq!(days_phrase(on, on), "today");
         assert_eq!(days_phrase(on + chrono::Duration::days(1), on), "tomorrow");
         assert_eq!(days_phrase(on + chrono::Duration::days(9), on), "in 9 days");
-        assert_eq!(days_phrase(on - chrono::Duration::days(3), on), "3 days ago");
+        assert_eq!(
+            days_phrase(on - chrono::Duration::days(3), on),
+            "3 days ago"
+        );
     }
 }

@@ -40,7 +40,7 @@ import { percent, useActor } from "@/screens/commercial/shared"
 /// Did this campaign do what it was run for?
 ///
 /// The question the Promotions screen cannot ask. A promotion answers "this
-/// offer fired N times and gave away X"; a campaign answers "the Lebaran
+/// offer fired N times and gave away X"; a campaign answers "the Eid
 /// programme was run to clear seasonal stock, the line was 80%, and we are at
 /// 68%" — and without an objective, a metric and a line there is no way to
 /// write that sentence at all. Which is why a campaign with none says so here
@@ -59,8 +59,8 @@ import { percent, useActor } from "@/screens/commercial/shared"
 /// ## The window is the campaign's own, never the header's
 ///
 /// The tiles at the top of the screen roll over the last seven, thirty or
-/// ninety days. This does not, and must not: "did Lebaran hit its target" is
-/// asked over Lebaran's dates whatever today is, and scoring a finished
+/// ninety days. This does not, and must not: "did Eid hit its target" is
+/// asked over Eid's dates whatever today is, and scoring a finished
 /// campaign against the last thirty days would report every past campaign as a
 /// failure the month after it ended. The server resolves that window from the
 /// book; this screen cannot override it and has no parameter to try.
@@ -169,8 +169,8 @@ export const GOAL_ANCHOR = "campaign-goal"
 
 /// The goal: what the campaign is for, the line, and how far it has got.
 ///
-/// **Results are the campaign's own window, never the screen's.** "Did Lebaran
-/// hit its target" is asked over Lebaran's dates whatever today is; scoring a
+/// **Results are the campaign's own window, never the screen's.** "Did Eid
+/// hit its target" is asked over Eid's dates whatever today is; scoring a
 /// finished campaign against the last thirty days would report every past one
 /// as a failure. The server resolves that window from the book.
 export function CampaignGoal({
@@ -663,7 +663,7 @@ function IntentEditor({
             </Field>
           )}
 
-          {/* A campaign, not a period — Lebaran moves every year, so the
+          {/* A campaign, not a period — Eid moves every year, so the
               month before it is ordinary trading. */}
           <Field
             label="Compared with"

@@ -4,13 +4,15 @@ import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { AppLink } from "@/components/ui/app-link"
 import { Card } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Input } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
+import { Pill } from "@/components/ui/pill"
 import { MiniTable, TotalsLadder } from "@/components/ui/rows"
 import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
@@ -18,6 +20,7 @@ import { EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilterState, type Filter, type FilterField } from "@/lib/filters"
 import { count, money, moment } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   listReturns,
   returnDetail,
@@ -29,6 +32,13 @@ import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { useDebounced } from "@/lib/use-debounced"
+import {
+  CardFigure,
+  CardFoot,
+  CardName,
+  Fig,
+  Sentence,
+} from "@/components/ui/phone-cards"
 
 /// The refund desk: what went back over the counter and what it cost.
 ///
@@ -56,6 +66,7 @@ const columns: ColumnDef<TableSetup, ReturnRow>[] = [
     size: 200,
     // No filter: a document number is something you have in your hand, and
     // the search box beside the title already answers it.
+    meta: { card: "hide" },
     cell: ({ row }) => (
       <span className="font-mono text-id text-body">
         {row.original.return_number}
@@ -66,6 +77,7 @@ const columns: ColumnDef<TableSetup, ReturnRow>[] = [
     accessorKey: "site_id",
     header: "Store",
     size: 130,
+    meta: { card: "hide" },
     cell: ({ row }) => (
       <span className="font-medium text-ink">{row.original.site_id}</span>
     ),
@@ -77,6 +89,7 @@ const columns: ColumnDef<TableSetup, ReturnRow>[] = [
     // Prose somebody typed at a counter. The search box reads it; an order
     // over free text is not a question anybody asks.
     enableSorting: false,
+    meta: { card: "hide" },
     cell: ({ row }) => <span className="text-text">{row.original.reason}</span>,
   },
   {
@@ -86,11 +99,13 @@ const columns: ColumnDef<TableSetup, ReturnRow>[] = [
     // Filtered, not sorted: the server has no order for it, and sorting the
     // pages in hand would call a screenful the list.
     enableSorting: false,
+    meta: { card: "hide" },
   },
   {
     accessorKey: "created_at",
     header: "When",
     size: 160,
+    meta: { card: "hide" },
     cell: ({ row }) => moment(row.original.created_at),
   },
   {
@@ -98,12 +113,69 @@ const columns: ColumnDef<TableSetup, ReturnRow>[] = [
     header: "Refunded",
     size: 140,
     // The decision metric: money going back out of the till.
-    meta: { align: "right" },
+    meta: { align: "right", card: "hide" },
     cell: ({ row }) => (
       <span className="font-medium text-ink">
         {money(row.original.refund_total_minor)}
       </span>
     ),
+  },
+  // Four columns that exist only on a card (`cardLead`; a phone): the store over
+  // the return's number, what was refunded as the figure, when it was and who
+  // rang it, and why it came back as the tag (owner, 2026-10-06).
+  {
+    id: "head",
+    accessorFn: (row) => row.site_id,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <CardName name={row.original.site_id} code={row.original.return_number} />
+    ),
+  },
+  {
+    id: "lead",
+    accessorFn: (row) => row.refund_total_minor,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "lead" },
+    cell: ({ row }) => (
+      <CardFigure
+        value={money(row.original.refund_total_minor)}
+        caption="refunded"
+      />
+    ),
+  },
+  {
+    id: "foot",
+    accessorFn: (row) => row.created_at,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => (
+      <CardFoot>
+        {moment(row.original.created_at)} · {row.original.actor_id}
+      </CardFoot>
+    ),
+  },
+  {
+    id: "tag",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { align: "right", card: "status" },
+    cell: ({ row }) =>
+      row.original.reason === "" ? null : (
+        <Pill
+          className="block max-w-[9rem] truncate"
+          title={row.original.reason}
+        >
+          {row.original.reason}
+        </Pill>
+      ),
   },
 ]
 
@@ -205,6 +277,9 @@ function scopeFromFilters(filters: readonly Filter[]): ReturnScope {
 const PAGE = 100
 
 export function Returns() {
+  // A phone draws the rows as cards and keeps the search and the filters in the
+  // drawer over the bottom bar (`DockTools`).
+  const phone = useLayout() === "phone"
   const [query, setQuery] = useState("")
   const refund = useSheet("refund")
   const [sorting, setSorting] = useState<SortingState>([
@@ -273,12 +348,21 @@ export function Returns() {
         data: rows,
         columns,
         getRowId: (row: ReturnRow) => row.id,
-        state: { sorting },
+        state: {
+          sorting,
+          // The card's own columns are drawn on a phone and never on a desk.
+          columnVisibility: {
+            head: phone,
+            lead: phone,
+            foot: phone,
+            tag: phone,
+          },
+        },
         // The rows arrive in the order the request asked for.
         manualSorting: true,
         onSortingChange: setSorting,
       }),
-      [rows, sorting]
+      [rows, sorting, phone]
     )
   )
 
@@ -289,28 +373,39 @@ export function Returns() {
         title="Returns"
         sub="What came back over the counter, what it was refunded with, and whether it went back on the floor."
         actions={
-          <Input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            className="h-8 w-56"
-          />
+          phone ? undefined : (
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              className="h-8 w-56"
+            />
+          )
         }
       />
 
-      <Toolbar>
-        <FilterPanel model={{ ...filters, fields: counted }} />
-      </Toolbar>
+      {!phone && (
+        <Toolbar>
+          <FilterPanel model={{ ...filters, fields: counted }} />
+        </Toolbar>
+      )}
 
       {/* The server's figures over everything the search and the chips match,
           whatever has been scrolled into view. */}
-      {head !== undefined && (
-        <KpiStrip>
-          <Kpi label="Returns" value={count(head.total)} />
-          <Kpi label="Refunded" value={money(head.refund_total_minor)} />
-        </KpiStrip>
-      )}
+      {head !== undefined &&
+        (phone ? (
+          <Sentence>
+            <Fig>{count(head.total)}</Fig>{" "}
+            {head.total === 1 ? "return" : "returns"},{" "}
+            <Fig>{money(head.refund_total_minor)}</Fig> refunded.
+          </Sentence>
+        ) : (
+          <KpiStrip>
+            <Kpi label="Returns" value={count(head.total)} />
+            <Kpi label="Refunded" value={money(head.refund_total_minor)} />
+          </KpiStrip>
+        ))}
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(returns, {
           loading: "Loading the returns…",
           render: () =>
@@ -322,15 +417,34 @@ export function Returns() {
               </EmptyState>
             ) : (
               <DataTable<ReturnRow>
+                refresh={[returns]}
                 table={table}
                 onRowClick={(row) => refund.open(row.id)}
                 isSelected={(row) => row.id === refund.value}
                 more={returns}
+                cardSort={false}
+                cardsApart
+                cardLead
                 className="max-h-[calc(100dvh-20rem)]"
               />
             ),
         })}
       </Card>
+
+      {/* On a phone the search, the filters and the sort live in the drawer
+          over the bottom bar, not at the top of the list. */}
+      <DockTools
+        search={{ value: query, onChange: setQuery, label: "Search Returns" }}
+        filter={{
+          count: filters.filters.length,
+          panel: {
+            model: filters,
+            filterModel: { ...filters, fields: counted },
+            table,
+          },
+        }}
+        sort={dockSortOf(table)}
+      />
 
       <ReturnSheet id={refund.value ?? null} onClose={refund.close} />
     </PageContent>

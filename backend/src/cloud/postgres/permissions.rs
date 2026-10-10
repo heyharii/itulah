@@ -61,7 +61,9 @@ pub async fn set_role_permission(
     let role = permission.min_role.trim().to_ascii_uppercase();
     let prefix = permission.path_prefix.trim();
     if !prefix.starts_with("/api/") {
-        return Err(AppError::Validation("a permission covers a path under /api/".into()));
+        return Err(AppError::Validation(
+            "a permission covers a path under /api/".into(),
+        ));
     }
     // Nobody locks themselves out of the screen that gives access back.
     if prefix.starts_with("/api/v1/finance/permissions") && role != "ADMIN" {

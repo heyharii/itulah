@@ -4,10 +4,12 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
-import { ArrowLeft, Plus, Search, ShoppingBasket, Store } from "lucide-react"
+import { ArrowLeft, Plus, ShoppingBasket, Store } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockPortal } from "@/components/shell/dock"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Fab } from "@/components/ui/fab"
 import { Input } from "@/components/ui/field"
@@ -91,6 +93,8 @@ export function Sourcing() {
   /// Relevance is the absence of a sort rather than a value, so the plain URL
   /// is the plain catalogue and there is one spelling of "no order chosen".
   const sort = useSheet("sort")
+  /// A phone's Filter/Sort sheet, opened from the dock's ⚙.
+  const [showAt, setShowAt] = useState<"menu" | "filter" | "sort" | null>(null)
 
   const needle = (search.value ?? "").trim()
 
@@ -440,36 +444,6 @@ export function Sourcing() {
               breath. The rail also spent permanent width on a control most
               buyers touch twice a day, and this screen's grid is sized by what
               is left over. */}
-          {/* The phone: a plain search box and one button for filter, sort
-              and views (`ListOptionsSheet`) — the other books' shape. The
-              omnibox's menus are drawn for a pointer. From 48rem up it is the
-              omnibox, as it always was. */}
-          <div className="mb-3 flex items-center gap-1.5 md:hidden">
-            <span className="relative min-w-0 flex-1">
-              <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-line-ico" />
-              <input
-                value={search.value ?? ""}
-                onChange={(event) =>
-                  event.target.value
-                    ? search.open(event.target.value)
-                    : search.close()
-                }
-                aria-label="Search the catalogue"
-                enterKeyHint="search"
-                className="h-11 w-full rounded-inner border border-hairline-2 bg-canvas pr-3 pl-9 text-ink shadow-soft outline-none placeholder:text-body focus:border-accent"
-              />
-            </span>
-            <ListOptionsSheet
-              model={filters}
-              filterModel={{ ...filters, fields: counted }}
-              orders={{
-                options: SORTS,
-                value: sort.value ?? null,
-                onChange: (next) =>
-                  next === null ? sort.close() : sort.open(next),
-              }}
-            />
-          </div>
           <FilterOmnibox
             model={{ ...filters, fields: counted }}
             text={search.value ?? undefined}
@@ -515,6 +489,7 @@ export function Sourcing() {
             </div>
             <Button
               variant={picked > 0 ? "primary" : "ghost"}
+              className="max-md:hidden"
               onClick={() => cart.open(true)}
             >
               <ShoppingBasket />
@@ -522,6 +497,51 @@ export function Sourcing() {
               {picked > 0 && ` · ${count(picked)}`}
             </Button>
           </div>
+          {/* The phone: nothing to search or press at the top. The search, the
+              filter and the sort are the dock's, and so is the basket, as the
+              chip where a status would stand — a buyer reaches it with the
+              thumb, with what is picked on it. */}
+          <DockPortal slot="tabs">
+            <button
+              type="button"
+              onClick={() => cart.open(true)}
+              aria-haspopup="dialog"
+              aria-label={
+                picked > 0 ? `Basket, ${count(picked)} picked` : "Basket"
+              }
+              className="inline-flex h-9 max-w-full items-center gap-1.5 rounded-full bg-soft-2 pr-3 pl-3 text-[0.875rem] font-medium text-ink transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.97]"
+            >
+              <ShoppingBasket className="size-4 shrink-0 text-line-ico" />
+              Basket
+              {picked > 0 && (
+                <span className="tabular-nums">{count(picked)}</span>
+              )}
+            </button>
+          </DockPortal>
+          <DockTools
+            search={{
+              value: search.value ?? "",
+              onChange: (next) => (next ? search.open(next) : search.close()),
+              label: "Search Catalogue",
+            }}
+            filter={{
+              count: filters.filters.length + (sort.value ? 1 : 0),
+              onOpen: () => setShowAt("menu"),
+            }}
+          />
+          <ListOptionsSheet
+            hideTrigger
+            openAt={showAt}
+            onOpenAtChange={setShowAt}
+            model={filters}
+            filterModel={{ ...filters, fields: counted }}
+            orders={{
+              options: SORTS,
+              value: sort.value ?? null,
+              onChange: (next) =>
+                next === null ? sort.close() : sort.open(next),
+            }}
+          />
           <Fab label="Add Item" onClick={() => adding.open(true)} />
 
           {queryState(catalogue, {

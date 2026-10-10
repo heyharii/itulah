@@ -8,6 +8,7 @@ import { Pill, type PillProps } from "@/components/ui/pill"
 import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState } from "@/components/ui/states"
 import { day, money, span } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   bankStatementLines,
   financeKeys,
@@ -28,7 +29,13 @@ import {
   Th,
   TotalRow,
 } from "@/screens/finance-final/parts"
-import { UnitName, UnitSelect, WindowControl } from "@/screens/finance/parts"
+import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
+import {
+  PhoneFigures,
+  UnitName,
+  UnitSelect,
+  WindowControl,
+} from "@/screens/finance/parts"
 import { useWindow } from "@/screens/finance/hooks"
 import type {
   BankStatementLineRow,
@@ -94,6 +101,7 @@ import type {
 /// through the bank reconciliation that already exists and with no special case
 /// for deposits anywhere in it.
 export function Deposits() {
+  const phone = useLayout() === "phone"
   const [unit, setUnit] = useState("")
   const range = useWindow()
   const scoped = unit === "" ? null : unit
@@ -241,6 +249,7 @@ export function Deposits() {
   return (
     <PageContent>
       <PageHeader
+        className="max-md:hidden"
         crumb="Finance · Cash & Bank"
         title="Deposits"
         sub="Takings on their way from a drawer to a bank account."
@@ -267,46 +276,68 @@ export function Deposits() {
           )
           return (
             <div className="flex flex-col gap-4">
-              <CardRow>
-                <NumberCard
-                  label="Still in the drawers"
-                  value={inDrawers}
-                  note={
-                    drawers.length === 0
-                      ? "no cash account is mapped in scope"
-                      : neverCounted === 0
-                        ? `${drawers.length} ${drawers.length === 1 ? "drawer" : "drawers"}, every one counted at least once`
-                        : `${neverCounted} of ${drawers.length} ${drawers.length === 1 ? "drawer has" : "drawers have"} never been counted`
-                  }
-                  tone={neverCounted === 0 ? undefined : "warn"}
-                />
-                <NumberCard
-                  label="In a bag, somewhere"
-                  value={page.in_transit_minor}
-                  tone={page.in_transit_minor === 0 ? "ok" : "warn"}
-                  note={
-                    flying.length === 0
-                      ? "every deposit has been confirmed by a bank"
-                      : `${flying.length} ${flying.length === 1 ? "deposit" : "deposits"}, the oldest ${oldest} ${oldest === 1 ? "day" : "days"} out`
-                  }
-                />
-                <NumberCard
-                  label="Bank credits nothing claims"
-                  value={inScope.length === 0 ? null : unclaimed}
-                  tone={
-                    inScope.length === 0
-                      ? undefined
-                      : unclaimed === 0
-                        ? "ok"
-                        : "bad"
-                  }
-                  note={
-                    inScope.length === 0
-                      ? "no statement covers this window"
-                      : `of ${money(landed)} credited across ${inScope.length} ${inScope.length === 1 ? "statement" : "statements"}`
-                  }
-                />
-              </CardRow>
+              <PhoneFigures
+                items={[
+                  { label: "Still in the drawers", value: inDrawers },
+                  {
+                    label: "In a bag, somewhere",
+                    value: page.in_transit_minor,
+                    tone: page.in_transit_minor === 0 ? "ok" : "warn",
+                  },
+                  {
+                    label: "Bank credits nothing claims",
+                    value: inScope.length === 0 ? null : unclaimed,
+                    tone:
+                      inScope.length === 0
+                        ? undefined
+                        : unclaimed === 0
+                          ? "ok"
+                          : "bad",
+                  },
+                ]}
+              />
+              <div className="max-md:hidden">
+                <CardRow>
+                  <NumberCard
+                    label="Still in the drawers"
+                    value={inDrawers}
+                    note={
+                      drawers.length === 0
+                        ? "no cash account is mapped in scope"
+                        : neverCounted === 0
+                          ? `${drawers.length} ${drawers.length === 1 ? "drawer" : "drawers"}, every one counted at least once`
+                          : `${neverCounted} of ${drawers.length} ${drawers.length === 1 ? "drawer has" : "drawers have"} never been counted`
+                    }
+                    tone={neverCounted === 0 ? undefined : "warn"}
+                  />
+                  <NumberCard
+                    label="In a bag, somewhere"
+                    value={page.in_transit_minor}
+                    tone={page.in_transit_minor === 0 ? "ok" : "warn"}
+                    note={
+                      flying.length === 0
+                        ? "every deposit has been confirmed by a bank"
+                        : `${flying.length} ${flying.length === 1 ? "deposit" : "deposits"}, the oldest ${oldest} ${oldest === 1 ? "day" : "days"} out`
+                    }
+                  />
+                  <NumberCard
+                    label="Bank credits nothing claims"
+                    value={inScope.length === 0 ? null : unclaimed}
+                    tone={
+                      inScope.length === 0
+                        ? undefined
+                        : unclaimed === 0
+                          ? "ok"
+                          : "bad"
+                    }
+                    note={
+                      inScope.length === 0
+                        ? "no statement covers this window"
+                        : `of ${money(landed)} credited across ${inScope.length} ${inScope.length === 1 ? "statement" : "statements"}`
+                    }
+                  />
+                </CardRow>
+              </div>
 
               <section className="flex flex-col gap-2">
                 <Heading
@@ -336,6 +367,42 @@ export function Deposits() {
                       </>
                     )}
                   </EmptyState>
+                ) : phone ? (
+                  <PhoneList
+                    rows={inWindow.map((row) => {
+                      const stage = STAGES[row.status]
+                      return {
+                        key: row.deposit_id,
+                        title: <UnitName id={row.unit_id} />,
+                        code: row.deposit_number,
+                        lead: <CardFigure value={money(row.amount_minor)} />,
+                        foot: (
+                          <span className="flex flex-col">
+                            <span>
+                              Left the till {day(row.banked_on)} · carried by{" "}
+                              {row.carried_by}
+                            </span>
+                            <span>
+                              {row.drawer_account_name} →{" "}
+                              {row.bank_account_name}
+                            </span>
+                            {row.status === "IN_TRANSIT" && (
+                              <span>
+                                {row.days_in_transit === 0
+                                  ? "banked today"
+                                  : `${row.days_in_transit} ${row.days_in_transit === 1 ? "day" : "days"} out`}
+                              </span>
+                            )}
+                          </span>
+                        ),
+                        action: (
+                          <Pill tone={stage?.tone ?? "neutral"}>
+                            {stage?.name ?? row.status}
+                          </Pill>
+                        ),
+                      }
+                    })}
+                  />
                 ) : (
                   <Grid>
                     <thead>
@@ -406,6 +473,42 @@ export function Deposits() {
                       ? "No bank statement covering this window has been imported for the unit in scope."
                       : "The statements covering this window carry no incoming line — the bank credited nothing in it."}
                   </EmptyState>
+                ) : phone ? (
+                  <PhoneList
+                    rows={arrivals.map(({ line, statement }) => ({
+                      key: line.line_id,
+                      title: line.description,
+                      code: line.reference ?? undefined,
+                      line:
+                        line.party_name === "" ? undefined : line.party_name,
+                      lead: (
+                        <CardFigure
+                          value={money(line.credit_minor)}
+                          caption="credited"
+                        />
+                      ),
+                      foot: (
+                        <span className="flex flex-col tabular-nums">
+                          <span>
+                            {day(line.value_date)} · {statement.account_name}
+                          </span>
+                          {line.unallocated_minor !== 0 && (
+                            <span className="text-bad-fg">
+                              {money(line.unallocated_minor)} not agreed
+                            </span>
+                          )}
+                        </span>
+                      ),
+                      action:
+                        line.unallocated_minor === 0 ? (
+                          <Pill tone="ok">agreed</Pill>
+                        ) : line.allocated_minor === 0 ? (
+                          <Pill tone="bad">unexplained</Pill>
+                        ) : (
+                          <Pill tone="warn">part agreed</Pill>
+                        ),
+                    }))}
+                  />
                 ) : (
                   <Grid>
                     <thead>

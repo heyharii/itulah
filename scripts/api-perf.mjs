@@ -70,6 +70,20 @@ const arg = (name, fallback) => {
 }
 const RUNS = arg("runs", 7)
 const BUDGET = arg("budget", 100)
+// `--only pos` measures the rows whose NAME contains the substring — an edge
+// node answers only the pos/* rows and every cloud row would print as 404.
+const onlyIndex = process.argv.indexOf("--only")
+const ONLY = onlyIndex > 0 ? String(process.argv[onlyIndex + 1] ?? "") : ""
+// An edge node with sign-in required answers 401 without a bearer. Export
+// PERF_TOKEN (login once, then reuse) and every request below carries it.
+const TOKEN = process.env.PERF_TOKEN ?? ""
+// A sandbox gateway serves many businesses and wants to be told which one:
+// `PERF_BUSINESS=<slug>` sends it as `x-itulah-business`.
+const BUSINESS = process.env.PERF_BUSINESS ?? ""
+const AUTH = {
+  ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
+  ...(BUSINESS ? { "x-itulah-business": BUSINESS } : {}),
+}
 
 /// The lists a person actually waits on. Not every route — the ones behind a
 /// screen that draws a table, which is where a slow answer is felt.
@@ -107,6 +121,17 @@ const ENDPOINTS = [
   // has to earn it by being bounded, and the only way to keep that claim
   // honest is to watch the number. A row here is a building.
   ["purchase-destinations", "/api/v1/purchase-destinations"],
+  // ── the till (store edge). Run against a seeded edge node with PERF_TOKEN
+  // set (scripts/benchmark-pos-edge.py boots one). The catalog page is the
+  // size the desk actually pulls (frontend-store-new queries.ts fetches whole
+  // book in limit=500 pages); identities is what a handheld syncs. The POST
+  // paths — quote, sale, receipt print — are not lists; they are measured by
+  // scripts/benchmark-pos-edge.py.
+  ["pos/catalog-page", "/api/v1/store/catalog?limit=500"],
+  // A handheld syncs identities for its resident page of SKUs in one call
+  // (`?skus=` comma list, edge/http.rs catalog_identities) — bounded by the
+  // request, so the harness measures the page worth a handheld holds.
+  ["pos/catalog-identities", `/api/v1/catalog/identities?skus=${Array.from({ length: 100 }, (_, i) => `B${String(i).padStart(5, "0")}`).join(",")}`],
 ]
 
 /// Does the body prove there is a way to the rows past this page?
@@ -139,7 +164,7 @@ async function time(path) {
     const started = performance.now()
     let res
     try {
-      res = await fetch(`${API}${path}`)
+      res = await fetch(`${API}${path}`, { headers: AUTH })
     } catch {
       return { error: "unreachable" }
     }
@@ -175,6 +200,7 @@ console.log(`  median   worst  rows  pages  endpoint`)
 
 const results = []
 for (const [name, path] of ENDPOINTS) {
+  if (ONLY && !name.includes(ONLY)) continue
   const r = await time(path)
   if (r.error) {
     console.log(`  ${"—".padStart(6)}  ${"".padStart(6)}              ${name}  (${r.error})`)

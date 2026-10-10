@@ -187,10 +187,12 @@ async fn unit_subject_tx(
     .bind(epc)
     .execute(&mut **tx)
     .await?;
-    Ok(sqlx::query_scalar("SELECT id FROM inventory_subject WHERE epc = $1")
-        .bind(epc)
-        .fetch_optional(&mut **tx)
-        .await?)
+    Ok(
+        sqlx::query_scalar("SELECT id FROM inventory_subject WHERE epc = $1")
+            .bind(epc)
+            .fetch_optional(&mut **tx)
+            .await?,
+    )
 }
 
 /// Write one movement group into the cloud's ledger, through the same two

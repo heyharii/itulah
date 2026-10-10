@@ -12,9 +12,11 @@ use crate::{
 use chrono::{DateTime, Duration, SecondsFormat, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use std::{
+    collections::HashMap,
     env,
     str::FromStr,
     sync::{Arc, Mutex, MutexGuard},
+    time::Instant,
 };
 use uuid::Uuid;
 
@@ -37,12 +39,12 @@ pub const SIGNED_IN_ELSEWHERE: &str = "SIGNED_IN_ELSEWHERE";
 /// cannot be written to replay.
 pub(crate) fn ensure_session_reason(connection: &Connection) -> Result<(), EdgeError> {
     let present: i64 = connection
-        .query_row(
+        .prepare_cached(
             "SELECT COUNT(*) FROM pragma_table_info('edge_auth_session')
               WHERE name='revoked_reason'",
-            [],
-            |row| row.get(0),
         )
+        .map_err(db)?
+        .query_row([], |row| row.get(0))
         .map_err(db)?;
     if present == 0 {
         connection
@@ -184,7 +186,41 @@ pub struct EdgeAuth {
     connection: Arc<Mutex<Connection>>,
     node: NodeContext,
     config: EdgeAuthConfig,
+    /// The session table, remembered for a few seconds (POS-PERFORMANCE-PLAN
+    /// Phase 3). `authenticate` used to pay one SELECT — and one
+    /// last_seen_at UPDATE — on the shared connection for EVERY
+    /// authenticated request, so a cashier's catalog page cost two DB
+    /// statements before its own thirteen. The cache is keyed by the token's
+    /// sha256; a hit answers without touching SQLite at all.
+    ///
+    /// Correctness: every LOCAL revocation (logout, change-password,
+    /// sign-in-elsewhere) clears the whole cache, so those take effect on the
+    /// next request. The one staleness window left is a credential change
+    /// applied by a cloud policy projection — it lands within the TTL
+    /// (`SESSION_CACHE_TTL`, 5 s) instead of instantly. That is the trade:
+    /// five seconds of tail on a remote admin action, in exchange for zero
+    /// DB statements per request on the hot path.
+    sessions: Arc<Mutex<HashMap<String, CachedSession>>>,
 }
+
+/// What a cache hit is allowed to answer with, and until when.
+#[derive(Clone)]
+struct CachedSession {
+    session_id: Uuid,
+    user_id: Uuid,
+    username: String,
+    display_name: String,
+    role: Role,
+    source: String,
+    csrf_hash: String,
+    /// The session's own expiry, enforced on hits too — a TTL must never
+    /// keep a dead session alive past its row.
+    expires_at: DateTime<Utc>,
+    cached_until: Instant,
+}
+
+/// How long an authenticated token may be answered from memory.
+const SESSION_CACHE_TTL: Duration = Duration::seconds(5);
 
 struct LoginRow {
     id: String,
@@ -211,6 +247,7 @@ struct SessionRow {
     csrf_hash: String,
     last_seen: String,
     valid_until: Option<String>,
+    expires_at: String,
 }
 
 impl EdgeAuth {
@@ -223,6 +260,7 @@ impl EdgeAuth {
             connection,
             node,
             config,
+            sessions: Arc::new(Mutex::new(HashMap::new())),
         };
         {
             let connection = auth.lock()?;
@@ -262,7 +300,9 @@ impl EdgeAuth {
         }
         let connection = self.lock()?;
         let users: i64 = connection
-            .query_row("SELECT count(*) FROM edge_user", [], |row| row.get(0))
+            .prepare_cached("SELECT count(*) FROM edge_user")
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         if users > 0 {
             return Ok(());
@@ -277,13 +317,14 @@ impl EdgeAuth {
             .map_err(EdgeError::Configuration)?;
         let now = now_text();
         connection
-            .execute(
+            .prepare_cached(
                 "INSERT INTO edge_user
                      (id,username,display_name,password_hash,role,active,auth_version,source,
                       policy_version,valid_until,created_at,updated_at)
                  VALUES(?1,'admin','Administrator',?2,'ADMIN',1,1,'LOCAL',NULL,NULL,?3,?3)",
-                params![Uuid::new_v4().to_string(), password_hash, now],
             )
+            .map_err(db)?
+            .execute(params![Uuid::new_v4().to_string(), password_hash, now])
             .map_err(db)?;
         tracing::info!("Edge bootstrap admin user created");
         Ok(())
@@ -298,29 +339,29 @@ impl EdgeAuth {
         let username = username.trim().to_ascii_lowercase();
         let mut connection = self.lock()?;
         let row: Option<LoginRow> = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT id,username,display_name,password_hash,role,active,auth_version,
                         source,valid_until,failed_login_count,
                         failed_login_window_started_at,login_blocked_until
                  FROM edge_user WHERE username=?1",
-                params![username],
-                |row| {
-                    Ok(LoginRow {
-                        id: row.get(0)?,
-                        username: row.get(1)?,
-                        display_name: row.get(2)?,
-                        password_hash: row.get(3)?,
-                        role: row.get(4)?,
-                        active: row.get(5)?,
-                        auth_version: row.get(6)?,
-                        source: row.get(7)?,
-                        valid_until: row.get(8)?,
-                        failed_login_count: row.get(9)?,
-                        failed_login_window_started_at: row.get(10)?,
-                        login_blocked_until: row.get(11)?,
-                    })
-                },
             )
+            .map_err(db)?
+            .query_row(params![username], |row| {
+                Ok(LoginRow {
+                    id: row.get(0)?,
+                    username: row.get(1)?,
+                    display_name: row.get(2)?,
+                    password_hash: row.get(3)?,
+                    role: row.get(4)?,
+                    active: row.get(5)?,
+                    auth_version: row.get(6)?,
+                    source: row.get(7)?,
+                    valid_until: row.get(8)?,
+                    failed_login_count: row.get(9)?,
+                    failed_login_window_started_at: row.get(10)?,
+                    login_blocked_until: row.get(11)?,
+                })
+            })
             .optional()
             .map_err(db)?;
         let denied = || EdgeError::Unauthorized("invalid username or password".into());
@@ -374,19 +415,20 @@ impl EdgeAuth {
                 let blocked_until = (failures >= LOGIN_FAILURE_LIMIT)
                     .then(|| time_text(now + Duration::minutes(15)));
                 connection
-                    .execute(
+                    .prepare_cached(
                         "UPDATE edge_user
                          SET failed_login_count=?2,failed_login_window_started_at=?3,
                              login_blocked_until=?4,updated_at=?5
                          WHERE id=?1",
-                        params![
-                            id,
-                            failures,
-                            time_text(window_started_at),
-                            blocked_until,
-                            time_text(now),
-                        ],
                     )
+                    .map_err(db)?
+                    .execute(params![
+                        id,
+                        failures,
+                        time_text(window_started_at),
+                        blocked_until,
+                        time_text(now),
+                    ])
                     .map_err(db)?;
             }
             return Err(denied());
@@ -434,25 +476,25 @@ impl EdgeAuth {
             Option<String>,
             Option<String>,
         )> = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT id,username,display_name,role,active,auth_version,source,
                             valid_until,login_blocked_until
                      FROM edge_user WHERE username=?1",
-                params![username],
-                |row| {
-                    Ok((
-                        row.get(0)?,
-                        row.get(1)?,
-                        row.get(2)?,
-                        row.get(3)?,
-                        row.get(4)?,
-                        row.get(5)?,
-                        row.get(6)?,
-                        row.get(7)?,
-                        row.get(8)?,
-                    ))
-                },
             )
+            .map_err(db)?
+            .query_row(params![username], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                    row.get(7)?,
+                    row.get(8)?,
+                ))
+            })
             .optional()
             .map_err(db)?;
         let Some((
@@ -527,19 +569,14 @@ impl EdgeAuth {
 
         let mut connection = self.lock()?;
         let trust: Option<(String, String, Option<String>, i64)> = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT origin_id,node_role,public_key_hex,policy_version
                  FROM edge_sso_trust WHERE singleton=1 AND valid_until>?1",
-                params![now_text()],
-                |row| {
-                    Ok((
-                        row.get(0)?,
-                        row.get(1)?,
-                        row.get(2)?,
-                        row.get(3)?,
-                    ))
-                },
             )
+            .map_err(db)?
+            .query_row(params![now_text()], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })
             .optional()
             .map_err(db)?;
         let Some((trusted_origin, trusted_role, public_key, policy_version)) = trust else {
@@ -579,11 +616,14 @@ impl EdgeAuth {
         }
 
         let user: Option<(String, String, String, String, i64)> = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT id,username,display_name,role,auth_version
                  FROM edge_user
                  WHERE id=?1 AND source='CLOUD' AND active=1
                    AND policy_version=?2 AND valid_until>?3",
+            )
+            .map_err(db)?
+            .query_row(
                 params![user_id.to_string(), policy_version, time_text(now)],
                 |row| {
                     Ok((
@@ -612,12 +652,13 @@ impl EdgeAuth {
                 params![now_epoch],
             )
             .map_err(db)?;
-        let inserted = transaction.execute(
-            "INSERT OR IGNORE INTO edge_sso_ticket_replay(jti,expires_at_epoch)
+        let inserted = transaction
+            .execute(
+                "INSERT OR IGNORE INTO edge_sso_ticket_replay(jti,expires_at_epoch)
              VALUES(?1,?2)",
-            params![jti.to_string(), claims.exp],
-        )
-        .map_err(db)?;
+                params![jti.to_string(), claims.exp],
+            )
+            .map_err(db)?;
         if inserted != 1 {
             return Err(EdgeError::Unauthorized(
                 "Cloud SSO ticket has already been used".into(),
@@ -713,6 +754,7 @@ impl EdgeAuth {
                 )
                 .map_err(db)?;
         }
+        self.invalidate_sessions();
         let token = security::random_token();
         let csrf_token = security::random_token();
         let session_id = Uuid::new_v4();
@@ -764,30 +806,47 @@ impl EdgeAuth {
         token: &str,
         authenticated_with_cookie: bool,
     ) -> Result<(EdgePrincipal, String), EdgeError> {
+        let token_sha = security::sha256_hex(token);
+        if let Some(hit) = self.cached_session(&token_sha) {
+            return Ok((
+                EdgePrincipal {
+                    session_id: hit.session_id,
+                    user_id: hit.user_id,
+                    username: hit.username,
+                    display_name: hit.display_name,
+                    role: hit.role,
+                    source: hit.source,
+                    authenticated_with_cookie,
+                },
+                hit.csrf_hash,
+            ));
+        }
         let connection = self.lock()?;
         let row: Option<SessionRow> = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT s.session_id,u.id,u.username,u.display_name,u.role,u.source,
-                        u.auth_version,s.csrf_token_sha256,s.last_seen_at,u.valid_until
+                        u.auth_version,s.csrf_token_sha256,s.last_seen_at,u.valid_until,
+                        s.expires_at
                  FROM edge_auth_session s JOIN edge_user u ON u.id=s.user_id
                  WHERE s.token_sha256=?1 AND s.revoked_at IS NULL AND s.expires_at>?2
                    AND u.active=1 AND u.auth_version=s.auth_version",
-                params![security::sha256_hex(token), now_text()],
-                |row| {
-                    let _auth_version: i64 = row.get(6)?;
-                    Ok(SessionRow {
-                        session_id: row.get(0)?,
-                        user_id: row.get(1)?,
-                        username: row.get(2)?,
-                        display_name: row.get(3)?,
-                        role: row.get(4)?,
-                        source: row.get(5)?,
-                        csrf_hash: row.get(7)?,
-                        last_seen: row.get(8)?,
-                        valid_until: row.get(9)?,
-                    })
-                },
             )
+            .map_err(db)?
+            .query_row(params![token_sha, now_text()], |row| {
+                let _auth_version: i64 = row.get(6)?;
+                Ok(SessionRow {
+                    session_id: row.get(0)?,
+                    user_id: row.get(1)?,
+                    username: row.get(2)?,
+                    display_name: row.get(3)?,
+                    role: row.get(4)?,
+                    source: row.get(5)?,
+                    csrf_hash: row.get(7)?,
+                    last_seen: row.get(8)?,
+                    valid_until: row.get(9)?,
+                    expires_at: row.get(10)?,
+                })
+            })
             .optional()
             .map_err(db)?;
         let Some(SessionRow {
@@ -800,16 +859,19 @@ impl EdgeAuth {
             csrf_hash,
             last_seen,
             valid_until,
+            expires_at,
         }) = row
         else {
             // Say why when the reason is one the person can act on: a device
             // pushed out by a sign-in elsewhere should say so, not "expired".
             let reason: Option<String> = connection
-                .query_row(
+                .prepare_cached(
                     "SELECT revoked_reason FROM edge_auth_session WHERE token_sha256=?1",
-                    params![security::sha256_hex(token)],
-                    |row| row.get::<_, Option<String>>(0),
                 )
+                .map_err(db)?
+                .query_row(params![security::sha256_hex(token)], |row| {
+                    row.get::<_, Option<String>>(0)
+                })
                 .optional()
                 .map_err(db)?
                 .flatten();
@@ -832,24 +894,64 @@ impl EdgeAuth {
             return Err(EdgeError::Unauthorized("invalid or expired session".into()));
         }
         connection
-            .execute(
-                "UPDATE edge_auth_session SET last_seen_at=?2 WHERE session_id=?1",
-                params![session_id, now_text()],
-            )
+            .prepare_cached("UPDATE edge_auth_session SET last_seen_at=?2 WHERE session_id=?1")
+            .map_err(db)?
+            .execute(params![session_id, now_text()])
             .map_err(db)?;
+        let role =
+            Role::from_str(&role).map_err(|error| EdgeError::Persistence(error.to_string()))?;
+        let session_id = parse_uuid(&session_id, "session")?;
+        let user_id = parse_uuid(&user_id, "user")?;
+        let expires_at = parse_time(&expires_at)?;
+        if let Ok(mut cache) = self.sessions.lock() {
+            cache.insert(
+                token_sha,
+                CachedSession {
+                    session_id,
+                    user_id,
+                    username: username.clone(),
+                    display_name: display_name.clone(),
+                    role,
+                    source: source.clone(),
+                    csrf_hash: csrf_hash.clone(),
+                    expires_at,
+                    cached_until: Instant::now() + SESSION_CACHE_TTL.to_std().unwrap_or_default(),
+                },
+            );
+        }
         Ok((
             EdgePrincipal {
-                session_id: parse_uuid(&session_id, "session")?,
-                user_id: parse_uuid(&user_id, "user")?,
+                session_id,
+                user_id,
                 username,
                 display_name,
-                role: Role::from_str(&role)
-                    .map_err(|error| EdgeError::Persistence(error.to_string()))?,
+                role,
                 source,
                 authenticated_with_cookie,
             },
             csrf_hash,
         ))
+    }
+
+    /// A hit only counts while the TTL holds AND the session row has not
+    /// expired underneath it.
+    fn cached_session(&self, token_sha: &str) -> Option<CachedSession> {
+        let mut cache = self.sessions.lock().ok()?;
+        let hit = cache.get_mut(token_sha)?;
+        if hit.cached_until <= Instant::now() || hit.expires_at <= Utc::now() {
+            cache.remove(token_sha);
+            return None;
+        }
+        Some(hit.clone())
+    }
+
+    /// Forget every remembered session. Called on each LOCAL revocation, so
+    /// a logout, a password change or a sign-in-elsewhere bites on the very
+    /// next request.
+    fn invalidate_sessions(&self) {
+        if let Ok(mut cache) = self.sessions.lock() {
+            cache.clear();
+        }
     }
 
     pub fn logout(&self, session_id: Uuid) -> Result<(), EdgeError> {
@@ -859,6 +961,7 @@ impl EdgeAuth {
                 params![session_id.to_string(), now_text()],
             )
             .map_err(db)?;
+        self.invalidate_sessions();
         Ok(())
     }
 
@@ -876,11 +979,11 @@ impl EdgeAuth {
             .map_err(EdgeError::Validation)?;
         let mut connection = self.lock()?;
         let row: Option<(String, String, i64)> = connection
-            .query_row(
-                "SELECT password_hash,source,active FROM edge_user WHERE id=?1",
-                params![user_id.to_string()],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            )
+            .prepare_cached("SELECT password_hash,source,active FROM edge_user WHERE id=?1")
+            .map_err(db)?
+            .query_row(params![user_id.to_string()], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
             .optional()
             .map_err(db)?;
         let Some((stored_hash, source, active)) = row else {
@@ -914,6 +1017,7 @@ impl EdgeAuth {
             )
             .map_err(db)?;
         transaction.commit().map_err(db)?;
+        self.invalidate_sessions();
         Ok(())
     }
 
@@ -1013,25 +1117,25 @@ mod tests {
             .lock()
             .unwrap_or_else(|error| panic!("connection: {error}"));
         connection
-            .execute(
+            .prepare_cached(
                 "INSERT INTO edge_user
                      (id,username,display_name,password_hash,role,active,auth_version,source,
                       policy_version,valid_until,created_at,updated_at)
                  VALUES(?1,'dc.operator','DC Operator',?4,'SUPERVISOR',1,3,'CLOUD',
                         4,?2,?3,?3)",
-                params![
-                    user_id.to_string(),
-                    time_text(now + Duration::hours(12)),
-                    time_text(now),
-                    crate::security::SSO_ONLY_VERIFIER,
-                ],
             )
+            .map_err(db)?
+            .execute(params![
+                user_id.to_string(),
+                time_text(now + Duration::hours(12)),
+                time_text(now),
+                crate::security::SSO_ONLY_VERIFIER,
+            ])
             .unwrap_or_else(|error| panic!("Cloud user: {error}"));
-        connection
-            .execute(
-                "INSERT INTO edge_sso_trust
+        connection.prepare_cached("INSERT INTO edge_sso_trust
                      (singleton,origin_id,node_role,policy_version,public_key_hex,valid_until,updated_at)
-                 VALUES(1,'dc-01-edge','DC',4,?1,?2,?3)",
+                 VALUES(1,'dc-01-edge','DC',4,?1,?2,?3)"
+    ).map_err(db)?.execute(
                 params![public_key, time_text(now + Duration::hours(24)), time_text(now)],
             )
             .unwrap_or_else(|error| panic!("SSO trust: {error}"));
@@ -1173,7 +1277,10 @@ mod tests {
             .unwrap_or_else(|error| panic!("connection: {error}"))
             .execute(
                 "UPDATE edge_user SET valid_until=?2 WHERE id=?1",
-                params![user_id.to_string(), time_text(Utc::now() - Duration::seconds(1))],
+                params![
+                    user_id.to_string(),
+                    time_text(Utc::now() - Duration::seconds(1))
+                ],
             )
             .unwrap_or_else(|error| panic!("expire lease: {error}"));
         let ticket = cloud_ticket(&seed, user_id, "dc-01-edge");

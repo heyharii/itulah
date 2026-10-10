@@ -5,13 +5,24 @@ import {
   useQueryClient,
 } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { Camera, Pencil } from "lucide-react"
+import { Camera, ChevronDown, Pencil } from "lucide-react"
 import { Popover } from "@base-ui/react/popover"
-import { useEffect, useId, useMemo, useRef, useState } from "react"
+import { useTable, type ColumnDef } from "@tanstack/react-table"
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import { createPortal } from "react-dom"
 
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
 import { SavedDialog } from "@/components/ui/dialog"
 import { Field, Input, Money } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
@@ -33,7 +44,9 @@ import {
   quantityCheckKeys,
   type QuantityCheckCell,
 } from "@/lib/queries/quantity-checks"
-import { ago, count, money } from "@/lib/format"
+import { ago, count, money, quantity } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
+import { tableSetup, type TableSetup } from "@/lib/table"
 import { asJpeg, PICTURE_TYPES } from "@/lib/image"
 import {
   clearSetupDraft,
@@ -72,8 +85,8 @@ import {
   type SetupSession,
   type UnidentifiedReceipt,
   catalogueVocabulary,
-  openSetupSession,
-  openSplitSetup,
+  submitSetupSession,
+  submitSplitSetup,
   type NewSetupPart,
   type NewSetupSession,
   type NewSplitSetup,
@@ -141,52 +154,18 @@ import {
 /// again by `article_colour`'s primary key.
 const COLOURWAY_CEILING = 10
 
-/// What one press of "Set up and send to tagging" ended up doing.
-///
-/// The identity is saved first and the mint runs against the session it made,
-/// which means the second half can fail with the first half already committed.
-/// That is an outcome and not an error: the delivery HAS an identity, the
-/// receipt has left the queue, and a screen that threw here would be throwing
-/// away the only thing that says so. So it is returned, carrying the session
-/// either way and the server's sentence when there is one.
-type SetupOutcome =
-  | { readonly kind: "issued"; readonly session: SetupSession }
-  | {
-      readonly kind: "stalled"
-      readonly session: SetupSession
-      readonly problem: string
-    }
-  | ({ readonly kind: "split" } & SplitOutcome)
+/// The identity and its background work were accepted together. Minting may
+/// still be processing or need a retry; the session record carries that state.
+type SetupOutcome = {
+  readonly kind: "queued"
+  readonly sessions: readonly SetupSession[]
+}
 
 /// What the form hands over: one article, as it always was, or the line split
 /// into several sibling articles (owner, 2026-10-02).
 type SetupSubmission =
   | { readonly kind: "one"; readonly request: NewSetupSession }
   | { readonly kind: "split"; readonly request: NewSplitSetup }
-
-/// A split's press, article by article: the sessions open together or not at
-/// all, then each is minted on its own. Those that minted, and those that
-/// opened and did not — each of which is a "Not minted" session from here on,
-/// run again from its own record under its own key.
-interface SplitOutcome {
-  readonly issued: readonly SetupSession[]
-  readonly stalled: readonly {
-    readonly session: SetupSession
-    readonly problem: string
-  }[]
-}
-
-/// That outcome, as the session sheet needs it: which session it is about, why
-/// the mint did not run if it did not, and the job it sent if it did.
-interface Handover {
-  readonly session_id: string
-  /// The server's sentence. Null when the mint ran.
-  readonly problem: string | null
-  /// The tagging job the mint produced. The session knows it too once the
-  /// read of it lands; carried so the sentence naming it is on the sheet the
-  /// moment it opens rather than one round trip later.
-  readonly job: string | null
-}
 
 /// Where the pane is pointed: a session's record, a delivery's form, and which
 /// supplier the rail is narrowed to. All three live in the URL, so a link to any of
@@ -228,12 +207,12 @@ export function SetupWorkspace() {
   /// Which supplier the rail is narrowed to, by its code; absent is All.
   const poFilter = useSheet("setupFor")
   const supplierOf = useSupplierName()
+  const phone = useLayout() === "phone"
   const [query, setQuery] = useState("")
 
   /// How the last press of Submit ended, for the record the sheet hands over
   /// to. Not in the URL: it is what just happened in front of one person, not
   /// a property of the record.
-  const [handover, setHandover] = useState<Handover | null>(null)
   /// The form holds something typed. Moving to another delivery or PO,
   /// or closing the sheet, asks "Discard this draft?" first; `pending` is the
   /// move waiting on it.
@@ -252,7 +231,31 @@ export function SetupWorkspace() {
   const sessions = useQuery({
     queryKey: procurementKeys.setups(),
     queryFn: ({ signal }) => listSetupSessions(signal),
+    refetchInterval: (query) =>
+      query.state.data?.some(
+        (row) =>
+          row.issue_state === "QUEUED" || row.issue_state === "PROCESSING"
+      )
+        ? 2000
+        : false,
   })
+  const processingBefore = useRef(new Set<string>())
+  useEffect(() => {
+    if (sessions.data === undefined) return
+    const now = new Set(
+      sessions.data
+        .filter(
+          (row) =>
+            row.issue_state === "QUEUED" || row.issue_state === "PROCESSING"
+        )
+        .map((row) => row.session_id)
+    )
+    if ([...processingBefore.current].some((id) => !now.has(id))) {
+      void client.invalidateQueries({ queryKey: articleKeys.all })
+      void client.invalidateQueries({ queryKey: ["inventory", "availability"] })
+    }
+    processingBefore.current = now
+  }, [sessions.data, client])
   /// The session the sheet is on, for its title. The same key the record
   /// reads, so this costs no second request.
   const record = useQuery({
@@ -452,7 +455,7 @@ export function SetupWorkspace() {
           value={count(waiting.length + stalled.length)}
         />
         <Kpi
-          label="Pieces"
+          label="Pcs"
           value={count(
             waiting.reduce((sum, row) => sum + row.quantity, 0) +
               stalled.reduce((sum, row) => sum + row.receipt_quantity, 0)
@@ -463,7 +466,7 @@ export function SetupWorkspace() {
 
       {/* Search, and the supplier picker once there is more than one
       supplier to pick from. */}
-      <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
+      <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
         <SearchSuggest
           value={query}
           onChange={setQuery}
@@ -487,11 +490,38 @@ export function SetupWorkspace() {
         />
         <BarSpacer />
       </div>
+      {/* On a phone the search and the supplier are the dock's, as on every
+      list (owner, 2026-10-06): the supplier is the one place this list can be
+      narrowed to, so it takes the status button. */}
+      <DockTools
+        search={{
+          value: query,
+          onChange: setQuery,
+          label: "Search New Articles",
+        }}
+        status={{
+          value: here ?? "",
+          options: [
+            { value: "", label: "All suppliers", count: waiting.length },
+            ...suppliers.map((one) => ({
+              value: one.id,
+              label: one.name,
+              count: one.tally,
+            })),
+          ],
+          onChange: (next) => go({ setupFor: next === "" ? undefined : next }),
+        }}
+      />
 
       {/* A ledger: the supplier said once in its own column and held in
       place while its lines scroll past, one fact per column. Under 42rem of
       card the supplier becomes a band above its lines instead. */}
-      <Card className="@container overflow-clip">
+      <Card
+        className={cn(
+          "@container overflow-clip",
+          phone && "overflow-visible border-0 bg-transparent shadow-none"
+        )}
+      >
         {nothingWaiting ? (
           <EmptyState>Nothing waiting.</EmptyState>
         ) : cards.length === 0 ? (
@@ -500,6 +530,19 @@ export function SetupWorkspace() {
               ? "Reading the queue…"
               : "Nothing here matches that."}
           </EmptyState>
+        ) : phone ? (
+          <PhoneLines
+            waiting={shown}
+            stalled={stalledShown}
+            supplierOf={supplierOf}
+            onOpen={(line) =>
+              go(
+                line.retry
+                  ? { setupFor: railNow, setup: line.key }
+                  : { setupFor: railNow, receipt: line.key }
+              )
+            }
+          />
         ) : (
           <>
             <div
@@ -543,7 +586,15 @@ export function SetupWorkspace() {
             person pressing the button on its record will finish it. */}
             {stalledShown.length > 0 && (
               <LedgerGroup
-                name="Needs Retry"
+                name={
+                  stalledShown.some(
+                    (row) =>
+                      row.issue_state === "QUEUED" ||
+                      row.issue_state === "PROCESSING"
+                  )
+                    ? "Processing / Needs Retry"
+                    : "Needs Retry"
+                }
                 warn
                 pieces={stalledShown.reduce(
                   (sum, row) => sum + row.receipt_quantity,
@@ -627,17 +678,7 @@ export function SetupWorkspace() {
         }
       >
         {session.value !== undefined ? (
-          <SessionRecord
-            id={session.value}
-            // Only for the session the press actually made: opening a
-            // different one from the cards is a different question, and it
-            // must not inherit this one's answer.
-            handover={
-              handover !== null && handover.session_id === session.value
-                ? handover
-                : null
-            }
-          />
+          <SessionRecord id={session.value} />
         ) : active !== null ? (
           <DeliverySetup
             receipt={active}
@@ -648,51 +689,8 @@ export function SetupWorkspace() {
               (row) => row.receipt_line_id !== active.receipt_line_id
             )}
             onDone={(outcome, next) => {
-              if (outcome.kind === "issued") {
-                // Minted: named in the receipt dialog by its code, and the
-                // queue goes on to the next card behind it rather than to a
-                // record of it.
-                setMinted([outcome.session.article_code])
-                advance(active.receipt_line_id, next)
-                return
-              }
-              if (outcome.kind === "split") {
-                // Several articles: named in the receipt dialog by the codes
-                // the server minted, and on to the next card. One that did
-                // not mint is opened instead, with the reason — the rest
-                // wait under Not minted.
-                const codes = outcome.issued.map((one) => one.article_code)
-                if (codes.length > 0) setMinted(codes)
-                const first = outcome.stalled[0]
-                if (first === undefined) {
-                  advance(active.receipt_line_id, next)
-                  return
-                }
-                setHandover({
-                  session_id: first.session.session_id,
-                  problem:
-                    outcome.stalled.length > 1
-                      ? `${first.problem} ${count(outcome.stalled.length - 1)} more of these articles need a retry.`
-                      : first.problem,
-                  job: null,
-                })
-                void point({
-                  setupFor: railNow,
-                  setup: first.session.session_id,
-                })
-                return
-              }
-              // The identity saved and the mint did not run: the record the
-              // press made, in the same sheet, with where it runs again.
-              setHandover({
-                session_id: outcome.session.session_id,
-                problem: outcome.problem,
-                job: outcome.session.tagging_job_id ?? null,
-              })
-              void point({
-                setupFor: railNow,
-                setup: outcome.session.session_id,
-              })
+              setMinted(outcome.sessions.map((one) => one.article_code))
+              advance(active.receipt_line_id, next)
             }}
           />
         ) : null}
@@ -705,10 +703,11 @@ export function SetupWorkspace() {
         title={
           minted !== null &&
           (minted.length === 1 ? (
-            <>Article created · {minted[0]}</>
+            <>Setup saved · {minted[0]}</>
           ) : (
             <>
-              {count(minted.length)} articles created · {codeSpan(minted)}
+              {count(minted.length)} setups saved · {codeSpan(minted)} ·
+              Processing
             </>
           ))
         }
@@ -769,8 +768,7 @@ function LedgerGroup({
             {name}
           </span>
           <span className="text-[0.875rem] text-mute tabular-nums">
-            {count(lines)} {lines === 1 ? "item" : "items"} · {count(pieces)}{" "}
-            pcs
+            {quantity(lines, "items")} · {quantity(pieces)}
           </span>
         </div>
       </div>
@@ -836,12 +834,278 @@ function LedgerRow({
         {code}
       </span>
       <span className="self-end px-4 pt-2 text-right text-[0.9375rem] whitespace-nowrap text-ink tabular-nums @2xl:self-auto @2xl:px-5 @2xl:pt-0">
-        {count(pieces)} pcs
+        {quantity(pieces)}
       </span>
       <span className="self-start px-4 pb-2 text-right text-[0.875rem] whitespace-nowrap text-mute tabular-nums @2xl:self-auto @2xl:px-5 @2xl:pb-0 @2xl:text-[0.9375rem]">
         {ago(since)}
       </span>
     </button>
+  )
+}
+
+/// One line of the phone's list, said once and drawn as a card.
+interface CardLine {
+  /// The receipt line (waiting) or the session (not minted) it opens.
+  readonly key: string
+  readonly retry: boolean
+  readonly group: string
+  readonly groupName: string
+  readonly groupLines: number
+  readonly groupPieces: number
+  readonly name: string
+  readonly division: string | null
+  /// The PO it came on; for a session that did not mint, the article code.
+  readonly code: string
+  readonly pieces: number
+  readonly since: string
+  readonly receipt: UnidentifiedReceipt | null
+}
+
+const OpenLine = createContext<(line: CardLine) => void>(() => undefined)
+
+/// The photograph, name and where it came from, on a card's head.
+function LineHead({ line }: { line: CardLine }) {
+  const drafted = useDraftedLines()
+  const draft =
+    line.receipt !== null && drafted.has(line.receipt.receipt_line_id)
+  return (
+    <span className="flex min-w-0 items-center gap-3">
+      {line.receipt === null ? (
+        <LineThumb line={line} image={null} />
+      ) : (
+        <WaitingThumb line={line} receipt={line.receipt} />
+      )}
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="text-[1rem] font-semibold break-words text-ink">
+          {line.name}
+          {draft && <DraftMark />}
+        </span>
+        <span className="font-mono text-[0.875rem] font-normal break-words text-mute">
+          {line.code}
+        </span>
+      </span>
+    </span>
+  )
+}
+
+function WaitingThumb({
+  line,
+  receipt,
+}: {
+  line: CardLine
+  receipt: UnidentifiedReceipt
+}) {
+  return <LineThumb line={line} image={useLineImage(receipt)} />
+}
+
+function LineThumb({ line, image }: { line: CardLine; image: string | null }) {
+  return (
+    <Thumbnail
+      url={image}
+      name={line.name}
+      division={line.division}
+      className="size-11 shrink-0 rounded-inner border border-hairline"
+    />
+  )
+}
+
+function OpenButton({ line }: { line: CardLine }) {
+  const open = useContext(OpenLine)
+  return (
+    <Button
+      variant="tint"
+      size="card"
+      aria-label={`${line.retry ? "Retry" : "Set up"} ${line.name}`}
+      onClick={(event) => {
+        event.stopPropagation()
+        open(line)
+      }}
+    >
+      {line.retry ? "Retry" : "Set up"}
+    </Button>
+  )
+}
+
+const CARD_COLUMNS: ColumnDef<TableSetup, CardLine>[] = [
+  {
+    id: "head",
+    accessorFn: (row) => row.name,
+    header: "",
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => <LineHead line={row.original} />,
+  },
+  {
+    id: "lead",
+    accessorFn: (row) => row.pieces,
+    header: "",
+    enableSorting: false,
+    meta: { card: "lead" },
+    cell: ({ row }) => (
+      <span className="flex flex-col items-end tabular-nums">
+        <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
+          {count(row.original.pieces)}
+        </span>
+        <span className="text-[0.875rem] text-mute">pcs</span>
+      </span>
+    ),
+  },
+  {
+    id: "foot",
+    accessorFn: (row) => row.since,
+    header: "",
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => <span>{ago(row.original.since)}</span>,
+  },
+  {
+    id: "open",
+    header: "",
+    enableSorting: false,
+    meta: { align: "right", card: "status" },
+    cell: ({ row }) => <OpenButton line={row.original} />,
+  },
+]
+
+/// New Articles on a phone: a card per delivery line under a heading per
+/// supplier that sticks while its cards scroll past and folds on a tap — the
+/// same card as every list (owner, 2026-10-06), whose one button, Set up, opens
+/// the form the card's own tap opens.
+function PhoneLines({
+  waiting,
+  stalled,
+  supplierOf,
+  onOpen,
+}: {
+  waiting: readonly UnidentifiedReceipt[]
+  stalled: readonly {
+    session_id: string
+    article_name: string
+    article_code: string
+    division_code: string | null
+    receipt_quantity: number
+    created_at: string
+  }[]
+  supplierOf: (id: string, name: string, fallback: string) => string
+  onOpen: (line: CardLine) => void
+}) {
+  const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set())
+  const lines = useMemo(() => {
+    const groups = new Map<string, { name: string; rows: CardLine[] }>()
+    const add = (
+      id: string,
+      name: string,
+      line: Omit<CardLine, "group" | "groupName" | "groupLines" | "groupPieces">
+    ) => {
+      const group = groups.get(id) ?? { name, rows: [] }
+      group.rows.push({
+        ...line,
+        group: id,
+        groupName: name,
+        groupLines: 0,
+        groupPieces: 0,
+      })
+      groups.set(id, group)
+    }
+    for (const row of waiting)
+      add(
+        row.supplier_id,
+        supplierOf(row.supplier_id, row.supplier_id, row.supplier_id),
+        {
+          key: row.receipt_line_id,
+          retry: false,
+          name: row.article_name,
+          division: row.division_code,
+          code: row.po_number,
+          pieces: row.quantity,
+          since: row.verified_at,
+          receipt: row,
+        }
+      )
+    for (const row of stalled)
+      add("needs-retry", "Needs Retry", {
+        key: row.session_id,
+        retry: true,
+        name: row.article_name,
+        division: row.division_code,
+        code: row.article_code,
+        pieces: row.receipt_quantity,
+        since: row.created_at,
+        receipt: null,
+      })
+    return [...groups.values()].flatMap((group) => {
+      const pieces = group.rows.reduce((sum, row) => sum + row.pieces, 0)
+      return group.rows.map((row) => ({
+        ...row,
+        groupLines: group.rows.length,
+        groupPieces: pieces,
+      }))
+    })
+  }, [waiting, stalled, supplierOf])
+
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: lines,
+        columns: CARD_COLUMNS,
+        getRowId: (row: CardLine) => row.key,
+      }),
+      [lines]
+    )
+  )
+
+  return (
+    <OpenLine.Provider value={onOpen}>
+      <DataTable<CardLine>
+        table={table}
+        onRowClick={onOpen}
+        pageScroll
+        cardsApart
+        cardLead
+        cardSort={false}
+        stickyBefore
+        isHidden={(row) => folded.has(row.group)}
+        renderBefore={(row, index, all) =>
+          index === 0 || all[index - 1].group !== row.group ? (
+            <button
+              type="button"
+              aria-expanded={!folded.has(row.group)}
+              onClick={() =>
+                setFolded((was) => {
+                  const next = new Set(was)
+                  if (!next.delete(row.group)) next.add(row.group)
+                  return next
+                })
+              }
+              className="flex w-full items-center gap-2 px-1 py-2 text-left transition-opacity active:opacity-60"
+            >
+              <span
+                className={cn(
+                  "min-w-0 text-[1rem] font-semibold break-words",
+                  row.retry ? "text-warn-fg" : "text-ink"
+                )}
+              >
+                {row.groupName}
+              </span>
+              <span className="shrink-0 text-[0.9375rem] text-mute tabular-nums">
+                {`${count(row.groupLines)} ${row.groupLines === 1 ? "item" : "items"}`}
+              </span>
+              <span className="flex-1" />
+              <span className="shrink-0 text-[0.875rem] text-mute tabular-nums">
+                {`${quantity(row.groupPieces)}`}
+              </span>
+              <ChevronDown
+                className={cn(
+                  "size-4 shrink-0 text-line-ico transition-[rotate] duration-200 ease-(--ease-out) motion-reduce:transition-none",
+                  folded.has(row.group) && "-rotate-90"
+                )}
+              />
+            </button>
+          ) : null
+        }
+      />
+    </OpenLine.Provider>
   )
 }
 
@@ -1160,16 +1424,7 @@ export function Matrix({
 /// say what the markup is over cost. The session itself does not carry it.
 const purchaseBySession = new Map<string, number>()
 
-function SessionRecord({
-  id,
-  handover,
-}: {
-  id: string
-  /// How the press that made this session ended, when it was that press that
-  /// put this record on screen. Null when it was a link, the queue, or a
-  /// second look.
-  handover: Handover | null
-}) {
+function SessionRecord({ id }: { id: string }) {
   const client = useQueryClient()
   const actor = useActor()
   const idempotency = useIdempotencyKey()
@@ -1177,6 +1432,11 @@ function SessionRecord({
   const detail = useQuery({
     queryKey: procurementKeys.setup(id),
     queryFn: ({ signal }) => setupSessionDetail(id, signal),
+    refetchInterval: (query) =>
+      query.state.data?.issue_state === "QUEUED" ||
+      query.state.data?.issue_state === "PROCESSING"
+        ? 2000
+        : false,
   })
 
   /// The mint, for a session that has not had one.
@@ -1342,14 +1602,6 @@ function SessionRecord({
                 minted LOOKS like. A failure is different. The delivery has an
                 identity, the receipt is out of the queue, nothing was drawn,
                 and nothing but the button below will finish it. */}
-            {!mine && handover !== null && handover.problem !== null && (
-              <Banner tone="bad">
-                The delivery has its identity, but nothing was minted against
-                it: no SKUs, no serial ranges, no tagging job. The session is
-                open and the button below sends it again. The server said:{" "}
-                {handover.problem}
-              </Banner>
-            )}
             {mine && issue.isError && (
               <Banner tone="bad">{(issue.error as Error).message}</Banner>
             )}
@@ -1476,24 +1728,36 @@ function SessionRecord({
                 the sheet's footer; this panel's footer belongs to the queue as
                 much as to the record, so the button that acts on THIS record
                 stands at the foot of it. */}
-            {session.status === "OPEN" && (
-              <div className="sticky bottom-0 -mx-1 flex flex-col gap-2.5 border-t border-hairline bg-canvas px-1 pt-3.5 pb-1 @xl:flex-row @xl:items-center @xl:justify-between">
-                <p className="min-w-0 text-[0.875rem] leading-relaxed text-mute">
-                  Nothing has been drawn against this session yet. Minting draws
-                  the SKUs, their serial ranges and their EPCs in one
-                  transaction and sends the tagging job to {session.site_id}.
-                </p>
-                <Button
-                  variant="primary"
-                  className="w-full shrink-0 @xl:w-auto @xl:min-w-[13rem]"
-                  pending={mine && issue.isPending}
-                  disabled={actor === ""}
-                  onClick={() => issue.mutate(id)}
-                >
-                  {mine && issue.isPending ? "Submitting…" : "Submit"}
-                </Button>
-              </div>
+            {(session.issue_state === "QUEUED" ||
+              session.issue_state === "PROCESSING") && (
+              <p role="status" className="text-[0.875rem] text-mute">
+                Processing the article, stock and prices. This continues after
+                you close this screen.
+              </p>
             )}
+            {session.issue_state === "FAILED" && session.issue_error && (
+              <Banner tone="bad">{session.issue_error}</Banner>
+            )}
+            {session.status === "OPEN" &&
+              session.issue_state !== "QUEUED" &&
+              session.issue_state !== "PROCESSING" && (
+                <div className="sticky bottom-0 -mx-1 flex flex-col gap-2.5 border-t border-hairline bg-canvas px-1 pt-3.5 pb-1 @xl:flex-row @xl:items-center @xl:justify-between">
+                  <p className="min-w-0 text-[0.875rem] leading-relaxed text-mute">
+                    Nothing has been drawn against this session yet. Minting
+                    draws the SKUs, their serial ranges and their EPCs in one
+                    transaction and sends the tagging job to {session.site_id}.
+                  </p>
+                  <Button
+                    variant="primary"
+                    className="w-full shrink-0 @xl:w-auto @xl:min-w-[13rem]"
+                    pending={mine && issue.isPending}
+                    disabled={actor === ""}
+                    onClick={() => issue.mutate(id)}
+                  >
+                    {mine && issue.isPending ? "Submitting…" : "Submit"}
+                  </Button>
+                </div>
+              )}
 
             {/* The record's own surroundings — who touched it, what was said
                 about it. `<Sheet>` appends this itself when it is given a
@@ -1694,81 +1958,19 @@ function DeliverySetup({
   const client = useQueryClient()
   const actor = useActor()
   const idempotency = useIdempotencyKey()
-  /// A split's keys, one per article in tab order, held across retries of the
-  /// same press exactly as the single key is: a retry happens only when the
-  /// sessions did not open, so no key has been spent yet.
-  const splitKeys = useRef<string[]>([])
-  /// Which button made the press, read when the mint comes back.
   const goNext = useRef(false)
-  const splitKey = (index: number) =>
-    (splitKeys.current[index] ??= crypto.randomUUID())
-
-  /// One press, two writes: save the identity, then mint against it.
-  ///
-  /// The mint is not retried here and not rolled back either — neither is
-  /// available. A session cannot be un-opened, and a retry from a form the
-  /// person is watching would either mint twice or look like it had. What it
-  /// does instead is stop being an error: the caller is handed the session, is
-  /// told the mint did not run and why, and the sheet that opens on it is the
-  /// one with the button that runs it.
   const setUp = useMutation({
     mutationFn: async (submission: SetupSubmission): Promise<SetupOutcome> => {
-      if (submission.kind === "split") {
-        // Every article opens, or none does — one transaction. Then each is
-        // minted on its own, in order; one that does not mint does not stop
-        // the next, and becomes a "Not minted" session like a single one.
-        const opened = await openSplitSetup(submission.request)
-        const issued: SetupSession[] = []
-        const stalled: { session: SetupSession; problem: string }[] = []
-        for (const [index, session] of opened.entries()) {
-          try {
-            issued.push(
-              await issueSetupSession(
-                session.session_id,
-                submission.request.created_by,
-                splitKey(index)
-              )
-            )
-          } catch (error) {
-            stalled.push({
-              session,
-              problem: problemOf(error) ?? "The server could not be reached.",
-            })
-          }
-        }
-        return { kind: "split", issued, stalled }
-      }
-      const request = submission.request
-      const opened = await openSetupSession(request)
-      try {
-        return {
-          kind: "issued",
-          session: await issueSetupSession(
-            opened.session_id,
-            request.created_by,
-            idempotency.key
-          ),
-        }
-      } catch (error) {
-        return {
-          kind: "stalled",
-          session: opened,
-          problem: problemOf(error) ?? "The server could not be reached.",
-        }
-      }
+      const sessions =
+        submission.kind === "split"
+          ? await submitSplitSetup(submission.request, idempotency.key)
+          : [await submitSetupSession(submission.request, idempotency.key)]
+      return { kind: "queued", sessions }
     },
     onSuccess: (outcome) => {
-      if (outcome.kind === "issued")
-        purchaseBySession.set(
-          outcome.session.session_id,
-          receipt.purchase_price_minor
-        )
-      if (outcome.kind === "split") {
-        for (const one of outcome.issued)
+      if (outcome.kind === "queued") {
+        for (const one of outcome.sessions)
           purchaseBySession.set(one.session_id, receipt.purchase_price_minor)
-        // Out of the queue at once: a split goes on to the next delivery
-        // rather than to a record, and this form must not stand there
-        // pressable until the refetch lands.
         client.setQueryData<UnidentifiedReceipt[]>(
           procurementKeys.unidentified(),
           (rows) =>
@@ -1796,7 +1998,6 @@ function DeliverySetup({
       // sheet under its own key. Holding this one would only carry a spent key
       // into the NEXT delivery's mint.
       idempotency.rotate()
-      splitKeys.current = []
       onDone(outcome, goNext.current)
     },
   })
@@ -1827,8 +2028,9 @@ function DeliverySetup({
     [receipt.receipt_line_id]
   )
   // The form reads its starting point once, when it mounts, so it is not drawn
-  // until the answer is in.
-  if (stored.isPending && !hasLocal) return null
+  // until the answer is in — and until then the sheet shows its shape rather
+  // than a white pane.
+  if (stored.isPending && !hasLocal) return <SessionFormSkeleton />
 
   return (
     <SessionComposer
@@ -1855,6 +2057,70 @@ function DeliverySetup({
       onDirty={onDirty}
       onDraft={(draft) => keepDraft.mutate(draft)}
     />
+  )
+}
+
+/// The session form's shape, drawn while its starting point is read: the
+/// picture and the two facts, the name, the pickers, the grid. A slow fade so
+/// it reads as waiting and not as broken; still for reduced motion.
+function SessionFormSkeleton() {
+  const bar = (width: string, height = "h-3.5") => (
+    <span className={`block ${height} rounded-full bg-soft ${width}`} />
+  )
+  const field = (label: string) => (
+    <div className="flex flex-col gap-2.5">
+      {bar(label)}
+      <span className="block h-11 rounded-inner bg-soft" />
+    </div>
+  )
+  return (
+    <div role="status" aria-live="polite">
+      <span className="sr-only">Reading the delivery…</span>
+      <div
+        aria-hidden
+        className="flex flex-col gap-8 motion-safe:animate-pulse"
+      >
+        <div className="flex items-start gap-6">
+          <span className="block size-28 shrink-0 rounded-inner bg-soft" />
+          <div className="flex flex-1 gap-16 pt-1">
+            <div className="flex flex-col gap-3">
+              {bar("w-16")}
+              {bar("w-44", "h-4")}
+            </div>
+            <div className="flex flex-col gap-3">
+              {bar("w-16")}
+              {bar("w-14", "h-4")}
+            </div>
+          </div>
+        </div>
+        {field("w-14")}
+        <div className="grid gap-6 md:grid-cols-2">
+          {field("w-20")}
+          {field("w-12")}
+        </div>
+        <div className="grid gap-6 md:grid-cols-2">
+          {field("w-24")}
+          {field("w-16")}
+        </div>
+        {bar("w-20", "h-4")}
+        <div className="grid gap-6 md:grid-cols-2">
+          {field("w-16")}
+          {field("w-14")}
+        </div>
+        <div className="overflow-hidden rounded-inner border border-hairline">
+          {Array.from({ length: 3 }, (_, row) => (
+            <div
+              key={row}
+              className="flex h-14 items-center gap-6 border-t border-hairline px-4 first:border-t-0"
+            >
+              {bar("w-24")}
+              <span className="ml-auto block h-9 w-16 rounded-inner bg-soft" />
+              <span className="block h-9 w-16 rounded-inner bg-soft" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -1914,9 +2180,10 @@ function counterpartText(raw: string, purchase: number): string {
 }
 
 /// One colour x size grid, prefilled from the PO's own split — the pieces it
-/// already named, and the prices that differ from the line's. Skips a variant
-/// with no colour or no size: the grid is colour x size, and there is no cell
-/// for either half missing.
+/// already named, and the prices that differ from the line's. A PO split by
+/// colour alone (or size alone) still picks its colours (or sizes) here; only
+/// its pieces wait, because the grid is colour x size and there is no cell for
+/// either half missing.
 function prefillFromReceipt(receipt: UnidentifiedReceipt): {
   colours: string[]
   sizes: string[]
@@ -1926,10 +2193,12 @@ function prefillFromReceipt(receipt: UnidentifiedReceipt): {
   const seenColours: string[] = []
   const seenSizes: string[] = []
   for (const variant of receipt.variants) {
-    if (variant.colour_code === null || variant.size_code === null) continue
-    if (!seenColours.includes(variant.colour_code))
+    if (
+      variant.colour_code !== null &&
+      !seenColours.includes(variant.colour_code)
+    )
       seenColours.push(variant.colour_code)
-    if (!seenSizes.includes(variant.size_code))
+    if (variant.size_code !== null && !seenSizes.includes(variant.size_code))
       seenSizes.push(variant.size_code)
   }
   const colours = seenColours.slice(0, COLOURWAY_CEILING)
@@ -1939,7 +2208,9 @@ function prefillFromReceipt(receipt: UnidentifiedReceipt): {
     if (variant.colour_code === null || variant.size_code === null) continue
     if (!colours.includes(variant.colour_code)) continue
     const key = `${variant.colour_code}|${variant.size_code}`
-    pieces[key] = String(variant.quantity)
+    // What the bay counted of it when the line was counted per variant
+    // (0963) — what is really on the floor — else what the order named.
+    pieces[key] = String(variant.counted_quantity ?? variant.quantity)
     if (
       variant.base_price_minor !== null &&
       variant.base_price_minor !== receipt.base_price_minor
@@ -2674,7 +2945,39 @@ function SessionComposer({
       listLineQuantityChecks(receipt.receipt_line_id, signal),
     refetchInterval: 15_000,
   })
-  const counted = (lineChecks.data ?? []).some((one) => one.status === "COUNTED")
+  const counted = (lineChecks.data ?? []).some(
+    (one) => one.status === "COUNTED"
+  )
+  /// The first photograph the order carried for each colour, from its
+  /// variants (0961) — what the colourway's own photograph will start as once
+  /// the article is made.
+  const orderPhotoOf = useMemo(() => {
+    const first = new Map<string, string>()
+    for (const variant of receipt.variants) {
+      const url = variant.image_urls?.[0]
+      if (
+        variant.colour_code !== null &&
+        url &&
+        !first.has(variant.colour_code)
+      )
+        first.set(variant.colour_code, url)
+    }
+    return first
+  }, [receipt.variants])
+  /// Each SKU's own photographs from the order (0961), keyed `colour|size`
+  /// as the grid is — shown in its cell so whoever counts the delivery in
+  /// knows which garment it is. Article imagery stays per colourway: these
+  /// are seen here, the colour's first is what the article keeps.
+  const orderPhotosAt = useMemo(() => {
+    const at = new Map<string, readonly string[]>()
+    for (const variant of receipt.variants) {
+      const urls = variant.image_urls ?? []
+      if (variant.colour_code === null || variant.size_code === null) continue
+      if (urls.length > 0)
+        at.set(`${variant.colour_code}|${variant.size_code}`, urls)
+    }
+    return at
+  }, [receipt.variants])
   /// The combinations the warehouse should count, in words: for each article
   /// (tab) every colour x size chosen in it, in the form's colour order and
   /// then its size order. Pieces are not part of it. Sent with the Quantity
@@ -2816,8 +3119,8 @@ function SessionComposer({
         ? `The articles come to ${count(allotted)} and the warehouse counted ${count(receipt.quantity)}. A session cannot create stock that did not arrive.`
         : `The grid comes to ${count(declared)} and the warehouse counted ${count(receipt.quantity)}. A session cannot create stock that did not arrive.`
       : split
-        ? `${count(left)} of ${count(receipt.quantity)} pieces not in any article yet.`
-        : `${count(receipt.quantity - declared)} of ${count(receipt.quantity)} pieces not in the grid yet.`
+        ? `${count(left)} of ${quantity(receipt.quantity)} not in any article yet.`
+        : `${count(receipt.quantity - declared)} of ${quantity(receipt.quantity)} not in the grid yet.`
   const missing =
     actor === ""
       ? "Nobody is signed in, so there is nobody to record as having set it up."
@@ -2915,33 +3218,30 @@ function SessionComposer({
             counted && "@5xl/form:pr-6"
           )}
         >
-      {problem !== null && <Banner tone="bad">{problem}</Banner>}
+          {problem !== null && <Banner tone="bad">{problem}</Banner>}
 
-      {/* Three facts, kept as a group at the left rather than spread across
+          {/* Three facts, kept as a group at the left rather than spread across
           sixty rem: they are read as one line about the delivery, and a third
           of a metre between "Supplier" and "Counted" makes them three
           unrelated labels. */}
-      <div className="mt-3 flex items-start gap-5">
-        {/* The delivery line's own picture, so the form says which goods it is
+          <div className="mt-3 flex items-start gap-5">
+            {/* The delivery line's own picture, so the form says which goods it is
             about. The card on the rail shows it; the sheet had lost it. */}
-        <Thumbnail
-          url={lineImage}
-          name={receipt.article_name}
-          division={receipt.division_code}
-          className="size-24 shrink-0 rounded-inner border border-hairline"
-        />
-        <Facts className="min-w-0 flex-1 gap-x-10 gap-y-6 min-[100rem]:gap-y-9 @2xl:max-w-[48rem] @2xl:grid-cols-2 [&_dd]:mt-1.5 min-[100rem]:[&_dd]:mt-2">
-          <Fact term="Supplier">
-            {supplier ? supplierDisplayName(supplier) : receipt.supplier_id}
-          </Fact>
-          <Fact term="Counted">
-            {count(receipt.quantity)}{" "}
-            {receipt.quantity === 1 ? "piece" : "pieces"}
-          </Fact>
-        </Facts>
-      </div>
+            <Thumbnail
+              url={lineImage}
+              name={receipt.article_name}
+              division={receipt.division_code}
+              className="size-24 shrink-0 rounded-inner border border-hairline"
+            />
+            <Facts className="min-w-0 flex-1 gap-x-10 gap-y-6 min-[100rem]:gap-y-9 @2xl:max-w-[48rem] @2xl:grid-cols-2 [&_dd]:mt-1.5 min-[100rem]:[&_dd]:mt-2">
+              <Fact term="Supplier">
+                {supplier ? supplierDisplayName(supplier) : receipt.supplier_id}
+              </Fact>
+              <Fact term="Counted">{quantity(receipt.quantity)}</Fact>
+            </Facts>
+          </div>
 
-      {/* What the article IS, in four fields two to a row.
+          {/* What the article IS, in four fields two to a row.
 
           They sat under a heading reading "What it is", beside a second column
           headed "What arrived". Both headings are gone on the owner's word of
@@ -2966,142 +3266,144 @@ function SessionComposer({
           reads on its own line ahead of Division and Tags, and Base price and
           Markup follow as their own row rather than one of the four sharing a
           row with Name by accident of grid order. */}
-      <div className="grid items-start gap-5 min-[100rem]:gap-7 @xl:grid-cols-2 @xl:gap-x-8">
-        <Field label="Name" required className="@xl:col-span-2">
-          <NameInput value={name} onChange={setName} />
-        </Field>
+          <div className="grid items-start gap-5 min-[100rem]:gap-7 @xl:grid-cols-2 @xl:gap-x-8">
+            <Field label="Name" required className="@xl:col-span-2">
+              <NameInput value={name} onChange={setName} />
+            </Field>
 
-        <Field label="Division" required>
-          <PickOne
-            choices={divisionChoices}
-            value={division === "" ? null : division}
-            onChange={(next) => setDivision(next ?? "")}
-            label="Division"
-          />
-        </Field>
+            <Field label="Division" required>
+              <PickOne
+                choices={divisionChoices}
+                value={division === "" ? null : division}
+                onChange={(next) => setDivision(next ?? "")}
+                label="Division"
+              />
+            </Field>
 
-        <Field label="Tags">
-          <PickMany
-            choices={tagChoices}
-            values={tags}
-            onChange={setTags}
-            label="Tags"
-          />
-        </Field>
+            <Field label="Tags">
+              <PickMany
+                choices={tagChoices}
+                values={tags}
+                onChange={setTags}
+                label="Tags"
+              />
+            </Field>
 
-        <Field
-          label="Base Price"
-          required
-          problem={
-            baseTooLow
-              ? `Must be above the purchase price, ${money(purchaseMinor)}`
-              : undefined
-          }
-        >
-          <Money
-            prefix="Rp"
-            value={pricing.base}
-            onChange={(base) => setPricingField({ base })}
-          />
-        </Field>
+            <Field
+              label="Base Price"
+              required
+              problem={
+                baseTooLow
+                  ? `Must be above the purchase price, ${money(purchaseMinor)}`
+                  : undefined
+              }
+            >
+              <Money
+                prefix="Rp"
+                value={pricing.base}
+                onChange={(base) => setPricingField({ base })}
+              />
+            </Field>
 
-        {/* The purchase price is not a box here — it is the PO line's own
+            {/* The purchase price is not a box here — it is the PO line's own
             cost, not a figure this form negotiates — so it rides as the
             aside `<Field>` already has a slot for, and only the markup
             between it and Base price is typed. */}
-        <Field
-          label="Markup"
-          aside={`Purchase price ${money(receipt.purchase_price_minor)}`}
-        >
-          <span className="relative flex w-full min-w-0 items-center">
-            <Input
-              aria-label="Markup"
-              inputMode="decimal"
-              value={pricing.markup}
-              className="pr-8 text-right tabular-nums"
-              onChange={(event) =>
-                setPricingField({ markup: event.target.value })
-              }
-            />
-            <span className="pointer-events-none absolute right-3.5 text-[0.875rem] text-mute">
-              %
-            </span>
-          </span>
-        </Field>
-      </div>
+            <Field
+              label="Markup"
+              aside={`Purchase price ${money(receipt.purchase_price_minor)}`}
+            >
+              <span className="relative flex w-full min-w-0 items-center">
+                <Input
+                  aria-label="Markup"
+                  inputMode="decimal"
+                  value={pricing.markup}
+                  className="pr-8 text-right tabular-nums"
+                  onChange={(event) =>
+                    setPricingField({ markup: event.target.value })
+                  }
+                />
+                <span className="pointer-events-none absolute right-3.5 text-[0.875rem] text-mute">
+                  %
+                </span>
+              </span>
+            </Field>
+          </div>
 
-      <div>
-        {/* One delivery line, several sibling articles — the owner's word of
+          <div>
+            {/* One delivery line, several sibling articles — the owner's word of
             2026-10-02. The header above is shared; each article is a tab
             holding only its own grid. A single tab is the form it always
             was, so the tabs themselves appear only once there are two. */}
-        {/* The articles as tabs — one while the delivery line is one article —
+            {/* The articles as tabs — one while the delivery line is one article —
             with Split Article at the end of the row, and under them the
             variants of the one that is open (owner, 2026-10-05). */}
-        <ArticleTabStrip
-          tabs={tabs}
-          pieces={tabPieces}
-          active={current}
-          onPick={pickTab}
-          onRemove={removeTab}
-          onAdd={addTab}
-          canAdd={tabs.length < MAX_ARTICLE_TABS}
-        />
-        <div className="mb-2 flex items-center justify-between gap-3">
-          <SubHead className="mb-0">Variants</SubHead>
-          <QuantityCheckRequest
-            receiptLineId={receipt.receipt_line_id}
-            name={name}
-            expected={expectedCheck}
-            division={division}
-            tags={tags}
-            placement="variants"
-          />
-        </div>
-        {/* Under the heading while the sheet is narrow; at `@5xl/form` the
+            <ArticleTabStrip
+              tabs={tabs}
+              pieces={tabPieces}
+              active={current}
+              onPick={pickTab}
+              onRemove={removeTab}
+              onAdd={addTab}
+              canAdd={tabs.length < MAX_ARTICLE_TABS}
+            />
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <SubHead className="mb-0">Variants</SubHead>
+              <QuantityCheckRequest
+                receiptLineId={receipt.receipt_line_id}
+                name={name}
+                expected={expectedCheck}
+                division={division}
+                tags={tags}
+                placement="variants"
+              />
+            </div>
+            {/* Under the heading while the sheet is narrow; at `@5xl/form` the
             same panel stands in the column at the right instead, and this one
             is not drawn. */}
-        <div className="mb-2 @5xl/form:hidden">
-          <QuantityCheckPanel
-            receiptLineId={receipt.receipt_line_id}
-            name={name}
-            expected={expectedCheck}
-            division={division}
-            tags={tags}
-          />
-        </div>
+            <div className="mb-2 @5xl/form:hidden">
+              <QuantityCheckPanel
+                receiptLineId={receipt.receipt_line_id}
+                name={name}
+                expected={expectedCheck}
+                division={division}
+                tags={tags}
+              />
+            </div>
 
-        {/* Colour and size, under the one heading with the grid they produce.
+            {/* Colour and size, under the one heading with the grid they produce.
             They stood in a column of their own headed "What arrived", which
             filed them as a second kind of fact about the delivery; they are
             not that. A colour and a size are the two halves of a SKU — picking
             them IS declaring which variants exist, and the grid under them is
             the same act finished. Read top to bottom now: which colours, which
             sizes, how many of each. */}
-        <div className="mt-3 mb-6 grid items-start gap-5 min-[100rem]:mt-4 min-[100rem]:mb-8 min-[100rem]:gap-7 @xl:grid-cols-2 @xl:gap-x-8">
-          {/* No hint under it, on the owner's word of 2026-09-13. The ceiling
+            <div className="mt-3 mb-6 grid items-start gap-5 min-[100rem]:mt-4 min-[100rem]:mb-8 min-[100rem]:gap-7 @xl:grid-cols-2 @xl:gap-x-8">
+              {/* No hint under it, on the owner's word of 2026-09-13. The ceiling
               is still enforced — `onChange` refuses the eleventh — and a line
               of small print under every box was three sentences of chrome on a
               form of six fields. */}
-          <Field label="Colors" required>
-            <PickMany
-              choices={colourChoices}
-              values={chosenColours}
-              // The eleventh is refused here rather than at the server: the
-              // ceiling is the shape of the code, not a policy somebody can
-              // raise, and a form that takes an answer it cannot save is worse
-              // than one that will not take it.
-              onChange={(next) =>
-                setChosenColours(next.slice(0, COLOURWAY_CEILING))
-              }
-              label="The Colors That Arrived"
-              leading={(code) => (
-                <ColourSwatch hex={colourNamed.get(code)?.hex_code ?? null} />
-              )}
-            />
-          </Field>
+              <Field label="Colors" required>
+                <PickMany
+                  choices={colourChoices}
+                  values={chosenColours}
+                  // The eleventh is refused here rather than at the server: the
+                  // ceiling is the shape of the code, not a policy somebody can
+                  // raise, and a form that takes an answer it cannot save is worse
+                  // than one that will not take it.
+                  onChange={(next) =>
+                    setChosenColours(next.slice(0, COLOURWAY_CEILING))
+                  }
+                  label="The Colors That Arrived"
+                  leading={(code) => (
+                    <ColourSwatch
+                      hex={colourNamed.get(code)?.hex_code ?? null}
+                    />
+                  )}
+                />
+              </Field>
 
-          {/* The same control as Colours, on the owner's word of 2026-09-13.
+              {/* The same control as Colours, on the owner's word of 2026-09-13.
               They were fourteen chips — on the argument that a size run reads
               as a run only when it is drawn as one — and beside a picker they
               read as a different KIND of question. They are not: colour and
@@ -3109,180 +3411,232 @@ function SessionComposer({
               the same person, and one shape for both is what says so. The
               master's order still decides the grid's columns, so XS still
               comes before XXL whatever order they were picked in. */}
-          <Field label="Sizes" required>
-            <PickMany
-              choices={sizeChoices}
-              values={chosenSizes}
-              onChange={setChosenSizes}
-              label="The Sizes That Arrived"
-            />
-          </Field>
-        </div>
+              <Field label="Sizes" required>
+                <PickMany
+                  choices={sizeChoices}
+                  values={chosenSizes}
+                  onChange={setChosenSizes}
+                  label="The Sizes That Arrived"
+                />
+              </Field>
+            </div>
 
-        {rows.length === 0 || columns.length === 0 ? (
-          <p className="rounded-inner border border-dashed border-hairline-2 px-4 py-7 text-center text-[0.9375rem] text-mute min-[100rem]:py-10">
-            Choose the colours and the sizes above, and the grid to count them
-            into appears here.
-          </p>
-        ) : (
-          <>
-            {/* The note that used to be a bare running total, on the line
+            {rows.length === 0 || columns.length === 0 ? (
+              <p className="rounded-inner border border-dashed border-hairline-2 px-4 py-7 text-center text-[0.9375rem] text-mute min-[100rem]:py-10">
+                Choose the colours and the sizes above, and the grid to count
+                them into appears here.
+              </p>
+            ) : (
+              <>
+                {/* The note that used to be a bare running total, on the line
                 directly over the grid it is about. It now also says how the
                 priced SKUs spread — the reason a price sits in the grid at all
                 is that most deliveries never touch it, and the one that does
                 should be able to tell at a glance without opening every cell.
                 The owner's word of 2026-09-28. */}
-            <div className="mb-3 flex items-baseline justify-between gap-4 min-[100rem]:mb-4">
-              <p className="min-w-0 text-[0.875rem] text-mute">
-                {clashHere !== undefined ? (
-                  <span className="text-bad">{clashText(clashHere)}</span>
-                ) : ownCount > 0 ? (
-                  <>
-                    <b className="font-medium text-ink">{count(ownCount)}</b> of{" "}
-                    {count(pricedSkus.length)} SKUs have their own price
+                <div className="mb-3 flex items-baseline justify-between gap-4 min-[100rem]:mb-4">
+                  <p className="min-w-0 text-[0.875rem] text-mute">
+                    {clashHere !== undefined ? (
+                      <span className="text-bad">{clashText(clashHere)}</span>
+                    ) : ownCount > 0 ? (
+                      <>
+                        <b className="font-medium text-ink">
+                          {count(ownCount)}
+                        </b>{" "}
+                        of {count(pricedSkus.length)} SKUs have their own price
+                        {" · "}
+                        {priceMin === priceMax
+                          ? `Rp ${formatThousands(priceMin)}`
+                          : `Rp ${formatThousands(priceMin)} – ${formatThousands(priceMax)}`}
+                        {" · markup "}
+                        {priceMin === priceMax
+                          ? `${skuMarkup(purchaseMinor, priceMin).replace(".", ",")}%`
+                          : `${skuMarkup(purchaseMinor, priceMin).replace(".", ",")}% – ${skuMarkup(purchaseMinor, priceMax).replace(".", ",")}%`}
+                      </>
+                    ) : (
+                      "Every SKU at base — click a grey price to give that SKU its own"
+                    )}
+                  </p>
+                  <span
+                    className={cn(
+                      "shrink-0 text-[0.875rem] font-medium whitespace-nowrap tabular-nums",
+                      over
+                        ? "text-bad"
+                        : balanced
+                          ? "text-ok-fg"
+                          : "text-warn-fg"
+                    )}
+                  >
+                    {split
+                      ? `${quantity(declared)}`
+                      : `${count(declared)} of ${count(receipt.quantity)}`}
                     {" · "}
-                    {priceMin === priceMax
-                      ? `Rp ${formatThousands(priceMin)}`
-                      : `Rp ${formatThousands(priceMin)} – ${formatThousands(priceMax)}`}
-                    {" · markup "}
-                    {priceMin === priceMax
-                      ? `${skuMarkup(purchaseMinor, priceMin).replace(".", ",")}%`
-                      : `${skuMarkup(purchaseMinor, priceMin).replace(".", ",")}% – ${skuMarkup(purchaseMinor, priceMax).replace(".", ",")}%`}
-                  </>
-                ) : (
-                  "Every SKU at base — click a grey price to give that SKU its own"
-                )}
-              </p>
-              <span
-                className={cn(
-                  "shrink-0 text-[0.875rem] font-medium whitespace-nowrap tabular-nums",
-                  over ? "text-bad" : balanced ? "text-ok-fg" : "text-warn-fg"
-                )}
-              >
-                {split
-                  ? `${count(declared)} pcs`
-                  : `${count(declared)} of ${count(receipt.quantity)}`}
-                {" · "}
-                {count(skuCount)} {skuCount === 1 ? "SKU" : "SKUs"}
-              </span>
-            </div>
-            <Matrix
-              colours={rows}
-              sizes={columns}
-              columnClass="w-36"
-              columnHead={(size) => (
-                <span className="group/head inline-flex w-full items-center justify-end">
-                  {size.label}
-                  <HeadPricePopover
-                    name={size.label}
-                    purchase={purchaseMinor}
-                    base={baseMinor}
-                    onApply={(price) =>
-                      priceWhole({ axis: "size", key: size.code }, price)
-                    }
-                  />
-                </span>
-              )}
-              rowHead={(colour) => (
-                <span className="group/head flex w-full min-w-0 items-center">
-                  <span className="min-w-0 flex-1 truncate text-[0.875rem] font-medium text-ink">
-                    {colour.label}
+                    {count(skuCount)} {skuCount === 1 ? "SKU" : "SKUs"}
                   </span>
-                  <HeadPricePopover
-                    name={colour.label}
-                    purchase={purchaseMinor}
-                    base={baseMinor}
-                    onApply={(price) =>
-                      priceWhole({ axis: "colour", key: colour.key }, price)
-                    }
-                  />
-                </span>
-              )}
-              // `group` so the two boxes inside `SkuCell` can answer to this
-              // ONE cell being hovered rather than the whole row or column —
-              // and `relative` so the markup/live chip anchors to it and not
-              // to the table.
-              cellProps={() => ({
-                className:
-                  "group relative h-auto px-2.5 py-2.5 align-top min-[100rem]:px-3 min-[100rem]:py-4",
-              })}
-              cell={(colour, size) => {
-                const key = `${colour.key}|${size.code}`
-                const label = `${name.trim() === "" ? "This article" : name.trim()} ${colour.label} ${size.label}`
-                return (
-                  <SkuCell
-                    label={label}
-                    quantity={pieces[key] ?? ""}
-                    onQuantity={(next) =>
-                      setPieces((was) => ({ ...was, [key]: next }))
-                    }
-                    purchase={purchaseMinor}
-                    base={baseMinor}
-                    price={priceAt(colour.key, size.code)}
-                    own={ownPrice[key] !== undefined}
-                    editing={editingPrice?.key === key}
-                    editingValue={
-                      editingPrice?.key === key ? editingPrice.value : ""
-                    }
-                    onEditingChange={(value) => setEditingPrice({ key, value })}
-                    onStartEdit={() => {
-                      const current = ownPrice[key]
-                      setEditingPrice({
-                        key,
-                        value:
-                          current !== undefined ? formatThousands(current) : "",
-                      })
-                    }}
-                    onCommit={() => {
-                      if (editingPrice === null || editingPrice.key !== key)
-                        return
-                      const parsed = parseSkuPrice(
-                        editingPrice.value,
-                        purchaseMinor
+                </div>
+                <Matrix
+                  colours={rows}
+                  sizes={columns}
+                  columnClass="w-36"
+                  columnHead={(size) => (
+                    <span className="group/head inline-flex w-full items-center justify-end">
+                      {size.label}
+                      <HeadPricePopover
+                        name={size.label}
+                        purchase={purchaseMinor}
+                        base={baseMinor}
+                        onApply={(price) =>
+                          priceWhole({ axis: "size", key: size.code }, price)
+                        }
+                      />
+                    </span>
+                  )}
+                  rowHead={(colour) => (
+                    <span className="group/head flex w-full min-w-0 items-center">
+                      {orderPhotoOf.has(colour.key) && (
+                        <ZoomPhoto
+                          url={orderPhotoOf.get(colour.key)}
+                          name={colour.label}
+                          className="mr-2.5 size-8 shrink-0"
+                        >
+                          <PhotoImg
+                            url={orderPhotoOf.get(colour.key) ?? ""}
+                            alt={colour.label}
+                            className="size-8 rounded-inner border border-hairline object-cover"
+                          />
+                        </ZoomPhoto>
+                      )}
+                      <span className="min-w-0 flex-1 truncate text-[0.875rem] font-medium text-ink">
+                        {colour.label}
+                      </span>
+                      <HeadPricePopover
+                        name={colour.label}
+                        purchase={purchaseMinor}
+                        base={baseMinor}
+                        onApply={(price) =>
+                          priceWhole({ axis: "colour", key: colour.key }, price)
+                        }
+                      />
+                    </span>
+                  )}
+                  // `group` so the two boxes inside `SkuCell` can answer to this
+                  // ONE cell being hovered rather than the whole row or column —
+                  // and `relative` so the markup/live chip anchors to it and not
+                  // to the table.
+                  cellProps={() => ({
+                    className:
+                      "group relative h-auto px-2.5 py-2.5 align-top min-[100rem]:px-3 min-[100rem]:py-4",
+                  })}
+                  cell={(colour, size) => {
+                    const key = `${colour.key}|${size.code}`
+                    const label = `${name.trim() === "" ? "This article" : name.trim()} ${colour.label} ${size.label}`
+                    const photos = orderPhotosAt.get(key) ?? []
+                    return (
+                      <>
+                        <SkuCell
+                          label={label}
+                          quantity={pieces[key] ?? ""}
+                          onQuantity={(next) =>
+                            setPieces((was) => ({ ...was, [key]: next }))
+                          }
+                          purchase={purchaseMinor}
+                          base={baseMinor}
+                          price={priceAt(colour.key, size.code)}
+                          own={ownPrice[key] !== undefined}
+                          editing={editingPrice?.key === key}
+                          editingValue={
+                            editingPrice?.key === key ? editingPrice.value : ""
+                          }
+                          onEditingChange={(value) =>
+                            setEditingPrice({ key, value })
+                          }
+                          onStartEdit={() => {
+                            const current = ownPrice[key]
+                            setEditingPrice({
+                              key,
+                              value:
+                                current !== undefined
+                                  ? formatThousands(current)
+                                  : "",
+                            })
+                          }}
+                          onCommit={() => {
+                            if (
+                              editingPrice === null ||
+                              editingPrice.key !== key
+                            )
+                              return
+                            const parsed = parseSkuPrice(
+                              editingPrice.value,
+                              purchaseMinor
+                            )
+                            setOwnPrice((prev) => {
+                              const next = { ...prev }
+                              if (parsed === null || parsed === baseMinor)
+                                delete next[key]
+                              else next[key] = parsed
+                              return next
+                            })
+                            setEditingPrice(null)
+                          }}
+                          onCancel={() => setEditingPrice(null)}
+                        />
+                        {photos.length > 0 && (
+                          <span className="mt-1.5 flex items-center gap-1.5">
+                            <ZoomPhoto
+                              url={photos[0]}
+                              name={label}
+                              className="size-7 shrink-0"
+                            >
+                              <PhotoImg
+                                url={photos[0]}
+                                alt={label}
+                                className="size-7 rounded-inner border border-hairline object-cover"
+                              />
+                            </ZoomPhoto>
+                            {photos.length > 1 && (
+                              <span className="text-[0.875rem] text-mute tabular-nums">
+                                +{photos.length - 1}
+                              </span>
+                            )}
+                          </span>
+                        )}
+                      </>
+                    )
+                  }}
+                  rowTotal={(colour) =>
+                    count(
+                      columns.reduce(
+                        (sum, size) => sum + piecesAt(colour.key, size.code),
+                        0
                       )
-                      setOwnPrice((prev) => {
-                        const next = { ...prev }
-                        if (parsed === null || parsed === baseMinor)
-                          delete next[key]
-                        else next[key] = parsed
-                        return next
-                      })
-                      setEditingPrice(null)
-                    }}
-                    onCancel={() => setEditingPrice(null)}
-                  />
-                )
-              }}
-              rowTotal={(colour) =>
-                count(
-                  columns.reduce(
-                    (sum, size) => sum + piecesAt(colour.key, size.code),
-                    0
-                  )
-                )
-              }
-              columnTotal={(size) =>
-                count(
-                  chosenColours.reduce(
-                    (sum, colour) => sum + piecesAt(colour, size.code),
-                    0
-                  )
-                )
-              }
-              total={
-                <span
-                  className={
-                    over ? "text-bad" : balanced ? "text-ok-fg" : "text-warn-fg"
+                    )
                   }
-                >
-                  {count(declared)}
-                </span>
-              }
-            />
-          </>
-        )}
-      </div>
-
+                  columnTotal={(size) =>
+                    count(
+                      chosenColours.reduce(
+                        (sum, colour) => sum + piecesAt(colour, size.code),
+                        0
+                      )
+                    )
+                  }
+                  total={
+                    <span
+                      className={
+                        over
+                          ? "text-bad"
+                          : balanced
+                            ? "text-ok-fg"
+                            : "text-warn-fg"
+                      }
+                    >
+                      {count(declared)}
+                    </span>
+                  }
+                />
+              </>
+            )}
+          </div>
         </div>
         {counted && (
           <aside
@@ -3339,6 +3693,12 @@ function SessionComposer({
               {" · "}
               {left < 0 ? `${count(-left)} over` : `${count(left)} left`}
             </p>
+          )}
+          {/* Why the button is dead, in the sheet's own words: the first thing
+              still missing. Without it a single article — which has no
+              Allotted line — says nothing at all. */}
+          {missing !== null && actor !== "" && (
+            <p className="text-[0.9375rem] text-warn-fg">{missing}</p>
           )}
         </div>
         {/* "Create articles" (was "Add to inventory"), on the owner's word of 2026-09-13. "Set up and

@@ -69,7 +69,9 @@ pub async fn finance_controls(
             .iter()
             .map(|row| {
                 (
-                    row.account_code.clone().unwrap_or_else(|| row.tax_type_code.clone()),
+                    row.account_code
+                        .clone()
+                        .unwrap_or_else(|| row.tax_type_code.clone()),
                     row.gl_minor,
                 )
             })
@@ -439,8 +441,14 @@ pub async fn finance_controls(
     // edges say where each piece is now, not where it was at month end.
     match super::stock_vs_ledger(pool).await {
         Ok(units) => {
-            let gl: i64 = units.iter().map(|u| u.ledger_minor + u.in_transit_ledger_minor).sum();
-            let sub: i64 = units.iter().map(|u| u.stock_minor + u.in_transit_stock_minor).sum();
+            let gl: i64 = units
+                .iter()
+                .map(|u| u.ledger_minor + u.in_transit_ledger_minor)
+                .sum();
+            let sub: i64 = units
+                .iter()
+                .map(|u| u.stock_minor + u.in_transit_stock_minor)
+                .sum();
             let off = units
                 .iter()
                 .filter(|u| u.difference_minor != 0 || u.in_transit_difference_minor != 0)
@@ -535,12 +543,14 @@ pub async fn finance_close_readiness(
 
     // Trading days that never became a document.
     let unposted: i64 = sqlx::query_scalar(
-        // Each shop's day as its tills traded it: the shift's (0714).
+        // Each shop's day as its tills traded it: the shift's (0714). A half-
+        // open range so the month reads the (business_date, site_id) index;
+        // EXTRACT(YEAR/MONTH) would scan the whole book per open.
         "SELECT COUNT(*)::bigint FROM (
              SELECT DISTINCT s.site_id, s.business_date AS day
                FROM edge_sale s
-              WHERE EXTRACT(YEAR FROM s.business_date) = $1
-                AND EXTRACT(MONTH FROM s.business_date) = $2
+              WHERE s.business_date >= make_date($1::int, $2::int, 1)
+                AND s.business_date <  make_date($1::int, $2::int, 1) + INTERVAL '1 month'
          ) traded
          WHERE NOT EXISTS (
              SELECT 1 FROM sales_posting p
@@ -569,8 +579,8 @@ pub async fn finance_close_readiness(
     let stale: i64 = sqlx::query_scalar(
         "SELECT COUNT(*)::bigint FROM sales_posting p
           WHERE p.status = 'POSTED'
-            AND EXTRACT(YEAR FROM p.business_date) = $1
-            AND EXTRACT(MONTH FROM p.business_date) = $2
+            AND p.business_date >= make_date($1::int, $2::int, 1)
+            AND p.business_date <  make_date($1::int, $2::int, 1) + INTERVAL '1 month'
             AND EXISTS (
                 SELECT 1 FROM (
                 SELECT COUNT(*)::bigint AS n, COALESCE(SUM(t.total_minor), 0)::bigint AS g
@@ -625,9 +635,10 @@ pub async fn finance_close_readiness(
     // Controls that do not agree.
     // Measured at the month's last day, not today: October's postings are
     // not September's differences.
-    let month_end = NaiveDate::from_ymd_opt(i32::from(year16), u32::try_from(month16).unwrap_or(1), 1)
-        .and_then(|first| first.checked_add_months(chrono::Months::new(1)))
-        .and_then(|next| next.pred_opt());
+    let month_end =
+        NaiveDate::from_ymd_opt(i32::from(year16), u32::try_from(month16).unwrap_or(1), 1)
+            .and_then(|first| first.checked_add_months(chrono::Months::new(1)))
+            .and_then(|next| next.pred_opt());
     let controls = finance_controls(pool, month_end).await?;
     for control in controls.iter().filter(|row| row.covered) {
         if control.difference_minor != 0 {
@@ -675,7 +686,8 @@ pub async fn finance_close_readiness(
     let due: i64 = sqlx::query_scalar(
         "SELECT COUNT(*)::bigint FROM financing_installment i
           WHERE i.entry_id IS NULL
-            AND EXTRACT(YEAR FROM i.due_date) = $1 AND EXTRACT(MONTH FROM i.due_date) = $2",
+            AND i.due_date >= make_date($1::int, $2::int, 1)
+            AND i.due_date <  make_date($1::int, $2::int, 1) + INTERVAL '1 month'",
     )
     .bind(i32::from(year16))
     .bind(i32::from(month16))
@@ -713,8 +725,8 @@ pub async fn finance_close_readiness(
         "SELECT COUNT(*)::bigint FROM (
              SELECT e.entry_id FROM journal_entry e
                JOIN journal_line l ON l.entry_id = e.entry_id
-              WHERE EXTRACT(YEAR FROM e.posting_date) = $1
-                AND EXTRACT(MONTH FROM e.posting_date) = $2
+              WHERE e.posting_date >= make_date($1::int, $2::int, 1)
+                AND e.posting_date <  make_date($1::int, $2::int, 1) + INTERVAL '1 month'
               GROUP BY e.entry_id
              HAVING SUM(l.debit_minor) <> SUM(l.credit_minor)
          ) x",

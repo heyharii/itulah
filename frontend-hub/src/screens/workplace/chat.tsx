@@ -22,9 +22,11 @@ import {
 } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Dialog, SavedDialog } from "@/components/ui/dialog"
+import { Fab } from "@/components/ui/fab"
 import { Field, Input } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { PickMany, PickOne, type Choice } from "@/components/ui/pick"
@@ -264,33 +266,63 @@ export function Chat() {
         title="Chat"
         sub="Correspondence between people, not a record of a decision."
         actions={
-          <>
-            {unread > 0 && (
-              <Pill tone="accent" withDot>
-                {count(unread)} unread
-              </Pill>
-            )}
-            {alerts.askable && (
-              <Button
-                variant="ghost"
-                onClick={alerts.ask}
-                title="Be told about new messages while this tab is in the background"
-              >
-                <Bell />
-                {layout === "phone" ? "Alerts" : "Turn on alerts"}
+          // On a phone the search and the filter are the dock's, the one thing
+          // this page makes is its round button, and what is left of the row —
+          // how many are unread, and the alerts switch — sits under the rooms.
+          layout === "phone" ? undefined : (
+            <>
+              {unread > 0 && (
+                <Pill tone="accent" withDot>
+                  {count(unread)} unread
+                </Pill>
+              )}
+              {alerts.askable && (
+                <Button
+                  variant="ghost"
+                  onClick={alerts.ask}
+                  title="Be told about new messages while this tab is in the background"
+                >
+                  <Bell />
+                  Turn on alerts
+                </Button>
+              )}
+              <Button variant="primary" onClick={() => setStarting(true)}>
+                <MessageSquarePlus />
+                New conversation
               </Button>
-            )}
-            {/* One word on a phone. The row beside it is a pill and, some of
-                the time, the alerts switch; at 375px the three of them and a
-                spelt-out label do not fit, and the label is the part the icon
-                already says. */}
-            <Button variant="primary" onClick={() => setStarting(true)}>
-              <MessageSquarePlus />
-              {layout === "phone" ? "New" : "New conversation"}
-            </Button>
-          </>
+            </>
+          )
         }
       />
+
+      {conversation.value === undefined && (
+        <>
+          <Fab
+            label="New conversation"
+            onClick={() => setStarting(true)}
+          />
+          <DockTools
+            search={{
+              value: search,
+              onChange: setSearch,
+              label: "Search people and messages",
+            }}
+            status={{
+              value: filter,
+              options: FILTERS.map((one) => ({
+                value: one.value,
+                label: one.label,
+              })),
+              onChange: (next) => setFilter(next as RoomFilter),
+            }}
+          />
+          {unread > 0 && (
+            <p className="mb-2 text-meta text-body md:hidden">
+              <b className="font-medium text-ink">{count(unread)}</b> unread
+            </p>
+          )}
+        </>
+      )}
 
       {/* On a phone the two panes take turns, the way every messenger does:
           the rooms, full width, until one is opened — then that room, full
@@ -303,7 +335,7 @@ export function Chat() {
             conversation.value !== undefined && "max-md:hidden"
           )}
         >
-          <div className="flex shrink-0 flex-col gap-2 border-b border-hairline p-3">
+          <div className="flex shrink-0 flex-col gap-2 border-b border-hairline p-3 max-md:hidden">
             <div className="relative">
               <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
               <Input
@@ -364,6 +396,18 @@ export function Chat() {
                         onOpen={() => openRoom(room.conversation_id)}
                       />
                     ))
+                  )}
+                  {alerts.askable && (
+                    <div className="p-3 md:hidden">
+                      <Button
+                        variant="ghost"
+                        className="w-full"
+                        onClick={alerts.ask}
+                      >
+                        <Bell />
+                        Alerts
+                      </Button>
+                    </div>
                   )}
                   {query.length >= 2 && needle !== "" && (
                     <MessageHits
@@ -594,7 +638,7 @@ function MessageHits({
                 {ago(hit.sent_at)}
               </span>
             </span>
-            <span className="line-clamp-2 text-[0.8125rem] text-body">
+            <span className="line-clamp-2 text-[0.875rem] text-body">
               <span className="text-mute">{hit.author_name}: </span>
               <Highlighted text={plainText(hit.body)} query={query} />
             </span>
@@ -726,7 +770,7 @@ function RoomRow({
             {room.mention_count > 0 && (
               <span
                 title={`${room.mention_count} mention${room.mention_count === 1 ? "" : "s"}`}
-                className="grid h-[1.125rem] min-w-[1.125rem] shrink-0 place-items-center rounded-full bg-accent px-1 text-[0.75rem] font-semibold text-white"
+                className="grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-accent px-1 text-[0.875rem] leading-none font-semibold text-white"
               >
                 @
               </span>
@@ -734,7 +778,7 @@ function RoomRow({
             {unread && (
               <span
                 className={cn(
-                  "grid h-[1.125rem] min-w-[1.125rem] shrink-0 place-items-center rounded-full px-1.5 text-[0.75rem] font-semibold tabular-nums",
+                  "grid h-5 min-w-5 shrink-0 place-items-center rounded-full px-1.5 text-[0.875rem] leading-none font-semibold tabular-nums",
                   quiet ? "bg-soft-2 text-body" : "bg-accent text-white"
                 )}
               >
@@ -1762,7 +1806,7 @@ function RoomSearch({
                     {dayOf(hit.sent_at)} {clock(hit.sent_at)}
                   </span>
                 </span>
-                <span className="line-clamp-2 text-[0.8125rem] text-text">
+                <span className="line-clamp-2 text-[0.875rem] text-text">
                   <Highlighted text={plainText(hit.body)} query={query} />
                 </span>
               </button>

@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/states"
 import { dc } from "@/lib/api"
 import { SHOW_MISSING } from "@/lib/features"
-import { count, day } from "@/lib/format"
+import { count, day, quantity } from "@/lib/format"
 import { keys } from "@/lib/operations/keys"
 import { useEdgeActor } from "@/lib/edge-session"
 import { idempotencyKey } from "@itulah/contract/client"
@@ -94,8 +94,10 @@ export function DeliverySheet({
         <div className="flex flex-col gap-5">
           <Facts>
             <Fact term="Store">{delivery.source_site_id}</Fact>
-            <Fact term="Surat jalan">{delivery.shipment_reference ?? "—"}</Fact>
-            <Fact term="Koli">{count(delivery.koli_count)}</Fact>
+            <Fact term="Delivery note">
+              {delivery.shipment_reference ?? "—"}
+            </Fact>
+            <Fact term="Cartons">{count(delivery.koli_count)}</Fact>
             <Fact term="Sent on">{day(delivery.departed_at)}</Fact>
           </Facts>
 
@@ -304,7 +306,7 @@ function CountReceive({
           ))}
         </MiniTable>
       )}
-      <p className="text-meta text-mute">{count(total)} pcs counted</p>
+      <p className="text-meta text-mute">{quantity(total)} counted</p>
       <Problem error={receive.error} />
       <Button
         variant="primary"

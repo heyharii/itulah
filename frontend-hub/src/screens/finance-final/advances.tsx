@@ -21,6 +21,7 @@ import {
   LoadingState,
 } from "@/components/ui/states"
 import { money } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { financeKeys, listCompanyBankAccounts } from "@/lib/queries/finance"
 import {
   advanceControl,
@@ -37,6 +38,8 @@ import {
   Td,
   Th,
 } from "@/screens/finance-final/parts"
+import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
+import { PhoneChoice, PhoneFigures } from "@/screens/finance/parts"
 
 /// Advances — money out with somebody, and how old it is.
 ///
@@ -46,6 +49,7 @@ export function Advances() {
   const [status, setStatus] = useState<string | undefined>(undefined)
   const [paying, setPaying] = useState<PayTarget | null>(null)
   const canWrite = useCanWrite()
+  const phone = useLayout() === "phone"
   // A page at a time, newest first. The cards read the server's figures over
   // the whole book, never a sum of the pages loaded.
   const advances = useInfiniteQuery({
@@ -76,32 +80,66 @@ export function Advances() {
   return (
     <PageContent>
       <PageHeader
+        className="max-md:hidden"
         crumb="Finance"
-        title="Uang Muka"
-        sub="Perjalanan, kontraktor, dan keperluan yang belum ada tagihannya."
+        title="Advances"
+        sub="Travel, contractors and other needs that have no bill yet."
       />
 
-      <Grid>
-        <NumberCard label="Masih di tangan orang" value={outstanding} />
-        <NumberCard
-          label="Lebih dari 30 hari"
-          value={old}
-          tone={old === null ? undefined : old === 0 ? "ok" : "warn"}
-        />
-        <NumberCard
-          label="Selisih dengan buku besar"
-          value={difference}
-          tone={difference === 0 ? "ok" : "bad"}
-        />
-      </Grid>
+      <PhoneFigures
+        items={[
+          { label: "Still with people", value: outstanding },
+          {
+            label: "Over 30 days",
+            value: old,
+            tone: old === null ? undefined : old === 0 ? "ok" : "warn",
+          },
+          {
+            label: "Difference from the ledger",
+            value: difference,
+            tone: difference === 0 ? "ok" : "bad",
+          },
+        ]}
+      />
+      <div className="max-md:hidden">
+        <Grid>
+          <NumberCard label="Still with people" value={outstanding} />
+          <NumberCard
+            label="Over 30 days"
+            value={old}
+            tone={old === null ? undefined : old === 0 ? "ok" : "warn"}
+          />
+          <NumberCard
+            label="Difference from the ledger"
+            value={difference}
+            tone={difference === 0 ? "ok" : "bad"}
+          />
+        </Grid>
+      </div>
 
       <Note>
-        Uang muka yang sudah dibayar tidak bisa dibatalkan — ia dipertanggung-
-        jawabkan dengan bukti, atau uangnya dikembalikan. Keduanya mengurangi
-        saldo lewat jurnalnya sendiri.
+        An advance that has been paid cannot be cancelled — it is accounted for
+        with receipts, or the money is returned. Either one reduces the balance
+        through its own journal entry.
       </Note>
 
-      <div className="flex flex-wrap gap-2">
+      {/* A phone: the status is a chip in the dock. */}
+      <PhoneChoice
+        title="Status"
+        value={status ?? ""}
+        onChange={(next) => setStatus(next === "" ? undefined : next)}
+        options={[
+          { value: "", label: "All" },
+          ...[
+            "REQUESTED",
+            "APPROVED",
+            "PAID",
+            "PARTIALLY_SETTLED",
+            "SETTLED",
+          ].map((one) => ({ value: one, label: one })),
+        ]}
+      />
+      <div className="flex flex-wrap gap-2 max-md:hidden">
         {[
           undefined,
           "REQUESTED",
@@ -120,7 +158,7 @@ export function Advances() {
             }
             onClick={() => setStatus(option)}
           >
-            {option ?? "Semua"}
+            {option ?? "All"}
           </button>
         ))}
       </div>
@@ -130,18 +168,71 @@ export function Advances() {
       ) : advances.isError && advances.data === undefined ? (
         <ErrorState error={advances.error} />
       ) : rows.length === 0 ? (
-        <EmptyState>Belum ada uang muka</EmptyState>
+        <EmptyState>No advances yet</EmptyState>
+      ) : phone ? (
+        <PhoneList
+          rows={rows.map((row) => ({
+            key: row.advance_id,
+            title: row.party_label,
+            code: row.advance_number,
+            line: `${row.party_type} · ${row.purpose}`,
+            lead: (
+              <CardFigure
+                value={money(row.outstanding_minor)}
+                caption="remaining"
+              />
+            ),
+            foot: (
+              <span className="tabular-nums">
+                Value {money(row.amount_minor)}
+                {row.age_days === null ? "" : ` · ${row.age_days} days`}
+              </span>
+            ),
+            action:
+              row.status === "APPROVED" && canWrite ? (
+                <Button
+                  variant="tint"
+                  size="card"
+                  onClick={() =>
+                    setPaying({
+                      id: row.advance_id,
+                      number: row.advance_number,
+                      party: row.party_label,
+                      purpose: row.purpose,
+                      amount: row.amount_minor,
+                    })
+                  }
+                >
+                  Pay out
+                </Button>
+              ) : (
+                <Pill
+                  tone={
+                    row.status === "SETTLED"
+                      ? "ok"
+                      : row.status === "CANCELLED"
+                        ? "neutral"
+                        : (row.age_days ?? 0) > 30
+                          ? "warn"
+                          : "info"
+                  }
+                >
+                  {row.status}
+                </Pill>
+              ),
+          }))}
+        />
       ) : (
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr>
-              <Th>Nomor</Th>
-              <Th>Kepada</Th>
-              <Th>Keperluan</Th>
+              <Th>Number</Th>
+              <Th>To</Th>
+              <Th>Purpose</Th>
               <Th>Unit</Th>
-              <Th align="right">Nilai</Th>
-              <Th align="right">Sisa</Th>
-              <Th align="right">Umur</Th>
+              <Th align="right">Value</Th>
+              <Th align="right">Remaining</Th>
+              <Th align="right">Age</Th>
               <Th>Status</Th>
             </tr>
           </thead>
@@ -162,7 +253,7 @@ export function Advances() {
                 <Td align="right">{money(row.amount_minor)}</Td>
                 <Td align="right">{money(row.outstanding_minor)}</Td>
                 <Td align="right">
-                  {row.age_days === null ? "—" : `${row.age_days} hari`}
+                  {row.age_days === null ? "—" : `${row.age_days} days`}
                 </Td>
                 <Td>
                   <Pill
@@ -192,7 +283,7 @@ export function Advances() {
                         })
                       }
                     >
-                      Cairkan
+                      Pay out
                     </Button>
                   )}
                 </Td>
@@ -254,11 +345,11 @@ function PaySheet({
     <Sheet
       open
       onOpenChange={(next) => !next && onClose()}
-      title={`Cairkan ${target.number}`}
+      title={`Pay out ${target.number}`}
       footer={
         <div className="flex justify-end gap-2">
           <Button variant="quiet" onClick={onClose}>
-            Batal
+            Cancel
           </Button>
           <Button
             variant="primary"
@@ -266,23 +357,23 @@ function PaySheet({
             disabled={on === ""}
             onClick={() => pay.mutate()}
           >
-            Cairkan
+            Pay out
           </Button>
         </div>
       }
     >
       <div className="flex flex-col gap-4">
         <Facts>
-          <Fact term="Kepada">{target.party}</Fact>
-          <Fact term="Keperluan">{target.purpose}</Fact>
-          <Fact term="Nilai">{money(target.amount)}</Fact>
+          <Fact term="To">{target.party}</Fact>
+          <Fact term="Purpose">{target.purpose}</Fact>
+          <Fact term="Value">{money(target.amount)}</Fact>
         </Facts>
-        <Field label="Tanggal" required>
+        <Field label="Date" required>
           <Day value={on} onChange={setOn} />
         </Field>
-        <Field label="Dibayar dari" required>
+        <Field label="Paid From" required>
           <Select value={source} onChange={setSource}>
-            <option value="petty_cash|">Kas kecil unit</option>
+            <option value="petty_cash|">Unit petty cash</option>
             {(banks.data ?? []).map((bank) => (
               <option
                 key={`${bank.ledger_account_code}-${bank.bank_code}`}

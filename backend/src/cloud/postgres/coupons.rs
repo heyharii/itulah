@@ -1190,6 +1190,454 @@ pub async fn coupon_code_detail(pool: &PgPool, code: &str) -> Result<CouponCodeD
     })
 }
 
+// ---------------------------------------------------------------------------
+// A price book's limited coupon, as a coupon set
+//
+// A coupon can be authored two ways. A coupon SET (`create_coupon_set`) is the
+// thing this module is about. A price book can also carry a coupon of its own
+// (`commercial_coupon`: HEMAT50 → rule-hemat50, `max_uses` 100), which reaches
+// every till inside the publication. Uncapped, that needs nothing from here:
+// the till's engine opens the rule on the code alone. CAPPED, it cannot be
+// admitted from a till's snapshot at all — the count in it is as old as the
+// last sync — so the engine refuses it until head office holds a use
+// (`CouponNeedsOnlineAuthorization`), and the hold has to be held against a
+// set. So a capped book coupon BECOMES a set: SHARED, its one code the book's
+// code, `max_redemptions` the book's `max_uses`, the window and the active
+// flag the book's. Made when the book is published, and — for a book published
+// before this existed — the first time a till asks for the code.
+//
+// Counting starts at the set. A capped book coupon could never be redeemed
+// before this (the engine refused it), so there are no earlier uses to carry
+// over. The older `commercial_usage` counter goes on counting from sale facts
+// as it always has; the set's redemptions are the count the cap is kept by.
+// ---------------------------------------------------------------------------
+
+/// Written on every set a price book made, so a later book can tell its own
+/// sets from one a merchandiser authored by hand — and update only the first.
+const BOOK_COUPON_NOTE: &str = "Made from a price book's limited coupon";
+
+/// One capped coupon as a book declares it.
+struct BookCoupon {
+    code: String,
+    rule_id: String,
+    active: bool,
+    customer_id: Option<String>,
+    valid_from: Option<DateTime<Utc>>,
+    valid_to: Option<DateTime<Utc>>,
+    max_uses: i64,
+}
+
+/// Write `coupon` down as a SHARED set and its one code, idempotently.
+///
+/// `refresh` is for publishing: a newer book restating the coupon (a raised
+/// cap, a longer window) restates the set — but only a set a book made. A set
+/// somebody authored by hand under the same code is theirs, and is left alone.
+/// A till asking does not refresh: the set a book made is already the newest
+/// book's word.
+///
+/// Set first, code second — the order every path in this file locks them in.
+async fn upsert_book_coupon_set(
+    tx: &mut Transaction<'_, Postgres>,
+    coupon: &BookCoupon,
+    actor: &str,
+    refresh: bool,
+) -> Result<(), AppError> {
+    let code = normalize_coupon_code(&coupon.code)?;
+    // A window the set's own CHECK would refuse is dropped rather than failing
+    // the whole publication over one coupon: the till's engine still reads the
+    // book's window, and refuses outside it.
+    let (valid_from, valid_to) = match (coupon.valid_from, coupon.valid_to) {
+        (Some(from), Some(to)) if to <= from => (None, None),
+        window => window,
+    };
+    let max_redemptions = Some(coupon.max_uses);
+    let name = format!("Kupon {code}");
+    let conflict = if refresh {
+        "ON CONFLICT (set_code) DO UPDATE SET
+             rule_id = excluded.rule_id, valid_from = excluded.valid_from,
+             valid_to = excluded.valid_to, max_redemptions = excluded.max_redemptions,
+             active = excluded.active
+           WHERE coupon_set.note = excluded.note"
+    } else {
+        "ON CONFLICT (set_code) DO NOTHING"
+    };
+    sqlx::query(&format!(
+        "INSERT INTO coupon_set
+             (coupon_set_id, set_code, name, rule_id, kind, valid_from, valid_to,
+              max_redemptions, max_per_customer, hold_seconds, active, created_by, note)
+         VALUES ($1, $2, $3, $4, 'SHARED', $5, $6, $7, NULL, $8, $9, $10, $11)
+         {conflict}"
+    ))
+    .bind(Uuid::new_v4())
+    .bind(&code)
+    .bind(&name)
+    .bind(coupon.rule_id.trim())
+    .bind(valid_from)
+    .bind(valid_to)
+    .bind(max_redemptions)
+    .bind(DEFAULT_HOLD_SECONDS as i32)
+    .bind(coupon.active)
+    .bind(actor)
+    .bind(BOOK_COUPON_NOTE)
+    .execute(&mut **tx)
+    .await
+    .map_err(map_coupon_write_error)?;
+    // Read back rather than trusting the id just generated: under a conflict
+    // the set is the one already there.
+    let coupon_set_id: Uuid =
+        sqlx::query_scalar("SELECT coupon_set_id FROM coupon_set WHERE set_code = $1")
+            .bind(&code)
+            .fetch_one(&mut **tx)
+            .await?;
+    sqlx::query(
+        "INSERT INTO coupon_code
+             (coupon_code_id, coupon_set_id, code, state, max_uses, customer_id, issued_by)
+         VALUES ($1, $2, $3, 'ISSUED', NULL, $4, $5)
+         ON CONFLICT (code) DO NOTHING",
+    )
+    .bind(Uuid::new_v4())
+    .bind(coupon_set_id)
+    .bind(&code)
+    .bind(optional_text(coupon.customer_id.as_deref()))
+    .bind(actor)
+    .execute(&mut **tx)
+    .await
+    .map_err(map_coupon_write_error)?;
+    Ok(())
+}
+
+fn book_coupon(row: &sqlx::postgres::PgRow) -> Result<Option<BookCoupon>, AppError> {
+    let max_uses: Option<i32> = row.try_get("max_uses")?;
+    // A cap of nought is a coupon nobody can use; the till already says
+    // "used up" for it, and a set cannot be capped at nothing.
+    Ok(max_uses.filter(|max| *max > 0).map(|max_uses| BookCoupon {
+        code: row.get("code"),
+        rule_id: row.get("rule_id"),
+        active: row.get("active"),
+        customer_id: row.get("customer_id"),
+        valid_from: row.get("valid_from"),
+        valid_to: row.get("valid_to"),
+        max_uses: i64::from(max_uses),
+    }))
+}
+
+/// Make a set of every capped coupon in a book that is being published.
+///
+/// Inside the publishing transaction: the book and the sets its limited
+/// coupons are held against exist together or not at all. A coupon whose code
+/// cannot be a set code (too short, odd characters) is skipped with a warning
+/// rather than failing the publication — the till's engine goes on refusing it
+/// as needing authorization, which is what it did before sets existed.
+pub async fn ensure_book_coupon_sets_for_publication(
+    tx: &mut Transaction<'_, Postgres>,
+    publication_id: Uuid,
+    actor: &str,
+) -> Result<(), AppError> {
+    let rows = sqlx::query(
+        "SELECT code, rule_id, active, customer_id, valid_from, valid_to, max_uses
+           FROM commercial_coupon
+          WHERE publication_id = $1 AND max_uses IS NOT NULL
+          ORDER BY code",
+    )
+    .bind(publication_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    for row in &rows {
+        let Some(coupon) = book_coupon(row)? else {
+            continue;
+        };
+        if normalize_coupon_code(&coupon.code).is_err() {
+            tracing::warn!(
+                code = %coupon.code,
+                "a limited coupon's code cannot name a coupon set, so no till can hold it"
+            );
+            continue;
+        }
+        upsert_book_coupon_set(tx, &coupon, actor, true).await?;
+    }
+    Ok(())
+}
+
+/// The lazy half: a code with no set yet, which a book in force does declare
+/// as a limited coupon, becomes one now. A code with a set, or one no book
+/// declares as limited, is left exactly as it is — the lock that follows
+/// answers "no such coupon" for the second.
+async fn ensure_book_coupon_set(
+    tx: &mut Transaction<'_, Postgres>,
+    code: &str,
+    actor: &str,
+) -> Result<(), AppError> {
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM coupon_code WHERE code = $1)")
+        .bind(code)
+        .fetch_one(&mut **tx)
+        .await?;
+    if exists {
+        return Ok(());
+    }
+    // The newest PUBLISHED declaration of the code wins, as it does for the
+    // till's own snapshot (`pricing::load_coupons`). Matched on the same
+    // normalisation a set code gets, so `hemat-50` in a book is `HEMAT50` here.
+    let Some(row) = sqlx::query(
+        "SELECT c.code, c.rule_id, c.active, c.customer_id, c.valid_from, c.valid_to,
+                c.max_uses
+           FROM commercial_coupon c
+           JOIN commercial_publication p ON p.id = c.publication_id
+          WHERE p.status = 'PUBLISHED'
+            AND upper(regexp_replace(c.code, '[^A-Za-z0-9]', '', 'g')) = $1
+          ORDER BY p.version DESC
+          LIMIT 1",
+    )
+    .bind(code)
+    .fetch_optional(&mut **tx)
+    .await?
+    else {
+        return Ok(());
+    };
+    let Some(coupon) = book_coupon(&row)? else {
+        // In force and uncapped: the till never needs to ask about it.
+        return Ok(());
+    };
+    upsert_book_coupon_set(tx, &coupon, actor, false).await
+}
+
+// ---------------------------------------------------------------------------
+// The hold, committed by the sale that used it
+// ---------------------------------------------------------------------------
+
+/// What became of one hold a sale fact named.
+enum FactCommit {
+    Committed,
+    /// It was already this sale's — a redelivered fact.
+    AlreadyCommitted,
+    /// Not committed, and why. Written down, never raised.
+    Skipped(String),
+}
+
+/// Turn the hold a sale's coupon carried into that sale's redemption, as the
+/// sale fact is applied.
+///
+/// The voucher's `commit_voucher_hold_for_fact`, with one deliberate
+/// difference: **this never fails the fact.** A sale fact that is refused
+/// blocks every later fact from that shop until somebody repairs it by hand —
+/// its takings, its stock, every member's points (bug B1 was exactly that). A
+/// voucher is money and earns that severity; a coupon hold that lapsed or was
+/// let go is a bookkeeping question about a discount already given on a real
+/// receipt. So anything wrong — a hold never granted, released, committed to a
+/// different sale, a database refusal — is recorded in
+/// `coupon_hold_exception` and the fact goes on. The whole attempt sits inside
+/// a SAVEPOINT, so even a constraint the database raises halfway is rolled
+/// back to here rather than poisoning the sync transaction.
+///
+/// Idempotent: a redelivered fact finds the hold COMMITTED to this very sale
+/// and writes nothing.
+///
+/// "Was the hold live?" is asked of the SALE's time, not the clock's. The shop
+/// checked the hold when it rang the sale (`vouched_coupon_holds`), and a shop
+/// whose line was down for an hour delivers the fact after the hold's fifteen
+/// minutes are up — that is ordinary, and the use was taken while it was held.
+#[allow(clippy::too_many_arguments)]
+pub async fn commit_coupon_hold_for_fact(
+    tx: &mut Transaction<'_, Postgres>,
+    authorization_id: &str,
+    sale_id: Uuid,
+    occurred_at: DateTime<Utc>,
+    coupon_code: Option<&str>,
+    discount_minor: i64,
+    sale_site_id: &str,
+    actor: &str,
+) -> Result<(), AppError> {
+    sqlx::query("SAVEPOINT coupon_hold_commit")
+        .execute(&mut **tx)
+        .await?;
+    let attempt = commit_fact_hold(
+        tx,
+        authorization_id,
+        sale_id,
+        occurred_at,
+        coupon_code,
+        discount_minor,
+        sale_site_id,
+        actor,
+    )
+    .await;
+    let problem = match attempt {
+        Ok(FactCommit::Committed) | Ok(FactCommit::AlreadyCommitted) => None,
+        Ok(FactCommit::Skipped(why)) => Some(why),
+        Err(error) => Some(error.to_string()),
+    };
+    match &problem {
+        None => {
+            sqlx::query("RELEASE SAVEPOINT coupon_hold_commit")
+                .execute(&mut **tx)
+                .await?;
+        }
+        Some(_) => {
+            sqlx::query("ROLLBACK TO SAVEPOINT coupon_hold_commit")
+                .execute(&mut **tx)
+                .await?;
+            sqlx::query("RELEASE SAVEPOINT coupon_hold_commit")
+                .execute(&mut **tx)
+                .await?;
+        }
+    }
+    if let Some(problem) = problem {
+        tracing::warn!(
+            %sale_id,
+            authorization_id,
+            problem = %problem,
+            "a sale's coupon hold could not be committed; recorded, sync goes on"
+        );
+        sqlx::query(
+            "INSERT INTO coupon_hold_exception
+                 (sale_id, authorization_id, coupon_code, site_id, discount_minor, problem)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (sale_id, authorization_id) DO NOTHING",
+        )
+        .bind(sale_id)
+        .bind(authorization_id.trim())
+        .bind(coupon_code.map(str::trim))
+        .bind(sale_site_id.trim())
+        .bind(discount_minor.max(0))
+        .bind(&problem)
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn commit_fact_hold(
+    tx: &mut Transaction<'_, Postgres>,
+    authorization_id: &str,
+    sale_id: Uuid,
+    occurred_at: DateTime<Utc>,
+    coupon_code: Option<&str>,
+    discount_minor: i64,
+    sale_site_id: &str,
+    actor: &str,
+) -> Result<FactCommit, AppError> {
+    let Ok(authorization_id) = Uuid::parse_str(authorization_id.trim()) else {
+        return Ok(FactCommit::Skipped(format!(
+            "the sale names a malformed coupon hold id {authorization_id:?}"
+        )));
+    };
+    // Unlocked, to learn which set and code to lock — in the order every other
+    // path takes them: set, then code, then the hold.
+    let Some(parents) = sqlx::query(
+        "SELECT c.coupon_set_id, c.coupon_code_id
+           FROM coupon_authorization a
+           JOIN coupon_code c ON c.coupon_code_id = a.coupon_code_id
+          WHERE a.authorization_id = $1",
+    )
+    .bind(authorization_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    else {
+        return Ok(FactCommit::Skipped(
+            "the sale names a coupon hold head office never granted".into(),
+        ));
+    };
+    let coupon_set_id: Uuid = parents.try_get("coupon_set_id")?;
+    let coupon_code_id: Uuid = parents.try_get("coupon_code_id")?;
+    lock_set_by_id(tx, coupon_set_id).await?;
+    let code_row = sqlx::query(
+        "SELECT code, state, max_uses FROM coupon_code WHERE coupon_code_id = $1 FOR UPDATE",
+    )
+    .bind(coupon_code_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    let code: String = code_row.try_get("code")?;
+    let state: String = code_row.try_get("state")?;
+    let state = CouponState::from_str(&state)?;
+    let max_uses: Option<i64> = code_row.try_get("max_uses")?;
+    if let Some(named) = coupon_code {
+        if normalize_coupon_code(named).ok().as_deref() != Some(code.as_str()) {
+            return Ok(FactCommit::Skipped(format!(
+                "the sale names coupon {named:?}, but its hold belongs to {code}"
+            )));
+        }
+    }
+
+    let hold = sqlx::query(
+        "SELECT status, expires_at, customer_id, site_id, checkout_id, redemption_id
+           FROM coupon_authorization WHERE authorization_id = $1 FOR UPDATE",
+    )
+    .bind(authorization_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    let status: String = hold.try_get("status")?;
+    let expires_at: DateTime<Utc> = hold.try_get("expires_at")?;
+    let customer_id: Option<String> = hold.try_get("customer_id")?;
+    let site_id: Option<String> = hold.try_get("site_id")?;
+    let checkout_id: String = hold.try_get("checkout_id")?;
+    let redemption_id: Option<Uuid> = hold.try_get("redemption_id")?;
+
+    if status == "COMMITTED" {
+        let committed_sale: Option<Uuid> = match redemption_id {
+            Some(id) => {
+                sqlx::query_scalar("SELECT sale_id FROM coupon_redemption WHERE redemption_id = $1")
+                    .bind(id)
+                    .fetch_optional(&mut **tx)
+                    .await?
+            }
+            None => None,
+        };
+        if committed_sale == Some(sale_id) {
+            return Ok(FactCommit::AlreadyCommitted);
+        }
+        return Ok(FactCommit::Skipped(format!(
+            "that coupon hold was already committed to sale {committed_sale:?}"
+        )));
+    }
+    if status != "AUTHORIZED" {
+        return Ok(FactCommit::Skipped(format!(
+            "that coupon hold was {status} before the sale reached head office"
+        )));
+    }
+    if occurred_at >= expires_at {
+        return Ok(FactCommit::Skipped(format!(
+            "the sale was rung at {occurred_at}, after its coupon hold lapsed at {expires_at}"
+        )));
+    }
+    let sale_site_id = sale_site_id.trim();
+    if site_id.as_deref().is_some_and(|held_for| held_for != sale_site_id) {
+        return Ok(FactCommit::Skipped(format!(
+            "the sale came from {sale_site_id:?}, but its coupon hold was granted to {site_id:?}"
+        )));
+    }
+
+    let redemption_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO coupon_redemption
+             (redemption_id, coupon_code_id, sale_id, checkout_id, customer_id,
+              discount_minor, status, site_id, actor)
+         VALUES ($1, $2, $3, $4, $5, $6, 'REDEEMED', $7, $8)",
+    )
+    .bind(redemption_id)
+    .bind(coupon_code_id)
+    .bind(sale_id)
+    .bind(&checkout_id)
+    .bind(&customer_id)
+    .bind(discount_minor.max(0))
+    .bind(sale_site_id)
+    .bind(actor)
+    .execute(&mut **tx)
+    .await
+    .map_err(map_coupon_write_error)?;
+    sqlx::query(
+        "UPDATE coupon_authorization
+            SET status = 'COMMITTED', settled_at = now(), redemption_id = $2
+          WHERE authorization_id = $1",
+    )
+    .bind(authorization_id)
+    .bind(redemption_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(map_coupon_write_error)?;
+    resettle_state(tx, coupon_code_id, state, max_uses).await?;
+    Ok(FactCommit::Committed)
+}
+
 /// Hold a use of a code, or hand back the hold this checkout already has.
 ///
 /// Idempotent by `(coupon_code_id, checkout_id)` rather than by an idempotency
@@ -1207,6 +1655,10 @@ pub async fn authorize_coupon(
     let customer_id = optional_text(request.customer_id.as_deref());
 
     let mut tx = pool.begin().await?;
+    // A limited coupon published in a price book (HEMAT50, `max_uses` 100) is a
+    // coupon set the moment a till first asks for it, if publishing did not
+    // already make it one — a book published before books made their sets.
+    ensure_book_coupon_set(&mut tx, &code, &actor).await?;
     let (set, held_code) = lock_set_then_code(&mut tx, &code).await?;
 
     // The hold this basket already has, if it asked before. Returned unchanged

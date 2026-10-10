@@ -11,6 +11,7 @@ import {
   moduleAllowed,
   moduleForPath,
 } from "@/lib/navigation"
+import { useIntentPreload } from "@/lib/prefetch"
 import { runSearch, type SearchHit } from "@/lib/search"
 import { useSections } from "@/lib/session"
 import { cn } from "@/lib/utils"
@@ -114,6 +115,12 @@ export function CommandPalette({
   // than by an effect watching the query. Syncing state to state in an effect
   // renders twice and puts the highlight on the wrong row for one frame.
   const at = Math.min(cursor, Math.max(0, rows.length - 1))
+  // The screen under the highlight is fetched — code and first data — once the
+  // highlight rests, so Enter lands on it already warm (`lib/prefetch.ts`).
+  useIntentPreload(
+    open && rows[at]?.kind === "screen" ? rows[at].key : null,
+    120
+  )
 
   const dismiss = () => {
     onOpenChange(false)
@@ -202,9 +209,11 @@ export function CommandPalette({
                   setCursor(0)
                 }
               }}
-              className="min-w-0 flex-1 bg-transparent text-[0.875rem] text-ink outline-none placeholder:text-mute"
+              // 16px under 48rem: a smaller field zooms the page on iOS when it
+              // takes focus, and the palette is how a phone finds a screen.
+              className="min-w-0 flex-1 bg-transparent text-[0.875rem] text-ink outline-none placeholder:text-mute max-md:text-[1rem]"
             />
-            <kbd className="shrink-0 rounded-[5px] border border-hairline-2 bg-canvas px-1.5 py-px font-mono text-[0.875rem] text-body">
+            <kbd className="shrink-0 rounded-[5px] border border-hairline-2 bg-canvas px-1.5 py-px font-mono text-[0.875rem] text-body max-md:hidden">
               tab
             </kbd>
             {/* Implicit submission already applies — one text field, nothing
@@ -243,7 +252,7 @@ export function CommandPalette({
                     onMouseEnter={() => setCursor(index)}
                     onClick={() => choose(index)}
                     className={cn(
-                      "flex w-full items-center gap-2.5 px-3.5 py-2 text-left transition-colors",
+                      "flex w-full items-center gap-2.5 px-3.5 py-2 text-left transition-colors pointer-coarse:min-h-11",
                       index === at ? "bg-soft" : "hover:bg-soft"
                     )}
                   >

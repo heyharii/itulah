@@ -210,6 +210,10 @@ export const SHEET_PARAMS = {
   /// the label, in the SKU and in the supplier's own paperwork — so a link to
   /// an article is a thing somebody can type from a garment in their hand.
   article: id,
+  /// The article's sheet opened straight into its edit form, for the Edit
+  /// button on a card — so changing a field is one tap from the list, not a tap
+  /// to open and a second on Edit (owner, 2026-10-06). A flag beside `article`.
+  "article-edit": flag,
   // inventory
   pool: id,
   /// The allotments drawing on one pool, keyed by that pool. A different
@@ -226,10 +230,12 @@ export const SHEET_PARAMS = {
   /// A new allotment started from an old one, as `topup~<id>` or
   /// `reallot~<id>`. Not a sheet: it narrows New allotment to the same items
   /// and stores (Top up) or to what was just cancelled (Cancel and re-allot).
-  /// In the URL so the page survives a reload and the note keeps its number.
+  /// `edit~<id>` is MD changing that allotment in place: the same grid, filled
+  /// with its quantities. In the URL so the page survives a reload and the
+  /// note keeps its number.
   allotFrom: (value: unknown): string | undefined =>
     typeof value === "string" &&
-    /^(topup|reallot)~[A-Za-z0-9-]{1,64}$/.test(value)
+    /^(topup|reallot|edit)~[A-Za-z0-9-]{1,64}$/.test(value)
       ? value
       : undefined,
   /// The articles a New allotment is made of, as comma-joined article ids,

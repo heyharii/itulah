@@ -8,11 +8,16 @@ import { Checkbox, Field, Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState, Problem } from "@/components/ui/states"
+import { DockTools } from "@/components/shell/dock-tools"
+import { Fab } from "@/components/ui/fab"
 import { count, label } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { financeKeys, saveAssetClass } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
 import { Grid, Td, Th } from "@/screens/finance-final/parts"
 import { useAssetClasses } from "@/screens/finance/hooks"
+import { PhoneCard, PhoneList } from "@/components/ui/phone-cards"
+import { FilterSheet } from "@/components/ui/filter-sheet"
 import {
   EditorCard,
   LinkAccountsButton,
@@ -60,6 +65,8 @@ function lifeWords(months: number | null): string {
 }
 
 export function AssetClasses() {
+  const phone = useLayout() === "phone"
+  const [filtering, setFiltering] = useState(false)
   const list = useAssetClasses()
   const [editing, setEditing] = useState<AssetClass | "new" | null>(null)
   const [needle, setNeedle] = useState("")
@@ -93,48 +100,110 @@ export function AssetClasses() {
       <PageHeader
         crumb="Finance · Assets"
         title="Asset Category"
+        // Search, the kind and the new class are in the dock on a phone.
         actions={
-          <>
-            <Input
-              value={needle}
-              onChange={(event) => setNeedle(event.target.value)}
-              className="h-control w-48"
-            />
-            <Button variant="primary" onClick={() => setEditing("new")}>
-              New class
-            </Button>
-          </>
+          phone ? undefined : (
+            <>
+              <Input
+                value={needle}
+                onChange={(event) => setNeedle(event.target.value)}
+                className="h-control w-48"
+              />
+              <Button variant="primary" onClick={() => setEditing("new")}>
+                New class
+              </Button>
+            </>
+          )
         }
       />
 
-      <Toolbar>
-        <Select value={kind} onChange={setKind} className="h-control w-40">
-          <option value="">Every kind</option>
-          {KINDS.map((one) => (
-            <option key={one} value={one}>
-              {one}
-            </option>
-          ))}
-        </Select>
-        <Checkbox
-          label="Show inactive"
-          checked={inactive}
-          onChange={setInactive}
-        />
-        <Toolbar.Spacer />
-        <span className="text-[0.875rem] text-mute">
-          {count(rows.length)} classes
-        </span>
-      </Toolbar>
+      {phone ? (
+        <>
+          <Fab label="New class" onClick={() => setEditing("new")} />
+          <DockTools
+            search={{
+              value: needle,
+              onChange: setNeedle,
+              label: "Search classes",
+            }}
+            filter={{
+              count: inactive ? 1 : 0,
+              onOpen: () => setFiltering(true),
+            }}
+            status={{
+              value: kind,
+              options: [
+                { value: "", label: "All kinds" },
+                ...KINDS.map((one) => ({ value: one, label: one })),
+              ],
+              onChange: setKind,
+            }}
+          />
+          <FilterSheet open={filtering} onOpenChange={setFiltering}>
+            <Checkbox
+              label="Show inactive"
+              checked={inactive}
+              onChange={setInactive}
+            />
+          </FilterSheet>
+        </>
+      ) : (
+        <Toolbar>
+          <Select value={kind} onChange={setKind} className="h-control w-40">
+            <option value="">All kinds</option>
+            {KINDS.map((one) => (
+              <option key={one} value={one}>
+                {one}
+              </option>
+            ))}
+          </Select>
+          <Checkbox
+            label="Show inactive"
+            checked={inactive}
+            onChange={setInactive}
+          />
+          <Toolbar.Spacer />
+          <span className="text-[0.875rem] text-mute">
+            {count(rows.length)} classes
+          </span>
+        </Toolbar>
+      )}
 
       <MasterLayout
         list={
-          <Card className="overflow-hidden">
+          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
             {queryState(list, {
               loading: "Reading the asset classes…",
               render: () =>
                 rows.length === 0 ? (
                   <EmptyState>No class matches the search.</EmptyState>
+                ) : phone ? (
+                  <PhoneList>
+                    {rows.map((row) => (
+                      <PhoneCard
+                        key={row.class_code}
+                        title={row.name}
+                        muted={!row.is_active}
+                        line={`${label(row.kind)} · ${label(row.build)}${row.is_active ? "" : " · inactive"}`}
+                        lead={count(row.asset_count)}
+                        caption={row.asset_count === 1 ? "asset" : "assets"}
+                        tone={row.asset_count === 0 ? "quiet" : undefined}
+                        foot={
+                          row.default_method === null
+                            ? "Not set"
+                            : `${label(row.default_method)} · ${lifeWords(row.default_useful_life_months)}`
+                        }
+                        action={
+                          <LinkAccountsButton
+                            role={costRole(row.kind)}
+                            sourceType="COMPANY"
+                            sourceId={row.class_code}
+                          />
+                        }
+                        onOpen={() => setEditing(row)}
+                      />
+                    ))}
+                  </PhoneList>
                 ) : (
                   <Grid>
                     <thead>

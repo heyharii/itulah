@@ -66,6 +66,8 @@ export const peopleNav: AppModule = {
           /// overtime, claims and payroll decisions.
           path: "/people/overview",
           label: "Overview & Requests",
+          // The bottom bar's word: a 14px label has a fifth of the width.
+          short: "Overview",
           icon: LayoutGrid,
           badge: "warn",
           useCount: usePeopleWaitingCount,
@@ -75,7 +77,12 @@ export const peopleNav: AppModule = {
     {
       label: "Employees",
       items: [
-        { path: "/people", label: "Employee List", icon: Users },
+        {
+          path: "/people",
+          label: "Employee List",
+          short: "Employees",
+          icon: Users,
+        },
         { path: "/people/org-chart", label: "Org Chart", icon: Network },
         {
           path: "/people/changes",

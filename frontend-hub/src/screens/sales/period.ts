@@ -1,12 +1,15 @@
 import {
   previousSpanOf,
+  SALES_BUCKETS,
   SALES_SPANS,
   spanOf,
   type SalesBucket,
   type SalesRange,
 } from "@itulah/contract/reporting"
 
-import { useSheet } from "@/lib/sheets"
+import { useNavigate } from "@tanstack/react-router"
+
+import { useSheet, type SheetSearch } from "@/lib/sheets"
 
 /// The window a report is read over, held in the URL.
 ///
@@ -33,6 +36,18 @@ import { useSheet } from "@/lib/sheets"
 /// resolution.
 const OPENS_ON: Record<SalesBucket, number> = { day: 30, week: 13, month: 12 }
 
+/// Every span a phone can pick, as one list: how wide a column is and how many
+/// of them, in the words "Last 13 weeks". The value is `bucket:buckets`.
+export const PERIOD_CHOICES: readonly {
+  readonly value: string
+  readonly label: string
+}[] = SALES_BUCKETS.flatMap((bucket) =>
+  SALES_SPANS[bucket].map((buckets) => ({
+    value: `${bucket}:${buckets}`,
+    label: `Last ${buckets} ${bucket}s`,
+  }))
+)
+
 export interface Period {
   readonly bucket: SalesBucket
   readonly buckets: number
@@ -43,9 +58,14 @@ export interface Period {
   readonly options: readonly number[]
   readonly setBucket: (bucket: SalesBucket) => void
   readonly setBuckets: (buckets: number) => void
+  /// Both at once, in one navigation: a phone picks "Last 13 weeks" from one
+  /// list, and two writes would each start from the URL the other had not
+  /// finished writing.
+  readonly setSpan: (bucket: SalesBucket, buckets: number) => void
 }
 
 export function usePeriod(): Period {
+  const navigate = useNavigate()
   const bucketParam = useSheet("bucket")
   const spanParam = useSheet("span")
 
@@ -66,5 +86,15 @@ export function usePeriod(): Period {
     options,
     setBucket: (next) => bucketParam.open(next),
     setBuckets: (next) => spanParam.open(String(next)),
+    setSpan: (nextBucket, next) =>
+      void navigate({
+        to: ".",
+        search: (prev: SheetSearch) => ({
+          ...prev,
+          bucket: nextBucket,
+          span: String(next),
+        }),
+        viewTransition: false,
+      }),
   }
 }

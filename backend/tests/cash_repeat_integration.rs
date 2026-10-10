@@ -2,7 +2,9 @@
 //! the first time it fails.
 
 use chrono::NaiveDate;
-use inventory_backend::cloud::postgres::{save_cash_document_repeat, SaveCashDocumentRepeatRequest};
+use inventory_backend::cloud::postgres::{
+    save_cash_document_repeat, SaveCashDocumentRepeatRequest,
+};
 use serde_json::json;
 use sqlx::PgPool;
 
@@ -38,7 +40,10 @@ async fn a_bkk_that_settles_a_bill_or_pays_by_giro_cannot_repeat(pool: PgPool) {
     let refused = save_cash_document_repeat(&pool, &repeat(settle), "finance")
         .await
         .expect_err("a bill is settled once");
-    assert!(refused.to_string().contains("only Other lines can repeat"), "{refused}");
+    assert!(
+        refused.to_string().contains("only Other lines can repeat"),
+        "{refused}"
+    );
 
     let giro = bkk(
         "GIRO",

@@ -1,0 +1,636 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inventory · issues</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@0.453.0/dist/umd/lucide.min.js"></script>
+<style>
+:root{
+  --ink:#20242c;--text:#394150;--mute:#737c89;--faint:#b9c0c9;
+  --canvas:#fff;--soft:#f8f8f9;--soft-2:#f0f0f2;--line:#e6e6e9;--line-2:#c6c6cc;
+  --accent:#2563eb;--accent-bg:#eff5ff;
+  --ok:#36b827;--ok-fg:#15803d;--ok-bg:#e8f6e6;--warn:#c9892e;--warn-bg:#faeacd;--warn-fg:#b45309;--bad:#d05151;--bad-bg:#fbeaea;--bad-fg:#be123c;
+  --side:#242526;--inv:#b7791f;
+  --r-card:10px;--r-inner:7px;--ease:cubic-bezier(.23,1,.32,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font:14px/1.45 Inter,system-ui,sans-serif;color:var(--text);background:var(--soft);-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+button{background:none;border:0;cursor:pointer}
+svg.lucide{width:16px;height:16px;stroke-width:1.7;flex-shrink:0}
+.num{font-variant-numeric:tabular-nums}
+
+/* prototype bar: not part of the app */
+.proto{min-height:44px;background:#101012;color:#d9dbe0;display:flex;align-items:center;gap:14px;padding:0 16px;position:sticky;top:0;z-index:40;flex-wrap:wrap}
+.proto b{color:#fff;font-weight:600;white-space:nowrap}
+.proto .grp{display:flex;gap:2px;align-items:center}
+.proto .grp>span{color:#8e9198;margin-right:6px;white-space:nowrap}
+.proto button{height:30px;padding:0 12px;border-radius:7px;color:#a9adb6;white-space:nowrap;transition:transform .12s var(--ease)}
+.proto button:hover{color:#fff}
+.proto button:active{transform:scale(.97)}
+.proto button[aria-pressed=true]{background:#2c2d31;color:#fff;font-weight:500}
+.proto .sim button{background:#2c2d31;color:#e4e6ea}
+.proto label{display:flex;align-items:center;gap:6px;white-space:nowrap;cursor:pointer}
+
+.app{display:flex;min-height:calc(100vh - 44px)}
+.side{width:232px;flex-shrink:0;background:var(--side);color:#c9cbd0;padding:14px 10px;display:flex;flex-direction:column;gap:2px;position:sticky;top:44px;height:calc(100vh - 44px)}
+.brand{display:flex;align-items:center;gap:10px;padding:4px 10px 16px;color:#fff;font-weight:600}
+.mark{width:26px;height:26px;border-radius:7px;background:#000;color:#fff;display:grid;place-items:center;font-weight:700;position:relative;font-size:14px;box-shadow:0 0 0 1px #3a3b3f}
+.mark::after{content:"";position:absolute;right:4px;bottom:4px;width:5px;height:5px;border-radius:50%;background:var(--accent)}
+.dept{display:flex;align-items:center;gap:10px;height:36px;padding:0 10px;color:#fff;font-weight:500}
+.dept i{width:8px;height:8px;border-radius:50%;background:var(--inv)}
+.sub{margin-left:14px;border-left:1px solid #3a3b3f;padding-left:8px;display:flex;flex-direction:column;gap:2px}
+.sub a{height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-radius:7px;color:#b4b7be;text-decoration:none}
+.sub a.on{background:#34353a;color:#fff}
+.sub a .c{color:#e6b45c;font-variant-numeric:tabular-nums}
+.side .other{margin-top:18px;display:flex;flex-direction:column;gap:2px}
+.side .other div{height:34px;display:flex;align-items:center;gap:10px;padding:0 10px;color:#8e9198}
+.side .other i{width:8px;height:8px;border-radius:50%;background:#5b5d63}
+
+.main{flex:1;min-width:0;padding:26px 32px 40px}
+.ph{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+.ph h1{font-size:22px;line-height:30px;font-weight:600;color:var(--ink);letter-spacing:-.02em}
+.tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.search{height:36px;display:flex;align-items:center;gap:8px;padding:0 12px;border:1px solid var(--line);border-radius:var(--r-inner);background:#fff;min-width:240px;color:var(--mute)}
+.search input{border:0;outline:0;flex:1;min-width:0;color:var(--ink);background:none}
+.search:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.sel{height:36px;border:1px solid var(--line);border-radius:var(--r-inner);background:#fff;padding:0 10px;color:var(--text)}
+.btn{height:36px;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:0 14px;border-radius:var(--r-inner);border:1px solid var(--line);background:#fff;color:var(--ink);font-weight:500;white-space:nowrap;transition:transform .12s var(--ease),background .12s}
+.btn:hover{background:var(--soft)}
+.btn:active{transform:scale(.97)}
+.btn[disabled]{opacity:.45;pointer-events:none}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff;box-shadow:inset 0 1px 0 rgba(255,255,255,.18)}
+.btn.pri:hover{background:#1f57d6}
+.btn.bad{color:var(--bad-fg)}
+.btn.sm{height:32px;padding:0 12px}
+.view{display:none;animation:in .18s var(--ease)}
+.view.on{display:block}
+@keyframes in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+.dot{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.dot::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--faint);flex-shrink:0}
+.d-receiving::before{background:var(--bad)}
+.d-more::before{background:var(--accent)}
+.d-stock::before{background:var(--warn)}
+.d-asked::before{background:var(--accent)}
+.d-done::before{background:var(--ok)}
+.warn{color:var(--warn-fg)}.bad{color:var(--bad-fg)}.mute{color:var(--mute)}.faint{color:var(--faint)}.ok{color:var(--ok-fg)}
+.ell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+
+.card{background:#fff;border:1px solid var(--line);border-radius:var(--r-card);overflow:hidden}
+.inbox{display:grid;grid-template-columns:400px minmax(0,1fr);gap:16px;align-items:start}
+.qscroll{max-height:calc(100vh - 150px);overflow:auto}
+.qitem{padding:12px 16px;border-bottom:1px solid var(--line);cursor:pointer;display:grid;grid-template-columns:1fr auto;gap:3px 10px;transition:background .12s}
+.qitem:hover{background:var(--soft)}
+.qitem.on{background:var(--accent-bg);box-shadow:inset 3px 0 0 var(--accent)}
+.qitem .t{color:var(--ink);font-weight:500}
+.qitem .q{text-align:right;color:var(--ink);font-weight:500;font-variant-numeric:tabular-nums}
+.qitem .s{color:var(--mute);display:flex;gap:8px;align-items:center;min-width:0}
+.qitem .s .dot{color:var(--text)}
+.qitem .age{text-align:right;color:var(--mute);font-variant-numeric:tabular-nums}
+.empty{padding:40px 20px;text-align:center;color:var(--mute)}
+
+.casebox{position:sticky;top:60px;max-height:calc(100vh - 80px);overflow:auto;display:flex;flex-direction:column}
+.case .hd{padding:20px 24px 18px;border-bottom:1px solid var(--line)}
+.case .hd .k{color:var(--mute);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.case .hd h2{font-size:22px;font-weight:600;color:var(--ink);letter-spacing:-.02em;margin-top:4px;overflow-wrap:anywhere}
+.case .hd p{color:var(--mute);margin-top:2px}
+.cfig{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:18px 0 0}
+.cfig b{display:block;font-size:28px;line-height:1.2;font-weight:600;letter-spacing:-.02em;color:var(--ink);font-variant-numeric:tabular-nums}
+.cfig span{color:var(--mute)}
+.sec{padding:16px 24px;border-bottom:1px solid var(--line)}
+.sec h3{font-size:14px;font-weight:600;color:var(--ink);margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.sec h3 span{font-weight:400;color:var(--mute)}
+.act{display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:14px 24px;border-top:1px solid var(--line);background:#fff;flex-wrap:wrap;margin-top:auto;position:sticky;bottom:0}
+.act .note{margin-right:auto;color:var(--text);min-width:0;flex:1 1 240px}
+.act .note b{color:var(--ink);font-weight:600}
+
+.facts{display:grid;grid-template-columns:120px 1fr}
+.facts dt,.facts dd{min-height:34px;display:flex;align-items:center;border-bottom:1px solid var(--line)}
+.facts dt{color:var(--mute)}.facts dd{color:var(--ink);overflow-wrap:anywhere}
+
+/* evidence */
+.ev{display:grid;grid-template-columns:1fr auto;gap:2px 12px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.ev:first-of-type{border-top:0;padding-top:0}
+.ev .a{color:var(--ink);font-weight:500}
+.ev .s{grid-column:1/-1;color:var(--mute)}
+.ev .ans{grid-column:1/-1;color:var(--ink);background:var(--soft);border-radius:var(--r-inner);padding:8px 12px;margin-top:6px}
+
+/* decisions */
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:var(--r-inner);overflow:hidden;background:#fff}
+.seg button{height:34px;padding:0 11px;color:var(--text);font-weight:500;border-left:1px solid var(--line);transition:background .12s,color .12s;white-space:nowrap}
+.seg button:first-child{border-left:0}
+.seg button:hover{background:var(--soft)}
+.seg button:active{transform:scale(.97)}
+.seg button.on{background:var(--ink);color:#fff}
+.seg button.on.lost{background:var(--bad-fg)}
+.seg button.on.found{background:var(--ok-fg)}
+table{width:100%;border-collapse:collapse}
+th{height:40px;text-align:left;font-weight:500;color:var(--mute);padding:0 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+th.n,td.n{text-align:right}
+td{padding:10px;border-bottom:1px solid var(--line);vertical-align:middle}
+td.n{font-variant-numeric:tabular-nums;color:var(--ink)}
+td .a{color:var(--ink);font-weight:500;overflow-wrap:anywhere}
+td .c{color:var(--mute);font-size:14px;white-space:nowrap}
+table.lines td:first-child{min-width:200px}
+tr.matched td{color:var(--mute)}
+.grp{border:1px solid var(--line);border-radius:var(--r-card);margin-bottom:12px;overflow:hidden}
+.grp .gh{display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--soft);flex-wrap:wrap}
+.grp .gh b{color:var(--ink);font-weight:600;font-size:15px}
+.grp .gh .f{margin-left:auto}
+.grp .gl{display:grid;grid-template-columns:1fr auto;gap:2px 12px;padding:10px 14px;border-top:1px solid var(--line)}
+.grp .gl .a{color:var(--ink);overflow-wrap:anywhere}
+.grp .gl .q{font-variant-numeric:tabular-nums;color:var(--ink);font-weight:500;text-align:right}
+.grp .gl .c{grid-column:1/-1;color:var(--mute)}
+.split{color:var(--accent);font-weight:500;padding:8px 14px;border-top:1px solid var(--line);width:100%;text-align:left}
+.nao{display:grid;grid-template-columns:1fr auto;gap:2px 12px;align-items:center}
+.nao .s{grid-column:1/-1;color:var(--mute)}
+details.matched summary{list-style:none;cursor:pointer;color:var(--mute);padding:10px 0;display:flex;align-items:center;gap:6px}
+details.matched summary::-webkit-details-marker{display:none}
+.steps{display:flex;gap:0;margin:0 0 4px;border:1px solid var(--line);border-radius:var(--r-card);overflow:hidden}
+.steps div{flex:1;padding:10px 14px;border-left:1px solid var(--line);display:flex;gap:10px;align-items:center;color:var(--mute)}
+.steps div:first-child{border-left:0}
+.steps div i{width:22px;height:22px;border-radius:50%;background:var(--soft-2);display:grid;place-items:center;font-style:normal;font-weight:600;font-size:14px;flex-shrink:0}
+.steps div.on{color:var(--ink);font-weight:500;background:var(--soft)}
+.steps div.on i{background:var(--ink);color:#fff}
+.steps div.ok i{background:var(--ok);color:#fff}
+
+/* decision view */
+.dv{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+.dv .card{padding:20px 22px}
+.dv h2{font-size:17px;font-weight:600;color:var(--ink);margin-bottom:4px}
+.dv .lede{color:var(--mute);margin-bottom:12px}
+.dv table td,.dv table th{padding:11px 10px;white-space:normal}
+.dv .who{font-weight:600;color:var(--ink)}
+.dv .wide{grid-column:1/-1}
+.three{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;margin-top:10px}
+.three>div{display:flex;flex-direction:column;gap:6px;padding-top:14px;border-top:2px solid var(--ink)}
+.three i{font-style:normal;color:var(--mute);font-weight:500}
+.three b{font-size:17px;color:var(--ink);font-weight:600;letter-spacing:-.01em}
+.three span{color:var(--text)}
+.flow{display:flex;flex-direction:column;gap:0}
+.flow div{display:grid;grid-template-columns:28px 1fr;gap:12px;padding:10px 0;position:relative}
+.flow div i{width:24px;height:24px;border-radius:50%;background:var(--ink);color:#fff;display:grid;place-items:center;font-style:normal;font-weight:600;font-size:14px;margin-top:1px}
+.flow div:not(:last-child)::after{content:"";position:absolute;left:11.5px;top:36px;bottom:-8px;width:1px;background:var(--line-2)}
+.flow b{color:var(--ink);font-weight:600}
+.flow span{display:block;color:var(--mute)}
+.trail{display:flex;flex-direction:column}
+.trail div{display:grid;grid-template-columns:14px 100px 1fr;gap:10px;align-items:start;padding:6px 0}
+.trail i{width:9px;height:9px;border-radius:50%;background:#fff;box-shadow:inset 0 0 0 1.5px var(--line-2);margin-top:6px}
+.trail .done i{background:var(--ink);box-shadow:none}
+.trail .now i{background:var(--accent);box-shadow:0 0 0 4px var(--accent-bg)}
+.trail b{color:var(--ink);font-weight:500}
+.trail span{color:var(--mute)}
+.trail .done span,.trail .now span{color:var(--text)}
+.stt{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.pillc{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 12px;border-radius:14px;font-weight:500;white-space:nowrap}
+.pillc.ok{background:var(--ok-bg);color:var(--ok-fg)}
+.pillc.iss{background:var(--warn-bg);color:var(--warn-fg)}
+.open q{display:block;color:var(--ink);margin:0;quotes:none}
+.open li{margin:8px 0 8px 18px;color:var(--text)}
+
+/* phone drawer */
+.scrim{position:fixed;inset:0;background:rgba(16,16,18,.28);opacity:0;pointer-events:none;transition:opacity .22s;z-index:30}
+.xclose{display:none}
+#toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,16px);background:#101012;color:#fff;padding:12px 16px;border-radius:10px;opacity:0;pointer-events:none;transition:opacity .2s var(--ease),transform .2s var(--ease);z-index:60;max-width:min(520px,calc(100% - 32px))}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+
+@media (max-width:1280px){.inbox{grid-template-columns:340px minmax(0,1fr)}.cfig{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:1100px){.side{display:none}.dv{grid-template-columns:1fr}.three{grid-template-columns:1fr}}
+@media (max-width:900px){
+  .main{padding:16px 16px 28px}
+  .inbox{grid-template-columns:1fr}
+  .qscroll{max-height:none}
+  .search{min-width:0;flex:1}
+  .tools{width:100%}
+  .sel{flex:1;height:44px}
+  .btn{height:44px}.btn.sm{height:44px}
+  .qitem{padding:14px 16px}
+  .casebox{position:fixed;inset:12px 0 0 0;max-height:none;z-index:52;border-radius:14px 14px 0 0;transform:translateY(100%);transition:transform .28s var(--ease);box-shadow:0 -12px 40px rgba(16,16,18,.18);border:0}
+  body.drawer .casebox{transform:none}
+  body.drawer .scrim{opacity:1;pointer-events:auto;z-index:51}
+  .search{flex:1 1 100%}
+  .xclose{display:grid;place-items:center;width:44px;height:44px;position:absolute;right:6px;top:8px;border-radius:8px;color:var(--mute);z-index:2}
+  .case .hd{padding:18px 56px 16px 16px}
+  .case .hd h2{font-size:19px}
+  .sec{padding:14px 16px}
+  .act{padding:12px 16px calc(12px + env(safe-area-inset-bottom));gap:10px}
+  .act .btn{flex:1}
+  .act .note{flex-basis:100%}
+  .cfig b{font-size:24px}
+  .seg{display:flex;width:100%}.seg button{flex:1;height:44px;padding:0 8px}
+  .steps div{padding:10px 10px;font-size:14px}.steps div span{display:none}
+  .grp .gh .f{margin-left:0;width:100%}
+  /* per-line table becomes stacked rows */
+  table.lines thead{display:none}
+  table.lines,table.lines tbody,table.lines tr,table.lines td{display:block;width:100%}
+  table.lines tr{padding:12px 0;border-bottom:1px solid var(--line)}
+  table.lines td{border:0;padding:2px 0;text-align:left}
+  td .c{white-space:normal;overflow-wrap:anywhere}
+  table.lines td:first-child{min-width:0}
+  table.lines td.n{display:inline-block;width:auto;margin-right:16px}
+  table.lines td.n::before{content:attr(data-l);color:var(--mute);margin-right:6px;font-weight:400}
+  table.lines td.dec{padding-top:10px}
+  .facts{grid-template-columns:110px 1fr}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition-duration:.01ms!important}}
+</style>
+</head>
+<body>
+<div class="proto">
+  <b>Inventory · issues</b>
+  <div class="grp" id="views"><button aria-pressed="true" data-v="inbox">Exceptions</button><button aria-pressed="false" data-v="decision">Decision</button></div>
+  <div class="grp" id="layouts"><span>Review</span><button aria-pressed="true" data-l="A">A · Per line</button><button aria-pressed="false" data-l="B">B · By outcome</button><button aria-pressed="false" data-l="C">C · Steps</button></div>
+  <div class="grp sim"><span>Simulate</span><button id="simDc">DC answers</button><button id="simRc">Store recounts</button><button id="simReset">Reset</button></div>
+  <label><input type="checkbox" id="worst"> Worst case names</label>
+</div>
+
+<div class="app">
+  <aside class="side">
+    <div class="brand"><span class="mark">C</span>Central</div>
+    <div class="dept"><i></i>Inventory</div>
+    <div class="sub">
+      <a>Stock</a>
+      <a class="on">Exceptions <span class="c num" id="sideN">0</span></a>
+      <a>Counts</a>
+      <a>Movements</a>
+    </div>
+    <div class="other"><div><i></i>Operations</div><div><i></i>Allotment</div><div><i></i>Procurement</div></div>
+  </aside>
+
+  <main class="main">
+    <section class="view on" id="v-inbox">
+      <div class="ph">
+        <h1>Exceptions</h1>
+        <div class="tools">
+          <label class="search"><i data-lucide="search"></i><input id="q" placeholder="Search exceptions"></label>
+          <select class="sel" id="fstatus"><option value="open">Open</option><option value="done">Done</option></select>
+          <select class="sel" id="fkind"><option value="">All kinds</option><option>Receiving</option><option>Stock check</option></select>
+        </div>
+      </div>
+      <div class="inbox">
+        <div class="card"><div class="qscroll" id="qlist"></div></div>
+        <div class="card casebox" id="casebox"><button class="xclose" id="xclose" aria-label="Close"><i data-lucide="x"></i></button><div class="case" id="case" style="display:flex;flex-direction:column;flex:1"></div></div>
+      </div>
+    </section>
+
+    <section class="view" id="v-decision"></section>
+  </main>
+</div>
+<div class="scrim" id="scrim"></div>
+<div id="toast" role="status"></div>
+
+<script>
+const STORES = {s1:'C001 · Cikupa', s2:'C002 · Muaro Bungo', s3:'C003 · Purbalingga', s4:'C004 · Bumiayu'};
+const fmt = n => new Intl.NumberFormat('en-US').format(n);
+const sgn = n => (n > 0 ? '+' : n < 0 ? '−' : '') + fmt(Math.abs(n));
+const pcs = n => `${fmt(n)} ${n === 1 ? 'pc' : 'pcs'}`;
+const STOCK_REASON = {NOT_CONFIRMED:'Stock at rack could not be confirmed', NOT_FOUND:'Item not found at the rack', DAMAGED:'Item damaged'};
+
+function seed() {
+  return [
+    {id:'RC-2041', kind:'Receiving', doc:'SJ-HO-GUDANG-000005', store:'s1', by:'Maya', at:'03 Oct 2026, 14:20', age:6, status:'open', nao:0,
+      lines:[
+        {sku:'00000003004', art:'Gamis', v:'Grey · One Size', sent:60, got:57},
+        {sku:'00000003005', art:'Gamis', v:'White · One Size', sent:40, got:40},
+        {sku:'00000002003', art:'Kemeja Oxford', v:'Navy · M', sent:20, got:17}],
+      dec:{}, dc:null, rc:null},
+    {id:'RC-2042', kind:'Receiving', doc:'SJ-HO-GUDANG-000007', store:'s4', by:'Dian', at:'05 Oct 2026, 09:05', age:4, status:'open', nao:5,
+      lines:[
+        {sku:'00000007004', art:'Kaos Uji UJI3', v:'Black · L', sent:20, got:22},
+        {sku:'00000007003', art:'Kaos Uji UJI3', v:'Black · M', sent:30, got:30}],
+      dec:{}, dc:null, rc:null},
+    {id:'RC-2043', kind:'Receiving', doc:'SJ-HO-GUDANG-000001', store:'s2', by:'Rani', at:'08 Sep 2026, 16:40', age:31, status:'open', nao:0,
+      lines:[{sku:'00000001004', art:'Kemeja', v:'Off White · L', sent:24, got:21}],
+      dec:{}, dc:null, rc:null},
+    {id:'RC-2044', kind:'Receiving', src:'po', doc:'PO-041026-010', sup:'Garmen AA, UD', by:'Rina', at:'04 Oct 2026, 10:05', age:5, status:'open', nao:15,
+      lines:[
+        {sku:'00000005003', art:'Kemeja Blus', v:'Wanita · Blus', sent:600, got:585},
+        {sku:'00000005004', art:'Kemeja Blus', v:'Wanita · Putih', sent:200, got:206}],
+      dec:{}, dc:null, rc:null},
+    {id:'SC-3011', kind:'Stock check', doc:'ALT-00000004', store:'s2', by:'Tono', at:'07 Oct 2026, 10:12', age:2, status:'open', nao:0,
+      sku:'00000003105', art:'Gamis', v:'White · XL', pieces:2, reason:'NOT_FOUND', countAsked:true, dec:{}, dc:null, rc:null},
+    {id:'SC-3012', kind:'Stock check', doc:'ALT-00000007', store:'s3', by:'Tono', at:'08 Oct 2026, 15:31', age:1, status:'open', nao:0,
+      sku:'00000007103', art:'Kaos Uji UJI3', v:'White · M', pieces:1, reason:'DAMAGED', countAsked:true, dec:{}, dc:null, rc:null},
+    {id:'RC-2038', kind:'Receiving', doc:'SJ-HO-GUDANG-000003', store:'s3', by:'Maya', at:'30 Sep 2026, 11:02', age:9, status:'done', nao:0,
+      lines:[{sku:'00000002004', art:'Kemeja Oxford', v:'White · L', sent:12, got:11}], dec:{'00000002004':'found'}, dc:null, rc:null,
+      outcome:'1 pc found · counted as received at C003 · Purbalingga'}
+  ];
+}
+let CASES = seed(), sel = 'RC-2041', layout = 'A', view = 'inbox';
+
+function worstCase(on) {
+  const c = CASES.find(x => x.id === 'RC-2041'); if (!c || c.status !== 'open') return;
+  if (on) {
+    c._keep = JSON.stringify(c.lines);
+    c.lines = Array.from({length:12}, (_, i) => ({sku:'0000000' + (3000 + i * 7), art:i % 3 ? 'Kemeja Lengan Panjang Slim Fit Premium Cotton Edisi Terbatas Ramadan' : 'Gamis', v:'Dusty Rose Pastel · Extra Large', sent:i === 4 ? 1240 : 18 + i, got:i === 4 ? 1198 : (i % 4 === 0 ? 15 + i : 18 + i)}));
+  } else if (c._keep) { c.lines = JSON.parse(c._keep); delete c._keep; }
+  c.dec = {};
+}
+
+const diffOf = l => l.got - l.sent;
+const isPo = c => c.src === 'po';
+const place = c => isPo(c) ? c.sup : STORES[c.store];
+const SENT = c => isPo(c) ? 'Ordered' : 'Sent';
+const BACK = c => isPo(c) ? 'Return to supplier' : 'Return to DC';
+function parts(c) {
+  if (c.kind === 'Stock check') return {short:c.pieces, more:0, nao:0, sent:0, got:0, lines:[], miss:[{sku:c.sku, art:c.art, v:c.v, q:c.pieces}], extra:[]};
+  const miss = c.lines.filter(l => l.got < l.sent).map(l => ({sku:l.sku, art:l.art, v:l.v, q:l.sent - l.got}));
+  const extra = c.lines.filter(l => l.got > l.sent).map(l => ({sku:l.sku, art:l.art, v:l.v, q:l.got - l.sent}));
+  const sum = (a, f) => a.reduce((s, x) => s + f(x), 0);
+  return {short:sum(miss, x => x.q), more:sum(extra, x => x.q), nao:c.nao, sent:sum(c.lines, l => l.sent), got:sum(c.lines, l => l.got), lines:c.lines, miss, extra};
+}
+const CAUSES = [['dc', 'DC packing'], ['transit', 'In transit'], ['store', 'Store'], ['unknown', 'Unknown']];
+const lostAny = c => !isPo(c) && parts(c).miss.some(m => c.dec[m.sku] === 'lost');
+const needed = c => { const p = parts(c); return [...(isPo(c) ? [] : p.miss.map(m => m.sku)), ...((p.extra.length || p.nao) ? ['ret'] : []), ...(lostAny(c) ? ['cause'] : [])]; };
+const decided = c => needed(c).every(k => c.dec[k]);
+const open = () => CASES.filter(c => c.status !== 'done');
+
+function outcome(c) {
+  const p = parts(c), out = [];
+  const sum = (arr, k, v) => arr.filter(m => c.dec[k(m)] === v).reduce((s, m) => s + m.q, 0);
+  const lost = sum(p.miss, m => m.sku, 'lost'), found = sum(p.miss, m => m.sku, 'found'), wait = sum(p.miss, m => m.sku, 'wait');
+  const ret = c.dec.ret ? p.more + p.nao : 0;
+  if (found) out.push(`${pcs(found)} found · counted as received at ${place(c)}`);
+  const cz = (CAUSES.find(x => x[0] === c.dec.cause) || [])[1];
+  if (lost) out.push(c.kind === 'Stock check' ? `${pcs(lost)} written off · MD sees ${lost} still needed: close it, or raise a new allotment` : `${pcs(lost)} written off · the allotment closes at what the store received · MD is offered a new allotment for ${lost}${cz ? ` · cause: ${cz}` : ''}`);
+  if (ret) out.push(isPo(c) ? `${pcs(ret)} confirmed wrong · the PO owner decides the Return PO` : `${pcs(ret)} confirmed wrong · MD decides: Return to HO or another store`);
+  if (wait) out.push(`${pcs(wait)} kept open`);
+  return out;
+}
+
+/* ---------------- Exceptions view ---------------- */
+function renderQueue() {
+  const st = document.getElementById('fstatus').value, kd = document.getElementById('fkind').value, q = document.getElementById('q').value.trim().toLowerCase();
+  const rows = CASES.filter(c => (st === 'open' ? c.status !== 'done' : c.status === 'done') && (!kd || c.kind === kd) &&
+    (!q || (c.doc + ' ' + place(c) + ' ' + (c.art || '') + c.id).toLowerCase().includes(q)));
+  document.getElementById('sideN').textContent = open().length;
+  if (!rows.find(c => c.id === sel) && rows.length) sel = rows[0].id;
+  document.getElementById('qlist').innerHTML = rows.length ? rows.map(c => {
+    const p = parts(c);
+    const fig = c.kind === 'Stock check' ? sgn(-c.pieces) : p.short ? sgn(-p.short) : sgn(p.more);
+    const figCls = (c.kind === 'Stock check' || p.short) ? 'bad' : '';
+    const dot = c.status === 'done' ? 'd-done' : (c.dc && c.dc !== 'asked') || c.rc ? 'd-asked' : c.kind === 'Stock check' ? 'd-stock' : 'd-receiving';
+    const title = c.kind === 'Stock check' ? `${c.art} <span class="mute" style="font-weight:400">· ${c.v}</span>` : c.doc;
+    const sub = c.kind === 'Stock check' ? `Stock check · ${place(c)}` : `${isPo(c) ? 'Supplier · ' : ''}${place(c)}${p.nao ? ` · Not as Ordered ${p.nao}` : ''}`;
+    return `<div class="qitem${c.id === sel ? ' on' : ''}" data-id="${c.id}">
+      <span class="t ell">${title}</span><span class="q ${figCls}">${fig}</span>
+      <span class="s"><span class="dot ${dot}"></span><span class="ell">${sub}</span></span><span class="age ${c.age > 30 ? 'bad' : ''}">${c.age} d</span></div>`;
+  }).join('') : '<div class="empty">Nothing here</div>';
+  renderCase();
+}
+
+function evidence(c) {
+  if (c.kind === 'Stock check') {
+    return `<div class="sec"><h3>Count <span>${c.countAsked ? 'Targeted count asked' : ''}</span></h3>
+      <div class="ev"><span class="a">${c.rc ? 'Counted at the rack' : 'Waiting for the count'}</span>
+      <span>${c.rc ? '' : '<button class="btn sm" data-act="sim-rc">Ask again</button>'}</span>
+      <span class="s">${c.rc ? c.rc.text : 'Raised when the picker reported it. The handheld counts the SKU in its pool.'}</span></div></div>`;
+  }
+  const dcRow = isPo(c) ? '' : c.dc === null
+    ? `<div class="ev"><span class="a">Ask the DC to check</span><button class="btn sm" data-act="ask-dc">Ask Operations</button><span class="s">Operations looks at the carton and the surat jalan. They only answer, they do not decide.</span></div>`
+    : c.dc === 'asked'
+      ? `<div class="ev"><span class="a">DC check</span><span class="dot d-asked">Asked · waiting</span><span class="s">Asked of Operations today</span></div>`
+      : `<div class="ev"><span class="a">DC check</span><span class="dot d-done">Answered</span><div class="ans">${c.dc.text}<span class="mute"> · ${c.dc.by}</span></div></div>`;
+  const rcRow = c.rc === null
+    ? `<div class="ev"><span class="a">${isPo(c) ? 'Ask Operations to recount' : 'Ask the store to recount'}</span><button class="btn sm" data-act="ask-rc">Ask ${isPo(c) ? 'Operations' : STORES[c.store].split(' · ')[0]}</button><span class="s">A blind count again. The first one stays in the history.</span></div>`
+    : c.rc === 'asked'
+      ? `<div class="ev"><span class="a">Recount</span><span class="dot d-asked">Asked · waiting</span><span class="s">${isPo(c) ? 'Operations count again without seeing the order' : 'The store counts again without seeing the numbers'}</span></div>`
+      : `<div class="ev"><span class="a">Recount</span><span class="dot d-done">Counted again</span><div class="ans">${c.rc.text}</div></div>`;
+  return `<div class="sec"><h3>Check <span>optional</span></h3>${dcRow}${rcRow}</div>`;
+}
+
+const seg = (key, opts, cur) => `<div class="seg" data-key="${key}">${opts.map(([v, l, cls]) => `<button class="${cls || ''}${cur === v ? ' on' : ''}" data-v="${v}">${l}</button>`).join('')}</div>`;
+const MISS = [['found', 'Found', 'found'], ['lost', 'Lost', 'lost'], ['wait', 'Keep open']];
+const MISS_STOCK = [['found', 'Found', 'found'], ['lost', 'Lost', 'lost']];
+const EXTRA = [['add', 'Add to stock'], ['return', 'Return to DC']];
+const EXTRA_PO = [['add', 'Add to stock'], ['return', 'Return to supplier']];
+
+function linesA(c) {
+  const p = parts(c);
+  const bad = p.lines.filter(l => l.got !== l.sent), ok = p.lines.filter(l => l.got === l.sent);
+  const row = l => {
+    const d = diffOf(l), key = d < 0 ? l.sku : 'x' + l.sku;
+    return `<tr><td><div class="a">${l.art}</div><div class="c">${l.v} · ${l.sku}</div></td><td class="n" data-l="${SENT(c)}">${fmt(l.sent)}</td><td class="n" data-l="Counted">${fmt(l.got)}</td><td class="n ${d < 0 ? 'bad' : ''}" data-l="Difference">${sgn(d)}</td>
+      <td class="dec">${d > 0 ? '<span class="mute">Goes back</span>' : isPo(c) ? '<span class="mute">Settled on the PO</span>' : seg(key, MISS, c.dec[key])}</td></tr>`;
+  };
+  return `<div class="sec"><h3>Differences <span>${bad.length} of ${p.lines.length} lines</span></h3>
+    <table class="lines"><thead><tr><th>Item</th><th class="n">${SENT(c)}</th><th class="n">Counted</th><th class="n">Difference</th><th>Decision</th></tr></thead><tbody>${bad.map(row).join('')}</tbody></table>
+    ${ok.length ? `<details class="matched"><summary><i data-lucide="chevron-right"></i>${ok.length} ${ok.length === 1 ? 'line' : 'lines'} matched</summary><table class="lines"><tbody>${ok.map(l => `<tr class="matched"><td><div class="a">${l.art}</div><div class="c">${l.v} · ${l.sku}</div></td><td class="n" data-l="${SENT(c)}">${fmt(l.sent)}</td><td class="n" data-l="Counted">${fmt(l.got)}</td><td class="n" data-l="Difference">0</td><td></td></tr>`).join('')}</tbody></table></details>` : ''}</div>`;
+}
+function groupsB(c, withNao = true) {
+  const p = parts(c), splitOpen = c._split || {};
+  const group = (name, items, keyOf, opts, tone, note) => {
+    if (!items.length) return '';
+    const total = items.reduce((s, i) => s + i.q, 0), vals = items.map(i => c.dec[keyOf(i)]);
+    const same = vals.every(v => v === vals[0]) ? vals[0] : null;
+    return `<div class="grp"><div class="gh"><b>${name}</b><span class="${tone} num">${pcs(total)}</span>
+      <span class="f">${opts ? seg('grp:' + name, opts, same) : `<span class="mute">${note}</span>`}</span></div>
+      ${items.map(i => `<div class="gl"><span class="a">${i.art} <span class="mute">· ${i.v}</span></span><span class="q">${fmt(i.q)}</span><span class="c">${i.sku}</span>
+        ${splitOpen[name] ? `<span style="grid-column:1/-1;margin-top:6px">${seg(keyOf(i), opts, c.dec[keyOf(i)])}</span>` : ''}</div>`).join('')}
+      ${items.length > 1 && opts ? `<button class="split" data-split="${name}">${splitOpen[name] ? 'One decision for all' : 'Decide line by line'}</button>` : ''}</div>`;
+  };
+  const miss = group(isPo(c) ? 'Short' : 'Missing', p.miss, i => i.sku, isPo(c) ? null : (c.kind === 'Stock check' ? MISS_STOCK : MISS), 'bad', 'Settled on the PO');
+  const extra = group(isPo(c) ? 'More than ordered' : 'More than sent', p.extra, i => 'x' + i.sku, null, 'mute', 'Goes back');
+  return `<div class="sec">${miss}${extra}${!miss && !extra ? '<div class="mute">Nothing to decide</div>' : ''}</div>`;
+}
+function returnSec(c) {
+  const p = parts(c), n = p.more + p.nao; if (!n) return '';
+  const on = !!c.dec.ret, what = [p.more ? `${fmt(p.more)} more than ${isPo(c) ? 'ordered' : 'sent'}` : '', p.nao ? `${fmt(p.nao)} Not as Ordered` : ''].filter(Boolean).join(' and ');
+  return `<div class="sec"><h3>Wrong delivery <span>${pcs(n)}</span></h3><div class="nao"><span><b style="color:var(--ink);font-size:22px;font-weight:600">${fmt(n)}</b> <span class="mute">pcs · ${what}</span></span>
+    <button class="btn sm ${on ? '' : 'pri'}" data-act="trigger-ret">${on ? 'Sent to ' + (isPo(c) ? 'the PO owner' : 'MD') : 'Confirm and send to ' + (isPo(c) ? 'the PO owner' : 'MD')}</button>
+    <span class="s">Not stock. Inventory confirms they are wrong or extra. ${isPo(c) ? 'The PO owner decides where they go: a Return PO to the supplier.' : 'MD decides where they go: back to the DC on a Return to HO, or to another store.'}</span></div></div>`;
+}
+function causeSec(c) {
+  if (!lostAny(c)) return '';
+  return `<div class="sec"><h3>Cause of the loss <span>who answers for it</span></h3>${seg('cause', CAUSES, c.dec.cause)}
+    <div class="mute" style="margin-top:8px">${c.dc && c.dc !== 'asked' ? 'Operations said: ' + c.dc.text : 'Pick the cause the evidence points to. Unknown stays with Inventory.'}</div></div>`;
+}
+function stockDecision(c) {
+  return `<div class="sec"><h3>Decision</h3><div class="grp"><div class="gh"><b>${c.art} · ${c.v}</b><span class="bad num">${pcs(c.pieces)}</span><span class="f">${seg('grp:Missing', MISS_STOCK, c.dec[c.sku])}</span></div>
+    <div class="gl"><span class="a mute">Found: back in available stock, picking can resume. Lost: written off, the store gets less.</span></div></div></div>`;
+}
+
+function deliveryPill(c) {
+  return c.status === 'done' ? '<span class="pillc ok">Completed</span>' : '<span class="pillc iss">Completed · issue</span>';
+}
+function trail(c) {
+  const po = isPo(c), stock = c.kind === 'Stock check', done = c.status === 'done', p = parts(c);
+  const lostN = p.miss.filter(m => c.dec[m.sku] === 'lost').reduce((n, m) => n + m.q, 0);
+  const rows = [];
+  if (stock) rows.push(['done', 'Inventory', 'Opened by the picker\'s report, with a targeted count']);
+  else if (po) { rows.push(['done', 'Operations', 'Told at the count. Can be asked to recount']); rows.push(['done', 'Inventory', 'Told at the count. Adjusts what comes into stock']); }
+  else {
+    rows.push(['done', 'Inventory', 'Told when the store submitted its count. Owns the case']);
+    rows.push([c.dc === 'asked' ? 'now' : c.dc ? 'done' : 'now', 'Operations', c.dc === 'asked' ? 'Told with Inventory. Checking the carton' : c.dc ? 'Told with Inventory. Answered the carton check' : 'Told with Inventory. Can be asked to check the carton']);
+  }
+  rows.push([done ? 'done' : 'later', 'MD', done ? (lostN ? (stock ? `Told: ${pcs(lostN)} still needed on ${c.doc}, close it or raise a new allotment` : `Told: ${pcs(lostN)} lost, offered a new allotment`) : 'Told: nothing to act on') : `Told after ${po ? 'Operations and Inventory close' : 'Inventory resolves'}`]);
+  return `<div class="sec"><h3>Who is told</h3><div class="trail">${rows.map(([st, who, what]) => `<div class="${st}"><i></i><b>${who}</b><span>${what}</span></div>`).join('')}</div></div>`;
+}
+function renderCase() {
+  const c = CASES.find(x => x.id === sel), box = document.getElementById('case');
+  if (!c) { box.innerHTML = '<div class="empty">Nothing here</div>'; return; }
+  const p = parts(c), isStock = c.kind === 'Stock check';
+  const dot = c.status === 'done' ? 'd-done' : isStock ? 'd-stock' : 'd-receiving';
+  const figs = isStock
+    ? [['Short', sgn(-c.pieces), 'bad'], ['Reported', '1'], ['Count', c.rc ? 'Done' : 'Asked'], ['Age', c.age + ' d', c.age > 30 ? 'bad' : '']]
+    : [[SENT(c), fmt(p.sent)], ['Counted', fmt(p.got)], ['Difference', sgn(p.got - p.sent), p.got < p.sent ? 'bad' : ''], ['Not as Ordered', fmt(p.nao), p.nao ? 'bad' : '']];
+  const facts = isStock
+    ? `<dt>Allotment</dt><dd>${c.doc}</dd><dt>Store</dt><dd>${STORES[c.store]}</dd><dt>Item</dt><dd>${c.art} · ${c.v}</dd><dt>SKU</dt><dd>${c.sku}</dd><dt>Reason</dt><dd>${STOCK_REASON[c.reason]}</dd><dt>Reported by</dt><dd>${c.by} · Operations · ${c.at}</dd>`
+    : isPo(c) ? `<dt>Order</dt><dd>${c.doc}</dd><dt>Supplier</dt><dd>${c.sup}</dd><dt>Counted by</dt><dd>${c.by} · Operations · ${c.at}</dd><dt>Count</dt><dd>Blind, the order quantity was not shown</dd><dt>Delivery</dt><dd>${deliveryPill(c)}</dd>`
+    : `<dt>Surat jalan</dt><dd>${c.doc}</dd><dt>From</dt><dd>DC</dd><dt>To</dt><dd>${STORES[c.store]}</dd><dt>Counted by</dt><dd>${c.by} · ${c.at}</dd><dt>Count</dt><dd>Blind, nothing shown while counting</dd><dt>Delivery</dt><dd>${deliveryPill(c)}</dd>`;
+  const done = c.status === 'done';
+  let decisionBlock = '';
+  if (!done) {
+    if (isStock) decisionBlock = stockDecision(c);
+    else decisionBlock = (layout === 'A' ? linesA(c) : groupsB(c)) + returnSec(c) + causeSec(c);
+  }
+  const stepsBar = layout === 'C' && !done && !isStock
+    ? `<div class="sec" style="padding-bottom:6px"><div class="steps"><div class="${c.dc || c.rc ? 'ok' : 'on'}"><i>${c.dc || c.rc ? '✓' : '1'}</i>Check <span class="mute">optional</span></div><div class="${decided(c) ? 'ok' : (c.dc || c.rc ? 'on' : '')}"><i>${decided(c) ? '✓' : '2'}</i>Decide</div><div class="${decided(c) ? 'on' : ''}"><i>3</i>Resolve</div></div></div>` : '';
+  const out = outcome(c), ready = decided(c) && (out.length || !needed(c).length);
+  const waiting = needed(c).filter(k => c.dec[k] === 'wait').length;
+  box.innerHTML = `
+    <div class="hd"><div class="k">${c.id} · <span class="dot ${dot}">${done ? 'Done' : c.kind}</span></div>
+      <h2>${isStock ? `${c.art} · ${c.v}` : c.doc}</h2>
+      <p>${isStock ? `Short pick · ${STORES[c.store]}` : isPo(c) ? `Supplier → DC · ${c.sup}` : `DC → ${STORES[c.store]}`}</p>
+      <div class="cfig">${figs.map(([k, v, cl]) => `<div><b class="${cl || ''}">${v}</b><span>${k}</span></div>`).join('')}</div></div>
+    ${stepsBar}
+    ${trail(c)}
+    ${done ? `<div class="sec"><h3>Outcome</h3><div class="ok">${c.outcome}</div></div>` : (layout === 'C' && !isStock ? evidence(c) + decisionBlock : decisionBlock + evidence(c))}
+    <div class="sec"><h3>Case</h3><dl class="facts">${facts}<dt>Owner</dt><dd>${c.owner || 'Hendra'} · Inventory${c.status === 'done' ? ' · decided' : ''}</dd><dt>Age</dt><dd class="${c.age > 30 ? 'bad' : ''}">${c.age} days</dd></dl></div>
+    <div class="act">${done ? '<span class="mute" style="margin-right:auto">Closed</span><button class="btn" data-act="reopen">Reopen</button>' :
+      `<span class="note">${out.length ? out.map(x => `<div>${x}</div>`).join('') : '<span class="mute">Decide each line to resolve</span>'}</span>
+       <button class="btn pri" data-act="resolve" ${ready ? '' : 'disabled'}>${waiting ? `Save · ${waiting} open` : 'Resolve'}</button>`}</div>`;
+  lucide.createIcons();
+}
+
+/* ---------------- Decision view ---------------- */
+function renderDecision() {
+  document.getElementById('v-decision').innerHTML = `
+  <div class="ph"><h1>Who is told, and in what order</h1></div>
+  <div class="dv">
+    <div class="card wide"><h2>The whole thing in three steps</h2>
+      <div class="three">
+        <div><i>1</i><b>Count</b><span>Blind, by whoever receives. It never blocks. The delivery is Completed at once, or Completed · issue.</span></div>
+        <div><i>2</i><b>Issue: Inventory owns it</b><span>It decides whether the stock exists. Missing: Found or Lost. Wrong or extra pieces: confirmed as not stock, then MD decides where they go. Operations and the store answer when asked.</span></div>
+        <div><i>3</i><b>Document: its owner is told last</b><span>MD for an allotment, the PO owner for a PO. Nothing is reopened: a Lost closes the allotment at what was received and MD raises a new one, a Return is a document of its own.</span></div>
+      </div>
+    </div>
+    <div class="card wide"><h2>Who is responsible</h2><p class="lede">One person answers for each step. Their name is on the case.</p>
+      <table><thead><tr><th>Step</th><th>Does it</th><th>Answers for it</th></tr></thead><tbody>
+        <tr><td>The count</td><td>The counter named on it<br><span class="mute">Operations at the DC, a store person at the shop</span></td><td>Their head<br><span class="mute">DC supervisor, store manager</span></td></tr>
+        <tr><td>The issue, on time</td><td><span class="who">Inventory</span>, one named owner per case</td><td>Inventory head<br><span class="mute">age counts, over 30 days turns red</span></td></tr>
+        <tr><td>The cause of a loss</td><td>Inventory records it when it marks Lost, from the evidence<br><span class="mute">DC packing · In transit · Store · Unknown</span></td><td>The party the cause names<br><span class="mute">custody passes to the store at the door; before that it is the DC's</span></td></tr>
+        <tr><td>The write-off</td><td>Inventory<br><span class="mute">Finance only sees the journal</span></td><td>Inventory head</td></tr>
+        <tr><td>New allotment, or Return PO</td><td><span class="who">MD</span> raises the allotment<br><span class="mute">Inventory triggers a return, Operations receives it</span></td><td>MD for the allotment, the PO owner for the PO</td></tr>
+      </tbody></table>
+    </div>
+    <div class="card wide"><h2>Who decides what</h2><p class="lede">Three different decisions, three different owners.</p>
+      <div class="three">
+        <div><i>MD</i><b>Where goods go</b><span>The movement: allot, edit, cancel, a new allotment after a Lost, a Return to HO, or sending wrong pieces to another store. MD raises the document and decides on it.</span></div>
+        <div><i>Inventory</i><b>Whether it exists</b><span>Found or Lost, and the write-off. It also confirms that extra or wrong pieces are not stock. It never moves goods and never creates a document for them.</span></div>
+        <div><i>Operations</i><b>Whether the work can continue</b><span>Picks, packs, moves back, receives returns, counts at the DC. It sets "cannot continue" with the reason, and answers "check the carton". It never says lost and never says where goods go.</span></div>
+      </div>
+    </div>
+    <div class="card"><h2>When a delivery does not match</h2><p class="lede">The count never blocks. The delivery is Completed at once, and the issue goes to the people who can fix the stock before MD hears of it.</p>
+      <table><thead><tr><th>Flow</th><th>First told</th><th>Then</th></tr></thead><tbody>
+        <tr><td>DC → store<br><span class="mute">against a surat jalan</span></td><td><span class="who">Operations and Inventory</span><br><span class="mute">Inventory adjusts and triggers the return, Operations checks the carton</span></td><td><span class="who">MD</span> after Inventory resolves</td></tr>
+        <tr><td>Supplier → DC<br><span class="mute">against a PO</span></td><td><span class="who">Operations and Inventory</span><br><span class="mute">Operations recounts, Inventory triggers the return</span></td><td><span class="who">MD</span> after both close</td></tr>
+        <tr><td>Short pick, stock reason</td><td><span class="who">Inventory</span><br><span class="mute">Stock check: Found or Lost</span></td><td><span class="who">MD</span> sees Still needed after a Lost</td></tr>
+        <tr><td>Short pick, label, equipment, other</td><td><span class="who">Operations</span></td><td>No Inventory case</td></tr>
+      </tbody></table>
+    </div>
+    <div class="card"><h2>Delivery status</h2><p class="lede">Two words, no more. The issue is a marker, not a different status.</p>
+      <table><tbody>
+        <tr><td><span class="pillc ok">Completed</span></td><td>Counted, nothing differs.</td></tr>
+        <tr><td><span class="pillc iss">Completed · issue</span></td><td>Counted and booked, something differs. The case sits in Inventory › Exceptions with its age.</td></tr>
+        <tr><td><span class="pillc ok">Completed</span></td><td>The marker clears when Inventory resolves the case. The history keeps what was decided.</td></tr>
+      </tbody></table>
+      <p class="lede" style="margin-top:14px">Replaces "Received short" on the store's Receive and the board's Received lane.</p>
+    </div>
+    <div class="card"><h2>How a case is worked</h2>
+      <div class="flow">
+        <div><i>1</i><span><b>The count is submitted, blind</b><span>No difference: Completed, nothing else happens.</span></span></div>
+        <div><i>2</i><span><b>Completed · issue, and a case opens</b><span>Inventory sees Sent, Counted and the difference per SKU, plus Not as Ordered.</span></span></div>
+        <div><i>3</i><span><b>Check, only if needed</b><span>Ask for a recount, or Operations to look at the carton. They only answer.</span></span></div>
+        <div><i>4</i><span><b>Inventory decides what exists</b><span>Missing stock: Found, Lost or Keep open. Wrong or extra pieces: confirmed as not stock and sent to MD. Nothing is ever added to stock from a wrong delivery.</span></span></div>
+        <div><i>5</i><span><b>MD is told, last</b><span>A Lost is written off and the allotment closes at what the store received. MD is offered a new allotment for the lost pieces, prefilled. Never a top-up on the old one. MD also decides the fate of confirmed wrong pieces: a Return to HO, or another store. Found: nothing to tell.</span></span></div>
+      </div>
+    </div>
+    <div class="card open"><h2>To confirm</h2>
+      <ul>
+        <li><q>A Lost closes the old allotment at what was received and MD raises a new one for the lost pieces. Today the model sends a Lost back to To Pack on the same allotment so the bench packs replacements. Is the new allotment the rule?</q></li>
+        <li><q>At the DC today the PO creator reviews the count (Review Count) before stock is booked. With this order, is Review Count replaced, or does it stay as the gate while Operations and Inventory are only told?</q></li>
+        <li><q>For a PO, is the one told last MD or the PO creator in Buying?</q></li>
+        <li><q>Not as Ordered at the store: a figure the counter types, as at the DC. Always returned. Right?</q></li>
+        <li><q>A Lost above some value needs a second person. Yes or no, and from what amount?</q></li>
+      </ul>
+    </div>
+  </div>`;
+}
+
+/* ---------------- wiring ---------------- */
+function toast(t) { const el = document.getElementById('toast'); el.textContent = t; el.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove('on'), 2600); }
+const cur = () => CASES.find(c => c.id === sel);
+
+document.addEventListener('click', e => {
+  const q = e.target.closest('.qitem'); if (q) { sel = q.dataset.id; renderQueue(); document.body.classList.add('drawer'); return; }
+  const sb = e.target.closest('.seg button');
+  if (sb) {
+    const c = cur(), key = sb.parentElement.dataset.key, v = sb.dataset.v;
+    if (key.startsWith('grp:')) {
+      const p = parts(c), items = key === 'grp:Missing' ? p.miss : p.extra;
+      items.forEach(i => { c.dec[key === 'grp:Missing' ? i.sku : 'x' + i.sku] = v; });
+    } else c.dec[key] = v;
+    renderCase(); return;
+  }
+  const sp = e.target.closest('[data-split]'); if (sp) { const c = cur(); c._split = c._split || {}; c._split[sp.dataset.split] = !c._split[sp.dataset.split]; renderCase(); return; }
+  const a = e.target.closest('[data-act]');
+  if (a) {
+    const c = cur();
+    if (a.dataset.act === 'ask-dc') { c.dc = 'asked'; toast('Asked Operations to check the carton'); }
+    if (a.dataset.act === 'ask-rc') { c.rc = 'asked'; toast(`Asked ${isPo(c) ? 'Operations' : STORES[c.store].split(' · ')[0]} to recount`); }
+    if (a.dataset.act === 'sim-rc') simRc();
+    if (a.dataset.act === 'trigger-ret') { if (c.dec.ret) delete c.dec.ret; else { c.dec.ret = 'return'; toast(isPo(c) ? 'Goes to the PO owner on Resolve' : 'Goes to MD to decide on Resolve'); } }
+    if (a.dataset.act === 'resolve') {
+      const out = outcome(c), waiting = needed(c).filter(k => c.dec[k] === 'wait').length;
+      if (!waiting) { c.status = 'done'; c.outcome = out.join(' · ') || 'Closed'; toast(c.outcome); document.body.classList.remove('drawer'); }
+      else toast(`Saved · ${waiting} kept open`);
+    }
+    if (a.dataset.act === 'reopen') { c.status = 'open'; }
+    renderQueue(); return;
+  }
+  if (e.target.closest('#xclose') || e.target.closest('#scrim')) document.body.classList.remove('drawer');
+});
+['fstatus', 'fkind', 'q'].forEach(id => document.getElementById(id).addEventListener('input', renderQueue));
+document.getElementById('views').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return; view = b.dataset.v;
+  [...document.querySelectorAll('#views button')].forEach(x => x.setAttribute('aria-pressed', x === b));
+  document.getElementById('v-inbox').classList.toggle('on', view === 'inbox');
+  document.getElementById('v-decision').classList.toggle('on', view === 'decision');
+  if (view === 'decision') renderDecision();
+});
+document.getElementById('layouts').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return; layout = b.dataset.l;
+  [...document.querySelectorAll('#layouts button')].forEach(x => x.setAttribute('aria-pressed', x === b));
+  renderCase();
+});
+function simDc() { const c = cur(); if (!c || c.kind !== 'Receiving' || c.dc !== 'asked') { toast('Ask the DC first on a receiving case'); return; }
+  c.dc = {text: c.id === 'RC-2042' ? 'Packed as listed. 5 pcs of a different carton marking were also on the lorry.' : 'Packing error found: 3 pcs went to C003 · Purbalingga.', by:'Tono, Operations'}; renderQueue(); toast('Operations answered'); }
+function simRc() { const c = cur(); if (!c) return;
+  if (c.kind === 'Stock check') { c.rc = {text:`Counted at the rack: ${c.reason === 'DAMAGED' ? 'the piece is there, damaged' : '0 found'}.`}; }
+  else { if (c.rc !== 'asked') { toast('Ask the store to recount first'); return; }
+    const l = c.lines.find(x => x.got < x.sent); if (l) l.got += 2; c.rc = {text:`Counted again: ${fmt(parts(c).got)} pcs (was ${fmt(parts(c).got - 2)}).`}; }
+  renderQueue(); toast('Recount in'); }
+document.getElementById('simDc').onclick = simDc;
+document.getElementById('simRc').onclick = simRc;
+document.getElementById('simReset').onclick = () => { CASES = seed(); sel = 'RC-2041'; document.getElementById('worst').checked = false; renderQueue(); toast('Reset'); };
+document.getElementById('worst').onchange = e => { worstCase(e.target.checked); renderQueue(); };
+renderQueue(); lucide.createIcons();
+</script>
+</body>
+</html>

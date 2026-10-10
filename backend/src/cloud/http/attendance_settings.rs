@@ -93,8 +93,15 @@ pub async fn set_geofence(
 ) -> Result<Json<Vec<GeofenceView>>, AppError> {
     require(&principal, actions::ATTENDANCE_POLICY_SET)?;
     let by = authority(&principal, actions::ATTENDANCE_POLICY_SET, &body.reason)?;
-    infrastructure::set_geofence(&state.db, &unit, body.latitude, body.longitude, body.radius_m, &by)
-        .await?;
+    infrastructure::set_geofence(
+        &state.db,
+        &unit,
+        body.latitude,
+        body.longitude,
+        body.radius_m,
+        &by,
+    )
+    .await?;
     Ok(Json(infrastructure::geofences(&state.db).await?))
 }
 

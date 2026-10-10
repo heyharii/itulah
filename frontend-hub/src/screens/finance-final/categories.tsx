@@ -7,10 +7,12 @@ import { SubHead } from "@/components/ui/rows"
 import { Tag } from "@/components/ui/tag"
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
 import { count } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { accountChildren, financeKeys } from "@/lib/queries/finance"
 import { ROOT_CLASSES_SHORT } from "@/screens/finance/chart"
 import { useAssetClasses, useCategoriesByFamily } from "@/screens/finance/hooks"
 import { Code, Grid, Note, Td, Th } from "@/screens/finance-final/parts"
+import { PhoneRows } from "@/screens/finance/phone-parts"
 import type { LedgerAccount } from "@itulah/contract"
 
 /// The vocabulary the forty-account chart is read in.
@@ -49,6 +51,7 @@ import type { LedgerAccount } from "@itulah/contract"
 /// down, so the day an account changes its declaration this screen changes
 /// with it.
 export function LineCategories() {
+  const phone = useLayout() === "phone"
   const categories = useCategoriesByFamily()
   const classes = useAssetClasses()
   const chart = useChartFamilies()
@@ -57,21 +60,22 @@ export function LineCategories() {
     <PageContent>
       <PageHeader
         crumb="Finance"
-        title="Kategori Baris"
-        sub="Apa yang dulu membedakan dua kode akun, sekarang dipilih di baris jurnal."
+        title="Line Categories"
+        sub="What used to tell two account codes apart is now chosen on the journal line."
       />
 
       <Note>
-        Sebuah akun ada hanya kalau ia baris di neraca atau laba-rugi. Pembeda
-        yang lain — bank mana, rak yang mana, PPh pasal berapa, listrik atau air
-        — adalah <b>kategori</b> pada baris jurnal. Akun yang mendeklarasikan
-        satu keluarga <b>menolak</b> baris tanpa kategori dari keluarga itu;
-        akun yang tidak mendeklarasikan apa pun menolak baris yang membawanya.
-        Keduanya ditolak oleh basis data, bukan oleh layar ini.
+        An account exists only when it is a line on the balance sheet or the
+        profit and loss. Every other distinction — which bank, which rack, which
+        PPh article, electricity or water — is a <b>category</b> on the journal
+        line. An account that declares a family <b>rejects</b> a line without a
+        category from that family; an account that declares nothing rejects a
+        line that carries one. Both are rejected by the database, not by this
+        screen.
       </Note>
 
       {categories.isPending ? (
-        <LoadingState>Membaca daftar kategori…</LoadingState>
+        <LoadingState>Reading the category list…</LoadingState>
       ) : categories.isError ? (
         <ErrorState
           error={categories.error}
@@ -79,20 +83,20 @@ export function LineCategories() {
         />
       ) : categories.families.length === 0 ? (
         <EmptyState>
-          Belum ada kategori. Migrasi yang menurunkannya dari nama akun klien
-          belum dijalankan di node ini.
+          No categories yet. The migration that derives them from the
+          client&rsquo;s account names has not been run on this node.
         </EmptyState>
       ) : (
         <div className="flex flex-col gap-6">
           <SubHead
-            aside={`${count(categories.families.length)} keluarga · ${count(
+            aside={`${count(categories.families.length)} families · ${count(
               categories.families.reduce(
                 (total, group) => total + group.rows.length,
                 0
               )
-            )} kategori`}
+            )} categories`}
           >
-            Keluarga
+            Families
           </SubHead>
 
           {categories.families.map((group) => (
@@ -107,7 +111,7 @@ export function LineCategories() {
                 </span>
                 <Code>{group.family}</Code>
                 <span className="text-[0.875rem] text-mute">
-                  {count(group.rows.length)} kategori
+                  {count(group.rows.length)} categories
                 </span>
                 {/* The accounts that declare this family, read off the chart.
                     An empty list is worth drawing rather than hiding: a family
@@ -122,55 +126,84 @@ export function LineCategories() {
                   )) ?? null}
                   {chart.isPending ? (
                     <span className="text-[0.875rem] text-faint">
-                      membaca bagan…
+                      reading the chart…
                     </span>
                   ) : (
                     (chart.byFamily.get(group.family) ?? []).length === 0 && (
                       <span className="text-[0.875rem] text-warn-fg">
-                        tidak ada akun yang memintanya
+                        no account asks for it
                       </span>
                     )
                   )}
                 </span>
               </div>
 
-              <Grid>
-                <thead>
-                  <tr>
-                    <Th width="16rem">Kode</Th>
-                    <Th>Nama (nama klien)</Th>
-                    <Th width="8rem">Status</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {group.rows.map((row) => (
-                    <tr key={row.category_code}>
-                      <Td>
-                        <Code>{row.category_code}</Code>
-                      </Td>
-                      <Td>
-                        <span className="text-ink">{row.name}</span>
-                        {/* The English gloss, where the chart carries one, sits
-                            quiet and second. It is a reading aid for somebody
-                            who does not have the client's chart in their head,
-                            and never the label a picker offers. */}
+              {phone ? (
+                <PhoneRows
+                  rows={group.rows.map((row) => ({
+                    key: row.category_code,
+                    title: (
+                      <>
+                        {row.name}
                         {row.name_en !== null &&
                           row.name_en !== undefined &&
                           row.name_en !== "" && (
                             <span className="text-mute"> · {row.name_en}</span>
                           )}
-                      </Td>
-                      <Td>
-                        {row.is_active ? (
-                          <span className="text-mute">aktif</span>
-                        ) : (
-                          <Pill tone="neutral">tidak dipakai lagi</Pill>
-                        )}
-                      </Td>
+                      </>
+                    ),
+                    sub: <span className="font-mono">{row.category_code}</span>,
+                    figure: row.is_active ? (
+                      <span className="font-normal text-mute">active</span>
+                    ) : (
+                      <span className="font-normal text-mute">
+                        no longer used
+                      </span>
+                    ),
+                  }))}
+                />
+              ) : (
+                <Grid>
+                  <thead>
+                    <tr>
+                      <Th width="16rem">Code</Th>
+                      <Th>Name (client’s name)</Th>
+                      <Th width="8rem">Status</Th>
                     </tr>
-                  ))}
-                </tbody>
-              </Grid>
+                  </thead>
+                  <tbody>
+                    {group.rows.map((row) => (
+                      <tr key={row.category_code}>
+                        <Td>
+                          <Code>{row.category_code}</Code>
+                        </Td>
+                        <Td>
+                          <span className="text-ink">{row.name}</span>
+                          {/* The English gloss, where the chart carries one, sits
+                            quiet and second. It is a reading aid for somebody
+                            who does not have the client's chart in their head,
+                            and never the label a picker offers. */}
+                          {row.name_en !== null &&
+                            row.name_en !== undefined &&
+                            row.name_en !== "" && (
+                              <span className="text-mute">
+                                {" "}
+                                · {row.name_en}
+                              </span>
+                            )}
+                        </Td>
+                        <Td>
+                          {row.is_active ? (
+                            <span className="text-mute">active</span>
+                          ) : (
+                            <Pill tone="neutral">no longer used</Pill>
+                          )}
+                        </Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Grid>
+              )}
             </div>
           ))}
         </div>
@@ -180,32 +213,43 @@ export function LineCategories() {
         aside={
           chart.noFamily.length === 0
             ? undefined
-            : `${count(chart.noFamily.length)} akun`
+            : `${count(chart.noFamily.length)} accounts`
         }
       >
-        Akun tanpa kategori
+        Accounts without a category
       </SubHead>
       <Note>
-        Akun-akun ini tidak menerima kategori sama sekali. Identitasnya sudah
-        ada di tempat lain: rekening bank, aset di register, pemasok, fasilitas
-        pembiayaan, atau pemilik. Memilih salah satunya tidak memunculkan kotak
-        kedua.
+        These accounts take no category at all. Their identity is already
+        somewhere else: a bank account, an asset in the register, a supplier, a
+        financing facility, or an owner. Choosing one of those does not bring up
+        a second box.
       </Note>
       {chart.isPending ? (
-        <LoadingState>Membaca bagan akun…</LoadingState>
+        <LoadingState>Reading the chart of accounts…</LoadingState>
       ) : chart.isError ? (
         <ErrorState error={chart.error} />
       ) : chart.noFamily.length === 0 ? (
-        <EmptyState>
-          Setiap akun yang bisa diposting meminta sebuah kategori.
-        </EmptyState>
+        <EmptyState>Every postable account asks for a category.</EmptyState>
+      ) : phone ? (
+        <PhoneRows
+          rows={chart.noFamily.map((account) => ({
+            key: account.account_code,
+            title: account.name,
+            sub: <span className="font-mono">{account.account_code}</span>,
+            figure: (
+              <span className="font-normal text-mute">
+                {ROOT_CLASSES_SHORT[account.root_class] ?? account.root_class}
+              </span>
+            ),
+          }))}
+        />
       ) : (
         <Grid>
           <thead>
             <tr>
-              <Th width="7rem">Kode</Th>
-              <Th>Nama</Th>
-              <Th width="12rem">Kelas</Th>
+              <Th width="7rem">Code</Th>
+              <Th>Name</Th>
+              <Th width="12rem">Class</Th>
             </tr>
           </thead>
           <tbody>
@@ -231,31 +275,51 @@ export function LineCategories() {
         aside={
           classes.rows.length === 0
             ? undefined
-            : `${count(classes.rows.length)} kelas`
+            : `${count(classes.rows.length)} classes`
         }
       >
-        Kelas aset
+        Asset classes
       </SubHead>
       <Note>
-        Bukan keluarga kategori. Akun aset — 1601, 1609, 7101 dan seterusnya —
-        tidak membawa kategori: identitas barisnya adalah aset yang disebut, dan
-        kelasnya dibaca dari register. Daftar ini ada di sini karena itu
-        pertanyaan berikutnya setelah “akun ini tidak minta kategori, lalu apa
-        yang membedakannya?”
+        Not a category family. Asset accounts — 1601, 1609, 7101 and so on —
+        carry no category: the line&rsquo;s identity is the asset it names, and
+        its class is read from the register. This list is here because it is the
+        next question after “this account asks for no category, so what tells
+        its lines apart?”
       </Note>
       {classes.isPending ? (
-        <LoadingState>Membaca kelas aset…</LoadingState>
+        <LoadingState>Reading the asset classes…</LoadingState>
       ) : classes.isError ? (
         <ErrorState error={classes.error} onRetry={() => classes.refetch()} />
       ) : classes.rows.length === 0 ? (
-        <EmptyState>Belum ada kelas aset di node ini.</EmptyState>
+        <EmptyState>No asset classes on this node yet.</EmptyState>
+      ) : phone ? (
+        <PhoneRows
+          rows={classes.rows.map((row) => ({
+            key: row.class_code,
+            title: (
+              <>
+                {row.name}
+                {row.name_en !== null &&
+                  row.name_en !== undefined &&
+                  row.name_en !== "" && (
+                    <span className="text-mute"> · {row.name_en}</span>
+                  )}
+              </>
+            ),
+            sub: <span className="font-mono">{row.class_code}</span>,
+            figure: (
+              <Pill tone={row.is_active ? "neutral" : "warn"}>{row.kind}</Pill>
+            ),
+          }))}
+        />
       ) : (
         <Grid>
           <thead>
             <tr>
-              <Th width="16rem">Kode</Th>
-              <Th>Nama (nama klien)</Th>
-              <Th width="10rem">Jenis</Th>
+              <Th width="16rem">Code</Th>
+              <Th>Name (client’s name)</Th>
+              <Th width="10rem">Kind</Th>
             </tr>
           </thead>
           <tbody>

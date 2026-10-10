@@ -158,7 +158,10 @@ pub async fn list_record_versions(
                         .iter()
                         .map(|(field, change)| FieldChange {
                             field: field.clone(),
-                            from: change.get("from").cloned().unwrap_or(serde_json::Value::Null),
+                            from: change
+                                .get("from")
+                                .cloned()
+                                .unwrap_or(serde_json::Value::Null),
                             to: change.get("to").cloned().unwrap_or(serde_json::Value::Null),
                         })
                         .collect()
@@ -539,6 +542,24 @@ async fn receiving_activity(
                                        'receipt', receipt_number)
                FROM l WHERE verified_at IS NOT NULL
              UNION ALL
+             -- Counts that never became a receipt line (0950): the bay's count
+             -- before it recalled it, and the recall itself. A count the buyer
+             -- sent back is told by its later count, as before.
+             SELECT c.counted_at, c.counted_by, 'count',
+                    jsonb_build_object('quantity', c.counted_quantity,
+                                       'article', pl.article_name) AS payload
+               FROM dc_receiving_count c
+               JOIN purchase_order_line pl ON pl.po_line_id = c.po_line_id
+              WHERE pl.purchase_order_id = $1 AND c.status = 'RECALLED'
+             UNION ALL
+             SELECT c.recalled_at, c.recalled_by, 'recall',
+                    jsonb_build_object('quantity', c.counted_quantity,
+                                       'article', pl.article_name,
+                                       'reason', c.recall_reason)
+               FROM dc_receiving_count c
+               JOIN purchase_order_line pl ON pl.po_line_id = c.po_line_id
+              WHERE pl.purchase_order_id = $1 AND c.status = 'RECALLED'
+             UNION ALL
              SELECT pl.closed_short_at, COALESCE(pl.closed_short_by, ''), 'close_short',
                     jsonb_build_object('quantity', pl.closed_short_units,
                                        'article', pl.article_name,
@@ -583,6 +604,7 @@ async fn receiving_activity(
         let what: String = row.try_get("what")?;
         let path = match what.as_str() {
             "count" => "/api/v1/dc/purchase-counts",
+            "recall" => "/api/v1/dc/purchase-counts/recall",
             "verify" => "/api/v1/dc/purchase-verifications",
             "close_short" => "/api/v1/dc/purchase-close-short",
             _ => "/api/v1/dc/goods-receipts/invoice",

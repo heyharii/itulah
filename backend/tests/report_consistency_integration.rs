@@ -182,8 +182,14 @@ async fn an_applied_advance_is_paid_on_the_bill_in_the_ageing_and_the_bill_list(
     let aging = cloud::payables_aging(&pool, day(2026, 9, 24), None)
         .await
         .unwrap_or_else(|error| panic!("aging: {error}"));
-    assert_eq!(aging.total.total_minor, 2_980_000, "the ageing owes what the ledger owes");
-    assert_eq!(aging.books_minor, 2_980_000, "the books figure is the payable accounts");
+    assert_eq!(
+        aging.total.total_minor, 2_980_000,
+        "the ageing owes what the ledger owes"
+    );
+    assert_eq!(
+        aging.books_minor, 2_980_000,
+        "the books figure is the payable accounts"
+    );
 
     // Wound back: before the advance was set against it, all of it was owed.
     let before = cloud::payables_aging(&pool, day(2026, 9, 11), None)
@@ -244,11 +250,18 @@ async fn a_disposed_asset_has_no_book_value(pool: PgPool) {
     )
     .await
     .unwrap_or_else(|error| panic!("assess: {error}"));
-    assert_eq!(assessed.book_value_minor, Some(7_050_000), "in service, cost less nothing");
+    assert_eq!(
+        assessed.book_value_minor,
+        Some(7_050_000),
+        "in service, cost less nothing"
+    );
 
     // The disposal as `dispose_asset` leaves it, with an entry to point at.
     let entry = Uuid::new_v4();
-    let mut tx = pool.begin().await.unwrap_or_else(|error| panic!("tx: {error}"));
+    let mut tx = pool
+        .begin()
+        .await
+        .unwrap_or_else(|error| panic!("tx: {error}"));
     sqlx::query(
         "INSERT INTO journal_entry
              (entry_id, entry_number, posting_date, source_kind, rule_version, total_minor,
@@ -287,11 +300,21 @@ async fn a_disposed_asset_has_no_book_value(pool: PgPool) {
     .execute(&mut *tx)
     .await
     .unwrap_or_else(|error| panic!("dispose: {error}"));
-    tx.commit().await.unwrap_or_else(|error| panic!("commit: {error}"));
+    tx.commit()
+        .await
+        .unwrap_or_else(|error| panic!("commit: {error}"));
 
     let gone = cloud::asset(&pool, asset.asset_id)
         .await
         .unwrap_or_else(|error| panic!("asset: {error}"));
-    assert_eq!(gone.capitalized_cost_minor, Some(7_050_000), "what it cost is still history");
-    assert_eq!(gone.book_value_minor, Some(0), "a disposed asset is off the books");
+    assert_eq!(
+        gone.capitalized_cost_minor,
+        Some(7_050_000),
+        "what it cost is still history"
+    );
+    assert_eq!(
+        gone.book_value_minor,
+        Some(0),
+        "a disposed asset is off the books"
+    );
 }

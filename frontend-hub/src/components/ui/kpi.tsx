@@ -16,9 +16,11 @@ export function KpiStrip({
         // card in the strip has a delta, so every figure in the row stands
         // on the same line — see `Kpi`.
         "group/kpis mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6",
-        // On a phone the figures are one row to swipe, not three rows that push
-        // the list below the fold: show the common path first.
-        "max-md:-mx-4 max-md:flex max-md:snap-x max-md:snap-mandatory max-md:scroll-px-4 max-md:[scrollbar-width:none] max-md:overflow-x-auto max-md:px-4 max-md:[&>*]:w-40 max-md:[&>*]:shrink-0 max-md:[&>*]:snap-start",
+        // On a phone the figures are ONE card, two to a row, hairlines between:
+        // nothing to swipe sideways (owner, 2026-10-06 — a row that scrolls
+        // hides its third figure behind the edge), and half the height of a
+        // card per figure. An odd last figure takes the whole row.
+        "max-md:gap-px max-md:overflow-hidden max-md:rounded-card max-md:border max-md:border-hairline max-md:bg-hairline max-md:shadow-soft max-md:[&_.kpi-card]:rounded-none! max-md:[&_.kpi-card]:border-0! max-md:[&_.kpi-card]:shadow-none! max-md:[&>*:last-child:nth-child(odd)]:col-span-2",
         className
       )}
       {...props}
@@ -43,7 +45,7 @@ export function Kpi({
     // three one-line ones used to drop that card's number half a line below
     // the rest of the row, which reads as four unrelated boxes instead of one
     // strip — and a long label is not something the caller can always shorten.
-    <div className="flex h-full flex-col rounded-card border border-hairline bg-canvas px-4 py-2.5 shadow-soft">
+    <div className="kpi-card flex h-full flex-col rounded-card border border-hairline bg-canvas px-4 py-2.5 shadow-soft">
       <div className="text-eyebrow font-medium text-body">{label}</div>
       <div className="mt-auto pt-1.5 text-[1.125rem] leading-none font-semibold tracking-[-0.02em] text-ink tabular-nums">
         {value}

@@ -1,6 +1,7 @@
 import { cn } from "@/lib/utils"
 
-/// White card, one hairline, `--r-card` corners, whisper shadow.
+/// White card, one hairline, `--r-card` corners, whisper shadow — the hub's
+/// (`frontend-hub/src/components/ui/card.tsx`).
 ///
 /// Cards are lifted by their border, not by shadow — the shadow token exists to
 /// stop the white-on-white edge disappearing, not to float anything.
@@ -14,6 +15,34 @@ export function Card({
         "overflow-hidden rounded-card border border-hairline bg-canvas shadow-soft",
         className,
       )}
+      {...props}
+    />
+  )
+}
+
+/// The card's own header row: title left, controls right.
+export function CardHeader({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      className={cn(
+        "flex items-center justify-between gap-2.5 px-4 pt-3.5 pb-[0.6875rem]",
+        className,
+      )}
+      {...props}
+    />
+  )
+}
+
+export function CardTitle({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLHeadingElement>) {
+  return (
+    <h3
+      className={cn("text-card-title font-semibold text-ink", className)}
       {...props}
     />
   )

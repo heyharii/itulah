@@ -4,9 +4,8 @@ import { DockTools } from "@/components/shell/dock-tools"
 import { dockSortOf } from "@/components/ui/data-table"
 import { PageHeader } from "@/components/ui/page-header"
 import { SubTabs } from "@/components/ui/sub-tabs"
-import { dc } from "@/lib/api"
 import { useAppNavigate } from "@/lib/navigate"
-import { keys } from "@/lib/operations/keys"
+import { storeInboundQuery } from "@/lib/operations/queries"
 import { useWaiting } from "@/lib/operations/waiting"
 import { useSheet } from "@/lib/sheets"
 
@@ -50,10 +49,7 @@ export function IntakeHeader({
   const navigate = useAppNavigate()
   const owed = useWaiting().owed
   // The same query the Store returns tab reads, so the number never lags it.
-  const inTransit = useQuery({
-    queryKey: keys.storeInbound("IN_TRANSIT"),
-    queryFn: ({ signal }) => dc.storeInboundList("IN_TRANSIT", signal),
-  })
+  const inTransit = useQuery(storeInboundQuery("IN_TRANSIT"))
   const onTheWay = inTransit.data?.length ?? 0
   const tabs = [
     {

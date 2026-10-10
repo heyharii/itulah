@@ -3,13 +3,17 @@ import { useMemo, useState } from "react"
 
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
 import { node } from "@/lib/api"
-import { count, dateText, money } from "@/lib/format"
+import { count, dateText, money, moneyCompact } from "@/lib/format"
 import { analyticsKeys, dailyReport } from "@/lib/queries/analytics"
 import { financeKeys, listCashCounts } from "@/lib/queries/finance"
 import { type UnitView } from "@/lib/queries/organisation"
+import { useLayout } from "@/lib/layout"
 import { cn } from "@/lib/utils"
+import { Status } from "@/components/ui/pill"
 import { Grid, Td, Th } from "@/screens/finance-final/parts"
 import { isoDay, todayIso } from "@/screens/finance/chart"
+import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
+import { PhoneChoice, PhoneFigures } from "@/screens/finance/parts"
 import { StoreFrame } from "@/screens/finance/stores-frame"
 
 /// Finance › Stores (owner, 2026-10-01): one shop at a time, its money from
@@ -54,73 +58,97 @@ interface RailStop {
   readonly bottom: string
   readonly figure: number | undefined
   readonly flag?: boolean
+  /// What the phone's sheet says beside the stop instead of the bare figure.
+  readonly note?: string
 }
 
 /// A row of dates, newest on the left where the eye starts, each with its figure — the booking
 /// site's fare calendar, for money a shop took or spent.
 function DateRail({
+  title,
   stops,
   value,
   onChange,
 }: {
+  /// What the stops are, for the phone's chip: "Day", "Week".
+  title: string
   stops: readonly RailStop[]
   value: string
   onChange: (key: string) => void
 }) {
   return (
-    <div className="mb-5 flex [scrollbar-width:thin] gap-2 overflow-x-auto pb-1">
-      {[...stops].reverse().map((stop) => {
-        const on = stop.key === value
-        return (
-          <button
-            key={stop.key}
-            type="button"
-            onClick={() => onChange(stop.key)}
-            aria-pressed={on}
-            className={cn(
-              "flex min-w-[7.5rem] shrink-0 flex-col items-start rounded-inner border px-3.5 py-2.5 text-left transition-colors",
-              on
-                ? "border-accent bg-accent-bg"
-                : "border-hairline-2 bg-canvas hover:border-hairline-strong"
-            )}
-          >
-            <span
-              className={cn(
-                "text-[0.875rem]",
-                on ? "text-accent" : "text-mute"
-              )}
-            >
-              {stop.top}
-            </span>
-            <span className={cn("font-medium", on ? "text-ink" : "text-text")}>
-              {stop.bottom}
-            </span>
-            <span
-              className={cn(
-                "mt-1 text-[0.875rem] tabular-nums",
-                stop.flag ? "text-bad-fg" : "text-body"
-              )}
-            >
-              {stop.figure === undefined
-                ? "…"
+    <>
+      {/* A rail that scrolls sideways is not for a phone: there the days are
+          a chip in the dock and a sheet listing every one with its figure. */}
+      <PhoneChoice
+        title={title}
+        value={value}
+        onChange={onChange}
+        options={[...stops].reverse().map((stop) => ({
+          value: stop.key,
+          label: `${stop.top} · ${stop.bottom}`,
+          short: stop.bottom,
+          note:
+            stop.figure === undefined
+              ? "…"
+              : stop.note !== undefined && stop.figure !== 0
+                ? stop.note
                 : stop.figure === 0
                   ? "—"
-                  : compact(stop.figure)}
-            </span>
-          </button>
-        )
-      })}
-    </div>
+                  : compact(stop.figure),
+        }))}
+      />
+      <div className="mb-5 flex [scrollbar-width:thin] gap-2 overflow-x-auto pb-1 max-md:hidden">
+        {[...stops].reverse().map((stop) => {
+          const on = stop.key === value
+          return (
+            <button
+              key={stop.key}
+              type="button"
+              onClick={() => onChange(stop.key)}
+              aria-pressed={on}
+              className={cn(
+                "flex min-w-[7.5rem] shrink-0 flex-col items-start rounded-inner border px-3.5 py-2.5 text-left transition-colors",
+                on
+                  ? "border-accent bg-accent-bg"
+                  : "border-hairline-2 bg-canvas hover:border-hairline-strong"
+              )}
+            >
+              <span
+                className={cn(
+                  "text-[0.875rem]",
+                  on ? "text-accent" : "text-mute"
+                )}
+              >
+                {stop.top}
+              </span>
+              <span
+                className={cn("font-medium", on ? "text-ink" : "text-text")}
+              >
+                {stop.bottom}
+              </span>
+              <span
+                className={cn(
+                  "mt-1 text-[0.875rem] tabular-nums",
+                  stop.flag ? "text-bad-fg" : "text-body"
+                )}
+              >
+                {stop.figure === undefined
+                  ? "…"
+                  : stop.figure === 0
+                    ? "—"
+                    : compact(stop.figure)}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </>
   )
 }
 
-const shortNumber = new Intl.NumberFormat("id-ID", {
-  notation: "compact",
-  maximumFractionDigits: 1,
-})
-
 function compact(minor: number): string {
-  return `Rp ${shortNumber.format(minor)}`
+  return moneyCompact(minor)
 }
 
 function lastDays(n: number): string[] {
@@ -180,10 +208,12 @@ function SalesByDay({ unit }: { unit: UnitView }) {
   })
   const index = days.indexOf(picked)
   const report = reports[index]?.data
+  const phone = useLayout() === "phone"
 
   return (
     <>
       <DateRail
+        title="Day"
         value={picked}
         onChange={setPicked}
         stops={days.map((date, i) => {
@@ -207,7 +237,21 @@ function SalesByDay({ unit }: { unit: UnitView }) {
         <EmptyState>Nothing was sold on this day.</EmptyState>
       ) : (
         <>
-          <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <PhoneFigures
+            items={[
+              { label: "Sales", value: money(report.sales.gross_minor) },
+              {
+                label: "Returns",
+                value: money(report.returns.refund_total_minor),
+              },
+              {
+                label: "Cash in drawer",
+                value: money(report.cash.cash_expected_minor),
+              },
+              { label: "Voided", value: count(report.sales.voided_count) },
+            ]}
+          />
+          <div className="mb-5 grid grid-cols-2 gap-3 max-md:hidden lg:grid-cols-4">
             <Figure
               label="Sales"
               value={money(report.sales.gross_minor)}
@@ -229,28 +273,39 @@ function SalesByDay({ unit }: { unit: UnitView }) {
               note="Receipts cancelled"
             />
           </div>
-          <Grid>
-            <thead>
-              <tr>
-                <Th>Paid by</Th>
-                <Th align="right" width="9rem">
-                  Receipts
-                </Th>
-                <Th align="right" width="12rem">
-                  Taken at the till
-                </Th>
-              </tr>
-            </thead>
-            <tbody>
-              {report.tenders.map((tender) => (
-                <tr key={tender.method}>
-                  <Td className="text-ink">{tenderWord(tender.method)}</Td>
-                  <Td align="right">{count(tender.count)}</Td>
-                  <Td align="right">{money(tender.amount_minor)}</Td>
+          {phone ? (
+            <PhoneList
+              rows={report.tenders.map((tender) => ({
+                key: tender.method,
+                title: tenderWord(tender.method),
+                lead: money(tender.amount_minor),
+                foot: `${count(tender.count)} ${tender.count === 1 ? "receipt" : "receipts"}`,
+              }))}
+            />
+          ) : (
+            <Grid>
+              <thead>
+                <tr>
+                  <Th>Paid by</Th>
+                  <Th align="right" width="9rem">
+                    Receipts
+                  </Th>
+                  <Th align="right" width="12rem">
+                    Taken at the till
+                  </Th>
                 </tr>
-              ))}
-            </tbody>
-          </Grid>
+              </thead>
+              <tbody>
+                {report.tenders.map((tender) => (
+                  <tr key={tender.method}>
+                    <Td className="text-ink">{tenderWord(tender.method)}</Td>
+                    <Td align="right">{count(tender.count)}</Td>
+                    <Td align="right">{money(tender.amount_minor)}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Grid>
+          )}
           <p className="mt-3 text-[0.875rem] text-mute">
             Cash goes to the drawer and the bank on deposit; card and QRIS
             arrive from the acquirer a day or two later, less the fee — matched
@@ -318,10 +373,12 @@ export function ExpensesByWeek({ unit }: { unit: UnitView }) {
     )
   const rows = inWeek(picked)
   const total = rows.reduce((sum, row) => sum + row.amount_minor, 0)
+  const phone = useLayout() === "phone"
 
   return (
     <>
       <DateRail
+        title="Week"
         value={picked}
         onChange={setPicked}
         stops={weeks.map((monday) => ({
@@ -338,6 +395,39 @@ export function ExpensesByWeek({ unit }: { unit: UnitView }) {
         <ErrorState error={expenses.error} />
       ) : rows.length === 0 ? (
         <EmptyState>Nothing was paid from petty cash this week.</EmptyState>
+      ) : phone ? (
+        <>
+          <PhoneFigures
+            items={[
+              { label: "Week total", value: total },
+              { label: "Expenses", value: rows.length, unit: "count" },
+            ]}
+          />
+          <PhoneList
+            rows={rows.map((row) => ({
+              key: row.expense_id,
+              title: row.vendor,
+              line: `${categoryWord(row.category)}${row.memo ? ` · ${row.memo}` : ""}`,
+              lead: money(row.amount_minor),
+              foot: dateText(new Date(`${row.spent_on}T00:00:00`), {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+              }),
+              action: (
+                <Status
+                  tone={
+                    row.status === "APPROVED" || row.status === "POSTED"
+                      ? "neutral"
+                      : "warn"
+                  }
+                >
+                  {statusWord(row.status)}
+                </Status>
+              ),
+            }))}
+          />
+        </>
       ) : (
         <Grid>
           <thead>
@@ -437,10 +527,12 @@ function CountsByWeek({ unit }: { unit: UnitView }) {
       (row) => row.counted_on >= monday && row.counted_on <= weekEnd(monday)
     )
   const rows = inWeek(picked)
+  const phone = useLayout() === "phone"
 
   return (
     <>
       <DateRail
+        title="Week"
         value={picked}
         onChange={setPicked}
         stops={weeks.map((monday) => {
@@ -454,10 +546,11 @@ function CountsByWeek({ unit }: { unit: UnitView }) {
             ...weekLabel(monday),
             figure: counts.isPending ? undefined : Math.abs(variance),
             flag: variance !== 0,
+            note: `Off by ${compact(Math.abs(variance))}`,
           }
         })}
       />
-      <p className="-mt-2 mb-4 text-[0.875rem] text-mute">
+      <p className="-mt-2 mb-4 text-[0.875rem] text-mute max-md:hidden">
         The figure on each week is how far the counts missed the books.
       </p>
       {counts.isPending ? (
@@ -466,6 +559,38 @@ function CountsByWeek({ unit }: { unit: UnitView }) {
         <ErrorState error={counts.error} />
       ) : rows.length === 0 ? (
         <EmptyState>No cash was counted this week.</EmptyState>
+      ) : phone ? (
+        <PhoneList
+          rows={rows.map((row) => ({
+            key: row.count_id,
+            title: row.account_name,
+            line: `${row.counted_by}${row.witnessed_by ? ` · witnessed by ${row.witnessed_by}` : ""}${row.reason ? ` · ${row.reason}` : ""}`,
+            lead: (
+              <CardFigure
+                value={
+                  row.variance_minor === 0 ? "—" : money(row.variance_minor)
+                }
+                caption="difference"
+                tone={row.variance_minor === 0 ? undefined : "bad"}
+              />
+            ),
+            foot: (
+              <>
+                <span className="block">
+                  {dateText(new Date(`${row.counted_on}T00:00:00`), {
+                    day: "numeric",
+                    month: "short",
+                    year: "numeric",
+                  })}
+                </span>
+                <span className="block tabular-nums">
+                  Books {money(row.per_books_minor)} · Counted{" "}
+                  {money(row.counted_minor)}
+                </span>
+              </>
+            ),
+          }))}
+        />
       ) : (
         <Grid>
           <thead>

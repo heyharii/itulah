@@ -26,7 +26,7 @@ import { useIdentity } from "@/lib/session"
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { ConfirmButton, SavedDialog } from "@/components/ui/dialog"
+import { ConfirmButton } from "@/components/ui/dialog"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { DockTools } from "@/components/shell/dock-tools"
 import { Fab } from "@/components/ui/fab"
@@ -52,18 +52,30 @@ import {
   type FilterState,
   type Operator,
 } from "@/lib/filters"
-import { count, day, dayMonth, label, moment, money } from "@/lib/format"
+import {
+  count,
+  day,
+  dayMonth,
+  label,
+  moment,
+  money,
+  moneyCompact,
+  percentBps,
+  quantity,
+  recentMoment,
+} from "@/lib/format"
+import { prefetchOrder } from "@/screens/procurement/prefetch"
 import {
   cancelPurchaseOrder,
   catalogueVocabulary,
   closeLineShort,
-  listSuppliers,
+  orderBookQuery,
+  orderDetailQuery,
   orderScopeFromFilters,
   procurementKeys,
-  purchaseOrderDetail,
-  purchaseOrderPage,
   raisePurchaseReturn,
   supplierDetail,
+  supplierNamesQuery,
   // Both hand-written beside their fetchers rather than generated, and
   // `PurchaseOrderPage` deliberately the local one: `@itulah/contract` exports
   // a type of the same name that this endpoint does not answer with.
@@ -77,16 +89,14 @@ import { useOutbox, type OutboxJob } from "@/lib/offline/po-outbox"
 import { refreshReference, useOnline } from "@/lib/offline/reference"
 import { OrderComposer } from "@/screens/procurement/composer"
 import { ItemsTable } from "@/screens/procurement/items-table"
+import { useVariantRows } from "@/screens/procurement/variant-words"
 import {
   HeldOrderSheet,
   HELD_PREFIX,
   heldRow,
   isHeld,
 } from "@/screens/procurement/held-orders"
-import {
-  percentFromDiscount,
-  percentText,
-} from "@/screens/procurement/line-pricing-model"
+import { percentFromDiscount } from "@/screens/procurement/line-pricing-model"
 import {
   CountReview,
   ReviewCountButton,
@@ -94,12 +104,14 @@ import {
 import {
   useCountsAwaiting,
   useRecountingPos,
-  useRecountReasons,
+  useRecalls,
   useSilentDcSignIn,
 } from "@/screens/procurement/count-review-state"
 import { PoImportSheet } from "@/screens/procurement/import"
+import { colourKeys, listColours } from "@/lib/queries/colours"
 import {
   purchaseOrdersHtml,
+  titled,
   type PrintableOrder,
 } from "@/screens/procurement/po-print"
 import { openPrintWindow, printInto } from "@/screens/procurement/print"
@@ -115,6 +127,7 @@ import {
 } from "@/screens/procurement/supplier-name"
 import { returnLineParts } from "@/screens/procurement/return-lines"
 import {
+  isOpenOrder,
   lineValue,
   pcs,
   poStatus,
@@ -124,9 +137,11 @@ import {
   useFittedVisibility,
   useActor,
   useIdempotencyKey,
+  STAMP,
 } from "@/screens/procurement/shared"
 import { useLayout } from "@/lib/layout"
 import { queryState } from "@/lib/query-state"
+import { pullIn } from "@/lib/pull-in"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { toast } from "@/lib/toast"
@@ -201,9 +216,8 @@ const TABS = [
 
 type OrderTab = (typeof TABS)[number]["value"]
 
-/// Nothing chosen: the rows stay in the order the server sends them, which is
-/// the house order — late orders first, the longest-late at the top, then the
-/// newest issued.
+/// Nothing chosen: the rows stay in the order the server sends them — the
+/// newest change first (`sort=updated`).
 function defaultOrderSorting(): SortingState {
   return []
 }
@@ -246,10 +260,8 @@ function compareReceivingPriority(
   left: PurchaseOrderRow,
   right: PurchaseOrderRow
 ): number {
-  const leftPending =
-    left.lifecycle === "ACTIVE" || left.lifecycle === "PARTIALLY_RECEIVED"
-  const rightPending =
-    right.lifecycle === "ACTIVE" || right.lifecycle === "PARTIALLY_RECEIVED"
+  const leftPending = isOpenOrder(left)
+  const rightPending = isOpenOrder(right)
   if (leftPending !== rightPending) return leftPending ? -1 : 1
 
   const dateOrder = leftPending
@@ -353,7 +365,7 @@ function countedOf(
   }
 }
 
-/// A row of the list: the order, and whether and what the Gudang has counted
+/// A row of the list: the order, and whether and what the warehouse has counted
 /// on it that waits for the buyer.
 type ListRow = PurchaseOrderRow & {
   readonly review?: boolean
@@ -361,7 +373,7 @@ type ListRow = PurchaseOrderRow & {
 }
 
 /// What an order has received as the list says it: what came in and was
-/// accepted, plus what the Gudang has counted and nobody has yet reviewed —
+/// accepted, plus what the warehouse has counted and nobody has yet reviewed —
 /// so an order with "Review Count" next to it already says how many (the
 /// owner, 2026-10-05). Beyond is the pieces that are not what was ordered.
 function receivedOf(row: ListRow): {
@@ -377,16 +389,6 @@ function receivedOf(row: ListRow): {
   }
 }
 
-/// A finished order's status, pressed on like a rubber date stamp: the state
-/// over the day it was reached, a double rule in the ink's colour, capitals,
-/// a few degrees off true. On a card it stands in the foot where an open
-/// order has its pill (the owner, 2026-10-06); in the table it stands in the
-/// Status cell, a little less tilted. Multiplied into the paper like ink, so a
-/// figure under it still reads. Open orders have no stamp: they keep their
-/// status word (the owner, 2026-10-05).
-const STAMP =
-  "pointer-events-none inline-block -rotate-12 rounded-[6px] border-[3px] border-double border-current px-2.5 py-0.5 text-center text-[0.875rem] leading-5 font-bold tracking-[0.06em] whitespace-nowrap uppercase opacity-85 mix-blend-multiply lg:-rotate-6"
-
 /// The list's columns (the owner, 2026-10-05): PO · Delivery date · Ordered ·
 /// Received · Status. Ordered and Received each hold the pieces over what they
 /// are worth, one heading over both, and the heading's menu sorts by either
@@ -397,17 +399,16 @@ const columns: ColumnDef<TableSetup, PurchaseOrderRow>[] = [
   {
     // The sort key that keeps the orders somebody has to act on on top: first
     // those with a count waiting for the buyer's review, then the orders made
-    // offline and not yet sent, then the late ones (owner, 2026-10-05). Never
-    // shown.
+    // offline and not yet sent (owner, 2026-10-05). The rest keep the server's
+    // order, newest change first (owner, 2026-10-10 — late ones no longer
+    // lead; they stay red). Never shown.
     id: "overdue",
     accessorFn: (row) =>
       (row as PurchaseOrderRow & { readonly review?: boolean }).review
         ? 0
         : isHeld(row)
           ? 1
-          : row.overdue
-            ? 2
-            : 3,
+          : 2,
     header: "",
     enableHiding: false,
     meta: { card: "hide" },
@@ -860,7 +861,7 @@ function FilterRow({ filters }: { filters: FilterState }) {
   )
 }
 
-/// The status word — or, when the Gudang's count waits for the buyer, the
+/// The status word — or, when the warehouse's count waits for the buyer, the
 /// action in the same place (an order with a count waiting is always active).
 /// A count being taken again changes nothing here: the order stays Active
 /// (owner, 2026-10-10).
@@ -902,6 +903,7 @@ function noCountToReview(lifecycle: string): boolean {
 }
 
 export function PurchaseOrders() {
+  const client = useQueryClient()
   const supplierNameOf = useSupplierName()
   // Which order is open lives in the URL (`?order=…`), not in state beside the
   // table. A sheet in `useState` cannot be linked to, does not survive the
@@ -920,7 +922,7 @@ export function PurchaseOrders() {
   /// What was typed into the omnibox, also in the URL: a narrowed list is a
   /// thing people send each other.
   const search = useSheet("q")
-  /// The count the Gudang took, being reviewed by whoever raised the order.
+  /// The count the warehouse took, being reviewed by whoever raised the order.
   const review = useSheet("verify")
   // Counts are read from the DC, so the buyer's Central session opens one.
   useSilentDcSignIn()
@@ -979,11 +981,7 @@ export function PurchaseOrders() {
   /// The suppliers, for the filter's own picker. Small, cached by every other
   /// procurement screen, and the reason the chip can offer a NAME where the
   /// request carries a code.
-  const suppliers = useQuery({
-    queryKey: procurementKeys.suppliers(),
-    queryFn: ({ signal }) => listSuppliers(undefined, signal),
-    staleTime: 5 * 60 * 1000,
-  })
+  const suppliers = useQuery(supplierNamesQuery())
 
   /// The columns this list can be narrowed by, and the only ones: each maps to
   /// a parameter the endpoint answers, and the operators are cut to what it
@@ -1072,6 +1070,9 @@ export function PurchaseOrders() {
       ...orderScopeFromFilters(filters.filters),
       statuses: TABS.find((one) => one.value === tab)!.statuses,
       ...(needle === "" ? {} : { q: needle }),
+      // Newest change first (owner, 2026-10-10); the orders waiting for a
+      // review still stand above it — the hidden first key.
+      sort: "updated",
     }),
     [filters.filters, needle, tab]
   )
@@ -1085,15 +1086,7 @@ export function PurchaseOrders() {
   // (`more`), instead of stopping at the first. The totals and the facets are
   // the first page's: the server counts them over the whole book.
   const book = useInfiniteQuery({
-    queryKey: [...procurementKeys.ordersPage(scope), "paged"],
-    queryFn: ({ signal, pageParam }) =>
-      purchaseOrderPage(scope, signal, pageParam),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-    // The previous answer stays on screen while the next is fetched. Without
-    // it every keystroke empties the table to a loading line and the screen
-    // flashes its way through a word.
-    placeholderData: (previous) => previous,
+    ...orderBookQuery(scope),
     // Counts and receipts land while the page is open: look again every half
     // minute while it is seen, and when the window comes back. Ten seconds
     // asked the whole order book 91 times in one test session; a count that
@@ -1119,7 +1112,7 @@ export function PurchaseOrders() {
 
   const rows = useMemo(() => orders.data?.rows ?? [], [orders.data])
 
-  /// The orders the Gudang has counted something on, waiting for the buyer.
+  /// The orders the warehouse has counted something on, waiting for the buyer.
   /// Carried on each row so the hidden first sort key can put them on top.
   const awaiting = useCountsAwaiting()
   const viewRows = useMemo(
@@ -1549,11 +1542,17 @@ export function PurchaseOrders() {
                           )
                         : order.open(row.purchase_order_id)
                     }
+                    onRowIntent={(row) => {
+                      // A held (offline) order has no sheet to warm.
+                      if (!isHeld(row))
+                        void prefetchOrder(client, row.purchase_order_id)
+                    }}
                     isSelected={(row) => row.purchase_order_id === order.value}
                     isFresh={(row) => row.purchase_order_id === fresh}
                     // The owner's floating totals: how many orders, and what
                     // they add up to, under the columns they sum.
                     more={book}
+                    refresh={[book]}
                     summary={{
                       order: (
                         <span>
@@ -1734,7 +1733,7 @@ async function printOrders(
         )
       ),
     ]
-    const [suppliers, vocabulary] = await Promise.all([
+    const [suppliers, vocabulary, colourMaster] = await Promise.all([
       Promise.all(
         supplierIds.map((supplierId) =>
           client
@@ -1752,7 +1751,27 @@ async function printOrders(
           staleTime: 30 * 60 * 1000,
         })
         .catch(() => null),
+      client
+        .fetchQuery({
+          queryKey: colourKeys.list(),
+          queryFn: ({ signal }) => listColours(signal),
+          staleTime: 30 * 60 * 1000,
+        })
+        .catch(() => null),
     ])
+    /// "Black M" on paper, from the masters the screens use.
+    const variantName = (colour: string | null, size: string | null) =>
+      [
+        colour === null
+          ? null
+          : (colourMaster?.colours.find((one) => one.code === colour)?.label ??
+            colour),
+        size === null
+          ? null
+          : (vocabulary?.sizes.find((one) => one.code === size)?.label ?? size),
+      ]
+        .filter(Boolean)
+        .join(" ")
     const orders: PrintableOrder[] = details.map((order) => ({
       order,
       supplier:
@@ -1763,6 +1782,7 @@ async function printOrders(
         orders,
         phone: (value) => (value ? formatPhones(value) : null),
         paper: choice.paper,
+        variantName,
       })
       return true
     }
@@ -1778,6 +1798,7 @@ async function printOrders(
                   ?.label ?? code),
           phone: (value) => (value ? formatPhones(value) : null),
           paper: choice.paper,
+          variantName,
         })
       )
       return true
@@ -1799,24 +1820,6 @@ async function printOrders(
 /// more of them. Rather than print a confident wrong total, a partial page
 /// says `of {n} shown` under the figure — the number is still useful, and the
 /// reader is told what it covers.
-/// `49.923.900.000` → `Rp 49,9 billion`. Words, not the Indonesian jt/rb.
-/// `compact` shortens the word — `Rp 49,9 bn` — for a cell with no room.
-function brief(minor: number, compact = false): string {
-  const abs = Math.abs(minor)
-  const [scale, suffix] =
-    abs >= 1_000_000_000
-      ? [1_000_000_000, compact ? " bn" : " billion"]
-      : abs >= 1_000_000
-        ? [1_000_000, compact ? " mn" : " million"]
-        : abs >= 1_000
-          ? [1_000, compact ? " k" : " thousand"]
-          : [1, ""]
-  const scaled = minor / scale
-  const shown =
-    scale === 1 ? String(minor) : scaled.toFixed(scaled < 10 ? 1 : 0)
-  return `Rp ${shown.replace(".", ",")}${suffix}`
-}
-
 /// The four figures of the tab showing, as cards over the list — on a desk and
 /// a tablet. A phone has the sentence under the title instead (`SummaryBand`).
 function bookKpis(page: PurchaseOrderPage | undefined) {
@@ -1826,16 +1829,14 @@ function bookKpis(page: PurchaseOrderPage | undefined) {
   const note = whole
     ? undefined
     : `Over the ${count(rows.length)} orders loaded, of ${count(page.total)}`
-  const open = rows.filter(
-    (row) =>
-      row.lifecycle === "ACTIVE" || row.lifecycle === "PARTIALLY_RECEIVED"
-  )
+  const open = rows.filter(isOpenOrder)
   const value = open.reduce((sum, row) => sum + row.net_minor, 0)
   const late = rows.filter((row) => row.overdue).length
   // An order with no promised date cannot be late, and saying "0 overdue"
   // while most carry no date at all is a true number that reads as an
-  // all-clear. The tile says how many it could not judge.
-  const undated = rows.filter(
+  // all-clear. The tile says how many it could not judge — among the open
+  // orders only: a cancelled or closed-short one is not waited on at all.
+  const undated = open.filter(
     (row) => row.expected_arrival === null && row.outstanding_stock_units > 0
   ).length
   return [
@@ -1854,7 +1855,7 @@ function bookKpis(page: PurchaseOrderPage | undefined) {
     // on the title, where a hover finds it.
     {
       label: "On order",
-      value: brief(value),
+      value: moneyCompact(value),
       note: `${money(value)}${note === undefined ? "" : ` · ${note}`}`,
     },
   ]
@@ -1864,12 +1865,12 @@ function bookKpis(page: PurchaseOrderPage | undefined) {
 /// 2026-10-06: the header band). One fact is bold — the one to act on — and
 /// the rest is plain; a fact that is none is not said at all.
 ///
-///  - Active: "Hi Rina, **4 orders in review**. 8 orders are active, Rp 4,0
-///    billion in total." Anything late takes the bold, in red, and the review
+///  - Active: "Hi Rina, **4 orders in review**. 8 orders are active, Rp 4,0 B
+///    in total." Anything late takes the bold, in red, and the review
 ///    count follows plain.
 ///  - Completed: "**2 orders were closed short**." (red, only when there are
-///    any) then "12 orders are complete, with Rp 49 million received."
-///  - Cancelled: "**1 order** for Rp 320 thousand was cancelled."
+///    any) then "12 orders are complete, with Rp 49 M received."
+///  - Cancelled: "**1 order** for Rp 320 K was cancelled."
 ///
 /// The sums are over the rows in hand; a list that runs past one page says so
 /// on the title.
@@ -1898,15 +1899,14 @@ function summaryOf(
 
   if (tab === "active") {
     if (n === 0) return { after: "No active orders." }
-    const open = rows.filter(
-      (row) =>
-        row.lifecycle === "ACTIVE" || row.lifecycle === "PARTIALLY_RECEIVED"
-    )
+    const open = rows.filter(isOpenOrder)
     const late = rows.filter((row) => row.overdue).length
     // Only orders still on this list: the queue can hold a count for an order
     // that has since been completed, and that is not one the buyer can act on.
     const toReview = open.filter((row) => review.has(row.po_number)).length
-    const value = nb(brief(open.reduce((sum, row) => sum + row.net_minor, 0)))
+    const value = nb(
+      moneyCompact(open.reduce((sum, row) => sum + row.net_minor, 0))
+    )
     const active = `${orders(n, "order is", "orders are")} active, ${value} in total.`
     if (late > 0)
       return {
@@ -1937,7 +1937,7 @@ function summaryOf(
       .filter((facet) => facet.value === "SHORT_RECEIVED")
       .reduce((sum, facet) => sum + facet.count, 0)
     const got = nb(
-      brief(rows.reduce((sum, row) => sum + row.received_value_minor, 0))
+      moneyCompact(rows.reduce((sum, row) => sum + row.received_value_minor, 0))
     )
     const complete = `${orders(n, "order is", "orders are")} complete, with ${got} received.`
     return short > 0
@@ -1957,7 +1957,9 @@ function summaryOf(
   }
 
   if (n === 0) return { after: "Nothing has been cancelled." }
-  const gone = nb(brief(rows.reduce((sum, row) => sum + row.net_minor, 0)))
+  const gone = nb(
+    moneyCompact(rows.reduce((sum, row) => sum + row.net_minor, 0))
+  )
   return {
     lead: { text: orders(n, "order", "orders"), late: false },
     after: ` for ${gone} ${n === 1 ? "was" : "were"} cancelled.`,
@@ -2054,13 +2056,12 @@ export function OrderSheet({
 }) {
   const nameOfLogin = useNameOfLogin()
   const detail = useQuery({
-    queryKey: procurementKeys.order(id ?? ""),
-    queryFn: ({ signal }) => purchaseOrderDetail(id!, signal),
+    ...orderDetailQuery(id ?? ""),
     enabled: id !== null,
   })
   const client = useQueryClient()
   const idempotency = useIdempotencyKey()
-  // A count the Gudang took, or is taking again, has to be settled first.
+  // A count the warehouse took, or is taking again, has to be settled first.
   const waitingCounts = useCountsAwaiting()
   const recountingPos = useRecountingPos()
   const countOpen =
@@ -2084,7 +2085,13 @@ export function OrderSheet({
       idempotency.rotate()
       void client.invalidateQueries({ queryKey: procurementKeys.orders() })
       void client.invalidateQueries({ queryKey: procurementKeys.suppliers() })
-      setCancelledOrder(`PO ${done.po_number} is cancelled.`)
+      // A confirm dialog has no plain button to say it from: toast only.
+      void pullIn({
+        from: null,
+        rowId: done.purchase_order_id,
+        pill: done.po_number,
+        title: `${done.po_number} cancelled`,
+      })
     },
     // A refusal is said inside the confirmation that asked for it — see
     // `ConfirmButton` — not in a toast over a screen that has moved on.
@@ -2119,10 +2126,6 @@ export function OrderSheet({
     },
   })
 
-  /// The order the confirm cancelled, held in the receipt dialog until it is
-  /// read — over the order sheet, which stays open on the cancelled record.
-  /// This component outlives the sheet's openings.
-  const [cancelledOrder, setCancelledOrder] = useState<string | null>(null)
   const verify = useSheet("verify")
   const counts = useCountsAwaiting()
   /// What can be done to the order: along the foot of its sheet on every
@@ -2196,11 +2199,6 @@ export function OrderSheet({
       ))
     return (
       <div className="flex items-center gap-2 [&_button]:h-9 [&_button]:px-4">
-        <PrintMenu
-          key="print"
-          iconOnly
-          onChoose={(choice) => void print(order, choice)}
-        />
         <span className="ml-auto flex items-center gap-2">
           {closeShortButton}
           {cancelButton}
@@ -2246,6 +2244,14 @@ export function OrderSheet({
             </Pill>
           )
         }
+        print={
+          detail.data && (
+            // The printer and the word, in the head (owner, 2026-10-10).
+            <PrintMenu
+              onChoose={(choice) => void print(detail.data!, choice)}
+            />
+          )
+        }
         footer={detail.data ? actionsOf(detail.data) : undefined}
         // Wider than a rail, because an order is a DOCUMENT rather than a
         // record: six columns of lines — what, when it is due, at what price,
@@ -2263,13 +2269,6 @@ export function OrderSheet({
           render: (order) => <OrderDocument order={order} />,
         })}
       </Sheet>
-      <SavedDialog
-        open={cancelledOrder !== null}
-        onOpenChange={(next) => {
-          if (!next) setCancelledOrder(null)
-        }}
-        title={cancelledOrder ?? ""}
-      />
     </>
   )
 }
@@ -2289,8 +2288,7 @@ function OrderEditor({
 }) {
   const navigate = useNavigate()
   const detail = useQuery({
-    queryKey: procurementKeys.order(id ?? ""),
-    queryFn: ({ signal }) => purchaseOrderDetail(id!, signal),
+    ...orderDetailQuery(id ?? ""),
     enabled: id !== null,
   })
   const order = id !== null && detail.data?.editable ? detail.data : undefined
@@ -2349,10 +2347,10 @@ function unitPriceText(line: PurchaseOrderDetail["lines"][number]): string {
 
 /// The count that waits for the buyer, at the head of the order's sheet — who
 /// counted and when, with the way in to review it — or, when the buyer sent it
-/// back, why. Nothing when no count is in play.
+/// back, nothing. Nothing when no count is in play.
 function CountBanner({ po, cancelled }: { po: string; cancelled: boolean }) {
   const waiting = useCountsAwaiting().get(po)
-  const reason = useRecountReasons().get(po)
+  const recalled = useRecalls().get(po)
   const nameOfLogin = useNameOfLogin()
   if (cancelled) return null
   if (waiting !== undefined && waiting.length > 0) {
@@ -2361,7 +2359,7 @@ function CountBanner({ po, cancelled }: { po: string; cancelled: boolean }) {
       <div className="flex items-center gap-3 rounded-card bg-info-bg px-4 py-3.5 text-info-fg">
         <ClipboardCheck className="size-5 shrink-0" aria-hidden />
         <span className="min-w-0 flex-1">
-          <span className="block font-semibold">Counted at the Gudang</span>
+          <span className="block font-semibold">Counted at the warehouse</span>
           <span className="block text-[0.875rem]">
             {nameOfLogin(first.counted_by)}, {moment(first.counted_at)}
           </span>
@@ -2371,17 +2369,21 @@ function CountBanner({ po, cancelled }: { po: string; cancelled: boolean }) {
       </div>
     )
   }
-  if (reason !== undefined) {
+  if (recalled !== undefined) {
     return (
       <div className="flex items-center gap-3 rounded-card bg-warn-bg px-4 py-3.5 text-warn-fg">
         <RotateCcw className="size-5 shrink-0" aria-hidden />
         <span className="min-w-0 flex-1">
-          <span className="block font-semibold">Sent back to count</span>
-          <span className="block text-[0.875rem]">{reason}</span>
+          <span className="block font-semibold">Recalled by the warehouse</span>
+          <span className="block text-[0.875rem]">
+            {`${titled(nameOfLogin(recalled.by))}, ${recentMoment(recalled.at)} · was ${count(recalled.was)} pcs`}
+          </span>
         </span>
       </div>
     )
   }
+  // No "Sent back to count" banner (owner, 2026-10-10): a recount changes
+  // nothing on the order's sheet.
   return null
 }
 
@@ -2431,6 +2433,7 @@ function LineReceipts({
 /// Payment terms are an optional choice on the order (a template from master
 /// data); the fact is drawn only when one was chosen, never as "None".
 function OrderDocument({ order }: { order: PurchaseOrderDetail }) {
+  const variantRows = useVariantRows()
   const pieces = order.lines.reduce(
     (sum, line) => sum + line.ordered_quantity,
     0
@@ -2545,7 +2548,7 @@ function OrderDocument({ order }: { order: PurchaseOrderDetail }) {
                   : undefined
               }
             >
-              {`${count(received)} of ${count(pieces)} pcs \u00b7 ${money(order.expected_value_minor)} of ${money(gross - order.discount_minor)}`}
+              {`${count(received)} of ${quantity(pieces)} \u00b7 ${money(order.expected_value_minor)} of ${money(gross - order.discount_minor)}`}
             </span>
           </Fact>
         )}
@@ -2577,6 +2580,14 @@ function OrderDocument({ order }: { order: PurchaseOrderDetail }) {
               tone: receivedTone(line.ordered_quantity, line.received_quantity),
             },
             more: <LineReceipts line={line} />,
+            variants: variantRows(
+              (line.variants ?? []).map((one) => ({
+                colour: one.colour_code,
+                size: one.size_code,
+                pieces: one.quantity,
+                photo: one.image_urls?.[0],
+              }))
+            ),
           }))}
           totals={{
             pieces,
@@ -2587,7 +2598,7 @@ function OrderDocument({ order }: { order: PurchaseOrderDetail }) {
                 ? undefined
                 : {
                     minor: order.discount_minor,
-                    label: `Discount \u00b7 ${percentText(order.discount_bps ?? percentFromDiscount(order.discount_minor, gross))} %`,
+                    label: `Discount \u00b7 ${percentBps(order.discount_bps ?? percentFromDiscount(order.discount_minor, gross))}`,
                     perPiece:
                       pieces > 0
                         ? Math.round(order.discount_minor / pieces)
@@ -2695,22 +2706,15 @@ function BeyondTheOrder({ order }: { order: PurchaseOrderDetail }) {
       })
       void client.invalidateQueries({ queryKey: procurementKeys.orders() })
       void client.invalidateQueries({ queryKey: procurementKeys.returns() })
-      setRaised({
-        number: created.return_number,
-        quantity: created.quantity,
-        to: supplier,
+      void pullIn({
+        from: null,
+        rowId: order.purchase_order_id,
+        pill: created.return_number,
+        title: `${created.return_number} raised`,
+        description: `${pcs(created.quantity)} to ${supplier}`,
       })
     },
   })
-  /// The return the raise minted, held in the receipt dialog until it is
-  /// read. This component survives the write — the order it stands on now
-  /// carries the return — so the state lives here.
-  const [raised, setRaised] = useState<{
-    readonly number: string
-    readonly quantity: number
-    readonly to: string
-  } | null>(null)
-
   if (!hasExcess && returns.length === 0) return null
 
   return (
@@ -2739,7 +2743,7 @@ function BeyondTheOrder({ order }: { order: PurchaseOrderDetail }) {
             <ConfirmButton
               label={`Return ${pcs(pendingTotal)} to supplier`}
               title="Send the Excess Back"
-              description={`These ${count(pendingTotal)} pieces came beyond the order and go back to ${supplier}. The Gudang hands them over.`}
+              description={`These ${quantity(pendingTotal)} came beyond the order and go back to ${supplier}. The warehouse hands them over.`}
               confirmLabel="Raise the Return"
               className="self-start"
               pending={raise.isPending}
@@ -2800,17 +2804,6 @@ function BeyondTheOrder({ order }: { order: PurchaseOrderDetail }) {
           </ul>
         )}
       </div>
-      <SavedDialog
-        open={raised !== null}
-        onOpenChange={(next) => {
-          if (!next) setRaised(null)
-        }}
-        title={<>{raised?.number} raised</>}
-      >
-        {raised === null
-          ? undefined
-          : `${pcs(raised.quantity)} to ${raised.to}`}
-      </SavedDialog>
     </Section>
   )
 }

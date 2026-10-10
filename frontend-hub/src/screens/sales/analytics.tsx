@@ -9,6 +9,7 @@ import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   BarSeries,
@@ -17,18 +18,20 @@ import {
   type ChartRow,
   type ChartSeries,
 } from "@/components/ui/chart"
-import { DataTable } from "@/components/ui/data-table"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { ButtonGroup, Segmented, Toolbar } from "@/components/ui/segmented"
 import { EmptyState } from "@/components/ui/states"
 import { useFilters } from "@/lib/filters"
-import { count, money } from "@/lib/format"
+import { count, money, percent } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { analyticsKeys, salesSeries } from "@/lib/queries/analytics"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { cn } from "@/lib/utils"
+import { CardFigure, CardFoot, CardName } from "@/components/ui/phone-cards"
 import { Delta } from "@/screens/sales/delta"
 import {
   buildMatrix,
@@ -36,7 +39,7 @@ import {
   showSales,
   type SalesKind,
 } from "@/screens/sales/matrix"
-import { usePeriod } from "@/screens/sales/period"
+import { PERIOD_CHOICES, usePeriod } from "@/screens/sales/period"
 import { WindowSheet } from "@/screens/sales/window-sheet"
 
 /// Sales analytics — the estate read one store at a time.
@@ -103,6 +106,10 @@ interface StoreRow {
 }
 
 export function SalesAnalytics() {
+  // A phone draws the stores as cards and keeps the period, the search and the
+  // filters in the drawer over the bottom bar (`DockTools`).
+  const phone = useLayout() === "phone"
+  const [query, setQuery] = useState("")
   const period = usePeriod()
   const store = useSheet("store")
   const [ranking, setRanking] = useState<SalesKind>("gross_minor")
@@ -180,10 +187,17 @@ export function SalesAnalytics() {
         data: rows,
         columns: filters.columns,
         getRowId: (row: StoreRow) => row.site_id,
-        state: { columnFilters: filters.columnFilters, sorting },
+        state: {
+          columnFilters: filters.columnFilters,
+          sorting,
+          globalFilter: query,
+          // The card's own columns are drawn on a phone and never on a desk.
+          columnVisibility: { head: phone, lead: phone, foot: phone },
+        },
         onSortingChange: setSorting,
+        onGlobalFilterChange: setQuery,
       }),
-      [rows, filters.columns, filters.columnFilters, sorting]
+      [rows, filters.columns, filters.columnFilters, sorting, query, phone]
     )
   )
 
@@ -197,32 +211,53 @@ export function SalesAnalytics() {
         sub="Every store against the estate, and against the same span before it."
       />
 
-      <Toolbar>
-        <Segmented
-          options={BUCKETS}
-          value={period.bucket}
-          onChange={period.setBucket}
-        />
-        <ButtonGroup>
-          {period.options.map((option) => (
-            <button
-              key={option}
-              type="button"
-              aria-pressed={option === period.buckets}
-              onClick={() => period.setBuckets(option)}
-              className={
-                option === period.buckets ? "bg-soft-2 text-ink!" : undefined
-              }
-            >
-              {option}
-            </button>
-          ))}
-        </ButtonGroup>
-        <Toolbar.Spacer />
-        <span className="text-meta text-mute">
-          {period.range.from} — {period.range.to}
-        </span>
-      </Toolbar>
+      {!phone && (
+        <Toolbar>
+          <Segmented
+            options={BUCKETS}
+            value={period.bucket}
+            onChange={period.setBucket}
+          />
+          <ButtonGroup>
+            {period.options.map((option) => (
+              <button
+                key={option}
+                type="button"
+                aria-pressed={option === period.buckets}
+                onClick={() => period.setBuckets(option)}
+                className={
+                  option === period.buckets ? "bg-soft-2 text-ink!" : undefined
+                }
+              >
+                {option}
+              </button>
+            ))}
+          </ButtonGroup>
+          <Toolbar.Spacer />
+          <span className="text-meta text-mute">
+            {period.range.from} — {period.range.to}
+          </span>
+        </Toolbar>
+      )}
+
+      {/* The period is the status button of the drawer over the bottom bar on a
+          phone, beside the search, the filters and the sort. */}
+      <DockTools
+        search={{ value: query, onChange: setQuery, label: "Search stores" }}
+        filter={{
+          count: filters.filters.length,
+          panel: { model: filters, table },
+        }}
+        sort={dockSortOf(table)}
+        status={{
+          value: `${period.bucket}:${period.buckets}`,
+          options: PERIOD_CHOICES,
+          onChange: (next) => {
+            const [bucket, buckets] = next.split(":")
+            period.setSpan(bucket as SalesBucket, Number(buckets))
+          },
+        }}
+      />
 
       {queryState(series, {
         loading: "Reading the estate's trade…",
@@ -321,16 +356,18 @@ export function SalesAnalytics() {
                 </div>
               )}
 
-              <Toolbar>
-                <FilterPanel model={filters} table={table} />
-                <Toolbar.Spacer />
-                <span className="text-meta text-mute">
-                  Trend is each store against its own best {period.bucket}, not
-                  against the others.
-                </span>
-              </Toolbar>
+              {!phone && (
+                <Toolbar>
+                  <FilterPanel model={filters} table={table} />
+                  <Toolbar.Spacer />
+                  <span className="text-meta text-mute">
+                    Trend is each store against its own best {period.bucket},
+                    not against the others.
+                  </span>
+                </Toolbar>
+              )}
 
-              <Card className="overflow-hidden">
+              <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
                 <DataTable<StoreRow>
                   table={table}
                   onRowClick={(row) => store.open(row.site_id)}
@@ -341,6 +378,9 @@ export function SalesAnalytics() {
                       the filters in force.
                     </>
                   }
+                  cardSort={false}
+                  cardsApart
+                  cardLead
                   className="max-h-[calc(100dvh-24rem)]"
                 />
               </Card>
@@ -469,7 +509,7 @@ const columns: ColumnDef<TableSetup, StoreRow>[] = [
     accessorKey: "site_name",
     header: "Store",
     size: 190,
-    meta: { filter: { kind: "option" } },
+    meta: { card: "hide", filter: { kind: "option" } },
     cell: ({ row }) => (
       <span className="flex min-w-0 items-center gap-2">
         <span
@@ -490,6 +530,7 @@ const columns: ColumnDef<TableSetup, StoreRow>[] = [
     // Not sortable and not filterable: it is a shape, and there is no order
     // over shapes. The columns beside it are what a reader narrows by.
     enableSorting: false,
+    meta: { card: "hide" },
     cell: ({ row }) => (
       <Sparkline values={row.original.trend} colour={row.original.colour} />
     ),
@@ -503,7 +544,11 @@ const columns: ColumnDef<TableSetup, StoreRow>[] = [
     /// is already whole rupiah and `money()` prints it undivided. A
     /// `scale: 100` would put every bound out by a factor of a hundred, which
     /// is a narrowed list that looks right and is not.
-    meta: { align: "right", filter: { kind: "number", unit: "Rp" } },
+    meta: {
+      align: "right",
+      card: "hide",
+      filter: { kind: "number", unit: "Rp" },
+    },
     cell: ({ row }) => (
       <span className="font-medium text-ink">
         {money(row.original.gross_minor)}
@@ -514,10 +559,10 @@ const columns: ColumnDef<TableSetup, StoreRow>[] = [
     accessorKey: "share",
     header: "Share",
     size: 90,
-    meta: { align: "right" },
+    meta: { align: "right", card: "hide" },
     cell: ({ row }) => (
       <span className="text-body tabular-nums">
-        {`${(row.original.share * 100).toFixed(1)}%`}
+        {percent(row.original.share * 100, { digits: 1 })}
       </span>
     ),
   },
@@ -534,7 +579,7 @@ const columns: ColumnDef<TableSetup, StoreRow>[] = [
     /// clause cannot see that substitution: "grew by at least 0%" would answer
     /// with every store that opened this month, each one reported as having
     /// grown infinitely.
-    meta: { align: "right" },
+    meta: { align: "right", card: "hide" },
     cell: ({ row }) => {
       const value = row.original.growth
       if (value === null) return <span className="text-mute">new</span>
@@ -557,28 +602,114 @@ const columns: ColumnDef<TableSetup, StoreRow>[] = [
     accessorKey: "sales_count",
     header: "Transactions",
     size: 120,
-    meta: { align: "right", filter: { kind: "number", unit: "sales" } },
+    meta: {
+      align: "right",
+      card: "hide",
+      filter: { kind: "number", unit: "sales" },
+    },
     cell: ({ row }) => count(row.original.sales_count),
   },
   {
     accessorKey: "average_minor",
     header: "Avg Transaction",
     size: 140,
-    meta: { align: "right", filter: { kind: "number", unit: "Rp" } },
+    meta: {
+      align: "right",
+      card: "hide",
+      filter: { kind: "number", unit: "Rp" },
+    },
     cell: ({ row }) => money(Math.round(row.original.average_minor)),
   },
   {
     accessorKey: "units_sold",
     header: "Units",
     size: 100,
-    meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
+    meta: {
+      align: "right",
+      card: "hide",
+      filter: { kind: "number", unit: "pcs" },
+    },
     cell: ({ row }) => count(row.original.units_sold),
   },
   {
     accessorKey: "items_per_sale",
     header: "UPT",
     size: 90,
-    meta: { align: "right" },
+    meta: { align: "right", card: "hide" },
     cell: ({ row }) => showSales("items_per_sale", row.original.items_per_sale),
+  },
+  // Three columns that exist only on a card (`cardLead`; a phone): the store, its
+  // takings as the figure with its share of the estate under it, and a foot
+  // with how it moved against the span before and the rest of its row
+  // (owner, 2026-10-06). A tap opens the store's window, as the row does.
+  {
+    id: "head",
+    accessorFn: (row) => row.site_name,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <span className="flex min-w-0 items-center gap-2">
+        <span
+          aria-hidden
+          className="size-[9px] shrink-0 rounded-[3px]"
+          style={{ background: row.original.colour }}
+        />
+        <CardName name={row.original.site_name} />
+      </span>
+    ),
+  },
+  {
+    id: "lead",
+    accessorFn: (row) => row.gross_minor,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "lead" },
+    cell: ({ row }) => (
+      <CardFigure
+        value={money(row.original.gross_minor)}
+        caption={`${percent(row.original.share * 100, { digits: 1 })} of the estate`}
+        tone={row.original.gross_minor === 0 ? "quiet" : undefined}
+      />
+    ),
+  },
+  {
+    id: "foot",
+    accessorFn: (row) => row.growth,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => {
+      const { growth: moved } = row.original
+      return (
+        <CardFoot
+          status={
+            moved === null ? (
+              <span className="text-mute">New against the span before</span>
+            ) : (
+              <span
+                className={
+                  moved < 0
+                    ? "font-medium text-bad"
+                    : moved > 0
+                      ? "font-medium text-ok-fg"
+                      : "text-mute"
+                }
+              >
+                {growthLabel(moved)} vs before
+              </span>
+            )
+          }
+        >
+          {count(row.original.sales_count)} transactions · Avg{" "}
+          {money(Math.round(row.original.average_minor))} ·{" "}
+          {count(row.original.units_sold)} units · UPT{" "}
+          {showSales("items_per_sale", row.original.items_per_sale)}
+        </CardFoot>
+      )
+    },
   },
 ]

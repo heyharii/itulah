@@ -158,7 +158,9 @@ pub struct InTransitReleasePayload {
 
 impl InTransitReleasePayload {
     pub fn validate(&self) -> Result<(), String> {
-        if self.release_id.is_nil() || self.koli_id.is_nil() || self.in_transit_movement_group_id.is_nil()
+        if self.release_id.is_nil()
+            || self.koli_id.is_nil()
+            || self.in_transit_movement_group_id.is_nil()
         {
             return Err("in-transit release ids must not be nil".into());
         }
@@ -172,7 +174,8 @@ impl InTransitReleasePayload {
         }
         validate_optional("shipment_reference", self.shipment_reference.as_deref())
             .map_err(|error| error.to_string())?;
-        if self.epc != self.epc.to_ascii_uppercase() || self.sku_code != self.sku_code.to_ascii_uppercase()
+        if self.epc != self.epc.to_ascii_uppercase()
+            || self.sku_code != self.sku_code.to_ascii_uppercase()
         {
             return Err("in-transit release EPC and SKU must be uppercase".into());
         }
@@ -183,7 +186,9 @@ impl InTransitReleasePayload {
     }
 }
 
-pub fn parse_in_transit_release(value: &serde_json::Value) -> Result<InTransitReleasePayload, String> {
+pub fn parse_in_transit_release(
+    value: &serde_json::Value,
+) -> Result<InTransitReleasePayload, String> {
     let payload: InTransitReleasePayload =
         serde_json::from_value(value.clone()).map_err(|error| error.to_string())?;
     payload.validate()?;

@@ -1,5 +1,4 @@
 import {
-  Boxes,
   CalendarClock,
   ChevronRight,
   Hammer,
@@ -10,7 +9,7 @@ import {
 
 import { AppLink } from "@/components/ui/app-link"
 import { Card } from "@/components/ui/card"
-import { Pill } from "@/components/ui/pill"
+import { Status } from "@/components/ui/pill"
 import { Stat, StatStrip } from "@/components/ui/stat-strip"
 import { count } from "@/lib/format"
 import {
@@ -38,7 +37,7 @@ import {
   supplyStageTone,
   supplyStageWords,
 } from "@/screens/ga/format"
-import { Fact, Facts, GaScreen } from "@/screens/ga/parts"
+import { Facts, GaScreen, ListLine } from "@/screens/ga/parts"
 import { describeGa, gaState } from "@/screens/ga/state"
 import type { GaContractRow, GaLocationHub } from "@itulah/contract"
 
@@ -60,7 +59,7 @@ import type { GaContractRow, GaLocationHub } from "@itulah/contract"
 /// with nowhere to go is a figure somebody reads and closes; "2 repairs open"
 /// is worth something only because pressing it shows which two.
 export function GaOverview() {
-  return <GaScreen>{(site) => <Glance site={site} />}</GaScreen>
+  return <GaScreen>{({ site }) => <Glance site={site} />}</GaScreen>
 }
 
 function Glance({ site }: { site: string }) {
@@ -88,7 +87,7 @@ function Glance({ site }: { site: string }) {
   )
 
   return gaState(place, {
-    loading: "Loading…",
+    loading: "Reading the premises…",
     render: (hub) => {
       const floor = hub.assets.filter(
         (row) =>
@@ -210,9 +209,9 @@ function Glance({ site }: { site: string }) {
                   ),
                   under: partyOf(row),
                   end: (
-                    <Pill tone={standingOf(row).tone}>
+                    <Status tone={standingOf(row).tone}>
                       {standingOf(row).label}
-                    </Pill>
+                    </Status>
                   ),
                 }))}
               />
@@ -227,9 +226,9 @@ function Glance({ site }: { site: string }) {
                   top: row.title,
                   under: `${row.asset_name ?? row.objek_name} · ${row.supplier_name}`,
                   end: (
-                    <Pill tone={repairStageTone(row.status)}>
+                    <Status tone={repairStageTone(row.status)}>
                       {repairStageWords(row.status)}
-                    </Pill>
+                    </Status>
                   ),
                 }))}
               />
@@ -251,7 +250,7 @@ function Glance({ site }: { site: string }) {
                           {due.label}
                         </span>
                       ) : (
-                        <Pill tone={due.tone}>{due.label}</Pill>
+                        <Status tone={due.tone}>{due.label}</Status>
                       ),
                   }
                 })}
@@ -270,9 +269,9 @@ function Glance({ site }: { site: string }) {
                     row.category_name,
                   ),
                   end: (
-                    <Pill tone={supplyStageTone(row.status)}>
+                    <Status tone={supplyStageTone(row.status)}>
                       {supplyStageWords(row.status)}
-                    </Pill>
+                    </Status>
                   ),
                 }))}
               />
@@ -324,91 +323,75 @@ function PlaceCard({ hub }: { hub: GaLocationHub }) {
 
   return (
     <Card>
-      <div className="flex items-center gap-3 border-b border-hairline bg-soft px-4 py-3">
-        <span className="grid size-8 shrink-0 place-items-center rounded-inner border border-hairline-2 bg-canvas text-line-ico">
-          <Boxes className="size-4 stroke-[1.7]" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <h2 className="truncate text-card-title font-semibold text-ink">
-            {place.site_name}
-          </h2>
-          <p className="truncate text-meta text-mute">
-            <span className="font-mono text-id">{place.site_id}</span>
-            {place.kind !== null && ` · ${place.kind}`}
-          </p>
-        </div>
+      <div className="border-b border-hairline px-4 py-3.5">
+        <h2 className="truncate text-card-title font-semibold text-ink">
+          {place.site_name}
+        </h2>
+        <p className="truncate text-meta text-mute">
+          <span className="font-mono text-id">{place.site_id}</span>
+          {place.kind !== null && ` · ${place.kind}`}
+        </p>
       </div>
       <div className="px-4 py-4">
         {place.version === 0 && (
-          <p className="mb-4 text-meta text-mute">
-            Not filled in yet.
-          </p>
+          <p className="mb-4 text-meta text-mute">Not filled in yet.</p>
         )}
-        <Facts>
-          <Fact term="Address" wide>
-            {place.address ?? "—"}
-          </Fact>
-          <Fact term="Floor area">
-            {place.floor_area_sqm === null
-              ? "—"
-              : `${count(place.floor_area_sqm)} m²`}
-          </Fact>
-          <Fact term="Contact" wide>
-            {[place.contact_name, place.contact_phone]
-              .filter(Boolean)
-              .join(" · ") || "—"}
-          </Fact>
-          {leases.length === 0 ? (
-            <Fact term="Landlord">No lease on record</Fact>
-          ) : (
-            leases.map((lease) => (
-              <Fact
-                key={lease.contract_id}
-                term={
-                  lease.contract_type === "SEWA_TANAH"
-                    ? "Land leased from"
-                    : "Landlord"
-                }
-                wide
-              >
-                {partyOf(lease)}
-                <span className="text-body">
-                  {lease.ends_on === null
-                    ? " · no end date"
-                    : ` · until ${day(lease.ends_on)} (${leaseLeft(lease.ends_on)})`}
-                </span>
-              </Fact>
-            ))
-          )}
-          {place.notes !== null && place.notes.trim() !== "" && (
-            <Fact term="Notes" wide>
-              {place.notes}
-            </Fact>
-          )}
-        </Facts>
+        <Facts
+          rows={[
+            ["Address", place.address ?? "—", true],
+            [
+              "Floor area",
+              place.floor_area_sqm === null
+                ? "—"
+                : `${count(place.floor_area_sqm)} m²`,
+            ],
+            [
+              "Contact",
+              [place.contact_name, place.contact_phone]
+                .filter(Boolean)
+                .join(" · ") || "—",
+              true,
+            ],
+            ...(leases.length === 0
+              ? [["Landlord", "No lease on record"] as const]
+              : leases.map(
+                  (lease) =>
+                    [
+                      lease.contract_type === "SEWA_TANAH"
+                        ? "Land leased from"
+                        : "Landlord",
+                      <span key={lease.contract_id}>
+                        {partyOf(lease)}
+                        <span className="text-body">
+                          {lease.ends_on === null
+                            ? " · no end date"
+                            : ` · until ${day(lease.ends_on)} (${leaseLeft(lease.ends_on)})`}
+                        </span>
+                      </span>,
+                      true,
+                    ] as const,
+                )),
+            place.notes !== null &&
+              place.notes.trim() !== "" && ["Notes", place.notes, true],
+          ]}
+        />
 
-        <h3 className="mt-5 mb-1 text-card-title font-semibold text-ink">
+        <h3 className="mt-6 mb-1 text-[0.9375rem] font-medium text-ink">
           Utilities
         </h3>
         {utilities.length === 0 ? (
-          <p className="text-meta text-mute">
-            No utilities on record.
-          </p>
+          <p className="text-meta text-mute">No utilities on record.</p>
         ) : (
           <ul>
             {utilities.map((row) => (
-              <li
+              <ListLine
                 key={row.contract_id}
-                className="flex items-center justify-between gap-3 border-b border-hairline py-2.5 last:border-b-0"
-              >
-                <span className="min-w-0">
-                  <span className="block truncate text-cell font-medium text-ink">
-                    {contractTypeWords(
-                      row.contract_type,
-                      row.contract_type_name,
-                    )}
-                  </span>
-                  <span className="block truncate text-meta text-mute">
+                top={contractTypeWords(
+                  row.contract_type,
+                  row.contract_type_name,
+                )}
+                under={
+                  <>
                     {partyOf(row)}
                     {row.customer_number !== null && (
                       <span className="font-mono">
@@ -416,14 +399,14 @@ function PlaceCard({ hub }: { hub: GaLocationHub }) {
                         · {row.customer_number}
                       </span>
                     )}
-                  </span>
-                </span>
-                <span className="shrink-0 text-right text-meta text-body tabular-nums">
-                  {row.last_usage === null
+                  </>
+                }
+                end={
+                  row.last_usage === null
                     ? "No reading yet"
-                    : `${count(row.last_usage)} ${row.last_unit ?? ""}`}
-                </span>
-              </li>
+                    : `${count(row.last_usage)} ${row.last_unit ?? ""}`
+                }
+              />
             ))}
           </ul>
         )}
@@ -471,7 +454,7 @@ function Attention({
         <span className="grid size-7 shrink-0 place-items-center rounded-inner bg-soft text-line-ico">
           <Icon className="size-4 stroke-[1.7]" aria-hidden />
         </span>
-        <span className="min-w-0 flex-1 text-card-title font-semibold text-ink">
+        <span className="min-w-0 flex-1 text-[0.9375rem] font-medium text-ink">
           {title}
         </span>
         <span className="flex items-center gap-1 text-meta font-medium text-accent">

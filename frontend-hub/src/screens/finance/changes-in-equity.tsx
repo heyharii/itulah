@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Banner, EmptyState, ErrorState } from "@/components/ui/states"
 import { monthStamp, type ExportSheet } from "@/lib/export-xlsx"
 import { day, money } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { financeKeys, statement } from "@/lib/queries/finance"
 import { Code, Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
 import {
@@ -18,6 +19,10 @@ import {
 } from "@/screens/finance/chart"
 import { useUnitName, type DateWindow } from "@/screens/finance/hooks"
 import { UnitName, UnitSelect, WindowControl } from "@/screens/finance/parts"
+import {
+  PhoneStatement,
+  type StatementLine,
+} from "@/screens/finance/phone-parts"
 import { ReportFilters, ReportSummary } from "@/screens/finance/report"
 
 import type { Statement } from "@itulah/contract"
@@ -46,6 +51,7 @@ import type { Statement } from "@itulah/contract"
 /// The profit and loss leaves a closing voucher's entry out (the balance sheet
 /// keeps it), so a window holding the year-end still reports the year's profit.
 export function ChangesInEquity() {
+  const phone = useLayout() === "phone"
   const [from, setFrom] = useState(() => `${new Date().getFullYear()}-01-01`)
   const [to, setTo] = useState(todayIso)
   const [unit, setUnit] = useState("")
@@ -92,7 +98,7 @@ export function ChangesInEquity() {
       filename: `Changes-in-Equity-${monthStamp(to)}`,
       sheet: "Changes in Equity",
       title: "Statement of Changes in Equity",
-      subtitle: `${range.chip} · ${unit === "" ? "every unit" : unitName(unit)}`,
+      subtitle: `${range.chip} · ${unit === "" ? "all units" : unitName(unit)}`,
       columns: [
         { header: "Code", kind: "text", width: 12 },
         { header: "Account", kind: "text", width: 48 },
@@ -129,7 +135,13 @@ export function ChangesInEquity() {
       <PageHeader
         crumb="Finance · Financial Reports"
         title="Statement of Changes in Equity"
-        actions={<ExportButton build={exportSheet} disabled={table === null} />}
+        // On a phone Export is a row of the Filters sheet, not a button at the
+        // top of the page.
+        actions={
+          phone ? undefined : (
+            <ExportButton build={exportSheet} disabled={table === null} />
+          )
+        }
       />
 
       <ReportFilters
@@ -137,7 +149,7 @@ export function ChangesInEquity() {
           <>
             {range.chip}
             {unit === "" ? (
-              " · every unit"
+              " · all units"
             ) : (
               <>
                 {" · "}
@@ -154,6 +166,9 @@ export function ChangesInEquity() {
           aria-label="Unit"
         />
         <WindowControl range={range} />
+        {phone && (
+          <ExportButton build={exportSheet} disabled={table === null} />
+        )}
       </ReportFilters>
 
       {!valid ? (
@@ -182,6 +197,7 @@ function Body({
   opening: string
   to: string
 }) {
+  const phone = useLayout() === "phone"
   const silent =
     table.rows.length === 0 &&
     table.total.opening === 0 &&
@@ -217,6 +233,15 @@ function Body({
           Nothing has been posted to equity, and no profit earned, up to this
           window.
         </EmptyState>
+      ) : phone ? (
+        <>
+          <PhoneStatement lines={phoneLines(table)} />
+          <p className="mt-3 text-[0.875rem] text-mute">
+            Profit is earned in the window and sits on its own row until a
+            Period Closing Voucher moves it into Retained Earnings; that move
+            appears under Other movements on both rows and cancels in the total.
+          </p>
+        </>
       ) : (
         <>
           <Grid>
@@ -275,6 +300,39 @@ function Body({
       )}
     </>
   )
+}
+
+/// The statement as a phone reads it: each line with where it closed, and the
+/// opening and what moved in the sheet a tap opens.
+function phoneLines(table: Table): StatementLine[] {
+  const facts = (
+    row: Pick<Row, "opening" | "profit" | "other" | "closing">
+  ) => [
+    { label: "Opening", value: money(row.opening) },
+    { label: "Profit for the period", value: money(row.profit) },
+    { label: "Other movements", value: money(row.other) },
+    { label: "Closing", value: money(row.closing) },
+  ]
+  return [
+    ...table.rows.map((row): StatementLine => ({
+      key: row.code === "" ? row.name : row.code,
+      kind: row.heading ? "section" : "line",
+      code: row.code === "" ? undefined : row.code,
+      name: row.name,
+      level: row.level,
+      figure: money(row.closing),
+      tone: row.closing < 0 ? "bad" : undefined,
+      facts: facts(row),
+    })),
+    {
+      key: "total",
+      kind: "total",
+      name: "Total equity",
+      figure: money(table.total.closing),
+      tone: table.total.closing < 0 ? "bad" : undefined,
+      facts: facts(table.total),
+    },
+  ]
 }
 
 /// A movement: nothing is a dash, not "Rp 0" down a whole column.

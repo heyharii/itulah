@@ -1,14 +1,26 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
-import { PeopleSheet, SheetSection } from "@/components/ui/people-sheet"
+import { PeopleSheet } from "@/components/ui/people-sheet"
 import { PeopleTable } from "@/components/ui/people-table"
-import { Pill } from "@/components/ui/pill"
+import { Pill, Status } from "@/components/ui/pill"
 import { CENTRAL_KEY_PREFIX } from "@/lib/cloud"
 import { decideSwap, hrKeys, readDate, type StoreScope } from "@/lib/queries/hr"
 import { centreState } from "@/screens/hr/centre"
-import { Decision, Facts, Fenced, Person } from "@/screens/hr/parts"
-import { personName, requestState, usePendingSwaps } from "@/screens/hr/words"
+import {
+  dateLead,
+  Facts,
+  Fenced,
+  Person,
+  personCard,
+  useDecision,
+} from "@/screens/hr/parts"
+import {
+  personByLogin,
+  personName,
+  requestState,
+  usePendingSwaps,
+} from "@/screens/hr/words"
 import type { EmployeeList, RosterSwapView } from "@itulah/contract"
 
 /// Shift swaps waiting on the store head — the prototype's *Tukar shift*.
@@ -35,7 +47,7 @@ export function SwapList({
   return (
     <>
       {centreState(swaps, {
-        loading: "Loading…",
+        loading: "Reading the swap requests…",
         what: "this shop's swap requests",
         render: (queue) => (
           <>
@@ -45,6 +57,22 @@ export function SwapList({
               rowKey={(swap) => swap.id}
               onRowClick={setOpen}
               empty="No swap requests."
+              card={(swap) => {
+                const state = requestState(swap.state)
+                return {
+                  ...personCard(team, swap.employee_id, [
+                    `Swap with ${personName(team, swap.with_employee_id)}`,
+                  ]),
+                  lead: dateLead(swap.on_date),
+                  foot: {
+                    info: <Status tone={state.tone}>{state.label}</Status>,
+                    action: {
+                      label: swap.state === "PENDING" ? "Review" : "Open",
+                      onClick: () => setOpen(swap),
+                    },
+                  },
+                }
+              }}
               columns={[
                 {
                   key: "who",
@@ -76,7 +104,7 @@ export function SwapList({
                   card: "status",
                   cell: (swap) => {
                     const state = requestState(swap.state)
-                    return <Pill tone={state.tone}>{state.label}</Pill>
+                    return <Status tone={state.tone}>{state.label}</Status>
                   },
                 },
               ]}
@@ -123,6 +151,13 @@ export function SwapSheet({
     },
   })
   const state = requestState(swap.state)
+  const waiting = swap.state === "PENDING"
+  const decision = useDecision({
+    placeholder: "Two on the morning shift either way",
+    pending: decide.isPending,
+    error: decide.error,
+    onDecide: (approved, reason) => decide.mutate({ approved, reason }),
+  })
 
   return (
     <PeopleSheet
@@ -134,26 +169,16 @@ export function SwapSheet({
       title={`${personName(team, swap.employee_id)} ↔ ${personName(team, swap.with_employee_id)}`}
       sub={readDate(swap.on_date, true)}
       status={<Pill tone={state.tone}>{state.label}</Pill>}
-      foot={
-        swap.state === "PENDING" ? (
-          <Decision
-            placeholder="Two on the morning shift either way"
-            pending={decide.isPending}
-            error={decide.error}
-            onDecide={(approved, reason) => decide.mutate({ approved, reason })}
-          />
-        ) : undefined
-      }
+      foot={waiting ? decision.footer : undefined}
     >
-      <SheetSection title="The ask">
-        <Facts
-          rows={[
-            ["Asked by", swap.requested_by],
-            ["Day", readDate(swap.on_date, true)],
-            ["Because", swap.reason],
-          ]}
-        />
-      </SheetSection>
+      <Facts
+        rows={[
+          ["Asked by", personByLogin(team, swap.requested_by)],
+          ["Day", readDate(swap.on_date, true)],
+          ["Because", swap.reason, true],
+        ]}
+      />
+      {waiting && decision.field}
     </PeopleSheet>
   )
 }

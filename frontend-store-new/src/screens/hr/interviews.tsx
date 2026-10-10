@@ -7,7 +7,6 @@ import {
 import { Plus } from "lucide-react"
 import { useState } from "react"
 
-import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Field, Input, Select } from "@/components/ui/field"
 import { PeopleSheet, SheetSection } from "@/components/ui/people-sheet"
@@ -62,12 +61,11 @@ export function HrInterviews() {
   const [asking, setAsking] = useState(false)
   return (
     <HrWorkspace
-      actions={
-        <Button variant="primary" onClick={() => setAsking(true)}>
-          <Plus />
-          Request a new employee
-        </Button>
-      }
+      primary={{
+        label: "Request a new employee",
+        onClick: () => setAsking(true),
+        icon: Plus,
+      }}
     >
       {(scope) => (
         <Recruitment scope={scope} asking={asking} onAsking={setAsking} />

@@ -8,8 +8,11 @@ import { AppLink } from "@/components/ui/app-link"
 import { Select, Textarea } from "@/components/ui/field"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DockTools } from "@/components/shell/dock-tools"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
+import { Fab } from "@/components/ui/fab"
 import { FilterPanel } from "@/components/ui/filter-panel"
+import { BottomSheet } from "@/components/ui/picker-sheet"
 import { MiniTable } from "@/components/ui/rows"
 import { PageHeader } from "@/components/ui/page-header"
 import { Status } from "@/components/ui/pill"
@@ -34,6 +37,7 @@ import {
   trialBalance,
 } from "@/lib/queries/finance"
 import { useFilters } from "@/lib/filters"
+import { useLayout } from "@/lib/layout"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
@@ -79,6 +83,7 @@ const columns: ColumnDef<TableSetup, FiscalPeriod>[] = [
     accessorFn: (row) => row.year * 12 + row.month,
     header: "Month",
     size: 200,
+    meta: { card: "hide" },
     cell: ({ row }) => (
       <span className="font-medium text-ink">
         {monthLabel(row.original.year, row.original.month)}
@@ -89,7 +94,7 @@ const columns: ColumnDef<TableSetup, FiscalPeriod>[] = [
     accessorKey: "status",
     header: "Status",
     size: 130,
-    meta: { filter: { kind: "option", format: label } },
+    meta: { card: "hide", filter: { kind: "option", format: label } },
     cell: ({ row }) => (
       <Status tone={toneFor(row.original.status)}>
         {label(row.original.status)}
@@ -103,7 +108,11 @@ const columns: ColumnDef<TableSetup, FiscalPeriod>[] = [
     // `is 0` is the question: a month standing open with nothing in it is
     // either a month nobody has worked yet or one opened by mistake, and both
     // are worth finding before somebody closes the calendar on them.
-    meta: { align: "right", filter: { kind: "number", unit: "entries" } },
+    meta: {
+      align: "right",
+      card: "hide",
+      filter: { kind: "number", unit: "entries" },
+    },
     // A month with none is a month nobody has worked yet, which is a different
     // thing from a month that balanced — so a zero is drawn as a zero.
     cell: ({ row }) => (
@@ -122,7 +131,7 @@ const columns: ColumnDef<TableSetup, FiscalPeriod>[] = [
     size: 160,
     // A closed set of names, and blank where nobody has sealed it — so "is
     // empty" answers "every month still standing open" from this column too.
-    meta: { filter: { kind: "option" } },
+    meta: { card: "hide", filter: { kind: "option" } },
     cell: ({ row }) => (
       <span className="text-body">{row.original.closed_by ?? "—"}</span>
     ),
@@ -131,12 +140,76 @@ const columns: ColumnDef<TableSetup, FiscalPeriod>[] = [
     accessorKey: "closed_at",
     header: "Closed at",
     size: 180,
-    meta: { filter: { kind: "date" } },
+    meta: { card: "hide", filter: { kind: "date" } },
     cell: ({ row }) => moment(row.original.closed_at),
+  },
+  // Three columns that exist only on a card (a phone): the month, the entries
+  // posted into it as the figure, and a foot with whether it is sealed and by
+  // whom.
+  {
+    id: "head",
+    accessorFn: (row) => row.year * 12 + row.month,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <span className="text-[1rem] font-semibold text-ink">
+        {monthLabel(row.original.year, row.original.month)}
+      </span>
+    ),
+  },
+  {
+    id: "lead",
+    accessorFn: (row) => row.entry_count,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "lead" },
+    cell: ({ row }) => (
+      <span className="flex flex-col items-end tabular-nums">
+        <span
+          className={
+            row.original.entry_count === 0
+              ? "text-[1.5rem] leading-tight font-semibold tracking-tight text-mute"
+              : "text-[1.5rem] leading-tight font-semibold tracking-tight text-ink"
+          }
+        >
+          {count(row.original.entry_count)}
+        </span>
+        <span className="text-[0.875rem] text-mute">
+          {row.original.entry_count === 1 ? "entry" : "entries"}
+        </span>
+      </span>
+    ),
+  },
+  {
+    id: "foot",
+    accessorFn: (row) => row.status,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => (
+      <span className="flex flex-col gap-0.5">
+        <Status tone={toneFor(row.original.status)}>
+          {label(row.original.status)}
+        </Status>
+        {row.original.closed_by !== null && (
+          <span className="text-[0.875rem] text-mute">
+            {row.original.closed_by} · {moment(row.original.closed_at)}
+          </span>
+        )}
+      </span>
+    ),
   },
 ]
 
 export function Periods() {
+  const phone = useLayout() === "phone"
+  const [needle, setNeedle] = useState("")
+  /// The phone's "open a month" sheet, the dock's + opens it.
+  const [opening, setOpening] = useState(false)
   const client = useQueryClient()
   const period = useSheet("period")
   const now = new Date()
@@ -152,8 +225,19 @@ export function Periods() {
     queryFn: ({ signal }) => listPeriods(signal).then((page) => page.rows),
   })
 
-  const rows = useMemo(() => periods.data ?? [], [periods.data])
-  const already = rows.some((row) => row.year === year && row.month === month)
+  const rows = useMemo(() => {
+    const all = periods.data ?? []
+    const text = needle.trim().toLowerCase()
+    // The phone's dock search, over the month names.
+    return text === ""
+      ? all
+      : all.filter((row) =>
+          monthLabel(row.year, row.month).toLowerCase().includes(text)
+        )
+  }, [periods.data, needle])
+  const already = (periods.data ?? []).some(
+    (row) => row.year === year && row.month === month
+  )
 
   const open = useMutation({
     mutationFn: () => openPeriod(year, month),
@@ -170,6 +254,7 @@ export function Periods() {
     onSuccess: (page) => {
       client.setQueryData(financeKeys.periods(), page.rows)
       setReceipt(`${monthLabel(year, month)} is open for posting.`)
+      setOpening(false)
     },
   })
 
@@ -182,10 +267,15 @@ export function Periods() {
         data: rows,
         columns: filters.columns,
         getRowId: (row: FiscalPeriod) => periodId(row),
-        state: { columnFilters: filters.columnFilters, sorting },
+        state: {
+          columnFilters: filters.columnFilters,
+          sorting,
+          // The card's own columns are drawn on a phone and never on a desk.
+          columnVisibility: { head: phone, lead: phone, foot: phone },
+        },
         onSortingChange: setSorting,
       }),
-      [rows, filters.columns, filters.columnFilters, sorting]
+      [rows, filters.columns, filters.columnFilters, sorting, phone]
     )
   )
 
@@ -194,76 +284,146 @@ export function Periods() {
       <PageHeader
         crumb="Finance · Accounting Masters"
         title="Accounting Period"
+        // On a phone opening a month is the dock's + and the sheet it opens.
         actions={
-          <Button
-            variant="primary"
-            pending={open.isPending}
-            disabled={already}
-            onClick={() => open.mutate()}
-          >
-            {already
-              ? `${monthLabel(year, month)} is open`
-              : open.isPending
-                ? "Opening…"
-                : `Open ${monthLabel(year, month)}`}
-          </Button>
+          phone ? undefined : (
+            <Button
+              variant="primary"
+              pending={open.isPending}
+              disabled={already}
+              onClick={() => open.mutate()}
+            >
+              {already
+                ? `${monthLabel(year, month)} is open`
+                : open.isPending
+                  ? "Opening…"
+                  : `Open ${monthLabel(year, month)}`}
+            </Button>
+          )
         }
       />
 
-      <Toolbar>
-        {/* Wrapped for the reason `<UnitSelect>` is: `<Select>` draws a
+      {phone && (
+        <>
+          <Fab label="Open a month" onClick={() => setOpening(true)} />
+          <DockTools
+            search={{
+              value: needle,
+              onChange: setNeedle,
+              label: "Search months",
+            }}
+            filter={{
+              count: filters.filters.length,
+              panel: { model: filters, table },
+            }}
+            sort={dockSortOf(table)}
+          />
+          <BottomSheet
+            open={opening}
+            onOpenChange={setOpening}
+            title="Open a month"
+          >
+            <div className="flex flex-col gap-3 px-4 pb-4">
+              <Select
+                value={String(month)}
+                onChange={(next) => setMonth(Number(next))}
+                aria-label="Month"
+              >
+                {Array.from({ length: 12 }, (_, index) => index + 1).map(
+                  (value) => (
+                    <option key={value} value={value}>
+                      {monthLabel(year, value)}
+                    </option>
+                  )
+                )}
+              </Select>
+              <Select
+                value={String(year)}
+                onChange={(next) => setYear(Number(next))}
+                aria-label="Year"
+              >
+                {Array.from(
+                  { length: 5 },
+                  (_, index) => now.getFullYear() - 2 + index
+                ).map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </Select>
+              <Button
+                variant="primary"
+                pending={open.isPending}
+                disabled={already}
+                onClick={() => open.mutate()}
+              >
+                {already
+                  ? `${monthLabel(year, month)} is open`
+                  : open.isPending
+                    ? "Opening…"
+                    : `Open ${monthLabel(year, month)}`}
+              </Button>
+            </div>
+          </BottomSheet>
+        </>
+      )}
+
+      {!phone && (
+        <Toolbar>
+          {/* Wrapped for the reason `<UnitSelect>` is: `<Select>` draws a
             `w-full` span around the native control, and in a wrapping toolbar
             that claims the whole row — which is why these two sat on two lines
             with their chevrons out at the edge of the page. */}
-        <span className="inline-flex w-40 shrink-0">
-          <Select
-            value={String(month)}
-            onChange={(next) => setMonth(Number(next))}
-            aria-label="Month"
-            className="h-8 w-40"
-          >
-            {Array.from({ length: 12 }, (_, index) => index + 1).map(
-              (value) => (
+          <span className="inline-flex w-40 shrink-0">
+            <Select
+              value={String(month)}
+              onChange={(next) => setMonth(Number(next))}
+              aria-label="Month"
+              className="h-8 w-40"
+            >
+              {Array.from({ length: 12 }, (_, index) => index + 1).map(
+                (value) => (
+                  <option key={value} value={value}>
+                    {monthLabel(year, value)}
+                  </option>
+                )
+              )}
+            </Select>
+          </span>
+          <span className="inline-flex w-28 shrink-0">
+            <Select
+              value={String(year)}
+              onChange={(next) => setYear(Number(next))}
+              aria-label="Year"
+              className="h-8 w-28"
+            >
+              {Array.from(
+                { length: 5 },
+                (_, index) => now.getFullYear() - 2 + index
+              ).map((value) => (
                 <option key={value} value={value}>
-                  {monthLabel(year, value)}
+                  {value}
                 </option>
-              )
-            )}
-          </Select>
-        </span>
-        <span className="inline-flex w-28 shrink-0">
-          <Select
-            value={String(year)}
-            onChange={(next) => setYear(Number(next))}
-            aria-label="Year"
-            className="h-8 w-28"
-          >
-            {Array.from(
-              { length: 5 },
-              (_, index) => now.getFullYear() - 2 + index
-            ).map((value) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
-          </Select>
-        </span>
-        {/* The two selects above are not a filter on this list — they name the
+              ))}
+            </Select>
+          </span>
+          {/* The two selects above are not a filter on this list — they name the
             month the button opens. So the panel is the only thing here that
             narrows what is on screen, and it sits beside them rather than
             among them. */}
-        <FilterPanel model={filters} table={table} />
-        <Toolbar.Spacer />
-        {/* The effective answer, like every other toolbar in this module: what
+          <FilterPanel model={filters} table={table} />
+          <Toolbar.Spacer />
+          {/* The effective answer, like every other toolbar in this module: what
             the two selects add up to, and how much calendar there is. The
             caution that was here — "closing is not undoable" — is now said in
             the sheet where closing actually happens, which is where somebody
             about to do it will read it. */}
-        <span className="text-[0.875rem] text-mute">
-          {monthLabel(year, month)} · {count(rows.length)} months opened
-          {already ? "" : " · this one is not"}
-        </span>
-      </Toolbar>
+          <span className="text-[0.875rem] text-mute">
+            {monthLabel(year, month)} · {count(rows.length)} months opened
+            {already ? "" : " · this one is not"}
+          </span>
+        </Toolbar>
+      )}
 
       {receipt && (
         <Banner tone="ok" className="mb-3" onDismiss={() => setReceipt(null)}>
@@ -278,7 +438,7 @@ export function Periods() {
         </Banner>
       )}
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(periods, {
           loading: "Loading the calendar…",
           render: () =>
@@ -293,7 +453,11 @@ export function Periods() {
                 onRowClick={(row) => period.open(periodId(row))}
                 isSelected={(row) => periodId(row) === period.value}
                 empty="No month matches the filters in force."
-                className="max-h-[calc(100dvh-20rem)]"
+                className="max-h-[calc(100dvh-20rem)] max-md:max-h-none"
+                pageScroll={phone}
+                cardsApart
+                cardLead
+                cardSort={false}
               />
             ),
         })}
@@ -918,7 +1082,7 @@ function Row({
   }[state]
 
   return (
-    <div className="flex items-start gap-2.5 border-b border-hairline px-3 py-2.5 last:border-b-0">
+    <div className="flex items-start gap-2.5 border-b border-hairline px-3 py-2.5 last:border-b-0 max-md:flex-col">
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-2">
           <span className="text-[0.875rem] font-medium text-ink">{title}</span>

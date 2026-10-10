@@ -179,7 +179,7 @@ export function Ageing() {
         <span className="text-[0.875rem] text-mute">
           {asOf.chip}
           {unit === "" ? (
-            " · every unit"
+            " · all units"
           ) : (
             <>
               {" · "}

@@ -57,6 +57,7 @@ export function heldRow(job: OutboxJob): PurchaseOrderRow {
     fully_received: false,
     received_value_minor: 0,
     fulfilled_at: null,
+    updated_at: job.created_at,
     overdue: false,
   }
 }

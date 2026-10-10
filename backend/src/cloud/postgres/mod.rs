@@ -1,37 +1,40 @@
 mod account_links;
 mod accounting_dimensions;
 mod accounts;
-mod chart_changes;
-mod expense_categories;
-mod finance_policies;
-mod journal_templates;
-mod pay_component_accounts;
-mod payment_methods;
-mod permissions;
-mod tax_templates;
-mod withholding_report;
+mod accruals;
 mod acquirer;
+/// MD edits an allotment in place and cancels it at any stage before it is
+/// sent; the Gudang moves back what MD took out.
+mod allotment_amend;
+mod allotment_close_short;
 mod allotments;
+mod article_history;
 mod articles;
 mod asset_classes;
 mod assets;
 mod assistant;
 mod attendance;
+mod attendance_settings;
 mod audit;
 mod auth_policy;
 mod bank_rules;
 mod banking;
 mod basket;
 mod batches;
+mod benefit;
 pub mod bill_template;
 mod campaigns;
+/// The hard cap: a limit split into allowances each shop enforces against its
+/// own sales, granted and topped up here and never taken back. See `0387`.
+mod cap_allocation;
 mod cash;
-mod voucher;
-mod cash_repeats;
 mod cash_counts;
+mod cash_repeats;
 mod catalogue;
+mod chart_changes;
 mod chat;
 mod checkout_exceptions;
+mod claim_benefits;
 /// Money a shop took without producing a sale — the queue head office works,
 /// because the shop's own Z report balances and nothing looks wrong there.
 /// The claims lane's rows and the two transactions that post them.
@@ -39,22 +42,23 @@ mod claims;
 mod colours;
 mod commercial;
 mod company_banks;
-mod finance_setup;
 /// The payroll component catalogue, its ratified rates, and the one-off
 /// figures a place files. See `domain::component`.
 mod components;
+mod contractor_projects;
 pub(crate) mod control;
 mod corrections;
 mod counts;
 mod coupons;
 mod customer;
+mod data_requests;
+mod delegation;
 mod deposits;
 mod destinations;
 /// Every machine enrolled to a node, fed by heartbeats. See migration 0604.
 mod devices;
+mod discipline;
 mod discussion;
-/// Head office's fleet status page, sync freshness and alerts. See 0637-0640.
-mod fleet_status;
 mod documents;
 mod eligibility;
 mod employment;
@@ -62,7 +66,13 @@ mod enrolment;
 /// The end of employment, as rows: the interview at the door and the one
 /// statement that settles a leaver's books. See `domain::exit`.
 mod exit;
+mod expense_categories;
+mod expense_codes;
 mod files;
+mod finance_policies;
+mod finance_setup;
+/// Head office's fleet status page, sync freshness and alerts. See 0637-0640.
+mod fleet_status;
 /// Flow templates and the documents that run them (0615-0619), and the
 /// stage handlers that connect a stage to the code that already does its
 /// work. Read as `postgres::flows::…`, not glob-exported.
@@ -70,6 +80,7 @@ pub mod flow_stages;
 pub mod flows;
 mod giro;
 mod giro_print;
+mod global_search;
 /// The confidential queue and its catalogue, as rows. See `domain::grievance`.
 mod grievance;
 /// A shop asks for an employee it does not have; head office approves, returns
@@ -78,37 +89,37 @@ mod hire;
 mod holiday;
 mod integrity;
 mod interunit;
+mod inventory_valuation;
+pub mod jobs;
 mod journal;
+mod journal_templates;
 mod leave;
+mod leave_extras;
 mod ledger;
 mod letters;
 mod line_categories;
 mod loyalty;
+mod management_fee;
 mod manual_journal;
+/// What the promotions are doing, said to head office and to the shops: a cap
+/// crossed and the fresh count it calls for, a price book a shop could not
+/// apply, a shop behind on its messages, a guardrail crossed, and tomorrow's
+/// starts and ends. Every notice claimed once through the run ledger.
+mod marketing_watch;
 mod member;
 mod membership;
-mod management_fee;
 mod movements;
 mod node_enrolment;
 mod node_health;
-pub mod jobs;
 mod notifications;
-mod global_search;
 pub mod number_series;
 mod observations;
 mod opening;
-mod attendance_settings;
-mod leave_extras;
-mod claim_benefits;
-mod benefit;
-mod expense_codes;
-mod data_requests;
-mod discipline;
-mod delegation;
 mod organisation;
 mod overtime;
 pub mod party;
 mod pay;
+mod pay_component_accounts;
 mod payables;
 mod payables_flow;
 mod payment_allocation;
@@ -116,17 +127,16 @@ mod payment_context;
 mod payment_execution;
 mod payment_instructions;
 mod payment_ledger;
+mod payment_methods;
 mod payment_terms;
 mod payments;
+/// People's next generation, as rows. See `domain::people`.
+mod people;
 mod performance;
 mod period_close;
 mod period_closing;
-mod accruals;
-mod inventory_valuation;
-mod contractor_projects;
+mod permissions;
 mod poster;
-/// People's next generation, as rows. See `domain::people`.
-mod people;
 /// What a shop has charged for one product and when it changed — replayed
 /// through the engine's own ranking rather than read off the rows.
 /// Pricing changes still scheduled or running — one row per publication,
@@ -138,26 +148,14 @@ mod punch;
 /// Web Push subscriptions and the deliveries still owed. See `cloud::push`.
 mod push;
 mod queries;
-mod received_shipments;
-mod sku_suppliers;
-mod supplier_returns;
-mod article_history;
-mod allotment_close_short;
 mod receipts;
+mod received_shipments;
 mod records;
-mod reports;
 /// Head office told, once, what is about to lapse: GA contracts, filed papers,
 /// supplier bills and tax months. Claimed through the same run ledger as the
 /// HR nudges; the bands are `domain::reminder`'s.
 mod reminders;
-/// What the promotions are doing, said to head office and to the shops: a cap
-/// crossed and the fresh count it calls for, a price book a shop could not
-/// apply, a shop behind on its messages, a guardrail crossed, and tomorrow's
-/// starts and ends. Every notice claimed once through the run ledger.
-mod marketing_watch;
-/// The hard cap: a limit split into allowances each shop enforces against its
-/// own sales, granted and topped up here and never taken back. See `0387`.
-mod cap_allocation;
+mod reports;
 mod reserves;
 mod returns;
 /// How far one price book has reached each shop — told, in service, or failed
@@ -165,6 +163,10 @@ mod returns;
 /// the activation table.
 mod rollout;
 mod roster;
+/// A day's takings, carried into the general ledger — the one `source_kind`
+/// the schema has always allowed and nothing ever wrote.
+mod sale_day;
+mod sales;
 /// The clock's own rows: which HR period has been worked, and the work each
 /// claimed period does. See `0363` for why a claim ledger is not a
 /// `last_run_at` column.
@@ -172,22 +174,24 @@ mod schedule;
 /// What a site is — head office, kind, clock, display code — read from its
 /// row and never from its id. Reached by path, not glob-exported.
 pub mod sites;
-/// A day's takings, carried into the general ledger — the one `source_kind`
-/// the schema has always allowed and nothing ever wrote.
-mod sale_day;
-mod sales;
+mod sku_suppliers;
+mod supplier_returns;
+mod tax_templates;
+mod voucher;
+mod withholding_report;
 // lane-A
 mod advance;
 mod finance_control;
 mod financial_statements;
+mod financing;
 mod ga;
+/// The account a bill line should propose (brief §8.2), written once for the
+/// suggestion endpoint and the pre-posting warnings.
+mod ga_accounts;
 /// GA's own half of the asset register: sub-location, holder, condition, the
 /// build's fields and the appended history. See the module for why it is not
 /// `postgres::assets`.
 mod ga_assets;
-/// The account a bill line should propose (brief §8.2), written once for the
-/// suggestion endpoint and the pre-posting warnings.
-mod ga_accounts;
 /// GA's contracts: the deals with a window, their meters, and the pointers
 /// Finance's recurring bills keep back at them.
 mod ga_contracts;
@@ -201,19 +205,27 @@ mod ga_maintenance;
 /// GA's supplies: the ask a place files, the seven categories it is filed
 /// under, and the ladder it walks to a bill Finance pays.
 mod ga_supplies;
-mod financing;
+mod invitations;
+mod job_roles;
 mod prepaid;
 mod principal;
+/// Goods beyond an order going back to the supplier (0710).
+mod purchase_returns;
 /// The 7Soft "Summary Penjualan per Divisi by HPP rata-rata" report, and the
 /// same figures by tag.
 mod sales_by_division;
 mod sales_posting;
+mod sales_explorer;
+mod sales_rollup;
 mod saved_reports;
 mod segments;
 mod setup;
 mod statement_intake;
 mod statements;
 mod stock_ledger;
+/// A store page's Actions menu: head office acting on a store's server and
+/// devices, each action followed until it finishes. See migration 0643.
+mod store_actions;
 /// Store exceptions: the needs-attention list of what goes wrong in stores
 /// (0646-0648). See the module.
 mod store_exceptions;
@@ -221,11 +233,6 @@ mod store_money;
 /// Opening a store: its readiness checks, head office's decision, and
 /// installing its server from the store's page. See the module.
 mod stores;
-/// A store page's Actions menu: head office acting on a store's server and
-/// devices, each action followed until it finishes. See migration 0643.
-mod store_actions;
-/// Goods beyond an order going back to the supplier (0710).
-mod purchase_returns;
 mod supplier_banks;
 mod supplier_contacts;
 mod suppliers;
@@ -236,180 +243,181 @@ mod tagging;
 mod tax;
 mod time_machine;
 mod transaction_categories;
-mod invitations;
-mod job_roles;
 mod unit_register;
 mod units;
 mod users;
 mod vocabulary;
 mod vouchers;
 
+pub use account_links::*;
+pub use accounting_dimensions::*;
 pub use accounts::*;
+pub use accruals::*;
 pub use acquirer::*;
+pub use allotment_amend::*;
+pub use allotment_close_short::*;
 pub use allotments::*;
+pub use article_history::*;
 pub use articles::*;
 pub use asset_classes::*;
 pub use assets::*;
 pub use assistant::*;
 pub use attendance::*;
+pub use attendance_settings::*;
 pub use audit::*;
 pub use auth_policy::*;
 pub use bank_rules::*;
 pub use banking::*;
 pub use basket::*;
 pub use batches::*;
+pub use benefit::*;
 pub use campaigns::*;
-pub use cash::*;
-pub use cash_repeats::*;
-pub use voucher::{
-    voucher_record, CashDocumentLineRow, RecordVoucherRequest, VoucherLineRequest,
+pub use cap_allocation::{
+    cap_allocation, rebalance_allocations, set_cap_allocation, CapAllocationRequest,
+    CapAllocationView, ShopAllowanceView,
 };
+pub use cash::*;
 pub use cash_counts::*;
+pub use cash_repeats::*;
 pub use catalogue::*;
+pub use chart_changes::*;
 pub use chat::*;
 pub use checkout_exceptions::*;
+pub use claim_benefits::*;
 pub use claims::*;
 pub use colours::*;
 pub use commercial::*;
 pub use company_banks::*;
-pub use finance_setup::*;
 pub use components::*;
+pub use contractor_projects::*;
 pub use control::*;
 pub use corrections::*;
 pub use counts::*;
 pub use coupons::*;
 pub use customer::*;
+pub use data_requests::*;
+pub use delegation::*;
 pub use deposits::*;
 pub use destinations::*;
 pub use devices::*;
+pub use discipline::*;
 pub use discussion::*;
 pub use documents::*;
 pub use eligibility::*;
 pub use employment::*;
 pub use enrolment::*;
 pub use exit::*;
-pub use fleet_status::*;
+pub use expense_categories::*;
+pub use expense_codes::*;
 pub use files::*;
+pub use finance_policies::*;
+pub use finance_setup::*;
+pub use fleet_status::*;
 pub use giro::*;
 pub use giro_print::*;
+pub use global_search::*;
 pub use grievance::*;
 pub use hire::*;
 pub use holiday::*;
 pub use integrity::*;
 pub use interunit::*;
-pub use journal::*;
-pub use leave::*;
-pub use account_links::*;
-pub use accounting_dimensions::*;
-pub use chart_changes::*;
-pub use expense_categories::*;
-pub use finance_policies::*;
-pub use journal_templates::*;
-pub use pay_component_accounts::*;
-pub use payment_methods::*;
-pub use permissions::*;
-pub use tax_templates::*;
-pub use withholding_report::*;
-pub use period_closing::*;
-pub use accruals::*;
 pub use inventory_valuation::*;
-pub use contractor_projects::*;
+pub use jobs::{job_beat, JobList, JobRunRow, JobStatus};
+pub use journal::*;
+pub use journal_templates::*;
+pub use leave::*;
+pub use leave_extras::*;
 pub use ledger::*;
 pub use letters::*;
 pub use line_categories::*;
 pub use loyalty::*;
+pub use management_fee::*;
 pub use manual_journal::*;
+pub use marketing_watch::*;
 pub use member::*;
 pub use membership::*;
-pub use management_fee::*;
 pub use movements::*;
 pub use node_enrolment::*;
 pub use node_health::*;
 pub use notifications::*;
-pub use global_search::*;
 pub use number_series::{NumberSeries, NumberSeriesList, NumberSeriesPatch};
-pub use jobs::{job_beat, JobList, JobRunRow, JobStatus};
-pub use push::*;
-pub use people::*;
 pub use observations::*;
 pub use opening::*;
-pub use attendance_settings::*;
-pub use leave_extras::*;
-pub use claim_benefits::*;
-pub use benefit::*;
-pub use expense_codes::*;
-pub use data_requests::*;
-pub use discipline::*;
-pub use delegation::*;
 pub use organisation::*;
 pub use overtime::*;
 pub use party::*;
 pub use pay::*;
+pub use pay_component_accounts::*;
 pub use payables::*;
 pub use payables_flow::*;
 pub use payment_allocation::*;
 pub use payment_context::*;
 pub use payment_instructions::*;
 pub use payment_ledger::*;
+pub use payment_methods::*;
 pub use payment_terms::*;
 pub use payments::*;
+pub use people::*;
 pub use performance::*;
 pub use period_close::*;
+pub use period_closing::*;
+pub use permissions::*;
 pub use poster::*;
 pub use price_changes::*;
 pub use price_history::*;
 pub use pricing::*;
 pub use punch::*;
+pub use push::*;
 pub use queries::*;
-pub use received_shipments::*;
-pub use sku_suppliers::*;
-pub use supplier_returns::*;
-pub use article_history::*;
-pub use allotment_close_short::*;
 pub use receipts::*;
+pub use received_shipments::*;
 pub use records::*;
-pub use reports::*;
 pub use reminders::*;
-pub use marketing_watch::*;
-pub use cap_allocation::{
-    cap_allocation, rebalance_allocations, set_cap_allocation, CapAllocationRequest,
-    CapAllocationView, ShopAllowanceView,
-};
+pub use reports::*;
 pub use reserves::*;
 pub use returns::*;
 pub use rollout::*;
 pub use roster::*;
-pub use schedule::*;
 pub use sale_day::*;
 pub use sales::*;
+pub use schedule::*;
+pub use sku_suppliers::*;
+pub use supplier_returns::*;
+pub use tax_templates::*;
+pub use voucher::{voucher_record, CashDocumentLineRow, RecordVoucherRequest, VoucherLineRequest};
+pub use withholding_report::*;
 // lane-A
 pub use advance::*;
 pub use bill_template::*;
 pub use finance_control::*;
+pub use financial_statements::*;
+pub use financing::*;
 pub use ga::*;
-pub use ga_assets::*;
 pub use ga_accounts::*;
+pub use ga_assets::*;
 pub use ga_contracts::*;
 pub use ga_locations::*;
 pub use ga_maintenance::*;
 pub use ga_supplies::*;
-pub use financial_statements::*;
-pub use financing::*;
+pub use invitations::*;
+pub use job_roles::*;
 pub use prepaid::*;
 pub use principal::*;
+pub use purchase_returns::*;
 pub use sales_by_division::*;
 pub use sales_posting::*;
+pub use sales_explorer::*;
+pub use sales_rollup::*;
 pub use saved_reports::*;
 pub use segments::*;
 pub use setup::*;
 pub use statement_intake::*;
 pub use statements::*;
 pub use stock_ledger::*;
+pub use store_actions::*;
 pub use store_exceptions::*;
 pub use store_money::*;
 pub use stores::*;
-pub use store_actions::*;
-pub use purchase_returns::*;
 pub use supplier_banks::*;
 pub use supplier_contacts::*;
 pub use suppliers::*;
@@ -420,8 +428,6 @@ pub use tagging::*;
 pub use tax::*;
 pub use time_machine::*;
 pub use transaction_categories::*;
-pub use invitations::*;
-pub use job_roles::*;
 pub use unit_register::*;
 pub use units::*;
 pub use users::*;

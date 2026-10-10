@@ -3,19 +3,31 @@ import { ListFilter, Plus } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Fab } from "@/components/ui/fab"
 import { Input } from "@/components/ui/field"
 import { ChoiceMenu } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
+import { Pill } from "@/components/ui/pill"
 import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState } from "@/components/ui/states"
-import { count, money } from "@/lib/format"
+import { count, money, moneyCompact } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { gaKeys, gaLocations } from "@/lib/queries/ga"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { FinanceMark } from "@/screens/contracts/parts"
 import { LocationHubSheet } from "@/screens/locations/hub"
+import {
+  CardFigure,
+  CardName,
+  type CardSpec,
+  DESK_BAR,
+  PhoneCards,
+} from "@/components/ui/phone-cards"
+import { FilterSheet } from "@/components/ui/filter-sheet"
 import { OpenStoresSheet } from "@/screens/setup/open-stores-sheet"
 import type { GaLocationRow } from "@itulah/contract"
 
@@ -52,6 +64,8 @@ export function Locations() {
   const opening = useSheet("new-stores")
   const [search, setSearch] = useState("")
   const [kind, setKind] = useState<string | null>(null)
+  const [filtering, setFiltering] = useState(false)
+  const phone = useLayout() === "phone"
 
   const scope = useMemo(
     () => ({ q: search.trim() === "" ? undefined : search.trim() }),
@@ -90,21 +104,53 @@ export function Locations() {
         title="Sites"
         sub="View assets, contracts, service schedules, supply requests and bills for each place."
         actions={
-          <>
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              className="h-8 w-56"
-            />
-            <Button variant="primary" onClick={() => opening.open(true)}>
-              <Plus />
-              Open store
-            </Button>
-          </>
+          // On a phone the search and the type are the dock's, and the one
+          // thing this page makes is its round button.
+          phone ? undefined : (
+            <>
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                className="h-8 w-56"
+              />
+              <Button variant="primary" onClick={() => opening.open(true)}>
+                <Plus />
+                Open store
+              </Button>
+            </>
+          )
         }
       />
 
-      <Toolbar>
+      <Fab label="Open store" onClick={() => opening.open(true)} />
+      <DockTools
+        search={{ value: search, onChange: setSearch, label: "Search sites" }}
+        filter={{
+          count: kind === null ? 0 : 1,
+          onOpen: () => setFiltering(true),
+        }}
+      />
+      <FilterSheet
+        open={filtering}
+        onOpenChange={setFiltering}
+        groups={[
+          {
+            key: "type",
+            label: "Type",
+            value: kind,
+            options: [
+              { value: null, label: "All types" },
+              ...kinds.map((one) => ({
+                value: one as string | null,
+                label: one,
+              })),
+            ],
+            onChange: setKind,
+          },
+        ]}
+      />
+
+      <div className={DESK_BAR}>
         <ChoiceMenu
           heading="Type"
           icon={ListFilter}
@@ -122,7 +168,7 @@ export function Locations() {
             {shown.length === 1 ? "place" : "places"}
           </span>
         )}
-      </Toolbar>
+      </div>
 
       {queryState(places, {
         loading: "Opening the list of places…",
@@ -131,10 +177,17 @@ export function Locations() {
             <Card>
               <EmptyState>
                 {kind === null
-                  ? "No sites yet. Offices and the Gudang are created during setup; stores are opened with Open store."
+                  ? "No sites yet. Offices and the warehouse are created during setup; stores are opened with Open store."
                   : "No places of that type."}
               </EmptyState>
             </Card>
+          ) : phone ? (
+            <PhoneCards
+              rows={shown}
+              rowId={(row) => row.site_id}
+              spec={LOCATION_CARD}
+              onOpen={(row) => open.open(row.site_id)}
+            />
           ) : (
             <Card className="overflow-hidden">
               {/* The list scrolls INSIDE its own box rather than squashing the
@@ -179,6 +232,43 @@ export function Locations() {
       />
     </PageContent>
   )
+}
+
+/// A place as a phone's card: the name over its code, what it is and where,
+/// who to ring, what was billed there this month, and what hangs off it.
+const LOCATION_CARD: CardSpec<GaLocationRow> = {
+  title: (row) => <CardName name={row.site_name} code={row.site_id} />,
+  meta: [
+    (row) =>
+      [row.kind ?? row.site_kind, row.address]
+        .filter((part) => part !== null && part !== "")
+        .join(" · "),
+    (row) =>
+      row.contact_name === null
+        ? null
+        : [row.contact_name, row.contact_phone]
+            .filter((part) => part !== null)
+            .join(" · "),
+  ],
+  lead: (row) => (
+    <CardFigure
+      value={
+        <span title={money(row.billed_this_month_minor)}>
+          {moneyCompact(row.billed_this_month_minor)}
+        </span>
+      }
+      caption="Billed this month"
+    />
+  ),
+  foot: (row) =>
+    `${count(row.asset_count)} ${row.asset_count === 1 ? "asset" : "assets"} · ${count(row.contract_count)} ${row.contract_count === 1 ? "contract" : "contracts"}`,
+  action: (row) =>
+    row.open_repair_count > 0 ? (
+      <Pill tone="warn">
+        {count(row.open_repair_count)} open{" "}
+        {row.open_repair_count === 1 ? "repair" : "repairs"}
+      </Pill>
+    ) : null,
 }
 
 /// One place. The name leads and the code rides under it in mono, because

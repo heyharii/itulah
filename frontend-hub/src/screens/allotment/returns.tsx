@@ -10,10 +10,11 @@ import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { SavedDialog } from "@/components/ui/dialog"
+import { Fab } from "@/components/ui/fab"
 import { Input } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { EmptyState, Problem } from "@/components/ui/states"
-import { count } from "@/lib/format"
+import { count, quantity } from "@/lib/format"
 import {
   createAllotment,
   fleetPools,
@@ -54,15 +55,21 @@ export function ReturnsToHo() {
       </>
     )
   return (
-    <Allotments
-      title="Return to HO"
-      type="RETURN_TO_DC"
-      actions={
-        <Button variant="primary" onClick={() => setAsking(true)}>
-          New return
-        </Button>
-      }
-    />
+    <>
+      <Allotments
+        title="Return to HO"
+        type="RETURN_TO_DC"
+        actions={
+          <span className="max-md:hidden">
+            <Button variant="primary" onClick={() => setAsking(true)}>
+              New return
+            </Button>
+          </span>
+        }
+      />
+      {/* A phone's is the dock's round plus, as on every list. */}
+      <Fab label="New Return" onClick={() => setAsking(true)} />
+    </>
   )
 }
 
@@ -265,7 +272,7 @@ function NewReturn({
       </div>
 
       <div className="mt-5 flex items-center justify-between gap-4">
-        <span className="text-body tabular-nums">{count(total)} pcs</span>
+        <span className="text-body tabular-nums">{quantity(total)}</span>
         <Button
           variant="primary"
           pending={ask.isPending}

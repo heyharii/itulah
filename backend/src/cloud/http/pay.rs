@@ -597,9 +597,7 @@ pub async fn amend_identity(
         },
         "tax_method" => IdentityChange::TaxMethod {
             method: TaxMethod::parse(required("tax_method")?).ok_or_else(|| {
-                AppError::Validation(
-                    "tax_method is GROSS, GROSS_UP or NETTO".to_owned(),
-                )
+                AppError::Validation("tax_method is GROSS, GROSS_UP or NETTO".to_owned())
             })?,
         },
         other => {
@@ -650,7 +648,11 @@ pub async fn payslips(
     // The template's choice of whether the employee sees what the company
     // pays on top is about the employee's own payslip; head office reading
     // somebody's pay always sees the whole of it.
-    if raw == "me" && !infrastructure::payslip_template(&state.db).await?.show_company_contributions {
+    if raw == "me"
+        && !infrastructure::payslip_template(&state.db)
+            .await?
+            .show_company_contributions
+    {
         for slip in &mut slips {
             slip.company_contributions.clear();
             slip.company_borne_minor = None;
@@ -722,7 +724,9 @@ pub async fn set_payslip_password(
         ));
     }
     let access = resolve(&state, &principal, &raw).await?;
-    if let Some(hash) = infrastructure::payslip_password_hash(&state.db, &access.employee_id).await? {
+    if let Some(hash) =
+        infrastructure::payslip_password_hash(&state.db, &access.employee_id).await?
+    {
         let current = body.current.as_deref().unwrap_or_default();
         if !crate::security::password_matches(&hash, current) {
             return Err(AppError::Forbidden(
@@ -818,7 +822,9 @@ pub async fn run_withholdings(
 ) -> Result<Json<Vec<infrastructure::WithholdingView>>, AppError> {
     require(&principal, actions::PAY_READ)?;
     let run = reachable_run(&state, &principal, &id).await?;
-    Ok(Json(infrastructure::withholdings(&state.db, run.id()).await?))
+    Ok(Json(
+        infrastructure::withholdings(&state.db, run.id()).await?,
+    ))
 }
 
 /// Hold one person's pay on a run (0803). Head office's: it is a decision
@@ -831,11 +837,17 @@ pub async fn hold_pay(
 ) -> Result<Json<Vec<infrastructure::WithholdingView>>, AppError> {
     require(&principal, actions::PAY_CHANGE)?;
     let run = reachable_run(&state, &principal, &id).await?;
-    let authorization =
-        Authorization::try_new(&principal.username, actions::PAY_CHANGE, Utc::now(), &body.reason)
-            .map_err(invalid)?;
+    let authorization = Authorization::try_new(
+        &principal.username,
+        actions::PAY_CHANGE,
+        Utc::now(),
+        &body.reason,
+    )
+    .map_err(invalid)?;
     infrastructure::hold_pay(&state.db, run.id(), &body.employee_id, &authorization).await?;
-    Ok(Json(infrastructure::withholdings(&state.db, run.id()).await?))
+    Ok(Json(
+        infrastructure::withholdings(&state.db, run.id()).await?,
+    ))
 }
 
 pub async fn release_pay(
@@ -846,11 +858,17 @@ pub async fn release_pay(
 ) -> Result<Json<Vec<infrastructure::WithholdingView>>, AppError> {
     require(&principal, actions::PAY_CHANGE)?;
     let run = reachable_run(&state, &principal, &id).await?;
-    let authorization =
-        Authorization::try_new(&principal.username, actions::PAY_CHANGE, Utc::now(), &body.reason)
-            .map_err(invalid)?;
+    let authorization = Authorization::try_new(
+        &principal.username,
+        actions::PAY_CHANGE,
+        Utc::now(),
+        &body.reason,
+    )
+    .map_err(invalid)?;
     infrastructure::release_pay(&state.db, run.id(), &employee, &authorization).await?;
-    Ok(Json(infrastructure::withholdings(&state.db, run.id()).await?))
+    Ok(Json(
+        infrastructure::withholdings(&state.db, run.id()).await?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -1130,7 +1148,9 @@ pub async fn state_schedule(
 ) -> Result<Json<Vec<PayrollScheduleView>>, AppError> {
     require(&principal, actions::PAY_COMPONENT_RATIFY)?;
     if body.cutoff_day.is_some_and(|day| !(1..=28).contains(&day)) {
-        return Err(AppError::Validation("the cut-off day is 1 to 28".to_owned()));
+        return Err(AppError::Validation(
+            "the cut-off day is 1 to 28".to_owned(),
+        ));
     }
     if body.pay_day.is_some_and(|day| !(1..=31).contains(&day)) {
         return Err(AppError::Validation("the pay day is 1 to 31".to_owned()));
@@ -1257,8 +1277,7 @@ pub async fn approve_run(
     // line that counted nothing — stay visible on the screen and on the slip
     // rather than becoming an approval nobody can complete.
     let run = reachable_run(&state, &principal, &id).await?;
-    let month = AttendanceMonth::parse(run.period())
-        .map_err(infrastructure::attendance_error)?;
+    let month = AttendanceMonth::parse(run.period()).map_err(infrastructure::attendance_error)?;
     let first_day = infrastructure::month_first_day(month)?;
     let reconciliation = infrastructure::reconcile(&state.db, &run, first_day).await?;
     if reconciliation.unpayable > 0 {
@@ -1453,7 +1472,9 @@ pub async fn loans(
     let access = resolve(&state, &principal, &raw).await?;
     access.may_read(actions::PAY_READ)?;
     subject_is_reachable(&state, &access).await?;
-    Ok(Json(infrastructure::loans_of(&state.db, &access.employee_id).await?))
+    Ok(Json(
+        infrastructure::loans_of(&state.db, &access.employee_id).await?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -1479,7 +1500,9 @@ pub async fn grant_loan(
 ) -> Result<Json<Vec<infrastructure::LoanView>>, AppError> {
     require(&principal, actions::PAY_CHANGE)?;
     if raw == "me" {
-        return Err(AppError::Forbidden("a loan is granted to somebody else".into()));
+        return Err(AppError::Forbidden(
+            "a loan is granted to somebody else".into(),
+        ));
     }
     let access = resolve(&state, &principal, &raw).await?;
     subject_is_reachable(&state, &access).await?;
@@ -1505,7 +1528,9 @@ pub async fn grant_loan(
         &granted,
     )
     .await?;
-    Ok(Json(infrastructure::loans_of(&state.db, &access.employee_id).await?))
+    Ok(Json(
+        infrastructure::loans_of(&state.db, &access.employee_id).await?,
+    ))
 }
 
 /// Every loan, for head office's list.
@@ -1525,8 +1550,8 @@ pub async fn stop_loan(
     Json(body): Json<ReleaseBody>,
 ) -> Result<Json<Vec<infrastructure::LoanView>>, AppError> {
     require(&principal, actions::PAY_CHANGE)?;
-    let advance_id = uuid::Uuid::parse_str(&id)
-        .map_err(|_| AppError::NotFound(format!("loan {id}")))?;
+    let advance_id =
+        uuid::Uuid::parse_str(&id).map_err(|_| AppError::NotFound(format!("loan {id}")))?;
     let stopped = Authorization::try_new(
         &principal.username,
         actions::PAY_CHANGE,

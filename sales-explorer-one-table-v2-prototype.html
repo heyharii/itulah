@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sales one table v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* frontend-hub tokens (src/styles/index.css) */
+:root{
+  --ink:#20242c;--text:#394150;--body:#565f6d;--mute:#666f7d;--faint:#b9c0c9;--line-ico:#89919d;
+  --canvas:#ffffff;--soft:#f8f8f9;--soft-2:#f0f0f2;--soft-3:#f6f6f7;
+  --hairline:#e6e6e9;--hairline-2:#dadade;--hairline-strong:#c6c6cc;
+  --rail:#242526;--rail-2:#303234;--rail-mute:#a1a3a8;--dark:#191b20;
+  --accent:#2563eb;--accent-bg:#eff5ff;--ok:#15803d;--bad:#be123c;
+  --shadow-soft:0 1px 3px rgb(24 39 60 / 4%);
+  --r-card:10px;--r-inner:8px;--r-sheet:16px;
+  --ease-out:cubic-bezier(0.23,1,0.32,1);--ease-drawer:cubic-bezier(0.32,0.72,0,1);
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:#e9e9ec;color:var(--ink);font:400 15px/1.45 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+button,input{font:inherit;color:inherit}
+button{background:none;border:0;cursor:pointer;padding:0}
+.pressable{transition:transform 120ms var(--ease-out),background-color 150ms ease,color 150ms ease,box-shadow 150ms ease,border-color 150ms ease}
+.pressable:active{transform:scale(.97)}
+
+/* prototype chrome */
+.proto{position:sticky;top:0;z-index:80;display:flex;align-items:center;gap:16px;padding:8px 16px;background:var(--dark);color:#fff;font-size:14px;flex-wrap:wrap}
+.proto b{font-weight:600}
+.proto .grp{display:flex;align-items:center;gap:4px}
+.proto .grp span{color:#a1a3a8;margin-right:4px}
+.proto .grp button{padding:5px 10px;border-radius:999px;color:#c3c4c7}
+.proto .grp button.on{background:#fff;color:var(--dark)}
+.proto .note{margin-left:auto;color:#a1a3a8}
+
+/* device frames */
+.stage{display:flex;justify-content:center;padding:0}
+.stage.tablet,.stage.phone{padding:24px}
+.device{width:100%;background:var(--soft-3);position:relative;overflow:hidden}
+.stage.tablet .device{width:834px;height:1112px;border-radius:24px;box-shadow:0 0 0 10px #1b1c1f,0 30px 80px rgba(0,0,0,.25)}
+.stage.phone .device{width:414px;height:896px;border-radius:44px;box-shadow:0 0 0 10px #1b1c1f,0 30px 80px rgba(0,0,0,.25)}
+.app{display:flex;min-height:calc(100vh - 42px);height:100%;container-type:inline-size;container-name:app}
+.stage.tablet .app,.stage.phone .app{min-height:0}
+.rail{width:64px;flex:none;background:var(--rail);display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 0}
+.rail .logo{width:32px;height:32px;border-radius:8px;background:#000;color:#fff;font-weight:700;display:grid;place-items:center;margin-bottom:12px;position:relative}
+.rail .logo:after{content:"";position:absolute;right:7px;top:14px;width:5px;height:5px;border-radius:50%;background:var(--accent)}
+.rail i{width:36px;height:36px;border-radius:8px;display:block;position:relative}
+.rail i:before{content:"";position:absolute;inset:11px;border:1.6px solid var(--rail-mute);border-radius:4px}
+.rail i.on{background:var(--rail-2)}
+.rail i.on:before{border-color:#fff}
+.page{flex:1;min-width:0;padding:22px 28px 28px;overflow:auto}
+.stage.phone .rail{display:none}
+.stage.phone .page{padding:52px 16px 96px}
+
+/* header */
+.head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.title h1{margin:0;font-size:22px;line-height:28px;font-weight:600}
+.title p{margin:2px 0 0;color:var(--mute)}
+.grow{flex:1}
+.seg{display:inline-flex;background:var(--soft-2);border-radius:var(--r-inner);padding:3px;gap:2px;flex:none}
+.seg button{height:30px;padding:0 12px;border-radius:6px;color:var(--body);font-size:14px;font-weight:500;white-space:nowrap}
+.seg button.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(16,24,40,.08)}
+.btn{height:36px;padding:0 12px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:#fff;font-size:14px;font-weight:500;display:inline-flex;align-items:center;gap:8px;color:var(--text);white-space:nowrap}
+.btn svg{color:var(--line-ico)}
+.btn .badge{background:var(--ink);color:#fff;border-radius:999px;font-size:13px;line-height:18px;min-width:18px;text-align:center;padding:0 5px}
+.btn.on{border-color:var(--ink);color:var(--ink)}
+
+/* KPI — the hub's Kpi card: label 14 medium, figure 18 semibold */
+.kpis{margin-top:16px;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}
+.kpi{display:flex;flex-direction:column;border:1px solid var(--hairline);border-radius:var(--r-card);background:#fff;padding:10px 16px;box-shadow:var(--shadow-soft);min-width:0}
+.kpi .l{font-size:14px;font-weight:500;color:var(--body)}
+.kpi .v{margin-top:auto;padding-top:6px;font-size:18px;line-height:1;font-weight:600;letter-spacing:-.02em;color:var(--ink);white-space:nowrap}
+.kpi .s{margin-top:6px;font-size:14px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* tabs: three hub tastes */
+.navwrap{margin-top:20px}
+.tabs-under{display:flex;gap:2px;box-shadow:inset 0 -1px 0 var(--hairline)}
+.tabs-under button{border-bottom:2px solid transparent;padding:8px 12px 10px;font-size:14px;font-weight:500;color:var(--body);white-space:nowrap}
+.tabs-under button:hover{color:var(--ink)}
+.tabs-under button.on{border-color:var(--ink);color:var(--ink)}
+.tabs-under button .c,.tabs-quiet button .c{color:var(--faint);font-weight:400;margin-left:6px}
+.tabs-nav{display:inline-flex;gap:2px;background:#fff;border:1px solid var(--hairline);border-radius:12px;padding:4px;box-shadow:var(--shadow-soft)}
+.tabs-nav button{height:34px;padding:0 14px;border-radius:8px;font-size:14px;font-weight:500;color:var(--body);white-space:nowrap}
+.tabs-nav button:hover{background:var(--soft)}
+.tabs-nav button.on{background:var(--ink);color:#fff}
+.tabs-quiet{display:flex;gap:22px;flex-wrap:wrap}
+.tabs-quiet button{font-size:15px;font-weight:500;color:var(--mute);padding:6px 0;white-space:nowrap}
+.tabs-quiet button.on{color:var(--ink);font-weight:600}
+
+/* results */
+.card{margin-top:12px;background:#fff;border:1px solid var(--hairline);border-radius:var(--r-card);overflow:hidden;box-shadow:var(--shadow-soft)}
+.s3 .card{background:transparent;border:0;box-shadow:none;border-radius:0}
+.s3 .card .tools{padding-left:0;padding-right:0}
+.tools{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--hairline);flex-wrap:wrap}
+.search{height:36px;width:280px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);background:#fff;display:flex;align-items:center;gap:8px;padding:0 12px;color:var(--mute)}
+.search:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.search input{border:0;outline:0;flex:1;min-width:0;background:transparent;color:var(--ink)}
+.switch{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 4px;color:var(--text);font-size:14px;font-weight:500}
+.switch .t{width:34px;height:20px;border-radius:999px;background:var(--hairline-strong);position:relative;transition:background-color 150ms ease}
+.switch .t:after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:transform 160ms var(--ease-out)}
+.switch.on .t{background:var(--accent)}
+.switch.on .t:after{transform:translateX(14px)}
+.applied{display:flex;gap:8px;align-items:center;padding:8px 16px;border-bottom:1px solid var(--hairline);color:var(--body);font-size:14px}
+.applied button,.crumb button{color:var(--accent);font-weight:500}
+.crumb{display:flex;align-items:center;gap:6px;padding:10px 16px;border-bottom:1px solid var(--hairline);color:var(--mute);font-size:14px}
+
+.scroll{overflow:auto;position:relative}
+.stage.desktop .scroll{max-height:calc(100vh - 420px);min-height:300px}
+.stage.tablet .scroll{max-height:640px}
+table{border-collapse:separate;border-spacing:0;width:100%}
+th,td{padding:0 14px;height:60px;border-bottom:1px solid var(--hairline);text-align:right;white-space:nowrap;background:#fff}
+.s3 th,.s3 td{background:var(--soft-3)}
+.s2 th,.s2 td{height:56px}
+thead th{height:40px;font-size:14px;font-weight:500;color:var(--mute);position:sticky;top:0;z-index:4}
+th:first-child,td:first-child{text-align:left;position:sticky;left:0;z-index:2;padding-left:16px}
+thead th:first-child{z-index:6}
+.pin{position:sticky;right:0;z-index:2;background:var(--soft)}
+.s3 .pin{background:#fff}
+th.pin{z-index:6}
+.pin-l{box-shadow:-8px 0 10px -8px rgba(16,24,40,.16);border-left:1px solid var(--hairline-2)}
+td.name{min-width:220px;max-width:280px;white-space:normal}
+td.name .n{font-weight:500;color:var(--ink);line-height:20px}
+td.name .d{color:var(--mute);font-size:14px;line-height:20px}
+tbody tr{cursor:pointer}
+tbody tr:hover td{background:var(--soft)}
+tbody tr:hover td.pin{background:var(--soft-2)}
+tfoot td{position:sticky;bottom:0;z-index:3;background:var(--soft-2);font-weight:600;border-top:1px solid var(--hairline-2);border-bottom:0}
+tfoot td:first-child,tfoot td.pin{z-index:5;background:var(--soft-2)}
+.two{line-height:20px}
+.two .a{color:var(--ink)}
+.two .z{color:var(--mute);font-size:14px}
+.b{font-weight:600}
+.sep{border-left:1px solid var(--hairline)}
+.foot{display:flex;align-items:center;gap:12px;padding:12px 16px;color:var(--mute);font-size:14px}
+.s3 .foot{padding-left:0}
+.legend{display:inline-flex;align-items:center;gap:6px}
+.legend span{display:inline-block;width:72px;height:10px;border-radius:5px;background:linear-gradient(90deg,rgba(37,99,235,.04),rgba(37,99,235,.32))}
+.fade{animation:fade 160ms var(--ease-out)}
+@keyframes fade{from{opacity:.5}to{opacity:1}}
+
+/* phone list */
+.plist{margin-top:12px;display:flex;flex-direction:column;gap:8px}
+.pcard{background:#fff;border:1px solid var(--hairline);border-radius:var(--r-card);padding:12px 14px;box-shadow:var(--shadow-soft)}
+.pcard .top{display:flex;align-items:baseline;gap:8px}
+.pcard .top .n{font-weight:500}
+.pcard .top .v{margin-left:auto;font-weight:600;font-size:16px}
+.pcard .meta{color:var(--mute);font-size:14px;margin-top:4px;display:flex;flex-wrap:wrap;gap:4px 12px}
+.pcard .stores{margin-top:10px;border-top:1px solid var(--hairline);padding-top:6px}
+.pcard .stores > div{display:grid;grid-template-columns:44px 1fr 1fr;align-items:center;font-size:14px;line-height:32px;color:var(--text);border-radius:6px;padding:0 6px;margin:0 -6px;white-space:nowrap}
+.pcard .stores > div > span{text-align:right}
+.pcard .stores > div > span:first-child{text-align:left;color:var(--mute)}
+.pcard .stores > div > span:nth-child(2){color:var(--ink)}
+.pcard .stores > div > span:nth-child(n+3){color:var(--mute)}
+.pcard .stores > div.h{line-height:24px;color:var(--faint)}
+.pcard .stores .two{line-height:18px;padding:5px 0}
+.pcard .stores .two .z{font-size:14px}
+.pcard .stores > div.h span{color:var(--faint)!important}
+.ptotal{background:var(--soft-2);border-radius:var(--r-card);padding:12px 14px;display:flex;font-weight:600}
+.dock{position:absolute;left:12px;right:12px;bottom:20px;z-index:30;display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.92);backdrop-filter:blur(12px);border:1px solid var(--hairline);border-radius:16px;padding:6px;box-shadow:0 8px 24px rgba(16,24,40,.12)}
+.dock .chip{height:44px;padding:0 12px;border-radius:12px;background:var(--ink);color:#fff;font-weight:500;display:inline-flex;align-items:center;gap:6px;font-size:14px}
+.dock .ib{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;color:var(--text);position:relative}
+.dock .ib:hover{background:var(--soft-2)}
+.dock .ib .badge{position:absolute;top:6px;right:6px;background:var(--accent);color:#fff;border-radius:999px;font-size:12px;min-width:16px;height:16px;line-height:16px;text-align:center}
+.dock .per{margin-left:auto;height:44px;padding:0 10px;border-radius:12px;color:var(--text);font-size:14px;font-weight:500;display:inline-flex;align-items:center;gap:6px}
+
+/* floating sheet: two panes */
+.scrim{position:absolute;inset:0;background:rgba(25,27,32,.2);z-index:50;opacity:0;pointer-events:none;transition:opacity 200ms ease}
+.scrim.open{opacity:1;pointer-events:auto}
+.sheet{position:absolute;top:16px;right:16px;bottom:16px;width:620px;max-width:calc(100% - 32px);background:#fff;border-radius:var(--r-sheet);box-shadow:0 24px 64px rgba(16,24,40,.18),0 2px 6px rgba(16,24,40,.06);z-index:51;display:flex;flex-direction:column;transform:translateX(calc(100% + 24px));transition:transform 260ms var(--ease-drawer)}
+.sheet.open{transform:none}
+.stage.phone .sheet{top:auto;left:8px;right:8px;bottom:8px;width:auto;height:78%;transform:translateY(calc(100% + 16px))}
+.stage.phone .sheet.open{transform:none}
+.sh-h{display:flex;align-items:center;gap:10px;padding:16px 20px;border-bottom:1px solid var(--hairline)}
+.sh-h h2{margin:0;font-size:18px;font-weight:600}
+.sh-h .x{margin-left:auto;width:36px;height:36px;border-radius:8px;display:grid;place-items:center;color:var(--mute)}
+.sh-b{flex:1;overflow:auto}
+.sh-f{display:flex;align-items:center;gap:10px;padding:14px 20px;border-top:1px solid var(--hairline)}
+.sh-f .primary{margin-left:auto;height:44px;padding:0 18px;border-radius:var(--r-inner);background:var(--ink);color:#fff;font-weight:600}
+.panes{display:grid;grid-template-columns:200px 1fr;height:100%}
+.panes nav{border-right:1px solid var(--hairline);padding:8px;overflow:auto}
+.panes nav button{display:flex;width:100%;align-items:center;height:42px;padding:0 12px;border-radius:8px;color:var(--text);font-weight:500;font-size:14px}
+.panes nav button.on{background:var(--soft-2);color:var(--ink)}
+.panes nav button small{margin-left:auto;color:var(--mute);font-weight:400;font-size:14px}
+.panes .pane{padding:12px 16px;overflow:auto}
+.opt{display:flex;align-items:center;gap:10px;height:42px;padding:0 6px;border-radius:8px;cursor:pointer;color:var(--text)}
+.opt:hover{background:var(--soft)}
+.opt .box{width:18px;height:18px;border:1.5px solid var(--hairline-strong);border-radius:5px;display:grid;place-items:center;flex:none}
+.opt.on .box{background:var(--ink);border-color:var(--ink)}
+.opt.on .box:after{content:"";width:9px;height:5px;border:2px solid #fff;border-top:0;border-right:0;transform:rotate(-45deg) translate(1px,-1px)}
+.opt .c{margin-left:auto;color:var(--mute);font-size:14px}
+.mini-search{height:36px;border:1px solid var(--hairline-2);border-radius:var(--r-inner);display:flex;align-items:center;padding:0 10px;margin-bottom:6px;color:var(--mute);gap:8px}
+.mini-search input{border:0;outline:0;flex:1;min-width:0}
+.prow{display:flex;align-items:center;height:52px;border-bottom:1px solid var(--hairline);padding:0 20px;gap:10px;cursor:pointer}
+.prow .k{font-weight:500}.prow .val{margin-left:auto;color:var(--mute)}
+.back{display:inline-flex;align-items:center;gap:6px;color:var(--accent);font-weight:500;height:40px;padding:0 20px}
+
+/* calendar */
+.cal{position:absolute;z-index:45;background:#fff;border:1px solid var(--hairline);border-radius:14px;box-shadow:0 16px 48px rgba(16,24,40,.16);display:flex;transform-origin:top right;animation:pop 160ms var(--ease-out)}
+@keyframes pop{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:none}}
+.cal .pre{border-right:1px solid var(--hairline);padding:10px;width:160px}
+.cal .pre button{display:block;width:100%;text-align:left;height:36px;padding:0 10px;border-radius:8px;color:var(--text);font-size:14px}
+.cal .pre button:hover{background:var(--soft)}
+.cal .pre button.on{background:var(--soft-2);color:var(--ink);font-weight:500}
+.cal .mons{padding:14px 16px}
+.cal .nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.cal .nav button{width:32px;height:32px;border-radius:8px;color:var(--body)}
+.cal .pair{display:flex;gap:24px}
+.mon h4{margin:0 0 6px;text-align:center;font-size:15px;font-weight:600}
+.mon .dow,.mon .days{display:grid;grid-template-columns:repeat(7,36px)}
+.mon .dow span{height:28px;display:grid;place-items:center;color:var(--mute);font-size:14px}
+.mon .days button{height:36px;font-size:14px;color:var(--text)}
+.mon .days button.out{color:var(--faint);cursor:default}
+.mon .days button.in{background:var(--accent-bg)}
+.mon .days button.end{background:var(--ink);color:#fff;border-radius:8px}
+.cal .cf{display:flex;align-items:center;gap:10px;border-top:1px solid var(--hairline);padding:12px 16px;margin:12px -16px -14px}
+.cal .cf .primary{margin-left:auto;height:36px;padding:0 14px;border-radius:var(--r-inner);background:var(--ink);color:#fff;font-weight:600}
+.stage.phone .cal{position:absolute;left:8px;right:8px;bottom:8px;top:auto;flex-direction:column;border-radius:16px}
+.stage.phone .cal .pre{display:flex;flex-wrap:wrap;width:auto;border-right:0;border-bottom:1px solid var(--hairline);gap:4px}
+.stage.phone .cal .pre button{width:auto;padding:0 10px}
+.stage.phone .cal .pair .mon:last-child{display:none}
+.stage.phone .mon .dow,.stage.phone .mon .days{grid-template-columns:repeat(7,1fr)}
+
+/* tablet: the hub's md breakpoint */
+@container app (max-width: 900px){
+  .kpis{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .search{width:220px}
+  .page{padding:20px}
+  .tabs-under button{padding:8px 9px 10px}
+  .tabs-nav button{padding:0 10px}
+}
+</style>
+</head>
+<body>
+<div class="proto">
+  <b>Sales — One table v2</b>
+  <div class="grp"><span>Style</span><button class="pressable" data-style="1">1 · Hub tabs</button><button class="pressable" data-style="2">2 · Navbar</button><button class="pressable" data-style="3">3 · Quiet</button></div>
+  <div class="grp"><span>Device</span><button class="pressable" data-device="desktop">Desktop</button><button class="pressable" data-device="tablet">Tablet</button><button class="pressable" data-device="phone">Phone</button></div>
+  <span class="note">Real: transactions, sold, net sales, divisions, stores, months, payment · Sample: stock, acquisition, tags, suppliers, cashier sessions</span>
+</div>
+<div class="stage desktop" id="stage">
+  <div class="device" id="device">
+    <div class="app" id="app">
+      <nav class="rail"><div class="logo">C</div><i></i><i></i><i></i><i></i><i class="on"></i><i></i><i></i></nav>
+      <main class="page" id="page"></main>
+    </div>
+    <div id="dock"></div>
+    <div class="scrim" id="scrim"></div>
+    <aside class="sheet" id="sheet"></aside>
+  </div>
+</div>
+<script>
+const D = {"div": [{"code": "ANAK_LAKI", "label": "Anak Laki-laki", "sold": 133344, "net": 40051237392, "articles": 800}, {"code": "WANITA", "label": "Wanita", "sold": 133328, "net": 40046649496, "articles": 800}, {"code": "WOMENSWEAR", "label": "Womenswear", "sold": 133328, "net": 40033440408, "articles": 800}, {"code": "ANAK_PEREMPUAN", "label": "Anak Perempuan", "sold": 133344, "net": 40018055568, "articles": 800}, {"code": "MENSWEAR", "label": "Menswear", "sold": 133328, "net": 40007104024, "articles": 800}, {"code": "PERLENGKAPAN_BAYI", "label": "Perlengkapan Bayi", "sold": 133328, "net": 40004685848, "articles": 800}, {"code": "NON_DIVISI", "label": "Non Divisi", "sold": 133328, "net": 39948694936, "articles": 800}, {"code": "DIVIDED", "label": "Divided", "sold": 133344, "net": 39946873744, "articles": 800}, {"code": "TAS", "label": "Tas", "sold": 133328, "net": 39941058584, "articles": 800}, {"code": "PRIA", "label": "Pria", "sold": 124995, "net": 37544616760, "articles": 800}, {"code": "KIDS", "label": "Kids", "sold": 124995, "net": 37535786245, "articles": 800}, {"code": "AKSESORIS", "label": "Aksesoris", "sold": 125010, "net": 37504020110, "articles": 800}, {"code": "FOOTWEAR", "label": "Footwear", "sold": 125010, "net": 37479134080, "articles": 800}, {"code": "SANDAL_SEPATU", "label": "Sandal dan Sepatu", "sold": 124995, "net": 37467818645, "articles": 800}, {"code": "ACCESSORY", "label": "Accessories", "sold": 124995, "net": 37458649160, "articles": 800}], "store": [{"id": "store-c001", "code": "C001-TOKO", "name": "Toko Load 01", "sold": 150000, "net": 44998495168}, {"id": "store-c002", "code": "C002-TOKO", "name": "Toko Load 02", "sold": 150000, "net": 44998154832}, {"id": "store-c003", "code": "C003-TOKO", "name": "Toko Load 03", "sold": 150000, "net": 44998649860}, {"id": "store-c004", "code": "C004-TOKO", "name": "Toko Load 04", "sold": 150000, "net": 44999144888}, {"id": "store-c005", "code": "C005-TOKO", "name": "Toko Load 05", "sold": 150000, "net": 44999239916}, {"id": "store-c006", "code": "C006-TOKO", "name": "Toko Load 06", "sold": 150000, "net": 45000534944}, {"id": "store-c007", "code": "C007-TOKO", "name": "Toko Load 07", "sold": 150000, "net": 44999829972}, {"id": "store-c008", "code": "C008-TOKO", "name": "Toko Load 08", "sold": 150000, "net": 44998725000}, {"id": "store-c009", "code": "C009-TOKO", "name": "Toko Load 09", "sold": 150000, "net": 44998820028}, {"id": "store-c010", "code": "C010-TOKO", "name": "Toko Load 10", "sold": 150000, "net": 44999715056}, {"id": "store-c011", "code": "C011-TOKO", "name": "Toko Load 11", "sold": 150000, "net": 44999410084}, {"id": "store-c012", "code": "C012-TOKO", "name": "Toko Load 12", "sold": 150000, "net": 44998305112}, {"id": "store-c013", "code": "C013-TOKO", "name": "Toko Load 13", "sold": 150000, "net": 44998800140}], "rcpt": {"store-c001": {"done": 75000, "voided": 1923}, "store-c002": {"done": 75000, "voided": 1924}, "store-c003": {"done": 75000, "voided": 1923}, "store-c004": {"done": 75000, "voided": 1923}, "store-c005": {"done": 75000, "voided": 1923}, "store-c006": {"done": 75000, "voided": 1923}, "store-c007": {"done": 75000, "voided": 1923}, "store-c008": {"done": 75000, "voided": 1923}, "store-c009": {"done": 75000, "voided": 1923}, "store-c010": {"done": 75000, "voided": 1923}, "store-c011": {"done": 75000, "voided": 1923}, "store-c012": {"done": 75000, "voided": 1923}, "store-c013": {"done": 75000, "voided": 1923}}, "divstore": {"DIVIDED": {"store-c007": {"sold": 10257, "net": 3073359512}, "store-c003": {"sold": 10258, "net": 3073090183}, "store-c002": {"sold": 10258, "net": 3074447547}, "store-c010": {"sold": 10256, "net": 3072633576}, "store-c013": {"sold": 10258, "net": 3072800755}, "store-c011": {"sold": 10256, "net": 3071644536}, "store-c008": {"sold": 10256, "net": 3072077176}, "store-c005": {"sold": 10258, "net": 3073136975}, "store-c006": {"sold": 10258, "net": 3072579611}, "store-c012": {"sold": 10257, "net": 3072391527}, "store-c004": {"sold": 10258, "net": 3072932819}, "store-c009": {"sold": 10256, "net": 3072336136}, "store-c001": {"sold": 10258, "net": 3073443391}}, "ANAK_LAKI": {"store-c013": {"sold": 10258, "net": 3080430919}, "store-c003": {"sold": 10258, "net": 3080720347}, "store-c005": {"sold": 10256, "net": 3079924728}, "store-c010": {"sold": 10258, "net": 3081341491}, "store-c011": {"sold": 10258, "net": 3081584127}, "store-c004": {"sold": 10257, "net": 3081353656}, "store-c009": {"sold": 10257, "net": 3080385671}, "store-c006": {"sold": 10256, "net": 3080583688}, "store-c008": {"sold": 10256, "net": 3079892088}, "store-c001": {"sold": 10258, "net": 3080273555}, "store-c007": {"sold": 10256, "net": 3081281128}, "store-c012": {"sold": 10258, "net": 3082188283}, "store-c002": {"sold": 10258, "net": 3081277711}}, "KIDS": {"store-c011": {"sold": 9615, "net": 2886820745}, "store-c005": {"sold": 9615, "net": 2886776905}, "store-c008": {"sold": 9615, "net": 2887960345}, "store-c007": {"sold": 9615, "net": 2888496025}, "store-c009": {"sold": 9615, "net": 2887424665}, "store-c013": {"sold": 9615, "net": 2887074345}, "store-c002": {"sold": 9615, "net": 2887593465}, "store-c006": {"sold": 9615, "net": 2887441225}, "store-c001": {"sold": 9615, "net": 2886977145}, "store-c004": {"sold": 9615, "net": 2886960585}, "store-c003": {"sold": 9615, "net": 2887057785}, "store-c010": {"sold": 9615, "net": 2887317945}, "store-c012": {"sold": 9615, "net": 2887885065}}, "ANAK_PEREMPUAN": {"store-c011": {"sold": 10258, "net": 3077649979}, "store-c009": {"sold": 10258, "net": 3078403187}, "store-c012": {"sold": 10257, "net": 3077756584}, "store-c001": {"sold": 10256, "net": 3078459912}, "store-c007": {"sold": 10258, "net": 3079117915}, "store-c013": {"sold": 10256, "net": 3078600952}, "store-c010": {"sold": 10258, "net": 3077407343}, "store-c002": {"sold": 10256, "net": 3077157352}, "store-c006": {"sold": 10258, "net": 3079313759}, "store-c004": {"sold": 10257, "net": 3078388599}, "store-c005": {"sold": 10258, "net": 3078671123}, "store-c003": {"sold": 10256, "net": 3077768312}, "store-c008": {"sold": 10258, "net": 3079360551}}, "PERLENGKAPAN_BAYI": {"store-c008": {"sold": 10256, "net": 3077647336}, "store-c007": {"sold": 10256, "net": 3077797896}, "store-c003": {"sold": 10256, "net": 3077792536}, "store-c012": {"sold": 10256, "net": 3077425656}, "store-c011": {"sold": 10256, "net": 3077614696}, "store-c005": {"sold": 10256, "net": 3076614456}, "store-c006": {"sold": 10256, "net": 3077986936}, "store-c009": {"sold": 10256, "net": 3077458296}, "store-c004": {"sold": 10256, "net": 3076803496}, "store-c001": {"sold": 10256, "net": 3077009096}, "store-c002": {"sold": 10256, "net": 3076820056}, "store-c010": {"sold": 10256, "net": 3077317256}, "store-c013": {"sold": 10256, "net": 3076398136}}, "ACCESSORY": {"store-c011": {"sold": 9615, "net": 2881436280}, "store-c001": {"sold": 9615, "net": 2881371720}, "store-c008": {"sold": 9615, "net": 2881452840}, "store-c007": {"sold": 9615, "net": 2881188520}, "store-c004": {"sold": 9615, "net": 2882232120}, "store-c012": {"sold": 9615, "net": 2881652600}, "store-c013": {"sold": 9615, "net": 2880755400}, "store-c003": {"sold": 9615, "net": 2881138840}, "store-c010": {"sold": 9615, "net": 2881571960}, "store-c006": {"sold": 9615, "net": 2881647240}, "store-c005": {"sold": 9615, "net": 2881696440}, "store-c002": {"sold": 9615, "net": 2880436040}, "store-c009": {"sold": 9615, "net": 2882069160}}, "MENSWEAR": {"store-c011": {"sold": 10256, "net": 3077656648}, "store-c003": {"sold": 10256, "net": 3077434488}, "store-c002": {"sold": 10256, "net": 3077262008}, "store-c008": {"sold": 10256, "net": 3076262248}, "store-c010": {"sold": 10256, "net": 3077445688}, "store-c004": {"sold": 10256, "net": 3078445448}, "store-c012": {"sold": 10256, "net": 3077867608}, "store-c013": {"sold": 10256, "net": 3077240088}, "store-c005": {"sold": 10256, "net": 3078294888}, "store-c007": {"sold": 10256, "net": 3077164808}, "store-c009": {"sold": 10256, "net": 3077273208}, "store-c006": {"sold": 10256, "net": 3077305848}, "store-c001": {"sold": 10256, "net": 3077451048}}, "WOMENSWEAR": {"store-c007": {"sold": 10256, "net": 3079368056}, "store-c003": {"sold": 10256, "net": 3079001176}, "store-c012": {"sold": 10256, "net": 3079395816}, "store-c013": {"sold": 10256, "net": 3080406776}, "store-c005": {"sold": 10256, "net": 3080584616}, "store-c006": {"sold": 10256, "net": 3078795576}, "store-c009": {"sold": 10256, "net": 3079028456}, "store-c008": {"sold": 10256, "net": 3079579016}, "store-c010": {"sold": 10256, "net": 3080439416}, "store-c002": {"sold": 10256, "net": 3079590216}, "store-c011": {"sold": 10256, "net": 3079098376}, "store-c001": {"sold": 10256, "net": 3078579256}, "store-c004": {"sold": 10256, "net": 3079573656}}, "WANITA": {"store-c007": {"sold": 10256, "net": 3081313992}, "store-c002": {"sold": 10256, "net": 3080963192}, "store-c013": {"sold": 10256, "net": 3080102792}, "store-c005": {"sold": 10256, "net": 3079730552}, "store-c009": {"sold": 10256, "net": 3080497432}, "store-c012": {"sold": 10256, "net": 3079891832}, "store-c010": {"sold": 10256, "net": 3079908392}, "store-c011": {"sold": 10256, "net": 3080519352}, "store-c006": {"sold": 10256, "net": 3080303032}, "store-c001": {"sold": 10256, "net": 3080352232}, "store-c003": {"sold": 10256, "net": 3081622152}, "store-c004": {"sold": 10256, "net": 3079919592}, "store-c008": {"sold": 10256, "net": 3081524952}}, "NON_DIVISI": {"store-c009": {"sold": 10256, "net": 3073327272}, "store-c006": {"sold": 10256, "net": 3072732872}, "store-c007": {"sold": 10256, "net": 3072143832}, "store-c010": {"sold": 10256, "net": 3072738232}, "store-c012": {"sold": 10256, "net": 3073121672}, "store-c005": {"sold": 10256, "net": 3072521912}, "store-c001": {"sold": 10256, "net": 3073982072}, "store-c011": {"sold": 10256, "net": 3072910712}, "store-c002": {"sold": 10256, "net": 3072641032}, "store-c003": {"sold": 10256, "net": 3072538472}, "store-c008": {"sold": 10256, "net": 3073116312}, "store-c004": {"sold": 10256, "net": 3072749432}, "store-c013": {"sold": 10256, "net": 3074171112}}, "AKSESORIS": {"store-c009": {"sold": 9616, "net": 2883936329}, "store-c011": {"sold": 9615, "net": 2884590265}, "store-c007": {"sold": 9617, "net": 2884836480}, "store-c001": {"sold": 9615, "net": 2883898665}, "store-c013": {"sold": 9615, "net": 2885682345}, "store-c006": {"sold": 9617, "net": 2884540484}, "store-c008": {"sold": 9617, "net": 2885532476}, "store-c010": {"sold": 9615, "net": 2885125945}, "store-c003": {"sold": 9617, "net": 2885710016}, "store-c005": {"sold": 9617, "net": 2886654008}, "store-c004": {"sold": 9617, "net": 2884358012}, "store-c002": {"sold": 9617, "net": 2885775540}, "store-c012": {"sold": 9615, "net": 2883379545}}, "FOOTWEAR": {"store-c010": {"sold": 9617, "net": 2883352539}, "store-c003": {"sold": 9615, "net": 2882706840}, "store-c005": {"sold": 9615, "net": 2881798920}, "store-c004": {"sold": 9615, "net": 2883057640}, "store-c008": {"sold": 9617, "net": 2882408547}, "store-c002": {"sold": 9615, "net": 2882442520}, "store-c009": {"sold": 9617, "net": 2883504543}, "store-c001": {"sold": 9617, "net": 2883765483}, "store-c012": {"sold": 9617, "net": 2883535011}, "store-c007": {"sold": 9616, "net": 2882580775}, "store-c013": {"sold": 9617, "net": 2882631007}, "store-c006": {"sold": 9615, "net": 2883263240}, "store-c011": {"sold": 9617, "net": 2884087015}}, "TAS": {"store-c011": {"sold": 10256, "net": 3072826808}, "store-c005": {"sold": 10256, "net": 3073026568}, "store-c013": {"sold": 10256, "net": 3072448728}, "store-c007": {"sold": 10256, "net": 3071886968}, "store-c012": {"sold": 10256, "net": 3072637768}, "store-c002": {"sold": 10256, "net": 3071232168}, "store-c009": {"sold": 10256, "net": 3072843368}, "store-c001": {"sold": 10256, "net": 3072221208}, "store-c003": {"sold": 10256, "net": 3071443128}, "store-c010": {"sold": 10256, "net": 3072654328}, "store-c006": {"sold": 10256, "net": 3073276008}, "store-c008": {"sold": 10256, "net": 3072145928}, "store-c004": {"sold": 10256, "net": 3072415608}}, "PRIA": {"store-c005": {"sold": 9615, "net": 2888752440}, "store-c006": {"sold": 9615, "net": 2888293720}, "store-c009": {"sold": 9615, "net": 2887877160}, "store-c004": {"sold": 9615, "net": 2888401640}, "store-c002": {"sold": 9615, "net": 2887844040}, "store-c003": {"sold": 9615, "net": 2888137320}, "store-c008": {"sold": 9615, "net": 2887574360}, "store-c012": {"sold": 9615, "net": 2887460600}, "store-c007": {"sold": 9615, "net": 2887358040}, "store-c010": {"sold": 9615, "net": 2888541480}, "store-c011": {"sold": 9615, "net": 2888357800}, "store-c001": {"sold": 9615, "net": 2887941240}, "store-c013": {"sold": 9615, "net": 2888076920}}, "SANDAL_SEPATU": {"store-c005": {"sold": 9615, "net": 2881055385}, "store-c013": {"sold": 9615, "net": 2881979865}, "store-c009": {"sold": 9615, "net": 2882455145}, "store-c012": {"sold": 9615, "net": 2881715545}, "store-c007": {"sold": 9615, "net": 2881936025}, "store-c010": {"sold": 9615, "net": 2881919465}, "store-c004": {"sold": 9615, "net": 2881552585}, "store-c006": {"sold": 9615, "net": 2882471705}, "store-c008": {"sold": 9615, "net": 2882190825}, "store-c002": {"sold": 9615, "net": 2882671945}, "store-c001": {"sold": 9615, "net": 2882769145}, "store-c011": {"sold": 9615, "net": 2882612745}, "store-c003": {"sold": 9615, "net": 2882488265}}}, "month": [{"m": "2025-01-01", "sold": 167776, "net": 50335969224}, {"m": "2025-02-01", "sold": 151940, "net": 45573402542}, {"m": "2025-03-01", "sold": 168204, "net": 50459733434}, {"m": "2025-04-01", "sold": 163068, "net": 48926046586}, {"m": "2025-05-01", "sold": 167776, "net": 50331122504}, {"m": "2025-06-01", "sold": 163068, "net": 48921481066}, {"m": "2025-07-01", "sold": 168204, "net": 50460059946}, {"m": "2025-08-01", "sold": 168204, "net": 50454245522}, {"m": "2025-09-01", "sold": 161882, "net": 48564516723}, {"m": "2025-10-01", "sold": 167418, "net": 50226482091}, {"m": "2025-11-01", "sold": 161880, "net": 48562375240}, {"m": "2025-12-01", "sold": 140580, "net": 42172390122}], "tags": [{"code": "AKSESORI", "label": "Aksesori"}, {"code": "BASIC", "label": "Basic"}, {"code": "BLUS", "label": "Blus"}, {"code": "CELANA", "label": "Celana"}, {"code": "CELANA_PENDEK", "label": "Celana Pendek"}, {"code": "DENIM", "label": "Denim"}, {"code": "FORMAL", "label": "Formal"}, {"code": "GAUN", "label": "Gaun"}, {"code": "JAKET", "label": "Jaket"}, {"code": "KAOS", "label": "Kaos"}, {"code": "KAUS_KAKI", "label": "Kaus Kaki"}, {"code": "KEMEJA", "label": "Kemeja"}, {"code": "LENGAN_PANJANG", "label": "Lengan Panjang"}, {"code": "LENGAN_PENDEK", "label": "Lengan Pendek"}, {"code": "MUSIMAN", "label": "Musiman"}, {"code": "DALAMAN", "label": "Pakaian Dalam"}, {"code": "RENANG", "label": "Pakaian Renang"}, {"code": "TIDUR", "label": "Pakaian Tidur"}, {"code": "RAJUT", "label": "Rajut"}, {"code": "ROK", "label": "Rok"}, {"code": "SEPATU", "label": "Sepatu"}], "art": {"ACCESSORY": [{"code": "80000180", "name": "Artikel Load 180", "sold": 165, "net": 73155720}, {"code": "80002835", "name": "Artikel Load 2835", "sold": 165, "net": 73010520}, {"code": "80000120", "name": "Artikel Load 120", "sold": 165, "net": 72786120}, {"code": "80002775", "name": "Artikel Load 2775", "sold": 165, "net": 72640920}, {"code": "80000060", "name": "Artikel Load 60", "sold": 165, "net": 72416520}, {"code": "80002715", "name": "Artikel Load 2715", "sold": 165, "net": 72271320}, {"code": "80002655", "name": "Artikel Load 2655", "sold": 165, "net": 71901720}, {"code": "80002595", "name": "Artikel Load 2595", "sold": 165, "net": 71532120}], "AKSESORIS": [{"code": "80001951", "name": "Artikel Load 1951", "sold": 165, "net": 73271715}, {"code": "80004606", "name": "Artikel Load 4606", "sold": 165, "net": 73126515}, {"code": "80001891", "name": "Artikel Load 1891", "sold": 165, "net": 72902115}, {"code": "80004546", "name": "Artikel Load 4546", "sold": 165, "net": 72756915}, {"code": "80001831", "name": "Artikel Load 1831", "sold": 165, "net": 72532515}, {"code": "80004486", "name": "Artikel Load 4486", "sold": 165, "net": 72387315}, {"code": "80001771", "name": "Artikel Load 1771", "sold": 165, "net": 72162915}, {"code": "80004426", "name": "Artikel Load 4426", "sold": 165, "net": 72017715}], "ANAK_LAKI": [{"code": "80001247", "name": "Artikel Load 1247", "sold": 176, "net": 77527208}, {"code": "80003902", "name": "Artikel Load 3902", "sold": 176, "net": 77372328}, {"code": "80001187", "name": "Artikel Load 1187", "sold": 176, "net": 77132968}, {"code": "80003842", "name": "Artikel Load 3842", "sold": 176, "net": 76978088}, {"code": "80001127", "name": "Artikel Load 1127", "sold": 176, "net": 76738728}, {"code": "80003782", "name": "Artikel Load 3782", "sold": 176, "net": 76583848}, {"code": "80001067", "name": "Artikel Load 1067", "sold": 176, "net": 76344488}, {"code": "80003722", "name": "Artikel Load 3722", "sold": 176, "net": 76189608}], "ANAK_PEREMPUAN": [{"code": "80003198", "name": "Artikel Load 3198", "sold": 176, "net": 77439912}, {"code": "80000483", "name": "Artikel Load 483", "sold": 176, "net": 77200552}, {"code": "80003138", "name": "Artikel Load 3138", "sold": 176, "net": 77045672}, {"code": "80000423", "name": "Artikel Load 423", "sold": 176, "net": 76806312}, {"code": "80003078", "name": "Artikel Load 3078", "sold": 176, "net": 76651432}, {"code": "80000363", "name": "Artikel Load 363", "sold": 176, "net": 76412072}, {"code": "80003018", "name": "Artikel Load 3018", "sold": 176, "net": 76257192}, {"code": "80000303", "name": "Artikel Load 303", "sold": 176, "net": 76017832}], "DIVIDED": [{"code": "80002494", "name": "Artikel Load 2494", "sold": 176, "net": 77507496}, {"code": "80002434", "name": "Artikel Load 2434", "sold": 176, "net": 77113256}, {"code": "80002374", "name": "Artikel Load 2374", "sold": 176, "net": 76719016}, {"code": "80002314", "name": "Artikel Load 2314", "sold": 176, "net": 76324776}, {"code": "80004969", "name": "Artikel Load 4969", "sold": 176, "net": 76169896}, {"code": "80002254", "name": "Artikel Load 2254", "sold": 176, "net": 75930536}, {"code": "80004909", "name": "Artikel Load 4909", "sold": 176, "net": 75775656}, {"code": "80002194", "name": "Artikel Load 2194", "sold": 176, "net": 75536296}], "FOOTWEAR": [{"code": "80001970", "name": "Artikel Load 1970", "sold": 165, "net": 73182120}, {"code": "80004625", "name": "Artikel Load 4625", "sold": 165, "net": 73036920}, {"code": "80001910", "name": "Artikel Load 1910", "sold": 165, "net": 72812520}, {"code": "80004565", "name": "Artikel Load 4565", "sold": 165, "net": 72667320}, {"code": "80001850", "name": "Artikel Load 1850", "sold": 165, "net": 72442920}, {"code": "80004505", "name": "Artikel Load 4505", "sold": 165, "net": 72297720}, {"code": "80001790", "name": "Artikel Load 1790", "sold": 165, "net": 72073320}, {"code": "80004445", "name": "Artikel Load 4445", "sold": 165, "net": 71928120}], "KIDS": [{"code": "80003741", "name": "Artikel Load 3741", "sold": 165, "net": 73298115}, {"code": "80001026", "name": "Artikel Load 1026", "sold": 165, "net": 73073715}, {"code": "80003681", "name": "Artikel Load 3681", "sold": 165, "net": 72928515}, {"code": "80000966", "name": "Artikel Load 966", "sold": 165, "net": 72704115}, {"code": "80003621", "name": "Artikel Load 3621", "sold": 165, "net": 72558915}, {"code": "80000906", "name": "Artikel Load 906", "sold": 165, "net": 72334515}, {"code": "80003561", "name": "Artikel Load 3561", "sold": 165, "net": 72189315}, {"code": "80000846", "name": "Artikel Load 846", "sold": 165, "net": 71964915}], "MENSWEAR": [{"code": "80000322", "name": "Artikel Load 322", "sold": 176, "net": 77316008}, {"code": "80002977", "name": "Artikel Load 2977", "sold": 176, "net": 77161128}, {"code": "80000262", "name": "Artikel Load 262", "sold": 176, "net": 76921768}, {"code": "80002917", "name": "Artikel Load 2917", "sold": 176, "net": 76766888}, {"code": "80000202", "name": "Artikel Load 202", "sold": 176, "net": 76527528}, {"code": "80002857", "name": "Artikel Load 2857", "sold": 176, "net": 76372648}, {"code": "80000142", "name": "Artikel Load 142", "sold": 176, "net": 76133288}, {"code": "80002797", "name": "Artikel Load 2797", "sold": 176, "net": 75978408}], "NON_DIVISI": [{"code": "80004988", "name": "Artikel Load 4988", "sold": 176, "net": 77468072}, {"code": "80002273", "name": "Artikel Load 2273", "sold": 176, "net": 77228712}, {"code": "80004928", "name": "Artikel Load 4928", "sold": 176, "net": 77073832}, {"code": "80002213", "name": "Artikel Load 2213", "sold": 176, "net": 76834472}, {"code": "80004868", "name": "Artikel Load 4868", "sold": 176, "net": 76679592}, {"code": "80002153", "name": "Artikel Load 2153", "sold": 176, "net": 76440232}, {"code": "80004808", "name": "Artikel Load 4808", "sold": 176, "net": 76285352}, {"code": "80002093", "name": "Artikel Load 2093", "sold": 176, "net": 76045992}], "PERLENGKAPAN_BAYI": [{"code": "80004284", "name": "Artikel Load 4284", "sold": 176, "net": 77535656}, {"code": "80001569", "name": "Artikel Load 1569", "sold": 176, "net": 77296296}, {"code": "80004224", "name": "Artikel Load 4224", "sold": 176, "net": 77141416}, {"code": "80001509", "name": "Artikel Load 1509", "sold": 176, "net": 76902056}, {"code": "80004164", "name": "Artikel Load 4164", "sold": 176, "net": 76747176}, {"code": "80001449", "name": "Artikel Load 1449", "sold": 176, "net": 76507816}, {"code": "80004104", "name": "Artikel Load 4104", "sold": 176, "net": 76352936}, {"code": "80001389", "name": "Artikel Load 1389", "sold": 176, "net": 76113576}], "PRIA": [{"code": "80003760", "name": "Artikel Load 3760", "sold": 165, "net": 73208520}, {"code": "80001045", "name": "Artikel Load 1045", "sold": 165, "net": 72984120}, {"code": "80003700", "name": "Artikel Load 3700", "sold": 165, "net": 72838920}, {"code": "80000985", "name": "Artikel Load 985", "sold": 165, "net": 72614520}, {"code": "80003640", "name": "Artikel Load 3640", "sold": 165, "net": 72469320}, {"code": "80000925", "name": "Artikel Load 925", "sold": 165, "net": 72244920}, {"code": "80003580", "name": "Artikel Load 3580", "sold": 165, "net": 72099720}, {"code": "80000865", "name": "Artikel Load 865", "sold": 165, "net": 71875320}], "SANDAL_SEPATU": [{"code": "80000161", "name": "Artikel Load 161", "sold": 165, "net": 73245315}, {"code": "80002816", "name": "Artikel Load 2816", "sold": 165, "net": 73100115}, {"code": "80000101", "name": "Artikel Load 101", "sold": 165, "net": 72875715}, {"code": "80002756", "name": "Artikel Load 2756", "sold": 165, "net": 72730515}, {"code": "80000041", "name": "Artikel Load 41", "sold": 165, "net": 72506115}, {"code": "80002696", "name": "Artikel Load 2696", "sold": 165, "net": 72360915}, {"code": "80002636", "name": "Artikel Load 2636", "sold": 165, "net": 71991315}, {"code": "80002576", "name": "Artikel Load 2576", "sold": 165, "net": 71621715}], "TAS": [{"code": "80002112", "name": "Artikel Load 2112", "sold": 176, "net": 77344168}, {"code": "80004767", "name": "Artikel Load 4767", "sold": 176, "net": 77189288}, {"code": "80002052", "name": "Artikel Load 2052", "sold": 176, "net": 76949928}, {"code": "80004707", "name": "Artikel Load 4707", "sold": 176, "net": 76795048}, {"code": "80001992", "name": "Artikel Load 1992", "sold": 176, "net": 76555688}, {"code": "80004647", "name": "Artikel Load 4647", "sold": 176, "net": 76400808}, {"code": "80001932", "name": "Artikel Load 1932", "sold": 176, "net": 76161448}, {"code": "80004587", "name": "Artikel Load 4587", "sold": 176, "net": 76006568}], "WANITA": [{"code": "80001408", "name": "Artikel Load 1408", "sold": 176, "net": 77411752}, {"code": "80004063", "name": "Artikel Load 4063", "sold": 176, "net": 77256872}, {"code": "80001348", "name": "Artikel Load 1348", "sold": 176, "net": 77017512}, {"code": "80004003", "name": "Artikel Load 4003", "sold": 176, "net": 76862632}, {"code": "80001288", "name": "Artikel Load 1288", "sold": 176, "net": 76623272}, {"code": "80003943", "name": "Artikel Load 3943", "sold": 176, "net": 76468392}, {"code": "80001228", "name": "Artikel Load 1228", "sold": 176, "net": 76229032}, {"code": "80003883", "name": "Artikel Load 3883", "sold": 176, "net": 76074152}], "WOMENSWEAR": [{"code": "80000704", "name": "Artikel Load 704", "sold": 176, "net": 77479336}, {"code": "80003359", "name": "Artikel Load 3359", "sold": 176, "net": 77324456}, {"code": "80000644", "name": "Artikel Load 644", "sold": 176, "net": 77085096}, {"code": "80003299", "name": "Artikel Load 3299", "sold": 176, "net": 76930216}, {"code": "80000584", "name": "Artikel Load 584", "sold": 176, "net": 76690856}, {"code": "80003239", "name": "Artikel Load 3239", "sold": 176, "net": 76535976}, {"code": "80000524", "name": "Artikel Load 524", "sold": 176, "net": 76296616}, {"code": "80003179", "name": "Artikel Load 3179", "sold": 176, "net": 76141736}]}, "total": {"sold": 1950000, "list": 584987825000, "net": 584987825000, "refund": 0}, "receipts": {"done": 975000, "voided": 25000, "voided_minor": 14993095000}, "tender": [{"method": "CASH", "tx": 575000, "amount": 344992225000}, {"method": "CARD", "tx": 200000, "amount": 120002600000}, {"method": "QRIS", "tx": 200000, "amount": 119993000000}], "tenderstore": {"CARD": {"store-c006": 9230689432, "store-c007": 9231162555, "store-c011": 9231511352, "store-c005": 9231629655, "store-c002": 9230182255, "store-c001": 9230683755, "store-c010": 9232305955, "store-c003": 9229933272, "store-c009": 9230903455, "store-c004": 9229523155, "store-c008": 9231955192, "store-c012": 9230542855, "store-c013": 9231577112}, "CASH": {"store-c012": 26537088729, "store-c003": 26538928693, "store-c009": 26536945878, "store-c005": 26538224413, "store-c008": 26536801613, "store-c011": 26537091137, "store-c010": 26536801333, "store-c007": 26539215809, "store-c006": 26540018217, "store-c002": 26538542889, "store-c004": 26538927338, "store-c013": 26536274533, "store-c001": 26537364418}, "QRIS": {"store-c009": 9230970695, "store-c004": 9230694395, "store-c013": 9230948495, "store-c002": 9229429688, "store-c001": 9230446995, "store-c003": 9229787895, "store-c012": 9230673528, "store-c005": 9229385848, "store-c008": 9229968195, "store-c011": 9230807595, "store-c006": 9229827295, "store-c010": 9230607768, "store-c007": 9229451608}}};
+const S = {
+  style: 1, device: "desktop",
+  preset: "year", from: "2025-01-01", to: "2025-12-31",
+  group: "division", view: "totals", heat: true, drill: null, q: "", phoneSearch: false,
+  sheet: null, pane: "stores", phonePane: null,
+  cal: false, calA: null, calB: null, calLeft: 10,
+  f: { stores: new Set(), divisions: new Set(), tags: new Set(), payment: new Set(), suppliers: new Set(), price: "all", stock: "all" },
+};
+const LAST_DAY = "2025-12-26";
+const nf = new Intl.NumberFormat("id-ID");
+const num = (n) => (n == null ? "—" : nf.format(Math.round(n)));
+const pct = (x) => (x == null || !isFinite(x) ? "—" : (x * 100).toLocaleString("id-ID", { maximumFractionDigits: 1, minimumFractionDigits: 1 }) + "%");
+function rpc(minor, cur = true) {
+  if (minor == null) return "—";
+  const v = Math.abs(minor), s = minor < 0 ? "−" : "", p = cur ? "Rp " : "";
+  const f = (x, u) => s + p + x.toLocaleString("id-ID", { maximumFractionDigits: x < 10 ? 2 : 1, minimumFractionDigits: x < 10 ? 2 : 1 }) + " " + u;
+  if (v >= 1e12) return f(v / 1e12, "T"); if (v >= 1e9) return f(v / 1e9, "B"); if (v >= 1e6) return f(v / 1e6, "M");
+  return s + p + nf.format(Math.round(v));
+}
+const rp = (m) => "Rp " + num(m);
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const iso = (d) => d.toISOString().slice(0, 10);
+const parse = (s) => new Date(s + "T00:00:00Z");
+const addDays = (s, n) => { const d = parse(s); d.setUTCDate(d.getUTCDate() + n); return iso(d); };
+function dayText(a, b) {
+  const A = parse(a), B = parse(b), da = A.getUTCDate(), db = B.getUTCDate(), ma = MONTH_NAMES[A.getUTCMonth()], mb = MONTH_NAMES[B.getUTCMonth()];
+  if (a === b) return `${da} ${ma} ${A.getUTCFullYear()}`;
+  if (ma === mb) return `${da}–${db} ${mb} ${B.getUTCFullYear()}`;
+  return `${da} ${ma} – ${db} ${mb} ${B.getUTCFullYear()}`;
+}
+const DAY = {};
+D.month.forEach((m, i) => { const first = parse(m.m), days = i === 11 ? 26 : new Date(Date.UTC(2025, i + 1, 0)).getUTCDate();
+  for (let d = 0; d < days; d++) DAY[iso(new Date(first.getTime() + d * 864e5))] = { sold: m.sold / days, net: m.net / days }; });
+const YEAR = { sold: D.total.sold, net: D.total.net };
+const PRESETS = { month: ["This month", "2025-12-01", "2025-12-31"], last: ["Last month", "2025-11-01", "2025-11-30"], year: ["This year", "2025-01-01", "2025-12-31"], all: ["All time", "2025-01-01", LAST_DAY] };
+function scale() { let sold = 0, net = 0, days = 0; for (let d = S.from; d <= S.to; d = addDays(d, 1)) if (DAY[d]) { sold += DAY[d].sold; net += DAY[d].net; days++; } return { sold: sold / YEAR.sold, net: net / YEAR.net, days }; }
+
+/* rows: every row has, per store, sold · net · stock · cost · transactions */
+const STORES = D.store;
+const shown = () => STORES.filter((s) => S.f.stores.size === 0 || S.f.stores.has(s.id));
+const RATIO = Object.fromEntries(D.div.map((d, i) => [d.code, 0.46 + ((i * 7) % 13) / 100]));
+const wob = (i, j, salt) => 1 + ((((i + 3) * 7 + (j + 1) * 5 + salt) % 11) - 5) / 30;
+const stockOf = (soldYear, i, j) => Math.round((soldYear / 12) * 1.35 * wob(i, j, 4));
+const cell = (sold, net, stock, cost, tx, stockCost = null) => ({ sold, net, stock, cost, tx, stockCost });
+function sum(list) {
+  const o = { sold: null, net: 0, stock: null, cost: null, tx: null, stockCost: null };
+  list.forEach((c) => { if (!c) return; o.net += c.net || 0; ["sold", "stock", "cost", "tx", "stockCost"].forEach((k) => { if (c[k] != null) o[k] = (o[k] || 0) + c[k]; }); });
+  return o;
+}
+const TAGS = D.tags.map((t) => t.label);
+const TAG_W = [9, 14, 7, 8, 5, 6, 4, 5, 3, 11, 2, 7, 5, 6, 3, 2, 2, 3, 4, 3, 2];
+function divRow(d, i) { const k = scale(), r = RATIO[d.code];
+  return { key: d.code, label: d.label, detail: `${num(d.articles)} articles`, ps: Object.fromEntries(STORES.map((s, j) => { const c = D.divstore[d.code][s.id], w = wob(i, j, 1), st = stockOf(c.sold, i, j); return [s.id, cell(c.sold * k.sold * w, c.net * k.net * w, st, c.net * k.net * w * r, null, st * (c.net / c.sold) * r)]; })) }; }
+function split(names, weights, salt, detail) { const k = scale(), tw = weights.reduce((a, b) => a + b, 0);
+  return names.map((name, i) => { const w = weights[i] / tw; return { key: name, label: name, detail: detail ? detail(i) : null, ps: Object.fromEntries(STORES.map((s, j) => { const f = w * wob(i, j, salt), st = stockOf(s.sold * f, i, j); return [s.id, cell(s.sold * f * k.sold, s.net * f * k.net, st, s.net * f * k.net * 0.52, null, st * (s.net / s.sold) * 0.52)]; })) }; }); }
+function articleRows(code) { const k = scale(), d = D.div.find((x) => x.code === code), r = RATIO[code];
+  return D.art[code].map((a, i) => ({ key: a.code, label: a.name, detail: `${a.code} · ${TAGS[(i * 5 + 3) % TAGS.length]} · acq ${rp((a.net / a.sold) * r)}/pc`,
+    ps: Object.fromEntries(STORES.map((s, j) => { const f = wob(i, j, 2) / 13, st = Math.round((a.sold * f) / 6) + 2; return [s.id, cell(a.sold * f * k.sold, a.net * f * k.net, st, a.net * f * k.net * r, null, st * (a.net / a.sold) * r)]; })) })); }
+function rows() {
+  const k = scale();
+  if (S.drill) return articleRows(S.drill);
+  switch (S.group) {
+    case "division": return D.div.filter((d) => !S.f.divisions.size || S.f.divisions.has(d.code)).map(divRow);
+    case "tag": return split(TAGS, TAG_W, 1).filter((r) => !S.f.tags.size || S.f.tags.has(r.key));
+    case "article": return Object.keys(D.art).flatMap((c) => articleRows(c).slice(0, 2));
+    case "sku": return Object.keys(D.art).slice(0, 8).flatMap((c) => { const a = articleRows(c)[0]; return ["Black / M", "Navy / S"].map((v, j) => { const f = j ? 0.45 : 0.55; return { key: a.key + v, label: `${a.label} · ${v.replace(" / ", " / ")}`, detail: `SKU 9${a.key.slice(1)}${j}`, ps: Object.fromEntries(Object.entries(a.ps).map(([id, c]) => [id, cell(c.sold * f, c.net * f, Math.round(c.stock * f), c.cost * f, null, c.stockCost * f)])) }; }); });
+    case "store": return shown().map((s, j) => ({ key: s.id, label: s.name, detail: s.code, ps: { [s.id]: cell(s.sold * k.sold, s.net * k.net, stockOf(s.sold, 0, j) * 15, s.net * k.net * 0.52, D.rcpt[s.id].done * k.sold, storeTotal(s).stockCost) } }));
+    case "supplier": return split(["CV Benang Mas", "PT Sandang Prima", "UD Tenun Jaya", "PT Garmen Nusantara", "CV Kain Indah", "PT Busana Utama"], [18, 16, 15, 14, 13, 12], 2, (i) => `${[312, 280, 260, 240, 225, 210][i]} articles`);
+    case "month": return D.month.filter((m) => m.m >= S.from.slice(0, 8) + "01" && m.m <= S.to).map((m) => ({ key: m.m, label: `${MONTH_NAMES[parse(m.m).getUTCMonth()]} 2025`, detail: null,
+      ps: Object.fromEntries(STORES.map((s) => [s.id, cell((m.sold * s.net) / YEAR.net, (m.net * s.net) / YEAR.net, null, ((m.net * s.net) / YEAR.net) * 0.52, (D.rcpt[s.id].done * m.sold) / YEAR.sold)])) }));
+    case "session": { const out = []; let d = S.to > LAST_DAY ? LAST_DAY : S.to, n = 0;
+      while (d >= S.from && out.length < 40) { shown().forEach((s, j) => { if (out.length >= 40 || !DAY[d]) return; const f = wob(n, j, 3) / 13, net = DAY[d].net * f, sold = DAY[d].sold * f;
+        out.push({ key: d + s.id, label: `${s.code.replace("-TOKO", "")} · Till 1 · ${dayText(d, d)}`, detail: "Loadtest Cashier · 07:00–21:00", ps: { [s.id]: cell(sold, net, null, net * 0.52, Math.round(sold / 1.95)) } }); n++; }); d = addDays(d, -1); }
+      out.total = Math.round(scale().days * shown().length); return out; }
+    case "payment": return D.tender.filter((t) => !S.f.payment.size || S.f.payment.has(t.method)).map((t) => ({ key: t.method, label: { CASH: "Cash", CARD: "Card", QRIS: "QRIS" }[t.method], detail: null, money: true,
+      ps: Object.fromEntries(STORES.map((s) => [s.id, cell(null, (D.tenderstore[t.method][s.id] || 0) * k.net, null, null, (t.tx / 13) * k.sold)])) }));
+  }
+}
+window.GROUPS = [["division", "Division"], ["tag", "Tag"], ["article", "Article"], ["sku", "SKU"], ["store", "Store"], ["supplier", "Supplier"], ["month", "Month"], ["session", "Cashier session"], ["payment", "Payment method"]];
+const NOUN = { division: "divisions", tag: "tags", article: "articles", sku: "SKUs", store: "stores", supplier: "suppliers", month: "months", session: "cashier sessions", payment: "payment methods" };
+const g = () => (S.drill ? "article" : S.group);
+const total = (r) => sum(shown().map((s) => r.ps[s.id]));
+function totals() {
+  const k = scale(), st = shown(), share = st.reduce((a, s) => a + s.net, 0) / YEAR.net;
+  const done = st.reduce((a, s) => a + D.rcpt[s.id].done, 0) * k.sold, voided = st.reduce((a, s) => a + D.rcpt[s.id].voided, 0) * k.sold;
+  const net = YEAR.net * k.net * share, sold = YEAR.sold * k.sold * share, cost = D.div.reduce((a, d) => a + d.net * RATIO[d.code], 0) * k.net * share;
+  const stock = D.div.reduce((a, d, i) => a + st.reduce((b, s) => b + stockOf(D.divstore[d.code][s.id].sold, i, STORES.indexOf(s)), 0), 0);
+  const stockCost = D.div.reduce((a, d, i) => a + st.reduce((b, s) => { const c = D.divstore[d.code][s.id]; return b + stockOf(c.sold, i, STORES.indexOf(s)) * (c.net / c.sold) * RATIO[d.code]; }, 0), 0);
+  return { done, voided, sold, net, gross: net, discount: 0, cost, profit: net - cost, stock, stockCost };
+}
+function storeTotal(s) { const k = scale(), j = STORES.indexOf(s);
+  return D.div.reduce((a, d, i) => { const c = D.divstore[d.code][s.id]; a.sold += c.sold * k.sold; a.net += c.net * k.net; const st = stockOf(c.sold, i, j); a.stock += st; a.stockCost += st * (c.net / c.sold) * RATIO[d.code]; a.cost += c.net * k.net * RATIO[d.code]; return a; }, { sold: 0, net: 0, stock: 0, cost: 0, stockCost: 0, tx: D.rcpt[s.id].done * k.sold }); }
+
+const I = {
+  cal: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
+  search: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
+  filter: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M7 12h10M10 18h4"/></svg>',
+  down: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>',
+  x: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+  chev: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 6 6 6-6 6"/></svg>',
+  back: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 6-6 6 6 6"/></svg>',
+  export: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v3h16v-3"/></svg>',
+};
+const phone = () => S.device === "phone";
+const periodText = () => dayText(S.from, S.preset === "all" ? LAST_DAY : S.to);
+
+/* ── header & calendar ─────────────────────────────── */
+function header() {
+  if (phone()) return `<div class="head"><div class="title"><h1>Sales</h1><p>${periodText()} · ${shown().length} stores</p></div></div>`;
+  return `<div class="head"><div class="title"><h1>Sales</h1><p>${periodText()} · ${shown().length} stores</p></div><div class="grow"></div>
+    <div class="seg">${Object.entries(PRESETS).map(([k, v]) => `<button class="pressable ${S.preset === k ? "on" : ""}" data-preset="${k}">${v[0]}</button>`).join("")}</div>
+    <div style="position:relative"><button class="btn pressable ${S.preset === "custom" ? "on" : ""}" data-calbtn="1">${I.cal}${S.preset === "custom" ? dayText(S.from, S.to) : "Pick dates"}${I.down}</button>${S.cal ? calendar() : ""}</div></div>`;
+}
+function month(y, m) {
+  const first = new Date(Date.UTC(y, m, 1)), days = new Date(Date.UTC(y, m + 1, 0)).getUTCDate(), lead = (first.getUTCDay() + 6) % 7;
+  let cells = ""; for (let i = 0; i < lead; i++) cells += "<span></span>";
+  const a = S.calA, b = S.calB || S.calA, lo = a && b ? (a < b ? a : b) : null, hi = a && b ? (a < b ? b : a) : null;
+  for (let d = 1; d <= days; d++) { const k = iso(new Date(Date.UTC(y, m, d))), out = k > LAST_DAY || k < "2025-01-01";
+    cells += `<button class="${out ? "out" : ""} ${lo && (k === lo || k === hi) ? "end" : lo && k > lo && k < hi ? "in" : ""}" ${out ? "disabled" : `data-day="${k}"`}>${d}</button>`; }
+  return `<div class="mon"><h4>${MONTH_NAMES[m]} ${y}</h4><div class="dow">${["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"].map((x) => `<span>${x}</span>`).join("")}</div><div class="days">${cells}</div></div>`;
+}
+function calendar() {
+  const a = S.calA, b = S.calB, lo = a && b ? (a < b ? a : b) : a, hi = a && b ? (a < b ? b : a) : a, span = lo ? Math.round((parse(hi) - parse(lo)) / 864e5) + 1 : 0;
+  const quick = [["Today", LAST_DAY, LAST_DAY], ["Yesterday", addDays(LAST_DAY, -1), addDays(LAST_DAY, -1)], ["Last 7 days", addDays(LAST_DAY, -6), LAST_DAY], ["Last 30 days", addDays(LAST_DAY, -29), LAST_DAY], ["This month", "2025-12-01", LAST_DAY], ["Last month", "2025-11-01", "2025-11-30"], ["This year", "2025-01-01", LAST_DAY]];
+  return `<div class="cal" style="right:0;top:44px"><div class="pre">${quick.map(([l, f, t]) => `<button data-quick="${f}|${t}" class="${lo === f && hi === t ? "on" : ""}">${l}</button>`).join("")}</div>
+    <div class="mons"><div class="nav"><button data-calnav="-1">${I.back}</button><button data-calnav="1">${I.chev}</button></div>
+    <div class="pair">${month(2025, S.calLeft)}${month(S.calLeft === 11 ? 2026 : 2025, (S.calLeft + 1) % 12)}</div>
+    <div class="cf"><span style="color:var(--mute);font-size:14px">${lo ? dayText(lo, hi) + " · " + span + (span === 1 ? " day" : " days") : "Pick the first day"}</span><button class="btn pressable" data-calcancel="1">Cancel</button><button class="primary pressable" data-calapply="1">Apply</button></div></div></div>`;
+}
+
+/* ── KPI: the hub's small cards ─────────────────────── */
+function kpis() {
+  const t = totals();
+  const items = [
+    ["Transactions", num(t.done + t.voided), `${num(t.voided)} voided`],
+    ["Sold", `${num(t.sold)} pcs`, `${(t.sold / t.done).toLocaleString("id-ID", { maximumFractionDigits: 1 })} pcs each`],
+    ["Sales", rpc(t.net), `${rpc(t.discount)} discount · avg ${rpc(t.net / t.done)}`],
+    ["Acquisition cost", rpc(t.cost), `${pct(t.cost / t.net)} of sales`],
+    ["Gross profit", rpc(t.profit), `${pct(t.profit / t.net)} margin`],
+    ["Stock", `${num(t.stock)} pcs`, `${rpc(t.stockCost)} at acquisition`],
+  ];
+  if (phone()) return `<div class="kpis" style="grid-template-columns:1fr 1fr;gap:1px;background:var(--hairline);border:1px solid var(--hairline);border-radius:10px;overflow:hidden;box-shadow:var(--shadow-soft)">${items.map(([l, v, s]) => `<div class="kpi" style="border:0;border-radius:0;box-shadow:none"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join("")}</div>`;
+  return `<div class="kpis">${items.map(([l, v, s]) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join("")}</div>`;
+}
+
+/* ── the grouping nav in three tastes ───────────────── */
+function nav() {
+  const cur = g();
+  const GROUPS = S.device === "tablet" ? window.GROUPS.map(([k, l]) => [k, { session: "Session", payment: "Payment" }[k] || l]) : window.GROUPS;
+  const counts = { division: 15, tag: 21, store: shown().length, payment: 3, month: 12 };
+  const lab = (k, l) => `${l}${S.style !== 2 && counts[k] ? `<span class="c">${counts[k]}</span>` : ""}`;
+  if (S.style === 2) return `<div class="navwrap"><div class="tabs-nav">${GROUPS.map(([k, l]) => `<button class="pressable ${cur === k ? "on" : ""}" data-group="${k}">${l}</button>`).join("")}</div></div>`;
+  if (S.style === 3) return `<div class="navwrap"><div class="tabs-quiet">${GROUPS.map(([k, l]) => `<button class="pressable ${cur === k ? "on" : ""}" data-group="${k}">${lab(k, l)}</button>`).join("")}</div></div>`;
+  return `<div class="navwrap"><div class="tabs-under">${GROUPS.map(([k, l]) => `<button class="${cur === k ? "on" : ""}" data-group="${k}">${lab(k, l)}</button>`).join("")}</div></div>`;
+}
+
+/* ── tables ─────────────────────────────────────────── */
+const two = (a, z, strong) => `<div class="two"><div class="a ${strong ? "b" : ""}">${a}</div><div class="z">${z}</div></div>`;
+const salesCell = (c, strong, cur = false) => (c && c.net != null ? two(rpc(c.net, cur), c.sold != null ? `${num(c.sold)} pcs` : c.tx != null ? `${num(c.tx)} trans.` : "", strong) : "—");
+const stockCell = (c, strong, cur = true) => (c && c.stock != null ? two(`${num(c.stock)} pcs`, c.stockCost != null ? `acq ${rpc(c.stockCost, cur)}` : "", strong) : "—");
+function heatRow(r) {
+  const vals = shown().map((s) => (r.ps[s.id] ? r.ps[s.id].net : null)).filter((v) => v != null && v > 0);
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  return (v) => (S.heat && v != null && v > 0 && hi > lo ? `background:rgba(37,99,235,${(0.03 + 0.27 * ((v - lo) / (hi - lo))).toFixed(3)})` : "");
+}
+function nameTd(r) { return `<td class="name"><div class="n">${r.label}</div>${r.detail ? `<div class="d">${r.detail}</div>` : ""}</td>`; }
+function tableTotals(list) {
+  const t = totals(), pay = g() === "payment";
+  if (pay) return `<table><thead><tr><th>Payment method</th><th>Transactions</th><th>Sales</th><th>Per transaction</th><th>Share</th></tr></thead><tbody>${list.map((r) => { const c = total(r); return `<tr>${nameTd(r)}<td>${num(c.tx)}</td><td class="b">${rpc(c.net)}</td><td>${rp(c.net / c.tx)}</td><td style="color:var(--mute)">${pct(c.net / t.net)}</td></tr>`; }).join("")}</tbody><tfoot><tr><td>Total</td><td>${num(t.done)}</td><td>${rpc(t.net)}</td><td>${rp(t.net / t.done)}</td><td>100,0%</td></tr></tfoot></table>`;
+  const head = `<th>${GROUPS.find((x) => x[0] === g())[1]}</th><th title="After discounts and returns">Sales</th><th>Discount</th><th>Gross profit</th><th>Stock · Acq</th><th>Share</th>`;
+  const body = list.map((r) => { const c = total(r); return `<tr data-row="${r.key}">${nameTd(r)}<td>${salesCell(c, true, true)}</td><td style="color:var(--mute)">Rp 0</td><td>${c.cost != null ? two(rpc(c.net - c.cost), pct((c.net - c.cost) / c.net)) : "—"}</td><td>${stockCell(c)}</td><td style="color:var(--mute)">${pct(c.net / t.net)}</td></tr>`; }).join("");
+  const foot = `<tr><td>Total</td><td>${salesCell({ net: t.net, sold: t.sold }, false, true)}</td><td>Rp 0</td><td>${two(rpc(t.profit), pct(t.profit / t.net))}</td><td>${stockCell({ stock: t.stock, stockCost: t.stockCost })}</td><td>100,0%</td></tr>`;
+  return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody><tfoot>${foot}</tfoot></table>`;
+}
+function tableStores(list) {
+  const st = shown(), t = totals(), money = g() === "payment" || g() === "month" || g() === "session", pay = g() === "payment";
+  const W1 = 132, W2 = 132;
+  const head = `<tr><th rowspan="2" style="vertical-align:bottom">${GROUPS.find((x) => x[0] === g())[1]}</th>${st.map((s) => `<th colspan="${money ? 1 : 2}" class="sep" style="text-align:center;color:var(--text)" title="${s.name}">${s.code.replace("-TOKO", "")}</th>`).join("")}<th colspan="2" class="pin pin-l" style="right:0;text-align:center;color:var(--text)">Totals</th></tr>
+    <tr>${st.map(() => (money ? `<th class="sep">Sales</th>` : `<th class="sep">Stock · Acq</th><th>Sales</th>`)).join("")}<th class="pin pin-l" style="right:${W2}px;min-width:${W1}px">Sales</th><th class="pin" style="right:0;min-width:${W2}px">${pay ? "Transactions" : "Stock · Acq"}</th></tr>`;
+  const body = list.map((r) => { const c = total(r), heat = heatRow(r);
+    return `<tr data-row="${r.key}">${nameTd(r)}${st.map((s) => { const x = r.ps[s.id]; return (money ? "" : `<td class="sep">${stockCell(x, false, false)}</td>`) + `<td class="${money ? "sep" : ""}" style="${heat(x ? x.net : null)}">${salesCell(x, false, false)}</td>`; }).join("")}
+      <td class="pin pin-l" style="right:${W2}px;min-width:${W1}px">${salesCell(c, true, true)}</td><td class="pin" style="right:0;min-width:${W2}px">${pay ? num(c.tx) : stockCell(c)}</td></tr>`; }).join("");
+  const foot = `<tr><td>Total</td>${st.map((s) => { const x = storeTotal(s); return (money ? "" : `<td class="sep">${stockCell(x, false, false)}</td>`) + `<td class="${money ? "sep" : ""}">${salesCell(x, false, false)}</td>`; }).join("")}<td class="pin pin-l" style="right:${W2}px">${salesCell({ net: t.net, sold: t.sold }, false, true)}</td><td class="pin" style="right:0">${pay ? num(t.done) : stockCell({ stock: t.stock, stockCost: t.stockCost })}</td></tr>`;
+  return `<table style="min-width:max-content"><thead>${head}</thead><tbody>${body}</tbody><tfoot>${foot}</tfoot></table>`;
+}
+const head2 = () => "";
+document.head.insertAdjacentHTML("beforeend", "<style>thead tr:nth-child(2) th{top:40px}thead tr:nth-child(2) th:first-child{left:auto;text-align:right;z-index:4;padding-left:14px}</style>");
+
+/* ── phone list ─────────────────────────────────────── */
+function phoneList(list) {
+  const t = totals(), stores = S.view === "stores";
+  return `<div class="plist fade">${list.map((r) => { const c = total(r), heat = heatRow(r);
+    const meta = [c.sold != null ? `${num(c.sold)} pcs` : c.tx != null ? `${num(c.tx)} trans.` : "", c.cost != null ? `profit ${rpc(c.net - c.cost)}` : "", c.stock != null ? `stock ${num(c.stock)} · acq ${rpc(c.cost)}` : ""].filter(Boolean);
+    return `<div class="pcard pressable" data-row="${r.key}"><div class="top"><span class="n">${r.label}</span><span class="v">${rpc(c.net)}</span></div><div class="meta">${meta.map((m) => `<span>${m}</span>`).join("")}</div>
+      ${stores ? `<div class="stores"><div class="h"><span>Store</span><span>Sales</span><span>Stock · Acq</span></div>${shown().map((s) => { const x = r.ps[s.id]; return x ? `<div style="${heat(x.net)}"><span>${s.code.replace("-TOKO", "")}</span><span>${salesCell(x, false, true)}</span><span>${stockCell(x)}</span></div>` : ""; }).join("")}</div>` : ""}</div>`; }).join("")}
+    <div class="ptotal"><span>Total</span><span style="margin-left:auto">${rpc(t.net)}</span></div></div>`;
+}
+
+/* ── results ────────────────────────────────────────── */
+function results() {
+  let list = rows(); const all = list.total || list.length;
+  const q = S.q.trim().toLowerCase(); if (q) list = list.filter((r) => (r.label + " " + (r.detail || "")).toLowerCase().includes(q));
+  list.sort((a, b) => total(b).net - total(a).net);
+  const crumb = S.drill ? `<div class="crumb"><button data-up="1">All divisions</button><span>›</span><span>${D.div.find((d) => d.code === S.drill).label}</span><span>·</span><span>top 8 of ${num(D.div.find((d) => d.code === S.drill).articles)} articles</span></div>` : "";
+  const applied = appliedLine();
+  if (phone()) {
+    return `${S.phoneSearch ? `<label class="search" style="width:100%;margin-top:12px">${I.search}<input id="q" placeholder="Search ${NOUN[g()]}" value="${S.q}"></label>` : ""}
+      <div style="display:flex;align-items:center;gap:8px;margin-top:14px"><b style="font-size:15px">${GROUPS.find((x) => x[0] === g())[1]}</b><span style="color:var(--mute)">${num(all)} ${NOUN[g()]}</span><div class="grow"></div>
+      <div class="seg"><button class="pressable ${S.view === "totals" ? "on" : ""}" data-view="totals">Totals</button><button class="pressable ${S.view === "stores" ? "on" : ""}" data-view="stores">Per store</button></div></div>
+      ${applied ? `<div style="margin-top:8px">${applied}</div>` : ""}${crumb}${phoneList(list)}`;
+  }
+  const perOk = g() !== "store", showStores = S.view === "stores" && perOk;
+  return `${nav()}<section class="card">
+    <div class="tools"><label class="search">${I.search}<input id="q" placeholder="Search ${NOUN[g()]}" value="${S.q}"></label><div class="grow"></div>
+      <div class="seg"><button class="pressable ${!showStores ? "on" : ""}" data-view="totals">Totals</button><button class="pressable ${showStores ? "on" : ""}" data-view="stores" ${perOk ? "" : 'disabled style="opacity:.45"'}>Per store</button></div>
+      <button class="switch pressable ${S.heat ? "on" : ""}" data-heat="1" ${showStores ? "" : 'disabled style="opacity:.45"'}><span class="t"></span>Heatmap</button>
+      <button class="btn pressable" data-openfilter="1">${I.filter}Filter${count() ? `<span class="badge">${count()}</span>` : ""}</button><button class="btn pressable" title="Export">${I.export}${S.device === "tablet" ? "" : "Export"}</button></div>
+    ${applied}${crumb}<div class="scroll fade">${showStores ? tableStores(list) : tableTotals(list)}</div>
+    <div class="foot">${num(list.length)}${list.length < all ? ` of ${num(all)}` : ""} ${NOUN[g()]}${showStores && S.heat ? ` · <span class="legend">Lowest store <span></span> highest store, per row</span>` : ""}</div></section>`;
+}
+function dock() {
+  if (!phone()) return "";
+  return `<div class="dock"><button class="chip pressable" data-sheet="group">${GROUPS.find((x) => x[0] === g())[1]}${I.down}</button>
+    <button class="ib pressable" data-psearch="1">${I.search}</button><button class="ib pressable" data-openfilter="1">${I.filter}${count() ? `<span class="badge">${count()}</span>` : ""}</button>
+    <button class="per pressable" data-sheet="period">${I.cal}${S.preset === "custom" ? dayText(S.from, S.to) : PRESETS[S.preset][0]}</button></div>`;
+}
+
+/* ── filter: two panes (one pane at a time on a phone) ── */
+const count = () => ["stores", "divisions", "tags", "payment", "suppliers"].reduce((a, k) => a + (S.f[k].size ? 1 : 0), 0) + (S.f.price !== "all") + (S.f.stock !== "all");
+function appliedLine() {
+  const parts = [], nm = (set, list, label) => { if (set.size) parts.push(`${label}: ${[...set].map((c) => list(c)).slice(0, 3).join(", ")}${set.size > 3 ? ` +${set.size - 3}` : ""}`); };
+  nm(S.f.stores, (c) => c.replace("store-c", "C"), "Stores"); nm(S.f.divisions, (c) => D.div.find((d) => d.code === c).label, "Division"); nm(S.f.tags, (c) => c, "Tag"); nm(S.f.payment, (c) => c, "Payment");
+  if (S.f.price !== "all") parts.push(S.f.price === "full" ? "Full price" : "Discounted"); if (S.f.stock !== "all") parts.push(S.f.stock === "in" ? "In stock" : "Sold out");
+  return parts.length ? `<div class="applied">${parts.join(" · ")}<button data-clear="1">Clear</button></div>` : "";
+}
+const CATS = [["stores", "Stores", () => STORES.map((s) => [s.id, s.name, s.code.replace("-TOKO", "")])], ["divisions", "Division", () => D.div.map((d) => [d.code, d.label, ""])], ["tags", "Tag", () => TAGS.map((t) => [t, t, ""])], ["suppliers", "Supplier", () => ["CV Benang Mas", "PT Sandang Prima", "UD Tenun Jaya", "PT Garmen Nusantara", "CV Kain Indah", "PT Busana Utama"].map((x) => [x, x, ""])], ["payment", "Payment method", () => [["CASH", "Cash", ""], ["CARD", "Card", ""], ["QRIS", "QRIS", ""]]], ["price", "Price", null], ["stock", "Stock", null]];
+const optList = (k, list) => list.map(([v, l, c]) => `<div class="opt ${S.f[k].has(v) ? "on" : ""}" data-opt="${k}|${v}"><span class="box"></span><span>${l}</span>${c ? `<span class="c">${c}</span>` : ""}</div>`).join("");
+const radio = (k, opts) => opts.map(([v, l]) => `<div class="opt ${S.f[k] === v ? "on" : ""}" data-radio="${k}|${v}"><span class="box" style="border-radius:50%"></span><span>${l}</span></div>`).join("");
+const paneOf = (k) => { const c = CATS.find((x) => x[0] === k); if (k === "price") return radio("price", [["all", "All"], ["full", "Full price"], ["disc", "Discounted"]]); if (k === "stock") return radio("stock", [["all", "All"], ["in", "In stock"], ["out", "Sold out"]]); return `<div class="mini-search">${I.search}<input placeholder="Search ${c[1].toLowerCase()}"></div>${optList(k, c[2]())}`; };
+const sumOf = (k) => (k === "price" ? (S.f.price === "all" ? "All" : "1") : k === "stock" ? (S.f.stock === "all" ? "All" : "1") : S.f[k].size || "All");
+function sheet() {
+  const el = document.getElementById("sheet"); let title = "Filter", body = "", foot = "";
+  if (S.sheet === "filter") {
+    if (phone()) body = S.phonePane ? `<button class="back" data-ppane="">${I.back}Filter</button><div style="padding:0 20px">${paneOf(S.phonePane)}</div>` : CATS.map(([k, l]) => `<div class="prow pressable" data-ppane="${k}"><span class="k">${l}</span><span class="val">${sumOf(k)}</span>${I.chev}</div>`).join("");
+    else body = `<div class="panes"><nav>${CATS.map(([k, l]) => `<button class="pressable ${S.pane === k ? "on" : ""}" data-pane="${k}">${l}<small>${sumOf(k)}</small></button>`).join("")}</nav><div class="pane">${paneOf(S.pane)}</div></div>`;
+    foot = `<button class="btn pressable" data-clear="1">Reset</button><button class="primary pressable" data-close="1">Show ${num(rows().length)} ${NOUN[g()]}</button>`;
+  } else if (S.sheet === "group") {
+    title = "Group by"; body = GROUPS.map(([k, l]) => `<div class="prow pressable" data-group="${k}"><span class="k">${l}</span>${g() === k ? '<span class="val" style="color:var(--ink)">✓</span>' : ""}</div>`).join("");
+  } else if (S.sheet === "period") {
+    title = "Period"; body = Object.entries(PRESETS).map(([k, v]) => `<div class="prow pressable" data-preset="${k}"><span class="k">${v[0]}</span>${S.preset === k ? '<span class="val" style="color:var(--ink)">✓</span>' : ""}</div>`).join("") + `<div class="prow pressable" data-calbtn="1"><span class="k">Pick dates</span><span class="val">${S.preset === "custom" ? dayText(S.from, S.to) : ""}</span>${I.chev}</div>`;
+  }
+  el.innerHTML = `<div class="sh-h"><h2>${title}</h2><button class="x pressable" data-close="1">${I.x}</button></div><div class="sh-b">${body}</div>${foot ? `<div class="sh-f">${foot}</div>` : ""}`;
+  el.classList.toggle("open", !!S.sheet); document.getElementById("scrim").classList.toggle("open", !!S.sheet || (phone() && S.cal));
+}
+
+/* ── render & wire ─────────────────────────────────── */
+function render() {
+  const focus = document.activeElement && document.activeElement.id === "q";
+  document.getElementById("stage").className = `stage ${S.device}`;
+  document.getElementById("page").className = `page s${S.style}`;
+  document.getElementById("page").innerHTML = header() + kpis() + results() + (phone() && S.cal ? calendar() : "");
+  document.getElementById("dock").innerHTML = dock();
+  document.querySelectorAll(".proto [data-style]").forEach((b) => b.classList.toggle("on", +b.dataset.style === S.style));
+  document.querySelectorAll(".proto [data-device]").forEach((b) => b.classList.toggle("on", b.dataset.device === S.device));
+  sheet();
+  if (focus) { const q = document.getElementById("q"); if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }
+}
+const toggle = (set, v) => (set.has(v) ? set.delete(v) : set.add(v));
+document.addEventListener("click", (e) => {
+  if (S.cal && !e.target.closest(".cal") && !e.target.closest("[data-calbtn]")) { S.cal = false; render(); return; }
+  const b = e.target.closest("button,tr,.opt,.prow,.pcard"); if (!b || b.disabled) return; const d = b.dataset;
+  if (d.style) S.style = +d.style;
+  else if (d.device) { S.device = d.device; S.sheet = null; S.cal = false; }
+  else if (d.preset) { S.preset = d.preset; [, S.from, S.to] = PRESETS[d.preset]; if (S.sheet === "period") S.sheet = null; }
+  else if (d.calbtn) { S.cal = !S.cal; S.sheet = null; S.calA = S.preset === "custom" ? S.from : null; S.calB = S.preset === "custom" ? S.to : null; }
+  else if (d.calnav) S.calLeft = Math.min(10, Math.max(0, S.calLeft + +d.calnav));
+  else if (d.day) { if (!S.calA || S.calB) { S.calA = d.day; S.calB = null; } else S.calB = d.day; }
+  else if (d.quick) [S.calA, S.calB] = d.quick.split("|");
+  else if (d.calcancel) S.cal = false;
+  else if (d.calapply) { if (!S.calA) return; const a = S.calA, z = S.calB || S.calA; S.from = a < z ? a : z; S.to = a < z ? z : a; S.preset = "custom"; S.cal = false; }
+  else if (d.group) { S.group = d.group; S.drill = null; S.q = ""; if (S.sheet === "group") S.sheet = null; }
+  else if (d.view) S.view = d.view;
+  else if (d.heat) S.heat = !S.heat;
+  else if (d.openfilter) { S.sheet = "filter"; S.phonePane = null; }
+  else if (d.sheet) S.sheet = d.sheet;
+  else if (d.close) S.sheet = null;
+  else if (d.pane) S.pane = d.pane;
+  else if (d.ppane !== undefined) S.phonePane = d.ppane || null;
+  else if (d.opt) { const [k, v] = d.opt.split("|"); toggle(S.f[k], v); }
+  else if (d.radio) { const [k, v] = d.radio.split("|"); S.f[k] = v; }
+  else if (d.clear) S.f = { stores: new Set(), divisions: new Set(), tags: new Set(), payment: new Set(), suppliers: new Set(), price: "all", stock: "all" };
+  else if (d.psearch) S.phoneSearch = !S.phoneSearch;
+  else if (d.up) S.drill = null;
+  else if (d.row && !S.drill && S.group === "division") S.drill = d.row;
+  else return;
+  render();
+});
+document.getElementById("scrim").addEventListener("click", () => { S.sheet = null; S.cal = false; render(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") { S.sheet = null; S.cal = false; render(); } });
+document.addEventListener("input", (e) => { if (e.target.id === "q") { S.q = e.target.value; render(); } });
+render();
+</script>
+</body>
+</html>

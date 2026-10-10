@@ -13,9 +13,12 @@ import { Day } from "@/components/ui/day"
 import { Checkbox, Field, Input, Select, Textarea } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
+import { SHEET_ROW } from "@/components/ui/list-chrome"
+import { BottomSheet } from "@/components/ui/picker-sheet"
 import { Toolbar } from "@/components/ui/segmented"
 import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
 import { count, day, money } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   clearGiro,
   financeKeys,
@@ -33,7 +36,8 @@ import { useDebounced } from "@/lib/use-debounced"
 import { cn } from "@/lib/utils"
 import { todayIso } from "@/screens/finance/chart"
 import { useSupplierName } from "@/screens/finance/hooks"
-import { UnitSelect } from "@/screens/finance/parts"
+import { CardFigure } from "@/components/ui/phone-cards"
+import { PhoneChoice, PhoneFigures, UnitSelect } from "@/screens/finance/parts"
 
 import type { GiroRow } from "@itulah/contract"
 
@@ -85,6 +89,9 @@ export function GiroBoard() {
   const [bank, setBank] = useState("")
   const [unit, setUnit] = useState("")
   const [lateOnly, setLateOnly] = useState(false)
+  // A phone shows one lane at a time, the one that wants somebody.
+  const [lane, setLane] = useState<Bucket>("DUE_SOON")
+  const phone = useLayout() === "phone"
   // The card being dragged, and the move a drop has asked for. A drop never
   // posts anything: it opens the card's own form (the statement's date, the
   // reason), because a clearing is dated by the bank, not by the drop.
@@ -151,6 +158,7 @@ export function GiroBoard() {
   return (
     <PageContent>
       <PageHeader
+        className="max-md:hidden"
         crumb="Finance · Banking"
         title="Giro Board"
         actions={
@@ -158,6 +166,20 @@ export function GiroBoard() {
             Opening giro
           </Button>
         }
+      />
+      {/* A phone: the four lanes are one chip in the dock and a list of the
+          lane it names — four columns do not fit, and nothing scrolls
+          sideways. */}
+      <PhoneChoice
+        title="Lane"
+        value={lane}
+        onChange={(next) => setLane(next as Bucket)}
+        options={UI_COLUMNS.map(({ key, label }) => ({
+          value: key,
+          label,
+          short: key === "DUE_SOON" ? "Due soon" : label,
+          note: count(buckets[key].length),
+        }))}
       />
 
       <Toolbar>
@@ -168,7 +190,7 @@ export function GiroBoard() {
             className="h-control w-40"
             aria-label="Bank"
           >
-            <option value="">Every bank</option>
+            <option value="">All banks</option>
             {banks.map((name) => (
               <option key={name} value={name}>
                 {name}
@@ -185,7 +207,7 @@ export function GiroBoard() {
         <Checkbox label="Late only" checked={lateOnly} onChange={setLateOnly} />
       </Toolbar>
 
-      <p className="mb-3 text-[0.875rem] text-mute">
+      <p className="mb-3 text-[0.875rem] text-mute max-md:hidden">
         Drag a giro to Cleared once the bank has taken it, or to Bounced if it
         was refused.
       </p>
@@ -203,6 +225,45 @@ export function GiroBoard() {
               No giro is on the board yet. A giro is written from a payment or a
               cash document paid by giro.
             </EmptyState>
+          ) : phone ? (
+            <>
+              <PhoneFigures
+                items={[
+                  {
+                    label: "Giros",
+                    value: buckets[lane].length,
+                    unit: "count",
+                  },
+                  {
+                    label: "Total",
+                    value: buckets[lane].reduce(
+                      (sum, row) => sum + row.amount_minor,
+                      0
+                    ),
+                  },
+                ]}
+              />
+              <div className="flex flex-col gap-2.5">
+                {buckets[lane].length === 0 ? (
+                  <EmptyState>Nothing here.</EmptyState>
+                ) : (
+                  buckets[lane].map((row) => (
+                    <GiroCard
+                      key={row.giro_id}
+                      row={row}
+                      onChanged={onChanged}
+                      setDragging={setDragging}
+                      acting={active?.id === row.giro_id ? active.kind : null}
+                      setActing={(kind) =>
+                        setActive(
+                          kind === null ? null : { id: row.giro_id, kind }
+                        )
+                      }
+                    />
+                  ))
+                )}
+              </div>
+            </>
           ) : (
             <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2 xl:grid-cols-4">
               {UI_COLUMNS.map(({ key, label }) => (
@@ -344,6 +405,122 @@ function GiroCard({
 
   const bucket = bucketOf(row)
   const received = row.direction === "IN"
+  const phone = useLayout() === "phone"
+  const [choosing, setChoosing] = useState(false)
+
+  if (phone) {
+    // What the desk does by dragging a card, a phone does by tapping it: the
+    // moves this giro can make, each opening the same form the drop opens.
+    const moves: { kind: Acting; label: string }[] =
+      bucket === "WAITING" || bucket === "DUE_SOON"
+        ? [
+            { kind: "clear", label: "Cleared by the bank" },
+            { kind: "reject", label: "Bounced" },
+          ]
+        : bucket === "CLEARED"
+          ? [{ kind: "unclear", label: "Undo clearing" }]
+          : []
+    return (
+      <div className="rounded-card border border-hairline bg-canvas shadow-soft">
+        <div
+          className={cn(
+            "flex items-start gap-3 p-4",
+            moves.length > 0 && "cursor-pointer active:bg-soft"
+          )}
+          onClick={moves.length > 0 ? () => setChoosing(true) : undefined}
+        >
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className="text-card-title font-semibold break-words text-ink">
+              {row.party_name === null ? (
+                <span className="font-normal text-faint">No party</span>
+              ) : (
+                supplierName(row.party_name, row.party_name)
+              )}
+            </span>
+            <span className="truncate font-mono text-[0.875rem] text-mute">
+              {row.number}
+            </span>
+          </div>
+          <CardFigure value={money(row.amount_minor)} />
+        </div>
+        <div className="flex items-center justify-between gap-3 rounded-b-card border-t border-hairline px-4 py-3">
+          <div className="min-w-0 text-[0.875rem]">
+            <DueTag row={row} bucket={bucket} />
+            {bucket === "BOUNCED" && row.rejected_reason !== null && (
+              <div className="truncate text-mute">{row.rejected_reason}</div>
+            )}
+          </div>
+          {bucket === "BOUNCED" &&
+            (row.replaced_by !== null ? (
+              <Pill tone="ok">
+                Replaced by {row.replacement_number ?? row.replaced_by}
+              </Pill>
+            ) : (
+              <Button
+                variant="tint"
+                size="card"
+                onClick={() => toggle("replace")}
+              >
+                Replace
+              </Button>
+            ))}
+        </div>
+        {acting !== null && (
+          <div className="rounded-b-card border-t border-hairline p-3">
+            {acting === "clear" && (
+              <ClearForm
+                giro={row}
+                onDone={done}
+                onCancel={() => setActing(null)}
+              />
+            )}
+            {acting === "reject" && (
+              <RejectForm
+                giro={row}
+                onDone={done}
+                onCancel={() => setActing(null)}
+              />
+            )}
+            {acting === "unclear" && (
+              <UnclearForm
+                giro={row}
+                onDone={done}
+                onCancel={() => setActing(null)}
+              />
+            )}
+            {acting === "replace" && (
+              <ReplaceForm
+                giro={row}
+                onDone={done}
+                onCancel={() => setActing(null)}
+              />
+            )}
+          </div>
+        )}
+        <BottomSheet
+          open={choosing}
+          onOpenChange={setChoosing}
+          title={`Giro ${row.number}`}
+        >
+          <div className="min-h-0 overflow-y-auto overscroll-contain px-2 pb-3">
+            {moves.map((move) => (
+              <button
+                key={move.kind}
+                type="button"
+                className={SHEET_ROW}
+                onClick={() => {
+                  setChoosing(false)
+                  setActing(move.kind)
+                }}
+              >
+                {move.label}
+              </button>
+            ))}
+          </div>
+        </BottomSheet>
+      </div>
+    )
+  }
 
   return (
     <Card

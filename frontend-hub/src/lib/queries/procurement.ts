@@ -1,3 +1,5 @@
+import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query"
+
 import { ApiError } from "@itulah/contract/client"
 import type { PurchaseOrderLineReceipt } from "@itulah/contract"
 import type {
@@ -92,6 +94,9 @@ export interface PurchaseOrderRow {
   /// When the order was finished — the last receipt, or the last line closed
   /// short. Null while it is still open.
   readonly fulfilled_at: string | null
+  /// When anything last happened to the order — made, issued, edited,
+  /// received, closed short, cancelled.
+  readonly updated_at: string
   /// The delivery date has passed and pieces are still owed.
   readonly overdue: boolean
 }
@@ -112,6 +117,9 @@ export interface PurchaseOrderScope {
   /// Promised for delivery between these ISO days, inclusive.
   readonly deliveryFrom?: string
   readonly deliveryTo?: string
+  /// The server's order; absent is the house order (late first, then newest
+  /// issued). `updated` is the newest change first.
+  readonly sort?: "updated"
 }
 
 export interface PurchaseOrderLine {
@@ -164,12 +172,14 @@ export interface PurchaseOrderLine {
   /// purchase price it came from (basis points).
   readonly base_price_minor?: number | null
   readonly markup_bps?: number | null
-  /// How many of each colour and size, and a SKU's own price.
+  /// How many of each colour and size, a SKU's own price, and what it looks
+  /// like when the buyer attached photographs (0961).
   readonly variants?: readonly {
     readonly colour_code: string | null
     readonly size_code: string | null
     readonly quantity: number
     readonly base_price_minor: number | null
+    readonly image_urls?: readonly string[]
   }[]
   /// What it was ordered in — "10" "KODI" at "20" pieces each.
   readonly order_unit_code?: string | null
@@ -240,7 +250,7 @@ export interface PurchaseOrderDetail {
 }
 
 /// Excess beyond an order, on its way back to the supplier (0710): the PO
-/// creator raises one over whatever excess is still pending, and the Gudang
+/// creator raises one over whatever excess is still pending, and the warehouse
 /// closes it by handing the goods to the supplier in Ops Receiving.
 export interface PurchaseReturn {
   readonly return_id: string
@@ -256,7 +266,7 @@ export interface PurchaseReturn {
   readonly raised_at: string
   readonly handed_over_by: string | null
   readonly handed_over_at: string | null
-  /// The Gudang's person in charge, named when the surat jalan was generated;
+  /// The warehouse's person in charge, named when the delivery note was generated;
   /// null until it is (0917).
   readonly note_pic?: string | null
   readonly note_generated_at?: string | null
@@ -402,6 +412,12 @@ export interface UnidentifiedReceipt {
     readonly size_code: string | null
     readonly quantity: number
     readonly base_price_minor: number | null
+    /// The SKU's photographs on the order (0961); the first of a colour is
+    /// offered as that colourway's photograph. Absent from an older node.
+    readonly image_urls?: readonly string[]
+    /// What the bay counted of it, when the line was counted per variant
+    /// (0963); null for a line counted as a whole, absent from an older node.
+    readonly counted_quantity?: number | null
   }[]
 }
 
@@ -417,6 +433,8 @@ export interface SetupSessionRow {
   readonly declared_quantity: number
   readonly destination_site_id: string
   readonly status: string
+  readonly issue_state?: "QUEUED" | "PROCESSING" | "FAILED" | "DONE" | null
+  readonly issue_error?: string | null
   readonly created_by: string
   readonly created_at: string
 }
@@ -454,6 +472,8 @@ export interface SetupSession {
   readonly receipt_quantity: number
   readonly site_id: string
   readonly status: string
+  readonly issue_state?: "QUEUED" | "PROCESSING" | "FAILED" | "DONE" | null
+  readonly issue_error?: string | null
   readonly created_by: string
   readonly created_at: string
   readonly issued_at: string | null
@@ -703,6 +723,9 @@ export const procurementKeys = {
   setups: () => ["procurement", "article-setups"] as const,
   unidentified: () =>
     ["procurement", "article-setups", "unidentified"] as const,
+  /// Under `unidentified`, so whatever refreshes the queue refreshes its count.
+  unidentifiedCount: () =>
+    ["procurement", "article-setups", "unidentified", "count"] as const,
   setup: (id: string) => ["procurement", "article-setups", id] as const,
   itemImage: (supplierCode: string, itemCode: string) =>
     ["procurement", "catalogue", "item-image", supplierCode, itemCode] as const,
@@ -789,6 +812,7 @@ function orderBookUrl(scope: PurchaseOrderScope): string {
     params.set("delivery_from", scope.deliveryFrom)
   if (scope.deliveryTo !== undefined)
     params.set("delivery_to", scope.deliveryTo)
+  if (scope.sort !== undefined) params.set("sort", scope.sort)
   const query = params.toString()
   return query === ""
     ? "/api/v1/purchase-orders"
@@ -800,8 +824,12 @@ export function listPurchaseOrders(
   scope: PurchaseOrderScope = {},
   signal?: AbortSignal
 ) {
+  const url = orderBookUrl(scope)
   return node
-    .get<PurchaseOrderPage>(orderBookUrl(scope), { signal })
+    .get<PurchaseOrderPage>(
+      `${url}${url.includes("?") ? "&" : "?"}include_facets=false`,
+      { signal }
+    )
     .then((body) => body.rows)
 }
 
@@ -946,7 +974,7 @@ export function cancelPurchaseOrder(
   )
 }
 
-/// Put an order's excess on a purchase return, for the Gudang to hand to the
+/// Put an order's excess on a purchase return, for the warehouse to hand to the
 /// supplier. Empty/omitted `po_line_ids` means all of the order's pending
 /// excess — the "Return N pcs to supplier" button on the sheet asks for the
 /// whole order rather than line by line. 409 when nothing is pending.
@@ -1152,8 +1180,11 @@ export async function listSuppliers(
   const rows: SupplierPage["rows"][number][] = []
   let cursor: string | undefined
   for (let page = 0; page < BOOK_PAGES; page++) {
-    const body = await node.get<SupplierPage>(
-      supplierBookUrl({ status, limit: BOOK_PAGE, cursor }),
+    const body = await node.get<Pick<SupplierPage, "rows" | "next_cursor">>(
+      supplierBookUrl({ status, limit: BOOK_PAGE, cursor }).replace(
+        "/api/v1/suppliers",
+        "/api/v1/suppliers/options"
+      ),
       { signal }
     )
     rows.push(...body.rows)
@@ -1633,6 +1664,17 @@ export function listSetupSessions(signal?: AbortSignal) {
 }
 
 /// Deliveries counted and accepted but not yet worked out.
+/// How many deliveries wait to be named, up to a thousand — the badge on New
+/// articles. A number, never the rows: the queue can hold millions of lines.
+export function unidentifiedCount(signal?: AbortSignal) {
+  return node
+    .get<{ count: number; capped: boolean }>(
+      "/api/v1/article-setups/unidentified/count",
+      { signal }
+    )
+    .then((body) => body.count)
+}
+
 export function unidentifiedReceipts(signal?: AbortSignal) {
   return node
     .get<{ items: UnidentifiedReceipt[] }>(
@@ -1686,6 +1728,28 @@ export function openSetupSession(
   return node.post<SetupSession>("/api/v1/article-setups", request, { signal })
 }
 
+export function submitSetupSession(request: NewSetupSession, key: string) {
+  return node.post<SetupSession>(
+    "/api/v1/article-setups?background=true",
+    request,
+    {
+      headers: { "Idempotency-Key": key },
+    }
+  )
+}
+
+export function submitSplitSetup(request: NewSplitSetup, key: string) {
+  return node
+    .post<{ items: SetupSession[] }>(
+      "/api/v1/article-setups/split?background=true",
+      request,
+      {
+        headers: { "Idempotency-Key": key },
+      }
+    )
+    .then((body) => body.items)
+}
+
 /// One article of a delivery line split into several: its own colourways and
 /// its own share of the pieces.
 export interface NewSetupPart {
@@ -1734,7 +1798,7 @@ export function issueSetupSession(
   signal?: AbortSignal
 ) {
   return node.post<SetupSession>(
-    `/api/v1/article-setups/${id}/issue`,
+    `/api/v1/article-setups/${id}/issue?background=true`,
     { issued_by: issuedBy },
     { signal, headers: { "Idempotency-Key": idempotencyKey } }
   )
@@ -1897,6 +1961,43 @@ export async function uploadSupplierItemImage(
   return `${stored.url}${stored.url.includes("?") ? "&" : "?"}v=${Date.now()}`
 }
 
+/// Store one photograph a buyer attached to a variant of an order line, and
+/// return the link the order carries (0961). Uploaded the moment it is picked:
+/// the line it belongs to may not exist yet, so it is filed by an id minted
+/// here rather than by anything on the order.
+export async function uploadOrderPhoto(
+  file: Blob,
+  signal?: AbortSignal
+): Promise<string> {
+  const photoId = crypto.randomUUID()
+  const ticketPath = `/api/v1/catalogue/order-photos/${photoId}/upload-url`
+  await putThumbnail(ticketPath, file, signal)
+  const ticket = await node.post<ImageUploadTicket>(ticketPath, {}, { signal })
+  const response = await fetch(ticket.upload.url, {
+    method: ticket.method,
+    body: file,
+    headers: { "content-type": ticket.content_type },
+    signal,
+  })
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      `The image store refused the upload (${response.status}).`
+    )
+  }
+  const stored = await node.get<ImageLocation>(
+    `/api/v1/catalogue/order-photos/${photoId}`,
+    { signal }
+  )
+  if (stored.expires_in_seconds !== null) {
+    throw new ApiError(
+      501,
+      "This bucket hands out expiring links, which cannot be stored on an order. Set a public base URL on the node."
+    )
+  }
+  return stored.url
+}
+
 /// Put a photograph on a colourway.
 ///
 /// Two steps, on purpose: the node hands out a URL that authorises this one
@@ -1967,3 +2068,75 @@ async function putPhoto(
   }
   return ticket.upload
 }
+
+// ---------------------------------------------------------------------------
+// The books as lists — one set of options for the screen and the prefetcher
+// ---------------------------------------------------------------------------
+//
+// Procurement › Orders and › Suppliers read their book a page at a time. The
+// options are written once, here, and used both by the screens' hooks and by
+// `screens/procurement/prefetch.ts`, so a prefetched page is exactly the one
+// the screen asks for (same key, same request) and cannot drift from it.
+
+/// Rows a page of the supplier book holds.
+export const SUPPLIER_PAGE = 200
+
+export const supplierBookQuery = (scope: SupplierScope) =>
+  infiniteQueryOptions({
+    queryKey: [...procurementKeys.suppliers(scope), "pages"] as const,
+    queryFn: ({ signal, pageParam }) =>
+      supplierPage(
+        {
+          ...scope,
+          limit: SUPPLIER_PAGE,
+          ...(pageParam === undefined ? {} : { cursor: pageParam }),
+        },
+        signal
+      ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    // The previous answer stays on screen while the next is fetched.
+    placeholderData: (previous) => previous,
+  })
+
+export const orderBookQuery = (scope: PurchaseOrderScope) =>
+  infiniteQueryOptions({
+    queryKey: [...procurementKeys.ordersPage(scope), "paged"] as const,
+    queryFn: ({ signal, pageParam }) =>
+      purchaseOrderPage(scope, signal, pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    // The previous answer stays on screen while the next is fetched. Without
+    // it every keystroke empties the table to a loading line and the screen
+    // flashes its way through a word.
+    placeholderData: (previous) => previous,
+  })
+
+/// The suppliers for a picker: names and codes, the whole book. Small, cached
+/// by every other procurement screen.
+export const supplierNamesQuery = () =>
+  queryOptions({
+    queryKey: procurementKeys.suppliers(),
+    queryFn: ({ signal }) => listSuppliers(undefined, signal),
+    staleTime: 5 * 60 * 1000,
+  })
+
+/// A record's sheet, as its screen reads it and as the row under the pointer
+/// asks for it ahead of the click (`onRowIntent`, `screens/procurement/prefetch.ts`).
+export const orderDetailQuery = (id: string) =>
+  queryOptions({
+    queryKey: procurementKeys.order(id),
+    queryFn: ({ signal }) => purchaseOrderDetail(id, signal),
+  })
+
+export const supplierDetailQuery = (id: string) =>
+  queryOptions({
+    queryKey: procurementKeys.supplier(id),
+    queryFn: ({ signal }) => supplierDetail(id, signal),
+  })
+
+export const supplierPeopleQuery = (id: string) =>
+  queryOptions({
+    queryKey: procurementKeys.supplierContacts(id),
+    queryFn: ({ signal }) => supplierContacts(id, false, signal),
+  })

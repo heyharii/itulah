@@ -7,7 +7,8 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
-import { count, dateText, day, money } from "@/lib/format"
+import { count, dateText, day, money, percentOf, quantity } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   cogsByMonth,
   financeKeys,
@@ -27,6 +28,8 @@ import {
   TotalRow,
 } from "@/screens/finance-final/parts"
 import { UnitRail } from "@/screens/finance/inventory"
+import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
+import { PhoneFigures } from "@/screens/finance/parts"
 
 const sum = <T,>(rows: readonly T[], pick: (row: T) => number) =>
   rows.reduce((total, row) => total + pick(row), 0)
@@ -47,6 +50,7 @@ export function GoodsInTransitScreen() {
   const short = rows.filter((row) => row.status === "SHORT")
   const roadValue = sum(road, (row) => row.value_minor)
   const shortValue = sum(short, (row) => row.value_minor)
+  const phone = useLayout() === "phone"
 
   const shown = useMemo(() => {
     const q = needle.trim().toLowerCase()
@@ -80,9 +84,10 @@ export function GoodsInTransitScreen() {
   return (
     <PageContent>
       <PageHeader
+        className="max-md:hidden"
         crumb="Finance · Inventory"
         title="Goods in Transit"
-        sub="BDP (1031): goods head office has sent and the shop has not counted in yet."
+        sub="Goods head office has sent and the shop has not counted in yet."
       />
       {result.isPending ? (
         <LoadingState>Reading the goods on the road…</LoadingState>
@@ -93,21 +98,34 @@ export function GoodsInTransitScreen() {
         />
       ) : (
         <>
-          <CardRow>
-            <NumberCard
-              label="On the road"
-              value={roadValue}
-              note={`${count(sum(road, (row) => row.quantity))} pieces`}
-            />
-            <NumberCard
-              label="Short at count"
-              value={shortValue}
-              tone={shortValue > 0 ? "warn" : undefined}
-              note="Not in the box when the shop counted — settle as found or lost"
-            />
-            <NumberCard label="Total on 1031" value={roadValue + shortValue} />
-          </CardRow>
-          <div className="mt-5">
+          <PhoneFigures
+            items={[
+              { label: "On the road", value: roadValue },
+              {
+                label: "Short at count",
+                value: shortValue,
+                tone: shortValue > 0 ? "warn" : undefined,
+              },
+              { label: "In transit", value: roadValue + shortValue },
+            ]}
+          />
+          <div className="max-md:hidden">
+            <CardRow>
+              <NumberCard
+                label="On the road"
+                value={roadValue}
+                note={quantity(sum(road, (row) => row.quantity))}
+              />
+              <NumberCard
+                label="Short at count"
+                value={shortValue}
+                tone={shortValue > 0 ? "warn" : undefined}
+                note="Not in the box when the shop counted — settle as found or lost"
+              />
+              <NumberCard label="In transit" value={roadValue + shortValue} />
+            </CardRow>
+          </div>
+          <div className="mt-5 max-md:mt-0">
             <SubTabs
               tabs={[
                 { value: "road", label: "On the road" },
@@ -122,6 +140,7 @@ export function GoodsInTransitScreen() {
                 value={needle}
                 onChange={(event) => setNeedle(event.target.value)}
                 aria-label="Search goods in transit"
+                placeholder="Search goods in transit"
                 className="h-control w-72"
               />
             </Toolbar>
@@ -133,11 +152,49 @@ export function GoodsInTransitScreen() {
                     ? "Nothing is short at count."
                     : "Nothing is on the road."}
               </EmptyState>
+            ) : phone ? (
+              <PhoneList
+                rows={shown.map((row) => ({
+                  key: row.allotment_line_id,
+                  title: row.article_name ?? "—",
+                  code: row.article_code ?? row.sku_code,
+                  lead: (
+                    <CardFigure
+                      value={money(row.value_minor)}
+                      caption={`${count(row.quantity)} pcs`}
+                    />
+                  ),
+                  alert: row.status === "SHORT",
+                  foot: (
+                    <span className="block">
+                      <span className="block">
+                        {row.shipment_reference ?? "—"}
+                        {row.koli_number !== null &&
+                          ` · Carton ${row.koli_number}`}
+                      </span>
+                      <span className="block">
+                        To {row.destination_name} · sent{" "}
+                        {day(row.dispatched_on)}
+                        {" · "}
+                        <span
+                          className={
+                            row.status === "ON_THE_ROAD" && row.days > 3
+                              ? "text-warn-fg"
+                              : undefined
+                          }
+                        >
+                          {count(row.days)} {row.days === 1 ? "day" : "days"}
+                        </span>
+                      </span>
+                    </span>
+                  ),
+                }))}
+              />
             ) : (
               <Grid>
                 <thead>
                   <tr>
-                    <Th>Surat jalan</Th>
+                    <Th>Delivery note</Th>
                     <Th>To</Th>
                     <Th>Article</Th>
                     <Th align="right">Quantity</Th>
@@ -217,7 +274,7 @@ export function GoodsInTransitScreen() {
 // ---------------------------------------------------------------------------
 
 function percent(part: number, whole: number): string {
-  return whole === 0 ? "—" : `${((part / whole) * 100).toFixed(1)}%`
+  return percentOf(part, whole)
 }
 
 export function CogsScreen() {
@@ -253,15 +310,17 @@ export function CogsScreen() {
   const revenue = sum(months, (row) => row.revenue_minor)
   const cogs = sum(months, (row) => row.cogs_minor)
   const margin = sum(months, (row) => row.gross_margin_minor)
+  const phone = useLayout() === "phone"
 
   return (
     <PageContent>
       <PageHeader
+        className="max-md:hidden"
         crumb="Finance · Inventory"
         title="Cost of Goods Sold"
         sub="What the stock that was sold cost, against what it sold for — per month and per unit."
       />
-      <div className="flex items-start gap-6">
+      <div className="flex items-start gap-6 max-md:block">
         <UnitRail value={unit} onChange={setUnit} />
         <div className="min-w-0 flex-1">
           <SubTabs
@@ -281,7 +340,17 @@ export function CogsScreen() {
             />
           ) : (
             <>
-              <div className="mt-4">
+              <PhoneFigures
+                items={[
+                  { label: "Net sales", value: revenue },
+                  { label: "Cost of goods sold", value: cogs },
+                  {
+                    label: `Gross margin · ${percent(margin, revenue)}`,
+                    value: margin,
+                  },
+                ]}
+              />
+              <div className="mt-4 max-md:hidden">
                 <CardRow>
                   <NumberCard label="Net sales" value={revenue} />
                   <NumberCard label="Cost of goods sold" value={cogs} />
@@ -295,6 +364,27 @@ export function CogsScreen() {
               <div className="mt-5">
                 {months.length === 0 ? (
                   <EmptyState>No sales booked in {year}.</EmptyState>
+                ) : phone ? (
+                  <PhoneList
+                    rows={months.map((row) => ({
+                      key: String(row.month),
+                      title: dateText(new Date(year, row.month - 1, 1), {
+                        month: "long",
+                      }),
+                      lead: (
+                        <CardFigure
+                          value={money(row.gross_margin_minor)}
+                          caption={`${percent(row.gross_margin_minor, row.revenue_minor)} margin`}
+                        />
+                      ),
+                      foot: (
+                        <span className="tabular-nums">
+                          Net sales {money(row.revenue_minor)} · COGS{" "}
+                          {money(row.cogs_minor)}
+                        </span>
+                      ),
+                    }))}
+                  />
                 ) : (
                   <Grid>
                     <thead>
@@ -369,10 +459,12 @@ export function StockAdjustmentsScreen() {
   const bookedValue = sum(booked, (row) => row.value_minor)
   const waitingValue = sum(waiting, (row) => row.value_minor)
   const shown = tab === "waiting" ? waiting : booked
+  const phone = useLayout() === "phone"
 
   return (
     <PageContent>
       <PageHeader
+        className="max-md:hidden"
         crumb="Finance · Inventory"
         title="Stock Adjustments"
         sub="Stock value that changed for any reason other than buying, moving or selling: counts, losses, write-offs."
@@ -386,16 +478,28 @@ export function StockAdjustmentsScreen() {
         />
       ) : (
         <>
-          <CardRow columns={2}>
-            <NumberCard label="Booked" value={bookedValue} />
-            <NumberCard
-              label="Waiting to be settled"
-              value={waitingValue}
-              tone={waitingValue !== 0 ? "warn" : undefined}
-              note="Short at count or missing — not yet found or written off"
-            />
-          </CardRow>
-          <div className="mt-5">
+          <PhoneFigures
+            items={[
+              { label: "Booked", value: bookedValue },
+              {
+                label: "Waiting to be settled",
+                value: waitingValue,
+                tone: waitingValue !== 0 ? "warn" : undefined,
+              },
+            ]}
+          />
+          <div className="max-md:hidden">
+            <CardRow columns={2}>
+              <NumberCard label="Booked" value={bookedValue} />
+              <NumberCard
+                label="Waiting to be settled"
+                value={waitingValue}
+                tone={waitingValue !== 0 ? "warn" : undefined}
+                note="Short at count or missing — not yet found or written off"
+              />
+            </CardRow>
+          </div>
+          <div className="mt-5 max-md:mt-0">
             <SubTabs
               tabs={[
                 { value: "waiting", label: "Waiting" },
@@ -410,6 +514,27 @@ export function StockAdjustmentsScreen() {
                   ? "Nothing waiting — every short or missing piece has been found or written off."
                   : "No adjustment has been booked yet."}
               </EmptyState>
+            ) : phone ? (
+              <PhoneList
+                rows={shown.map((row, index) => ({
+                  key: `${row.reference}-${index}`,
+                  title: kindText(row.kind),
+                  code: row.reference,
+                  line: row.description,
+                  lead: (
+                    <CardFigure
+                      value={money(row.value_minor)}
+                      tone={row.value_minor < 0 ? "bad" : undefined}
+                      caption={
+                        row.quantity === null
+                          ? undefined
+                          : `${count(row.quantity)} pcs`
+                      }
+                    />
+                  ),
+                  foot: `${day(row.on_date)} · ${unitLabel(row.unit_id)}`,
+                }))}
+              />
             ) : (
               <Grid>
                 <thead>

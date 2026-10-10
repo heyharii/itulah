@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
+import { useNavigate } from "@tanstack/react-router"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
@@ -43,7 +44,9 @@ import {
 import { listVouchers, voucherKeys } from "@/lib/queries/vouchers"
 import { queryState } from "@/lib/query-state"
 import { consumed, delta, fold } from "@/screens/commercial/shared"
+import { useLayout } from "@/lib/layout"
 import { cn } from "@/lib/utils"
+import { CardFigure, CardName, PhoneCard } from "@/components/ui/phone-cards"
 
 /// Commercial's front door.
 ///
@@ -111,6 +114,10 @@ const WINDOW_DAYS = 30
 const SOLO = "__solo"
 
 export function CommercialOverview() {
+  // A phone gets the four figures in a two-by-two and the promotions that gave
+  // away most as cards, nothing sideways (owner, 2026-10-06).
+  const phone = useLayout() === "phone"
+  const navigate = useNavigate()
   /// The window ends at the top of the NEXT hour, not on this millisecond.
   /// Both ends are in the performance keys, and a clock read at mount made
   /// every visit a new key — the two heaviest reads on the page refetched each
@@ -193,6 +200,51 @@ export function CommercialOverview() {
   )
   const ledger = vouchers.data?.ledger
 
+  const leadFigures = (
+    <>
+      <Kpi
+        label="Given away"
+        value={money(rules.isPending ? undefined : given.benefit_minor)}
+        delta={
+          rules.isPending
+            ? undefined
+            : movement === null
+              ? gaveBefore.benefit_minor === 0 && given.benefit_minor > 0
+                ? "new this period"
+                : undefined
+              : `${movement > 0 ? "+" : ""}${movement}% vs previous ${WINDOW_DAYS} days`
+        }
+        // Up is not good here. Every other strip in this app reads a rise as
+        // progress; this one is margin let go of, so a bigger number is a
+        // bigger bill and the arrow has to agree with the sentence.
+        tone={movement === null ? "flat" : movement > 0 ? "down" : "up"}
+      />
+      <Kpi
+        label="Baskets touched"
+        value={count(rules.isPending ? undefined : given.sale_count)}
+        delta={
+          rules.isPending
+            ? undefined
+            : `${count(ruleRows.length)} promotions earning`
+        }
+      />
+      <Kpi
+        label="Campaigns running"
+        value={count(campaigns.isPending ? undefined : board.live.length)}
+        delta={
+          board.rows.length > board.live.length
+            ? `${count(board.rows.length - board.live.length)} not running`
+            : undefined
+        }
+      />
+      <Kpi
+        label="Vouchers outstanding"
+        value={money(ledger?.outstanding_minor)}
+        delta={ledger ? `${count(ledger.outstanding_count)} cards` : undefined}
+      />
+    </>
+  )
+
   return (
     <PageContent>
       <PageHeader crumb="Marketing" title="Overview" />
@@ -203,100 +255,111 @@ export function CommercialOverview() {
           long as the slowest of these takes — `money(undefined)` and
           `count(undefined)` are already "—" for exactly this. */}
       <KpiStrip>
-        <Kpi
-          label="Given away"
-          value={money(rules.isPending ? undefined : given.benefit_minor)}
-          delta={
-            rules.isPending
-              ? undefined
-              : movement === null
-                ? gaveBefore.benefit_minor === 0 && given.benefit_minor > 0
-                  ? "new this period"
-                  : undefined
-                : `${movement > 0 ? "+" : ""}${movement}% vs previous ${WINDOW_DAYS} days`
-          }
-          // Up is not good here. Every other strip in this app reads a rise as
-          // progress; this one is margin let go of, so a bigger number is a
-          // bigger bill and the arrow has to agree with the sentence.
-          tone={movement === null ? "flat" : movement > 0 ? "down" : "up"}
-        />
-        <Kpi
-          label="Baskets touched"
-          value={count(rules.isPending ? undefined : given.sale_count)}
-          delta={
-            rules.isPending
-              ? undefined
-              : `${count(ruleRows.length)} promotions earning`
-          }
-        />
-        <Kpi
-          label="Campaigns running"
-          value={count(campaigns.isPending ? undefined : board.live.length)}
-          delta={
-            board.rows.length > board.live.length
-              ? `${count(board.rows.length - board.live.length)} not running`
-              : undefined
-          }
-        />
-        <Kpi
-          label="Vouchers outstanding"
-          value={money(ledger?.outstanding_minor)}
-          delta={
-            ledger ? `${count(ledger.outstanding_count)} cards` : undefined
-          }
-        />
-        <Kpi
-          label="Changes need attention"
-          value={count(changes.isPending ? undefined : attention.length)}
-          delta={
-            changes.isPending
-              ? undefined
-              : `of ${count(outstanding.length)} outstanding`
-          }
-          tone={attention.length > 0 ? "down" : "flat"}
-        />
-        <Kpi
-          label="Stores behind on prices"
-          value={count(
-            fleet.isPending ? undefined : behind.length + silent.length
-          )}
-          delta={
-            fleet.isPending
-              ? undefined
-              : silent.length > 0
-                ? `${count(silent.length)} never reported`
-                : `of ${count(fleet.data?.shop_count ?? 0)}`
-          }
-          tone={behind.length + silent.length > 0 ? "down" : "flat"}
-        />
+        {leadFigures}
+        {!phone && (
+          <>
+            <Kpi
+              label="Changes need attention"
+              value={count(changes.isPending ? undefined : attention.length)}
+              delta={
+                changes.isPending
+                  ? undefined
+                  : `of ${count(outstanding.length)} outstanding`
+              }
+              tone={attention.length > 0 ? "down" : "flat"}
+            />
+            <Kpi
+              label="Stores behind on prices"
+              value={count(
+                fleet.isPending ? undefined : behind.length + silent.length
+              )}
+              delta={
+                fleet.isPending
+                  ? undefined
+                  : silent.length > 0
+                    ? `${count(silent.length)} never reported`
+                    : `of ${count(fleet.data?.shop_count ?? 0)}`
+              }
+              tone={behind.length + silent.length > 0 ? "down" : "flat"}
+            />
+          </>
+        )}
       </KpiStrip>
 
-      <Card className="mb-6 p-6">
-        <SubHead
-          aside={`${day(scope.from)} – ${day(new Date(now).toISOString())}`}
-        >
-          What the offers gave away
-        </SubHead>
-        {queryState(rules, {
-          loading: "Loading…",
-          render: () =>
-            stack.rows.length === 0 ? (
-              <EmptyState>Nothing given away.</EmptyState>
-            ) : (
-              <>
-                <BandLegend bands={stack.bands} />
-                <BandStack
-                  rows={stack.rows}
-                  bands={stack.bands}
-                  format={money}
-                  titleOf={(bucket) => day(bucket)}
-                  labelOf={(bucket) => bucket.slice(5).replace("-", "/")}
-                  totalLabel="All offers"
-                />
-              </>
-            ),
-        })}
-      </Card>
+      {phone ? (
+        <div className="mb-6">
+          <SubHead
+            aside={`${day(scope.from)} – ${day(new Date(now).toISOString())}`}
+          >
+            Gave away most
+          </SubHead>
+          {queryState(rules, {
+            loading: "Loading…",
+            render: () =>
+              stack.earning.length === 0 ? (
+                <EmptyState>Nothing given away.</EmptyState>
+              ) : (
+                <ul className="mt-3 flex flex-col gap-2.5">
+                  {stack.earning.slice(0, 3).map((rule) => (
+                    <PhoneCard
+                      key={rule.rule_id}
+                      onOpen={() =>
+                        void navigate({
+                          to: "/commercial/promotions",
+                          search: { rule: rule.rule_id },
+                        } as never)
+                      }
+                      head={
+                        <CardName
+                          name={rule.name ?? rule.rule_id}
+                          line={
+                            rule.campaign_id === null
+                              ? "No campaign"
+                              : (board.nameOf(rule.campaign_id) ??
+                                rule.campaign_id)
+                          }
+                        />
+                      }
+                      lead={
+                        <CardFigure
+                          value={money(rule.benefit_minor)}
+                          caption={`${count(rule.sale_count)} ${rule.sale_count === 1 ? "basket" : "baskets"}`}
+                        />
+                      }
+                    />
+                  ))}
+                </ul>
+              ),
+          })}
+        </div>
+      ) : (
+        <Card className="mb-6 p-6">
+          <SubHead
+            aside={`${day(scope.from)} – ${day(new Date(now).toISOString())}`}
+          >
+            What the offers gave away
+          </SubHead>
+          {queryState(rules, {
+            loading: "Loading…",
+            render: () =>
+              stack.rows.length === 0 ? (
+                <EmptyState>Nothing given away.</EmptyState>
+              ) : (
+                <>
+                  <BandLegend bands={stack.bands} />
+                  <BandStack
+                    rows={stack.rows}
+                    bands={stack.bands}
+                    format={money}
+                    titleOf={(bucket) => day(bucket)}
+                    labelOf={(bucket) => bucket.slice(5).replace("-", "/")}
+                    totalLabel="All offers"
+                  />
+                </>
+              ),
+          })}
+        </Card>
+      )}
 
       <div className="mb-6">
         <SubHead
@@ -344,97 +407,101 @@ export function CommercialOverview() {
           promotion table inside would widen its own column past the viewport
           and take the page with it — the scroll has to happen in the card. */}
       <div className="mb-6 grid items-start gap-6 min-[1100px]:grid-cols-[1.35fr_1fr] [&>*]:min-w-0">
-        <Card className="p-6">
-          <SubHead
-            aside={
-              <AppLink to="/commercial/promotions" className="text-accent">
-                Open Promotions
-              </AppLink>
-            }
-          >
-            Promotions doing the work
-          </SubHead>
-          {queryState(rules, {
-            loading: "Loading…",
-            render: () =>
-              stack.earning.length === 0 ? (
-                <EmptyState>Nothing discounted.</EmptyState>
-              ) : (
-                // The table scrolls inside the card; the PAGE never scrolls
-                // sideways. Four columns and a 32px thumbnail do not fit a
-                // phone, and the alternative — dropping a column below some
-                // width — would hide the figure somebody came for.
-                <div className="-mx-1 overflow-x-auto px-1">
-                  <MiniTable
-                    className="min-w-[26rem]"
-                    head={[
-                      "Promotion",
-                      { label: "Shape", align: "left" },
-                      "Given Away",
-                      "Baskets",
-                    ]}
-                  >
-                    {stack.earning.slice(0, 8).map((rule) => (
-                      <MiniRow key={rule.rule_id}>
-                        <MiniCell>
-                          <div className="flex items-center gap-3">
-                            {/* The campaign's poster, not the promotion's. See
+        {!phone && (
+          <Card className="p-6">
+            <SubHead
+              aside={
+                <AppLink to="/commercial/promotions" className="text-accent">
+                  Open Promotions
+                </AppLink>
+              }
+            >
+              Promotions doing the work
+            </SubHead>
+            {queryState(rules, {
+              loading: "Loading…",
+              render: () =>
+                stack.earning.length === 0 ? (
+                  <EmptyState>Nothing discounted.</EmptyState>
+                ) : (
+                  // The table scrolls inside the card; the PAGE never scrolls
+                  // sideways. Four columns and a 32px thumbnail do not fit a
+                  // phone, and the alternative — dropping a column below some
+                  // width — would hide the figure somebody came for.
+                  <div className="-mx-1 overflow-x-auto px-1">
+                    <MiniTable
+                      className="min-w-[26rem]"
+                      head={[
+                        "Promotion",
+                        { label: "Shape", align: "left" },
+                        "Given Away",
+                        "Baskets",
+                      ]}
+                    >
+                      {stack.earning.slice(0, 8).map((rule) => (
+                        <MiniRow key={rule.rule_id}>
+                          <MiniCell>
+                            <div className="flex items-center gap-3">
+                              {/* The campaign's poster, not the promotion's. See
                               the module note: a rule has no picture, and
                               borrowing its envelope's is the truthful way to
                               show which one it runs under. */}
-                            <Thumbnail
-                              url={
-                                rule.campaign_id === null
-                                  ? null
-                                  : (board.posterOf(rule.campaign_id) ?? null)
-                              }
-                              className="size-8 shrink-0 rounded-inner"
-                            />
-                            <span className="min-w-0">
-                              <AppLink
-                                to="/commercial/promotions"
-                                sheet={{ key: "rule", value: rule.rule_id }}
-                                className="block truncate text-ink hover:text-accent"
-                              >
-                                {rule.name ?? rule.rule_id}
-                              </AppLink>
-                              <span className="block truncate text-[0.875rem] text-mute">
-                                {rule.campaign_id === null
-                                  ? "No campaign"
-                                  : (board.nameOf(rule.campaign_id) ??
-                                    rule.campaign_id)}
+                              <Thumbnail
+                                url={
+                                  rule.campaign_id === null
+                                    ? null
+                                    : (board.posterOf(rule.campaign_id) ?? null)
+                                }
+                                className="size-8 shrink-0 rounded-inner"
+                              />
+                              <span className="min-w-0">
+                                <AppLink
+                                  to="/commercial/promotions"
+                                  sheet={{ key: "rule", value: rule.rule_id }}
+                                  className="block truncate text-ink hover:text-accent"
+                                >
+                                  {rule.name ?? rule.rule_id}
+                                </AppLink>
+                                <span className="block truncate text-[0.875rem] text-mute">
+                                  {rule.campaign_id === null
+                                    ? "No campaign"
+                                    : (board.nameOf(rule.campaign_id) ??
+                                      rule.campaign_id)}
+                                </span>
                               </span>
-                            </span>
-                          </div>
-                        </MiniCell>
-                        <MiniCell>
-                          <Sparkline
-                            values={rule.series.map((one) => one.benefit_minor)}
-                            colour={
-                              rule.campaign_id === null
-                                ? BAND_NEUTRAL
-                                : board.colourOf(rule.campaign_id)
-                            }
-                            className="w-16"
-                          />
-                        </MiniCell>
-                        <MiniCell align="right">
-                          {money(rule.benefit_minor)}
-                        </MiniCell>
-                        <MiniCell align="right">
-                          {count(rule.sale_count)}
-                        </MiniCell>
-                      </MiniRow>
-                    ))}
-                  </MiniTable>
-                  <More
-                    hidden={stack.earning.length - 8}
-                    to="/commercial/promotions"
-                  />
-                </div>
-              ),
-          })}
-        </Card>
+                            </div>
+                          </MiniCell>
+                          <MiniCell>
+                            <Sparkline
+                              values={rule.series.map(
+                                (one) => one.benefit_minor
+                              )}
+                              colour={
+                                rule.campaign_id === null
+                                  ? BAND_NEUTRAL
+                                  : board.colourOf(rule.campaign_id)
+                              }
+                              className="w-16"
+                            />
+                          </MiniCell>
+                          <MiniCell align="right">
+                            {money(rule.benefit_minor)}
+                          </MiniCell>
+                          <MiniCell align="right">
+                            {count(rule.sale_count)}
+                          </MiniCell>
+                        </MiniRow>
+                      ))}
+                    </MiniTable>
+                    <More
+                      hidden={stack.earning.length - 8}
+                      to="/commercial/promotions"
+                    />
+                  </div>
+                ),
+            })}
+          </Card>
+        )}
 
         <Card className="p-6">
           <SubHead
@@ -676,7 +743,7 @@ interface BoardRow extends CampaignPerformance {
 /// One row per campaign already: `campaignCatalogue` takes the newest
 /// publication that declares each id, in SQL, by the same rule a till resolves
 /// it with. Picking a row here would be a second opinion about which of four
-/// books is the live statement of the Lebaran sale.
+/// books is the live statement of the Eid sale.
 function usePosters(
   rows: readonly CampaignRow[] | undefined
 ): Map<string, BookCampaign> {

@@ -51,10 +51,12 @@ async fn the_clock_earns_a_monthly_policy_once(pool: PgPool) {
     .await
     .unwrap_or_else(|error| panic!("leave policy: {error}"));
 
-    sqlx::query("INSERT INTO employee (id, code, status) VALUES ('emp_sched', 'E-SCHED', 'ACTIVE')")
-        .execute(&pool)
-        .await
-        .unwrap_or_else(|error| panic!("employee: {error}"));
+    sqlx::query(
+        "INSERT INTO employee (id, code, status) VALUES ('emp_sched', 'E-SCHED', 'ACTIVE')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("employee: {error}"));
 
     let authorized = json!({
         "actor": "test",

@@ -30,7 +30,7 @@ import { Pill } from "@/components/ui/pill"
 import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { Banner } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
-import { ago, count, day, moment, type Tone } from "@/lib/format"
+import { ago, count, dateText, day, moment, type Tone } from "@/lib/format"
 import { useAppNavigate } from "@/lib/navigate"
 import { reconciliation, syncHealth, systemKeys } from "@/lib/queries/system"
 import { queryState } from "@/lib/query-state"
@@ -662,8 +662,6 @@ const TRAFFIC: readonly ChartSeries[] = [
   { key: "commands", label: "Commands issued", tone: "cap" },
 ]
 
-const hourOf = new Intl.DateTimeFormat("id-ID", { hour: "2-digit" })
-
 function Throughput({ data }: { data: SyncFleetHealth }) {
   const rows = useMemo<ChartRow[]>(
     () =>
@@ -708,7 +706,9 @@ function Throughput({ data }: { data: SyncFleetHealth }) {
             series={TRAFFIC}
             format={(value) => count(value)}
             titleOf={(bucket) => moment(bucket)}
-            labelOf={(bucket) => hourOf.format(new Date(bucket))}
+            labelOf={(bucket) =>
+              dateText(new Date(bucket), { hour: "2-digit" })
+            }
             className="h-[11rem]"
           />
         )}

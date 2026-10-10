@@ -577,18 +577,20 @@ pub async fn bootstrap_origin(
             .await
             .map(|command| json!({ "command_id": command })),
     );
-    let site_id: Option<String> = sqlx::query_scalar(
-        "SELECT site_id FROM sync_origin_credential WHERE origin_id = $1",
-    )
-    .bind(origin_id)
-    .fetch_one(pool)
-    .await?;
+    let site_id: Option<String> =
+        sqlx::query_scalar("SELECT site_id FROM sync_origin_credential WHERE origin_id = $1")
+            .bind(origin_id)
+            .fetch_one(pool)
+            .await?;
     let (open_work, attendance_book) = match site_id.as_deref() {
         Some(site) => (
             outcome(resend_open_work(pool, origin_id, site, issued_by).await),
             outcome(send_attendance_book(pool, origin_id, site, issued_by).await),
         ),
-        None => (json!({ "skipped": "no site" }), json!({ "skipped": "no site" })),
+        None => (
+            json!({ "skipped": "no site" }),
+            json!({ "skipped": "no site" }),
+        ),
     };
     let mut report = json!({
         "origin_id": origin_id,

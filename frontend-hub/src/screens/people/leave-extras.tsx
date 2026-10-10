@@ -80,7 +80,7 @@ export function BlockedDatesCard() {
           render: (rows) =>
             rows.length === 0 ? (
               <EmptyState>
-                No date is closed. Close the Lebaran rush or stock-take week so
+                No date is closed. Close the Eid rush or stock-take week so
                 nobody can take leave on them.
               </EmptyState>
             ) : (

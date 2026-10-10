@@ -7,6 +7,7 @@ import { ExportButton } from "@/components/ui/export-button"
 import { PageHeader } from "@/components/ui/page-header"
 import { EmptyState } from "@/components/ui/states"
 import { count, day, label, money } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { fileSafe, type ExportSheet } from "@/lib/export-xlsx"
 import { cashDocument, cashDocumentKeys } from "@/lib/queries/cash-documents"
 import { financeKeys, partyMovements } from "@/lib/queries/finance"
@@ -20,6 +21,7 @@ import {
   useUnitName,
   type DateWindow,
 } from "@/screens/finance/hooks"
+import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
 import {
   SupplierPicker,
   UnitSelect,
@@ -105,7 +107,7 @@ export function SupplierLedger() {
       sheet: "Supplier Ledger",
       title: `Supplier Ledger · ${name}`,
       subtitle: `${day(data.from)} → ${day(data.to)} · ${
-        unit === "" ? "every unit" : unitName(unit)
+        unit === "" ? "all units" : unitName(unit)
       }`,
       columns: [
         { header: "Date", kind: "date", width: 13 },
@@ -156,6 +158,7 @@ export function SupplierLedger() {
   return (
     <PageContent>
       <PageHeader
+        className="max-md:hidden"
         crumb="Finance · Payables"
         title="Supplier Ledger"
         actions={
@@ -164,6 +167,13 @@ export function SupplierLedger() {
       />
 
       <ReportFilters
+        exportAction={
+          <ExportButton
+            variant="ghost"
+            build={build}
+            disabled={ledger.data === undefined}
+          />
+        }
         note={
           code !== "" && (
             <>
@@ -206,6 +216,9 @@ export function SupplierLedger() {
 }
 
 function Ledger({ data }: { data: PartyMovements }) {
+  const phone = useLayout() === "phone"
+  const navigate = useNavigate()
+  const client = useQueryClient()
   return (
     <>
       <ReportSummary
@@ -216,114 +229,152 @@ function Ledger({ data }: { data: PartyMovements }) {
           { label: "Closing balance", value: data.closing_minor },
         ]}
       />
-      <Grid>
-        <thead>
-          <tr>
-            <Th width="7.5rem">Date</Th>
-            <Th width="8.5rem">Entry</Th>
-            <Th width="10rem">Type</Th>
-            <Th width="100%">Memo</Th>
-            <Th align="right" width="8.5rem">
-              Debit
-            </Th>
-            <Th align="right" width="8.5rem">
-              Credit
-            </Th>
-            <Th align="right" width="9.5rem">
-              Balance
-            </Th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <Td>{day(data.from)}</Td>
-            <Td>
-              <span className="text-faint">—</span>
-            </Td>
-            <Td className="font-medium text-ink">Opening balance</Td>
-            <Td />
-            <Td />
-            <Td />
-            <Td align="right">
-              <span className="font-medium text-ink">
-                {balance(data.opening_minor)}
-              </span>
-            </Td>
-          </tr>
-          {data.rows.map((row) => (
-            <MovementRow key={row.journal_line_id} row={row} />
-          ))}
-          <TotalRow>
-            <Td />
-            <Td />
-            <Td>Total</Td>
-            <Td>
-              <span className="font-normal text-mute">
-                {count(data.rows.length)}{" "}
-                {data.rows.length === 1 ? "movement" : "movements"}
-              </span>
-            </Td>
-            <Td align="right">{money(data.debit_minor)}</Td>
-            <Td align="right">{money(data.credit_minor)}</Td>
-            <Td align="right">{balance(data.closing_minor)}</Td>
-          </TotalRow>
-        </tbody>
-      </Grid>
+      {phone ? (
+        data.rows.length === 0 ? (
+          <EmptyState>No movement in this window.</EmptyState>
+        ) : (
+          <PhoneList
+            rows={data.rows.map((row) => {
+              const paid = row.debit_minor !== 0
+              return {
+                key: row.journal_line_id,
+                title: label(row.source_kind),
+                code: row.entry_number,
+                line: row.memo ?? undefined,
+                lead: (
+                  <CardFigure
+                    value={money(paid ? row.debit_minor : row.credit_minor)}
+                    caption={paid ? "paid" : "billed"}
+                  />
+                ),
+                foot: (
+                  <span className="tabular-nums">
+                    {day(row.posting_date)} · Balance{" "}
+                    {balance(row.balance_minor)}
+                  </span>
+                ),
+                onOpen: () => void openMovement(row, navigate, client),
+              }
+            })}
+          />
+        )
+      ) : (
+        <Grid>
+          <thead>
+            <tr>
+              <Th width="7.5rem">Date</Th>
+              <Th width="8.5rem">Entry</Th>
+              <Th width="10rem">Type</Th>
+              <Th width="100%">Memo</Th>
+              <Th align="right" width="8.5rem">
+                Debit
+              </Th>
+              <Th align="right" width="8.5rem">
+                Credit
+              </Th>
+              <Th align="right" width="9.5rem">
+                Balance
+              </Th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <Td>{day(data.from)}</Td>
+              <Td>
+                <span className="text-faint">—</span>
+              </Td>
+              <Td className="font-medium text-ink">Opening balance</Td>
+              <Td />
+              <Td />
+              <Td />
+              <Td align="right">
+                <span className="font-medium text-ink">
+                  {balance(data.opening_minor)}
+                </span>
+              </Td>
+            </tr>
+            {data.rows.map((row) => (
+              <MovementRow key={row.journal_line_id} row={row} />
+            ))}
+            <TotalRow>
+              <Td />
+              <Td />
+              <Td>Total</Td>
+              <Td>
+                <span className="font-normal text-mute">
+                  {count(data.rows.length)}{" "}
+                  {data.rows.length === 1 ? "movement" : "movements"}
+                </span>
+              </Td>
+              <Td align="right">{money(data.debit_minor)}</Td>
+              <Td align="right">{money(data.credit_minor)}</Td>
+              <Td align="right">{balance(data.closing_minor)}</Td>
+            </TotalRow>
+          </tbody>
+        </Grid>
+      )}
     </>
   )
 }
 
-/// One journal line. It opens the document it came from where the app has a
-/// place for that; anything else opens its journal entry, which every line has.
-function MovementRow({ row }: { row: PartyMovementRow }) {
-  const navigate = useNavigate()
-  const client = useQueryClient()
+/// Where a journal line goes when it is pressed: the document it came from
+/// where the app has a place for that; anything else opens its journal entry,
+/// which every line has.
+async function openMovement(
+  row: PartyMovementRow,
+  navigate: ReturnType<typeof useNavigate>,
+  client: ReturnType<typeof useQueryClient>
+) {
   const entry = () =>
     navigate({
       to: "/finance/accounting/journal-entries",
       search: { entry: row.entry_id },
     } as never)
-  const open = async () => {
-    const id = row.source_id
-    if (row.source_kind === "SUPPLIER_INVOICE" && id !== null)
+  const id = row.source_id
+  if (row.source_kind === "SUPPLIER_INVOICE" && id !== null)
+    return navigate({
+      to: "/finance/payables/bills",
+      search: { bill: id },
+    } as never)
+  // The journal calls a supplier payment `PAYMENT`; `SUPPLIER_PAYMENT` is
+  // the payment's own kind elsewhere. Both are the same document.
+  if (
+    (row.source_kind === "PAYMENT" || row.source_kind === "SUPPLIER_PAYMENT") &&
+    id !== null
+  )
+    return navigate({
+      to: "/finance/payables/payments",
+      search: { payment: id },
+    } as never)
+  if (row.source_kind === "CASH_DOC" && id !== null) {
+    // The row does not say whether the document paid (BKK) or received
+    // (BKM), so the document is asked. If it cannot be read, the journal
+    // entry it posted is still there to open.
+    try {
+      const doc = await client.fetchQuery({
+        queryKey: cashDocumentKeys.detail(id),
+        queryFn: ({ signal }) => cashDocument(id, signal),
+        staleTime: 60_000,
+      })
       return navigate({
-        to: "/finance/payables/bills",
-        search: { bill: id },
+        to:
+          doc.kind === "RECEIVE"
+            ? "/finance/cash-bank/bkm/$id"
+            : "/finance/cash-bank/bkk/$id",
+        params: { id },
       } as never)
-    // The journal calls a supplier payment `PAYMENT`; `SUPPLIER_PAYMENT` is
-    // the payment's own kind elsewhere. Both are the same document.
-    if (
-      (row.source_kind === "PAYMENT" ||
-        row.source_kind === "SUPPLIER_PAYMENT") &&
-      id !== null
-    )
-      return navigate({
-        to: "/finance/payables/payments",
-        search: { payment: id },
-      } as never)
-    if (row.source_kind === "CASH_DOC" && id !== null) {
-      // The row does not say whether the document paid (BKK) or received
-      // (BKM), so the document is asked. If it cannot be read, the journal
-      // entry it posted is still there to open.
-      try {
-        const doc = await client.fetchQuery({
-          queryKey: cashDocumentKeys.detail(id),
-          queryFn: ({ signal }) => cashDocument(id, signal),
-          staleTime: 60_000,
-        })
-        return navigate({
-          to:
-            doc.kind === "RECEIVE"
-              ? "/finance/cash-bank/bkm/$id"
-              : "/finance/cash-bank/bkk/$id",
-          params: { id },
-        } as never)
-      } catch {
-        return entry()
-      }
+    } catch {
+      return entry()
     }
-    return entry()
   }
+  return entry()
+}
+
+/// One journal line.
+function MovementRow({ row }: { row: PartyMovementRow }) {
+  const navigate = useNavigate()
+  const client = useQueryClient()
+  const open = () => openMovement(row, navigate, client)
   return (
     <tr onClick={() => void open()} className="cursor-pointer">
       <Td>{day(row.posting_date)}</Td>

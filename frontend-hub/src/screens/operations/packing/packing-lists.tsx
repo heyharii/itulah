@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import type { ColumnDef } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
 import { Search } from "lucide-react"
@@ -6,21 +6,24 @@ import { useMemo, useState } from "react"
 
 import { useShopName } from "@/components/operations/outbound-papers"
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Input } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
-import { Pill } from "@/components/ui/pill"
+import { Pill, Status } from "@/components/ui/pill"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { EmptyState } from "@/components/ui/states"
-import { dc } from "@/lib/api"
-import { ago, count, type Tone } from "@/lib/format"
-import { keys } from "@/lib/operations/keys"
+import { ago, count, quantity, type Tone } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
+import { koliQuery } from "@/lib/operations/queries"
+import { prefetchKoliDetail } from "@/screens/operations/prefetch"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { PackSheets } from "@/screens/operations/packing/packing"
 import { PackingCell } from "@/screens/operations/packing/packing-cell"
+import { CardFigure, CardName } from "@/components/ui/phone-cards"
 import { usePackingShort } from "@/screens/operations/packing/packing-short"
 import { ROOMY } from "@/screens/operations/roomy"
 import type { Koli } from "@itulah/contract"
@@ -54,14 +57,83 @@ function statusOf(position: string): Row["status"] {
   }
 }
 
-function columnsFor(): ColumnDef<TableSetup, Row>[] {
+/// `phone`: the card's own columns exist on a phone only, so a desk's and a
+/// tablet's columns are exactly what they were.
+function columnsFor(phone: boolean): ColumnDef<TableSetup, Row>[] {
+  const cards: ColumnDef<TableSetup, Row>[] = [
+    // Four columns that exist only on a card (`cardLead`; a phone): the shop
+    // over the carton's number and age, the pieces it holds, the packing
+    // result on the foot's left and where the carton is on its right.
+    {
+      id: "head",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "title" },
+      accessorFn: (row) => row.shop,
+      cell: ({ row }) => (
+        <CardName
+          name={row.original.shop}
+          line={
+            <>
+              <span className="font-mono">{row.original.koli.koli_number}</span>
+              {" · "}
+              {ago(row.original.koli.sealed_at)}
+            </>
+          }
+        />
+      ),
+    },
+    {
+      id: "lead",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "lead" },
+      accessorFn: (row) => row.koli.unit_count,
+      cell: ({ row }) => (
+        <CardFigure
+          value={count(row.original.koli.unit_count)}
+          caption={row.original.koli.unit_count === 1 ? "pc" : "pcs"}
+        />
+      ),
+    },
+    {
+      id: "foot",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "foot" },
+      accessorFn: (row) => row.short,
+      cell: ({ row }) =>
+        row.original.short > 0 ? (
+          <Status tone="warn">
+            Closed short · −{quantity(row.original.short)}
+          </Status>
+        ) : (
+          <Status tone="ok">Completed</Status>
+        ),
+    },
+    {
+      id: "where",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { align: "right", card: "status" },
+      accessorFn: (row) => row.status.text,
+      cell: ({ row }) => (
+        <Pill tone={row.original.status.tone}>{row.original.status.text}</Pill>
+      ),
+    },
+  ]
+
   return [
     {
       id: "number",
       header: "Packing List",
       size: 220,
       enableSorting: false,
-      meta: { card: "id", mono: true },
+      meta: { card: "hide" },
       accessorFn: (row) => row.koli.koli_number,
       cell: ({ row }) => (
         <span className="font-mono text-[0.875rem] text-ink">
@@ -74,7 +146,7 @@ function columnsFor(): ColumnDef<TableSetup, Row>[] {
       header: "Shop",
       size: 240,
       enableSorting: false,
-      meta: { card: "title", grow: 140 },
+      meta: { card: "hide", grow: 140 },
       accessorFn: (row) => row.shop,
       cell: ({ row }) => (
         <span className="truncate font-medium text-ink">
@@ -84,19 +156,19 @@ function columnsFor(): ColumnDef<TableSetup, Row>[] {
     },
     {
       id: "pieces",
-      header: "Pieces",
+      header: "Pcs",
       size: 120,
       enableSorting: false,
-      meta: { align: "right", card: "metric" },
+      meta: { align: "right", card: "hide" },
       accessorFn: (row) => row.koli.unit_count,
-      cell: ({ row }) => `${count(row.original.koli.unit_count)} pcs`,
+      cell: ({ row }) => `${quantity(row.original.koli.unit_count)}`,
     },
     {
       id: "sealed",
       header: "Sealed",
       size: 150,
       enableSorting: false,
-      meta: { card: "meta", priority: 2 },
+      meta: { card: "hide", priority: 2 },
       accessorFn: (row) => row.koli.sealed_at,
       cell: ({ row }) => (
         <span className="tabular-nums">{ago(row.original.koli.sealed_at)}</span>
@@ -107,7 +179,7 @@ function columnsFor(): ColumnDef<TableSetup, Row>[] {
       header: "Status",
       size: 190,
       enableSorting: false,
-      meta: { card: "status" },
+      meta: { card: "hide" },
       accessorFn: (row) => row.status.text,
       cell: ({ row }) => (
         <Pill tone={row.original.status.tone}>{row.original.status.text}</Pill>
@@ -118,25 +190,25 @@ function columnsFor(): ColumnDef<TableSetup, Row>[] {
       header: "Packing",
       size: 280,
       enableSorting: false,
-      meta: { card: "status" },
+      meta: { card: "hide" },
       accessorFn: (row) => (row.short > 0 ? "Closed short" : "Completed"),
       cell: ({ row }) => <PackingCell short={row.original.short} />,
     },
+    ...(phone ? cards : []),
   ]
 }
 
 export function PackingLists() {
+  const client = useQueryClient()
   const opened = useSheet("koli")
   const shopName = useShopName()
   const [typed, setTyped] = useState("")
   const [tab, setTab] = useState<Tab>("all")
   const shorts = usePackingShort()
-  const columns = useMemo(() => columnsFor(), [])
+  const phone = useLayout() === "phone"
+  const columns = useMemo(() => columnsFor(phone), [phone])
 
-  const list = useQuery({
-    queryKey: keys.koli(),
-    queryFn: ({ signal }) => dc.koli({}, signal),
-  })
+  const list = useQuery(koliQuery())
 
   const searched = useMemo<Row[]>(() => {
     const needle = typed.trim().toLowerCase()
@@ -188,6 +260,8 @@ export function PackingLists() {
     <PageContent>
       <PageHeader title="Packing Lists" />
       <SubTabs
+        // The status is the dock's on a phone (below).
+        className="max-md:hidden"
         value={tab}
         onChange={(next) => setTab(next as Tab)}
         tabs={[
@@ -199,7 +273,27 @@ export function PackingLists() {
           { value: "short", label: `Closed short · ${count(shortCount)}` },
         ]}
       />
-      <div className="mb-4 flex flex-wrap items-center gap-3">
+      <DockTools
+        search={{
+          value: typed,
+          onChange: setTyped,
+          label: "Search packing lists",
+        }}
+        status={{
+          value: tab,
+          options: [
+            { value: "all", label: "All", count: searched.length },
+            {
+              value: "completed",
+              label: "Completed",
+              count: searched.length - shortCount,
+            },
+            { value: "short", label: "Closed short", count: shortCount },
+          ],
+          onChange: (next) => setTab(next as Tab),
+        }}
+      />
+      <div className="mb-4 flex flex-wrap items-center gap-3 max-md:hidden">
         <label className="relative">
           <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-mute" />
           <Input
@@ -210,7 +304,7 @@ export function PackingLists() {
           />
         </label>
       </div>
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(list, {
           loading: "Reading the packing lists…",
           render: () =>
@@ -222,12 +316,19 @@ export function PackingLists() {
               </EmptyState>
             ) : (
               <DataTable<Row>
+                refresh={[list]}
                 table={table}
                 touch
                 pageScroll
                 className={ROOMY}
                 onRowClick={(row) => opened.open(row.koli.koli_id)}
+                onRowIntent={(row) =>
+                  void prefetchKoliDetail(client, row.koli.koli_id)
+                }
                 isSelected={(row) => row.koli.koli_id === opened.value}
+                cardSort={false}
+                cardsApart
+                cardLead
               />
             ),
         })}

@@ -4,8 +4,9 @@ import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Card } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Input } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
@@ -15,6 +16,7 @@ import { EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilterState, type Filter, type FilterField } from "@/lib/filters"
 import { count, moment } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { queryState } from "@/lib/query-state"
 import {
   auditKeys,
@@ -25,6 +27,7 @@ import {
 } from "@/lib/queries/audit"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { useDebounced } from "@/lib/use-debounced"
+import { DESK_BAR } from "@/components/ui/phone-cards"
 
 /// Everything anybody did, newest first.
 ///
@@ -63,6 +66,7 @@ const columns: ColumnDef<TableSetup, AuditEntry>[] = [
     accessorKey: "at",
     header: "When",
     size: 150,
+    meta: { card: "hide" },
     cell: ({ row }) => (
       <span className="text-body tabular-nums">{moment(row.original.at)}</span>
     ),
@@ -71,6 +75,7 @@ const columns: ColumnDef<TableSetup, AuditEntry>[] = [
     accessorKey: "display_name",
     header: "Who",
     size: 170,
+    meta: { card: "hide" },
     cell: ({ row }) => (
       <span className="font-medium text-ink">{row.original.display_name}</span>
     ),
@@ -81,6 +86,7 @@ const columns: ColumnDef<TableSetup, AuditEntry>[] = [
     header: "Did",
     size: 130,
     enableSorting: false,
+    meta: { card: "hide" },
     cell: ({ row }) => readAction(row.original),
   },
   {
@@ -89,6 +95,7 @@ const columns: ColumnDef<TableSetup, AuditEntry>[] = [
     header: "To",
     size: 240,
     enableSorting: false,
+    meta: { card: "hide" },
     cell: ({ row }) =>
       row.original.subject_kind === null ? (
         <span className="text-mute">—</span>
@@ -105,6 +112,7 @@ const columns: ColumnDef<TableSetup, AuditEntry>[] = [
     accessorKey: "status",
     header: "Answer",
     size: 110,
+    meta: { card: "hide" },
     // The code itself, not a word for it. "Refused" is the segment above; this
     // is the column that tells a 403 from a 409 — somebody who may not do a
     // thing from somebody who may and was too late.
@@ -118,10 +126,73 @@ const columns: ColumnDef<TableSetup, AuditEntry>[] = [
     accessorKey: "path",
     header: "Request",
     size: 380,
+    meta: { card: "hide" },
     cell: ({ row }) => (
       <span className="font-mono text-[0.875rem] text-mute">
         {row.original.method} {row.original.path}
       </span>
+    ),
+  },
+
+  // Columns that exist only on a phone's card: who did what, to what, with the
+  // request under it, when, and what the server answered.
+  {
+    id: "head",
+    accessorFn: (row) => row.display_name,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <span className="min-w-0 break-words">{row.original.display_name}</span>
+    ),
+  },
+  {
+    id: "did",
+    accessorFn: (row) => readAction(row),
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "meta" },
+    cell: ({ row }) =>
+      row.original.subject_kind === null
+        ? readAction(row.original)
+        : `${readAction(row.original)} · ${row.original.subject_kind} ${row.original.subject_id}`,
+  },
+  {
+    id: "request",
+    accessorFn: (row) => row.path,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "meta" },
+    cell: ({ row }) => (
+      <span className="font-mono break-all">
+        {row.original.method} {row.original.path}
+      </span>
+    ),
+  },
+  {
+    id: "foot",
+    accessorFn: (row) => row.at,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => (
+      <span className="tabular-nums">{moment(row.original.at)}</span>
+    ),
+  },
+  {
+    id: "phone_answer",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "status" },
+    cell: ({ row }) => (
+      <Pill tone={row.original.status >= 400 ? "bad" : "ok"}>
+        {row.original.status}
+      </Pill>
     ),
   },
 ]
@@ -147,6 +218,7 @@ export function ActivityLog() {
   const [sorting, setSorting] = useState<SortingState>([
     { id: "at", desc: true },
   ])
+  const phone = useLayout() === "phone"
 
   const fields = useMemo<FilterField[]>(
     () => [
@@ -239,12 +311,22 @@ export function ActivityLog() {
         data: rows,
         columns,
         getRowId: (row: AuditEntry) => String(row.audit_id),
-        state: { sorting },
+        state: {
+          sorting,
+          // The card's own columns are drawn on a phone and never on a desk.
+          columnVisibility: {
+            head: phone,
+            did: phone,
+            request: phone,
+            foot: phone,
+            phone_answer: phone,
+          },
+        },
         // The rows arrive in the order the request asked for.
         manualSorting: true,
         onSortingChange: setSorting,
       }),
-      [rows, sorting]
+      [rows, sorting, phone]
     )
   )
 
@@ -256,7 +338,7 @@ export function ActivityLog() {
         sub="Every action anybody took, and what the server answered. Reads are not recorded — this says who changed things, not who looked."
       />
 
-      <Toolbar>
+      <div className={DESK_BAR}>
         <Segmented
           options={[
             { value: "all", label: "Everything" },
@@ -283,9 +365,36 @@ export function ActivityLog() {
           onChange={(event) => setQuery(event.target.value)}
           className="h-8 w-56"
         />
-      </Toolbar>
+      </div>
 
-      <Card className="overflow-hidden">
+      {/* On a phone the split, the filter, the search and the sort are the
+          dock's. */}
+      <DockTools
+        search={{ value: query, onChange: setQuery, label: "Search the log" }}
+        filter={{
+          count: filters.filters.length,
+          panel: {
+            model: filters,
+            filterModel: { ...filters, fields: counted },
+            table,
+          },
+        }}
+        sort={dockSortOf(table)}
+        status={{
+          value: only,
+          options: [
+            { value: "all", label: "Everything" },
+            {
+              value: "refused",
+              label: "Refused",
+              count: refused,
+            },
+          ],
+          onChange: (next) => setOnly(next as "all" | "refused"),
+        }}
+      />
+
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(feed, {
           loading: "Reading the log…",
           render: () =>
@@ -304,6 +413,9 @@ export function ActivityLog() {
                 table={table}
                 more={feed}
                 className="max-h-[calc(100dvh-15rem)]"
+                cardSort={false}
+                cardsApart
+                cardLead
               />
             ),
         })}

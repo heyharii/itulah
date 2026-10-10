@@ -2,6 +2,9 @@ import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
+import { Fab } from "@/components/ui/fab"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Checkbox, Field, Input } from "@/components/ui/field"
@@ -25,6 +28,12 @@ import { useEveryEmployee } from "@/lib/queries/hr-employees"
 import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
 import { AdjustSheet } from "@/screens/people/benefit-form"
+import {
+  CardButton,
+  CardFigure,
+  CardName,
+  PhoneCards,
+} from "@/components/ui/phone-cards"
 import { SheetFooter } from "@/screens/people/settings-kit"
 import { useOpener } from "@/screens/people/settings-lib"
 import type { BenefitBalanceRow } from "@itulah/contract"
@@ -40,6 +49,7 @@ function nameOf(row: BenefitBalanceRow): string {
 /// carries over.
 export function BenefitPage() {
   const canWrite = useCanWrite()
+  const phone = useLayout() === "phone"
   const balances = useQuery({
     queryKey: benefitKeys.balances(),
     queryFn: ({ signal }) => benefitBalances(signal),
@@ -89,6 +99,7 @@ export function BenefitPage() {
         title="Employee Benefit"
         sub="A rupiah balance each employee spends at the till with a code from their own app. Unused balance carries over."
         actions={
+          !phone &&
           canWrite && (
             <Button variant="primary" onClick={() => fill.show()}>
               {picked.size > 0
@@ -105,20 +116,57 @@ export function BenefitPage() {
         </Banner>
       )}
 
-      <div className="mb-3 max-w-sm">
+      {/* On a phone the search is the field over the bottom bar and filling
+          is the round +. */}
+      <div className="mb-3 max-w-sm max-md:hidden">
         <Input
           aria-label="Search people"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
       </div>
+      {canWrite && <Fab label="Fill balances" onClick={() => fill.show()} />}
+      <DockTools
+        search={{ value: search, onChange: setSearch, label: "Search People" }}
+      />
 
-      <Card className="overflow-hidden px-4 py-2">
+      <Card className="overflow-hidden px-4 py-2 max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:p-0 max-md:shadow-none">
         {queryState(balances, {
           loading: "Reading the balances…",
           render: () =>
             shown.length === 0 ? (
               <EmptyState>Nobody matches.</EmptyState>
+            ) : phone ? (
+              <PhoneCards
+                rows={shown}
+                onOpen={(row) => person.show(row)}
+                rowId={(row) => row.employee_id}
+                spec={{
+                  title: (row) => (
+                    <CardName
+                      name={nameOf(row)}
+                      line={[row.employee_code, row.unit_id]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    />
+                  ),
+                  lead: (row) => (
+                    <CardFigure
+                      value={money(row.balance_minor)}
+                      caption="balance"
+                      tone={row.balance_minor === 0 ? "quiet" : undefined}
+                    />
+                  ),
+                  foot: (row) => <>Last moved {day(row.last_moved_at)}</>,
+                  action: (row) => (
+                    <CardButton
+                      label="Open"
+                      ariaLabel={`Open ${nameOf(row)}`}
+                      onClick={() => person.show(row)}
+                    />
+                  ),
+                }}
+              />
             ) : (
               <MiniTable
                 head={[
@@ -161,7 +209,7 @@ export function BenefitPage() {
             ),
         })}
         {shown.length > 0 && (
-          <div className="border-t border-hairline pt-2">
+          <div className="border-t border-hairline pt-2 max-md:hidden">
             <Checkbox
               label="Select everyone shown"
               checked={allShown}

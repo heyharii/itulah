@@ -8,13 +8,13 @@
 //! database per run, world model in memory, evidence on disk).
 
 mod actors;
-mod clock;
 mod client;
+mod clock;
 mod report;
 mod scenario;
 
-use crate::clock::SimClock;
 use crate::client::{Nodes, Recorder};
+use crate::clock::SimClock;
 use crate::report::RunReport;
 use crate::scenario::Scenario;
 use std::collections::BTreeMap;
@@ -89,7 +89,12 @@ async fn run_command(args: &[String]) -> Result<i32, String> {
         let port = env.get(key).ok_or(format!("env file lacks {key}"))?;
         Ok(format!("http://127.0.0.1:{port}"))
     };
-    let nodes = Nodes::new(cloud, port_of("DC_PORT")?, port_of("STORE_PORT")?, run_id.clone());
+    let nodes = Nodes::new(
+        cloud,
+        port_of("DC_PORT")?,
+        port_of("STORE_PORT")?,
+        run_id.clone(),
+    );
 
     let out = out_dir.unwrap_or_else(|| {
         PathBuf::from(&env_path)
@@ -118,14 +123,21 @@ async fn run_command(args: &[String]) -> Result<i32, String> {
         seed,
         clock_start: scenario.clock.start.clone(),
         clock_end: clock.now().to_rfc3339(),
-        result: if recorder.failures == 0 { "pass" } else { "fail" },
+        result: if recorder.failures == 0 {
+            "pass"
+        } else {
+            "fail"
+        },
         world,
     };
     report.write(&out)?;
 
     println!(
         "sim: {} — {} intents, {} failures; report at {}/sim_result.json",
-        report.result, recorder.total, recorder.failures, out.display()
+        report.result,
+        recorder.total,
+        recorder.failures,
+        out.display()
     );
     Ok(if recorder.failures == 0 { 0 } else { 1 })
 }
@@ -136,14 +148,17 @@ fn resolve_scenario(name_or_path: &str) -> Result<Scenario, String> {
     if name_or_path.ends_with(".toml") {
         return Scenario::load(name_or_path);
     }
-    let path = format!("{}/scenarios/{name_or_path}.toml", env!("CARGO_MANIFEST_DIR"));
+    let path = format!(
+        "{}/scenarios/{name_or_path}.toml",
+        env!("CARGO_MANIFEST_DIR")
+    );
     Scenario::load(&path)
 }
 
 /// The rig freezes `KEY=value` lines; a tiny reader beats a shell dependency.
 fn read_env_file(path: &str) -> Result<BTreeMap<String, String>, String> {
-    let raw = std::fs::read_to_string(path)
-        .map_err(|e| format!("cannot read env file {path}: {e}"))?;
+    let raw =
+        std::fs::read_to_string(path).map_err(|e| format!("cannot read env file {path}: {e}"))?;
     let mut map = BTreeMap::new();
     for line in raw.lines() {
         let line = line.trim();

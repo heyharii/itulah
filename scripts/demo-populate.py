@@ -163,10 +163,14 @@ def stage_goods(cloud: Node, dc: Node, printer_port: int, as_user=None):
                 "idempotency_key": str(uuid.uuid4())})
             # The price agreed on the order, not whatever the DC listing echoes.
             price = ordered_price[line["article_code"]]
-            rina.post("/api/v1/dc/purchase-verifications", {
+            # A count exactly as ordered is received on its own (owner, 2 Oct),
+            # so an Accept that finds it already accepted is the rule working.
+            verified = rina.call("POST", "/api/v1/dc/purchase-verifications", {
                 "count_id": count["count_id"], "verifier_actor_id": "rina",
                 "decision": "Accept", "invoice_unit_price_minor": price,
-                "idempotency_key": str(uuid.uuid4())})
+                "idempotency_key": str(uuid.uuid4())}, ok=None)
+            if isinstance(verified, dict) and verified.get("error") and "already accepted" not in str(verified["error"]):
+                raise SystemExit(f"dc:rina POST /api/v1/dc/purchase-verifications: {verified}")
             total += price * QTY
         yusuf.call("POST", f"/api/v1/dc/goods-receipts/{receipt['receipt_id']}/invoice", {
             "receipt_id": receipt["receipt_id"], "invoice_number": f"INV-{code}-{n:03d}",

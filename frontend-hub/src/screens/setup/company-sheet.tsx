@@ -154,10 +154,10 @@ function CompanyForm({
       <Toggle
         on={hasWarehouse}
         onToggle={() => setHasWarehouse((on) => !on)}
-        label="Gudang"
+        label="Warehouse"
         note={
           hasWarehouse
-            ? "Suppliers deliver to the Gudang, and it ships to the stores."
+            ? "Suppliers deliver to the warehouse, and it ships to the stores."
             : "Suppliers deliver straight to the stores."
         }
       />

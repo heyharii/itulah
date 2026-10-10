@@ -117,15 +117,12 @@ impl AssignmentTimeline {
 
     /// [`Self::current`] as of `on`.
     pub fn current_on(&self, on: NaiveDate) -> Option<&AssignmentSpan> {
-        self.spans
-            .iter()
-            .find(|span| span.covers(on))
-            .or_else(|| {
-                self.spans
-                    .iter()
-                    .filter(|span| span.from > on)
-                    .min_by_key(|span| span.from)
-            })
+        self.spans.iter().find(|span| span.covers(on)).or_else(|| {
+            self.spans
+                .iter()
+                .filter(|span| span.from > on)
+                .min_by_key(|span| span.from)
+        })
     }
 }
 

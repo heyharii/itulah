@@ -233,7 +233,9 @@ pub async fn stream(
                             continue;
                         }
                         // A blip is not a sign-out; ask again next time.
-                        Err(error) => tracing::warn!(%error, "notification stream session check failed"),
+                        Err(error) => {
+                            tracing::warn!(%error, "notification stream session check failed")
+                        }
                     }
                 }
 
@@ -252,7 +254,8 @@ pub async fn stream(
                 if digest == follow.digest {
                     continue;
                 }
-                let horizon = chrono::Utc::now() - chrono::Duration::minutes(ARRIVAL_WINDOW_MINUTES);
+                let horizon =
+                    chrono::Utc::now() - chrono::Duration::minutes(ARRIVAL_WINDOW_MINUTES);
                 follow.announced.retain(|_, at| *at >= horizon);
                 if digest.total > follow.digest.total {
                     match infrastructure::unread_notifications_since(
@@ -280,9 +283,9 @@ pub async fn stream(
                                     one.subject_id,
                                 );
                                 if let Ok(data) = serde_json::to_string(&message) {
-                                    follow
-                                        .pending
-                                        .push_back(Event::default().event("notification").data(data));
+                                    follow.pending.push_back(
+                                        Event::default().event("notification").data(data),
+                                    );
                                 }
                             }
                         }

@@ -179,7 +179,9 @@ impl ExceptionSettings {
             ));
         }
         if self.also_notify_roles.len() > 16 {
-            return Err(AppError::Validation("at most 16 roles are told as well".into()));
+            return Err(AppError::Validation(
+                "at most 16 roles are told as well".into(),
+            ));
         }
         if self
             .also_notify_roles
@@ -325,7 +327,10 @@ struct Detected {
 }
 
 fn owners(kind: ExceptionKind) -> Vec<String> {
-    kind.owner_roles().iter().map(|role| (*role).to_owned()).collect()
+    kind.owner_roles()
+        .iter()
+        .map(|role| (*role).to_owned())
+        .collect()
 }
 
 fn seconds_between(from: DateTime<Utc>, to: DateTime<Utc>) -> i64 {
@@ -657,9 +662,8 @@ async fn detect_overdue_stages(
         if owner_roles.is_empty() {
             owner_roles = owners(ExceptionKind::ReceiveOverdue);
         }
-        let performer_label = FlowRole::parse(&performer).map_or(performer.clone(), |role| {
-            role.label().to_owned()
-        });
+        let performer_label =
+            FlowRole::parse(&performer).map_or(performer.clone(), |role| role.label().to_owned());
         let waiting = match (status.as_str(), park_reason.as_deref()) {
             ("PARKED", Some("SCAN")) => " It is parked waiting for the node's scan.",
             ("PARKED", Some("APPROVAL")) => " It is parked waiting for a decision.",
@@ -667,7 +671,9 @@ async fn detect_overdue_stages(
             _ => "",
         };
         let late = seconds_between(deadline, now);
-        let place = site_name.as_deref().map_or_else(String::new, |name| format!(" at {name}"));
+        let place = site_name
+            .as_deref()
+            .map_or_else(String::new, |name| format!(" at {name}"));
         found.push(Detected {
             kind: ExceptionKind::ReceiveOverdue,
             subject_key: format!("{document_id}:{stage_code}"),
@@ -707,10 +713,10 @@ async fn detect_open_missing(
                     (SELECT m.occurred_at FROM movement m
                       WHERE m.subject_id = pr.subject_id AND m.to_place_id = pr.place_id
                       ORDER BY m.occurred_at LIMIT 1) AS missing_since
-               FROM inventory_projection pr
-               JOIN inventory_place ip ON ip.id = pr.place_id AND ip.state = 'MISSING'
-               JOIN operational_pool op ON op.id = ip.pool_id
-              WHERE pr.quantity > 0
+              FROM inventory_place ip
+              JOIN operational_pool op ON op.id = ip.pool_id
+              JOIN inventory_projection pr ON pr.place_id = ip.id
+             WHERE ip.state = 'MISSING' AND pr.quantity > 0
          )
          SELECT m.site_id, s.unit_id, s.name AS site_name,
                 COUNT(*)::bigint AS subjects, SUM(m.quantity)::bigint AS pieces,
@@ -853,7 +859,10 @@ pub struct ExceptionSweepReport {
 ///
 /// A kind whose reading fails leaves its open rows alone: a query that could
 /// not run is not evidence that the shift was closed.
-pub async fn exceptions_sweep(pool: &PgPool, notify: bool) -> Result<ExceptionSweepReport, AppError> {
+pub async fn exceptions_sweep(
+    pool: &PgPool,
+    notify: bool,
+) -> Result<ExceptionSweepReport, AppError> {
     let now = Utc::now();
     LAST_SWEEP.store(now.timestamp(), Ordering::Relaxed);
     let settings = exception_settings(pool).await?.settings;
@@ -930,8 +939,14 @@ pub async fn exceptions_sweep(pool: &PgPool, notify: bool) -> Result<ExceptionSw
         }
     }
 
-    let kinds: Vec<String> = detected.iter().map(|found| found.kind.code().to_owned()).collect();
-    let subjects: Vec<String> = detected.iter().map(|found| found.subject_key.clone()).collect();
+    let kinds: Vec<String> = detected
+        .iter()
+        .map(|found| found.kind.code().to_owned())
+        .collect();
+    let subjects: Vec<String> = detected
+        .iter()
+        .map(|found| found.subject_key.clone())
+        .collect();
     let resolved = sqlx::query(
         "UPDATE store_exception SET resolved_at = now()
           WHERE resolved_at IS NULL
@@ -1002,9 +1017,10 @@ async fn exception_recipients(
         people.extend(pic);
     }
     if people.is_empty() {
-        people = sqlx::query_scalar("SELECT username FROM app_user WHERE active AND role = 'ADMIN'")
-            .fetch_all(&mut **tx)
-            .await?;
+        people =
+            sqlx::query_scalar("SELECT username FROM app_user WHERE active AND role = 'ADMIN'")
+                .fetch_all(&mut **tx)
+                .await?;
     }
     people.sort();
     people.dedup();
@@ -1285,13 +1301,24 @@ pub async fn exceptions_list(
     query: &ExceptionQuery,
 ) -> Result<ExceptionList, AppError> {
     let state = StateFilter::parse(query.state.as_deref()).map_err(AppError::Validation)?;
-    let asked_kind = match query.kind.as_deref().map(str::trim).filter(|k| !k.is_empty()) {
-        Some(code) => Some(ExceptionKind::parse(code).ok_or_else(|| {
-            AppError::Validation(format!("'{code}' is not a kind of exception"))
-        })?),
-        None => None,
-    };
-    let asked_unit = match query.unit.as_deref().map(str::trim).filter(|u| !u.is_empty()) {
+    let asked_kind =
+        match query
+            .kind
+            .as_deref()
+            .map(str::trim)
+            .filter(|k| !k.is_empty())
+        {
+            Some(code) => Some(ExceptionKind::parse(code).ok_or_else(|| {
+                AppError::Validation(format!("'{code}' is not a kind of exception"))
+            })?),
+            None => None,
+        };
+    let asked_unit = match query
+        .unit
+        .as_deref()
+        .map(str::trim)
+        .filter(|u| !u.is_empty())
+    {
         Some(key) => Some(exception_unit_id(pool, key).await?),
         None => None,
     };
@@ -1396,13 +1423,15 @@ pub async fn exceptions_list(
         let entry = kind_totals.entry(kind).or_insert((0, 0));
         entry.0 += n;
         entry.1 += red;
-        let unit = by_unit.entry(unit_code.clone()).or_insert(ExceptionUnitCount {
-            unit_id,
-            unit_code,
-            unit_name,
-            count: 0,
-            bad: 0,
-        });
+        let unit = by_unit
+            .entry(unit_code.clone())
+            .or_insert(ExceptionUnitCount {
+                unit_id,
+                unit_code,
+                unit_name,
+                count: 0,
+                bad: 0,
+            });
         unit.count += n;
         unit.bad += red;
     }
@@ -1443,12 +1472,16 @@ pub async fn exception_acknowledge(
 ) -> Result<ExceptionItem, AppError> {
     let note = note.map(str::trim).filter(|note| !note.is_empty());
     if note.is_some_and(|note| note.chars().count() > 500) {
-        return Err(AppError::Validation("a note is at most 500 characters".into()));
+        return Err(AppError::Validation(
+            "a note is at most 500 characters".into(),
+        ));
     }
-    let found = sqlx::query("SELECT kind, unit_id, resolved_at FROM store_exception WHERE exception_id = $1")
-        .bind(exception_id)
-        .fetch_optional(pool)
-        .await?;
+    let found = sqlx::query(
+        "SELECT kind, unit_id, resolved_at FROM store_exception WHERE exception_id = $1",
+    )
+    .bind(exception_id)
+    .fetch_optional(pool)
+    .await?;
     let Some(found) = found else {
         return Err(AppError::NotFound(format!("exception {exception_id}")));
     };

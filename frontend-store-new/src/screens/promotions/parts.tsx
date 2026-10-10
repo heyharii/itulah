@@ -2,14 +2,18 @@ import { CalendarClock, Check, Clock, Copy, Search, X } from "lucide-react"
 import { useEffect, useState } from "react"
 
 import { AppLink } from "@/components/ui/app-link"
+import { button } from "@/components/ui/button-style"
 import { Input } from "@/components/ui/field"
-import { Pill } from "@/components/ui/pill"
+import { LeadCard } from "@/components/ui/lead-card"
+import { Pill, Status } from "@/components/ui/pill"
 import { Segmented } from "@/components/ui/segmented"
+import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Tag } from "@/components/ui/tag"
 import { count, moment } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import {
   away,
+  benefitOf,
   describeEffect,
   describeScope,
   scopeCodes,
@@ -24,6 +28,13 @@ import { money } from "@itulah/contract/money"
 
 /// The drawn pieces the four Promotions screens share. The words behind them
 /// are in `shared.ts`.
+///
+/// Every list here is the template's: lead-figure cards, one column on a phone
+/// and a grid on a desk. The figure a card leads with is what the offer GIVES
+/// (20%, Rp 50.000 off, Buy 2 get 1) or how long is LEFT of it; the foot carries
+/// the countdown or the reach, and ONE status as a dot and a word. A card opens
+/// a sheet with the terms. On a phone the phase is the dock's status chip and
+/// the search its field; a desk has the same two in a toolbar.
 
 // ── The frame ──────────────────────────────────────────────────────────────
 
@@ -35,14 +46,12 @@ export function NoPriceBook() {
   return (
     <div className="mx-auto flex max-w-[30em] flex-col items-center gap-4 px-4 py-12 text-center">
       <p className="text-meta text-body">
-        No price book has reached this shop yet, so it holds no promotions,
-        campaigns or price drops. Head office's offers arrive with the price
-        book on the sync lane — if the shop should be running something, check
-        the sync.
+        No price book has reached this shop yet, so there is nothing to show.
+        Check the sync.
       </p>
       <AppLink
         to="/node/sync"
-        className="inline-flex h-11 items-center rounded-inner border border-hairline-2 bg-canvas px-4 text-control font-medium text-text shadow-soft"
+        className={button({ variant: "ghost", size: "lg" })}
       >
         Open Sync
       </AppLink>
@@ -50,17 +59,54 @@ export function NoPriceBook() {
   )
 }
 
-/// The row of controls over a list: the filter at the left, the search at
-/// the right. Stacked on a phone, where the two cannot share 375px.
+/// The desk's row of controls over a list: the filter at the left, the search
+/// at the right. A phone has neither here — the phase is the dock's status chip
+/// and the search its field.
 export function Toolbar({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between md:gap-3">
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 max-md:hidden">
       {children}
     </div>
   )
 }
 
-/// Running / Starting soon / All, with how many are in each.
+/// The one line of figures a list opens with: "3 active · 2 scheduled".
+/// A part with nothing in it is left out, so a shop running nothing is not told
+/// "0 active" every time it looks.
+export function Summary({
+  parts,
+}: {
+  parts: readonly (readonly [number, string])[]
+}) {
+  const shown = parts.filter(([n]) => n > 0)
+  if (shown.length === 0) return null
+  return (
+    <p className="mb-3 text-meta text-body">
+      {shown.map(([n, word], index) => (
+        <span key={word}>
+          {index > 0 && " · "}
+          <b className="font-medium text-ink tabular-nums">{count(n)}</b> {word}
+        </span>
+      ))}
+    </p>
+  )
+}
+
+/// What the phase choice offers, with how many are in each: the dock's status
+/// sheet reads these, and so does the desk's switch below.
+export function phaseOptions(
+  active: number,
+  scheduled: number,
+  activeLabel = "Active",
+): readonly { value: Phase; label: string; count: number }[] {
+  return [
+    { value: "RUNNING", label: activeLabel, count: active },
+    { value: "UPCOMING", label: "Scheduled", count: scheduled },
+    { value: "ALL", label: "All", count: active + scheduled },
+  ]
+}
+
+/// Active / Scheduled / All, with how many are in each — the desk's switch.
 ///
 /// The counts are in the labels because the one question a filter always
 /// raises is "how many would I see", and a tab that answers it before it is
@@ -70,29 +116,26 @@ export function PhaseFilter({
   onChange,
   running,
   upcoming,
-  runningLabel = "Running",
 }: {
   value: Phase
   onChange: (next: Phase) => void
   running: number
   upcoming: number
-  runningLabel?: string
 }) {
   return (
     <Segmented<Phase>
       value={value}
       onChange={onChange}
       className="md:w-auto [&>button]:px-3.5 [&>button]:whitespace-nowrap pointer-coarse:[&>button]:h-tap md:pointer-fine:[&>button]:h-8"
-      options={[
-        { value: "RUNNING", label: `${runningLabel} · ${count(running)}` },
-        { value: "UPCOMING", label: `Starting soon · ${count(upcoming)}` },
-        { value: "ALL", label: `All · ${count(running + upcoming)}` },
-      ]}
+      options={phaseOptions(running, upcoming).map((one) => ({
+        value: one.value,
+        label: `${one.label} · ${count(one.count)}`,
+      }))}
     />
   )
 }
 
-/// The list's search box: a glass, the field, and a way to clear it.
+/// The desk's search box: a glass, the field, and a way to clear it.
 export function SearchBox({
   value,
   onChange,
@@ -112,10 +155,7 @@ export function SearchBox({
         placeholder={placeholder}
         aria-label={placeholder}
         enterKeyHint="search"
-        // The hub's compact field on a desk with a mouse; the touch floor, and
-        // 16px type, anywhere a finger is — iOS zooms the page into any field
-        // set smaller than that.
-        className="h-11 pr-11 pl-10 md:pointer-fine:h-9 md:pointer-fine:text-cell [&::-webkit-search-cancel-button]:hidden"
+        className="pr-11 pl-10 md:pointer-fine:h-9 md:pointer-fine:text-cell [&::-webkit-search-cancel-button]:hidden"
       />
       {value !== "" && (
         <button
@@ -131,18 +171,18 @@ export function SearchBox({
   )
 }
 
-// ── One offer ──────────────────────────────────────────────────────────────
+// ── Where something stands ─────────────────────────────────────────────────
 
-/// Where an offer stands, in the pill vocabulary.
+/// Where an offer stands, in the pill vocabulary — the badge in a sheet's head.
 ///
-/// Three words, not two. A `RUNNING` offer that only runs on Saturdays is this
-/// week's promotion and still will not ring up on a Tuesday — "Live" in green
-/// would send a cashier to promise it, and "Starting soon" would file it as a
+/// Three words, not two. An `Active` offer that only runs on Saturdays is this
+/// week's promotion and still will not ring up on a Tuesday — "Active" in green
+/// would send a cashier to promise it, and "Scheduled" would file it as a
 /// thing that has not begun.
 export function OfferPill({ offer }: { offer: StoreOffer }) {
   switch (standingOf(offer)) {
     case "on":
-      return <Pill tone="ok">Live now</Pill>
+      return <Pill tone="ok">Active</Pill>
     case "paused-hours":
       return (
         <Pill tone="warn" title="Running this period, but not at this hour">
@@ -150,19 +190,45 @@ export function OfferPill({ offer }: { offer: StoreOffer }) {
         </Pill>
       )
     case "soon":
-      return <Pill tone="info">Starting soon</Pill>
+      return <Pill tone="info">Scheduled</Pill>
   }
 }
 
-/// A price-drop run's pill. Running rather than "live": the node reports no
-/// "this minute" for a markdown, so a run with hours says when on the line
-/// under it and the pill does not guess.
-export function DropPill({ window }: { window: PriceDropWindow }) {
-  return window.state === "UPCOMING" ? (
-    <Pill tone="info">Starting soon</Pill>
+/// The same three words as a dot and a word — a card's foot and a list's rows.
+export function OfferStatus({ offer }: { offer: StoreOffer }) {
+  switch (standingOf(offer)) {
+    case "on":
+      return <Status tone="ok">Active</Status>
+    case "paused-hours":
+      return <Status tone="warn">Not now</Status>
+    case "soon":
+      return <Status tone="info">Scheduled</Status>
+  }
+}
+
+/// A run's state, for a sheet's head. Active rather than "live": the node
+/// reports no "this minute" for a markdown, so a run with hours says when on the
+/// line under it and the badge does not guess.
+export function PhasePill({ state }: { state: string }) {
+  return state === "UPCOMING" ? (
+    <Pill tone="info">Scheduled</Pill>
   ) : (
-    <Pill tone="ok">Running</Pill>
+    <Pill tone="ok">Active</Pill>
   )
+}
+
+/// …and as a dot and a word.
+export function PhaseStatus({ state }: { state: string }) {
+  return state === "UPCOMING" ? (
+    <Status tone="info">Scheduled</Status>
+  ) : (
+    <Status tone="ok">Active</Status>
+  )
+}
+
+/// A price-drop run's badge.
+export function DropPill({ window }: { window: PriceDropWindow }) {
+  return <PhasePill state={window.state} />
 }
 
 /// The countdown. Two different sentences, and the difference is the whole
@@ -195,7 +261,7 @@ export function Countdown({
           ? "text-info-fg"
           : urgent(endsAt, now, urgentHours)
             ? "font-medium text-bad-fg"
-            : "text-text",
+            : "text-mute",
         className,
       )}
     >
@@ -217,44 +283,6 @@ export function Countdown({
   )
 }
 
-/// How much of a campaign's run is behind it, as a hairline under the poster.
-///
-/// Filled by the clock, so a campaign near its end reads as nearly full at a
-/// glance, and red inside two days — the same threshold the countdown beside
-/// it turns on. Nothing is drawn without both dates: a run with no end has no
-/// fraction to show.
-export function TimeBar({
-  state,
-  startsAt,
-  endsAt,
-}: {
-  state: string
-  startsAt: string | null
-  endsAt: string | null
-}) {
-  const now = useNow(endsAt !== null)
-  if (state === "UPCOMING" || startsAt === null || endsAt === null) return null
-  const from = new Date(startsAt).getTime()
-  const to = new Date(endsAt).getTime()
-  const done = Math.min(1, Math.max(0, (now - from) / (to - from)))
-  const hot = urgent(endsAt, now, 48)
-  return (
-    <div
-      role="progressbar"
-      aria-label="Time used"
-      aria-valuenow={Math.round(done * 100)}
-      aria-valuemin={0}
-      aria-valuemax={100}
-      className="h-[3px] w-full bg-soft-3"
-    >
-      <div
-        className={cn("h-full", hot ? "bg-bad-fg" : "bg-accent")}
-        style={{ width: `${done * 100}%` }}
-      />
-    </div>
-  )
-}
-
 /// The campaign's poster, through the node's own proxy.
 ///
 /// Never straight at the centre's URL, for the reason a garment's photograph
@@ -263,15 +291,20 @@ export function TimeBar({
 /// centre it would be the first thing to go blank when the line drops.
 ///
 /// A banner that fails to load is removed rather than drawn broken: the name
-/// under it still says which campaign this is.
+/// under it still says which campaign this is. `thumb` fills a card's square
+/// instead of keeping the poster's own 3:1.
 export function CampaignBanner({
   campaign,
   alt,
   className,
+  thumb = false,
+  onFail,
 }: {
   campaign: string
   alt: string
   className?: string
+  thumb?: boolean
+  onFail?: () => void
 }) {
   const [failed, setFailed] = useState(false)
   if (failed) return null
@@ -281,43 +314,219 @@ export function CampaignBanner({
       alt={alt}
       loading="lazy"
       decoding="async"
-      onError={() => setFailed(true)}
-      className={cn("aspect-[3/1] w-full bg-soft-2 object-cover", className)}
+      onError={() => {
+        setFailed(true)
+        onFail?.()
+      }}
+      className={cn(
+        "bg-soft-2 object-cover",
+        thumb ? "size-full" : "aspect-[3/1] w-full",
+        className,
+      )}
     />
   )
 }
 
+// ── Cards ──────────────────────────────────────────────────────────────────
+
+/// One offer as the uniform card: its name over its code, what it gives as the
+/// one figure, the countdown and the status in the foot. It opens its sheet.
+///
+/// `byCode` is the Vouchers card: there the code is what somebody comes to read,
+/// so it stands where the name does — with its copy button — and the name moves
+/// under it.
+export function OfferCard({
+  offer,
+  onOpen,
+  byCode = false,
+}: {
+  offer: StoreOffer
+  onOpen: () => void
+  byCode?: boolean
+}) {
+  const benefit = benefitOf(offer.effect)
+  const hours = slot(offer.weekdays, offer.time_window)
+  const limits = [
+    offer.members_only ? "Members only" : null,
+    offer.uses_remaining === null
+      ? null
+      : `${count(offer.uses_remaining)} ${offer.uses_remaining === 1 ? "use" : "uses"} left`,
+    offer.budget_remaining_minor === null
+      ? null
+      : `${money(offer.budget_remaining_minor)} budget left`,
+  ].filter((part) => part !== null)
+  return (
+    <LeadCard
+      onOpen={onOpen}
+      title={
+        byCode && offer.coupon_code !== null ? (
+          <CopyCode code={offer.coupon_code} size="lg" />
+        ) : (
+          offer.name
+        )
+      }
+      code={byCode ? undefined : (offer.coupon_code ?? undefined)}
+      lines={[
+        byCode
+          ? offer.campaign_name === null
+            ? offer.name
+            : `${offer.name} · ${offer.campaign_name}`
+          : offer.campaign_name,
+        describeScope(offer.applies_to),
+        hours,
+        limits.length === 0 ? null : limits.join(" · "),
+      ]}
+      lead={{ figure: benefit.figure, caption: benefit.caption }}
+      foot={{
+        info: (
+          <Countdown
+            state={offer.state}
+            startsAt={offer.starts_at}
+            endsAt={offer.ends_at}
+          />
+        ),
+        status: <OfferStatus offer={offer} />,
+      }}
+    />
+  )
+}
+
+// ── The sheet ──────────────────────────────────────────────────────────────
+
+/// Everything the node knows about one offer, as a record sheet: the code in
+/// mono over the name, the one badge, then label and value — and the terms.
+///
+/// Every default is spelled out where the card leaves it unsaid: "every day",
+/// "all day", "anyone". On a card the missing line is the ordinary case; in a
+/// sheet somebody is reading to answer a customer, and a blank reads as
+/// "unknown". Nothing sits in the foot: an offer is read, not acted on here.
+///
+/// Kept while it slides away, so closing does not blank the record mid-travel.
+export function OfferSheet({
+  offer,
+  onClose,
+}: {
+  /// The offer asked for. `undefined` is closed.
+  offer: StoreOffer | undefined
+  onClose: () => void
+}) {
+  const [shown, setShown] = useState<StoreOffer | undefined>(undefined)
+  if (offer !== undefined && offer !== shown) setShown(offer)
+  const record = offer ?? shown
+  const codes = record === undefined ? [] : scopeCodes(record.applies_to)
+  const hours =
+    record === undefined ? null : slot(record.weekdays, record.time_window)
+  const terms = sentences(record?.campaign_terms ?? null)
+
+  return (
+    <Sheet
+      open={offer !== undefined}
+      onOpenChange={(next) => !next && onClose()}
+      id={record?.coupon_code ?? undefined}
+      title={record?.name ?? ""}
+      badge={record === undefined ? undefined : <OfferPill offer={record} />}
+      caption={record?.campaign_name ?? undefined}
+    >
+      {record !== undefined && (
+        <div className="flex flex-col gap-6">
+          <Facts>
+            <Fact term="Benefit" wide>
+              <span className="text-[1.5rem] leading-tight font-semibold tracking-tight">
+                {describeEffect(record.effect)}
+              </span>
+            </Fact>
+            <Fact term="Applies to" wide>
+              {describeScope(record.applies_to)}
+            </Fact>
+            <Fact term="Valid" wide>
+              {validity(record)}
+            </Fact>
+            <Fact term="Hours">{hours ?? "All day, every day"}</Fact>
+            <Fact term="Who">
+              {record.members_only ? "Members only" : "Everyone"}
+            </Fact>
+            {record.coupon_code !== null && (
+              <Fact term="Code" wide>
+                <CopyCode code={record.coupon_code} size="lg" />
+              </Fact>
+            )}
+            {record.uses_remaining !== null && (
+              <Fact term="Uses left">
+                <span
+                  className={cn(record.uses_remaining === 0 && "text-bad-fg")}
+                >
+                  {count(record.uses_remaining)}
+                </span>
+              </Fact>
+            )}
+            {record.budget_remaining_minor !== null && (
+              <Fact term="Budget left">
+                <span
+                  className={cn(
+                    record.budget_remaining_minor <= 0 && "text-bad-fg",
+                  )}
+                >
+                  {money(record.budget_remaining_minor)}
+                </span>
+              </Fact>
+            )}
+          </Facts>
+          {(record.uses_remaining !== null ||
+            record.budget_remaining_minor !== null) && (
+            // Counted at head office and as fresh as the last sync: a brake, not
+            // a gate, so nobody promises the last use to a customer.
+            <p className="text-meta text-mute">
+              Limits are counted at head office and may be a little behind.
+            </p>
+          )}
+          {terms.length > 0 && (
+            <section>
+              <h3 className="mb-2.5 text-card-title font-semibold text-ink">
+                Terms
+              </h3>
+              <Bullets lines={terms} />
+            </section>
+          )}
+          {codes.length > 1 && (
+            <section>
+              <h3 className="mb-2.5 text-card-title font-semibold text-ink">
+                Covers{" "}
+                <span className="font-normal text-mute tabular-nums">
+                  {count(codes.length)}
+                </span>
+              </h3>
+              <CodeList codes={codes} />
+            </section>
+          )}
+          {record.campaign_name !== null && (
+            <AppLink
+              to="/promotions/campaigns"
+              className="text-cell font-medium text-accent underline-offset-2 hover:underline"
+            >
+              Part of {record.campaign_name}
+            </AppLink>
+          )}
+        </div>
+      )}
+    </Sheet>
+  )
+}
+
+/// When an offer is valid, in one phrase.
+function validity(offer: StoreOffer): string {
+  if (offer.starts_at === null)
+    return offer.ends_at === null
+      ? "No end date"
+      : `Until ${moment(offer.ends_at)}`
+  return offer.ends_at === null
+    ? `From ${moment(offer.starts_at)}`
+    : `${moment(offer.starts_at)} – ${moment(offer.ends_at)}`
+}
+
 // ── The detail ─────────────────────────────────────────────────────────────
 
-/// A labelled fact in a detail panel — the hub sheet's `Fact`, for a panel
-/// that opens in place.
-export function Fact({
-  term,
-  children,
-  wide = false,
-}: {
-  term: React.ReactNode
-  children: React.ReactNode
-  /// Spans the whole panel — for terms and lists that read badly in a column.
-  wide?: boolean
-}) {
-  return (
-    <div className={cn("min-w-0", wide && "col-span-2 lg:col-span-3")}>
-      <dt className="text-meta text-mute">{term}</dt>
-      <dd className="mt-0.5 text-cell text-ink tabular-nums">{children}</dd>
-    </div>
-  )
-}
-
-export function Facts({ children }: { children: React.ReactNode }) {
-  return (
-    <dl className="grid grid-cols-2 gap-x-4 gap-y-3 md:gap-x-6 lg:grid-cols-3">
-      {children}
-    </dl>
-  )
-}
-
-/// Everything the node knows about one offer, opened under its row.
+/// Everything the node knows about one offer, opened under its row — the
+/// Catalogue's product sheet reads its Promotions tab with this.
 ///
 /// Every default is spelled out here where the list leaves it unsaid: "every
 /// day", "all day", "anyone". In a list the missing line is the ordinary case;
@@ -326,14 +535,7 @@ export function Facts({ children }: { children: React.ReactNode }) {
 export function OfferDetail({ offer }: { offer: StoreOffer }) {
   const codes = scopeCodes(offer.applies_to)
   const hours = slot(offer.weekdays, offer.time_window)
-  const when =
-    offer.starts_at === null
-      ? offer.ends_at === null
-        ? "No end date"
-        : `Until ${moment(offer.ends_at)}`
-      : offer.ends_at === null
-        ? `From ${moment(offer.starts_at)}`
-        : `${moment(offer.starts_at)} – ${moment(offer.ends_at)}`
+  const when = validity(offer)
 
   return (
     <div className="flex max-w-[46em] flex-col gap-2 pt-1">
@@ -486,13 +688,14 @@ export function CopyCode({
         type="button"
         aria-label={`Copy ${code}`}
         onClick={(event) => {
-          // Inside a row that opens on a press; copying must not also close it.
+          // Inside a card that opens on a press; copying must not also open it.
           event.stopPropagation()
           void copyText(code).then((ok) => setOutcome(ok ? "copied" : "failed"))
         }}
         className={cn(
-          "inline-flex shrink-0 items-center gap-1 rounded-inner border border-hairline-2 bg-canvas px-2 text-meta font-medium text-text shadow-soft transition-colors hover:bg-soft",
-          "h-8 pointer-coarse:h-tap pointer-coarse:px-3",
+          "relative inline-flex shrink-0 items-center gap-1 rounded-inner border border-hairline-2 bg-canvas px-2 text-meta font-medium text-text shadow-soft transition-colors hover:bg-soft",
+          // 32 to look at, 44 to land on.
+          "h-8 after:absolute after:-inset-1.5 after:content-['']",
         )}
       >
         {outcome === "copied" ? (

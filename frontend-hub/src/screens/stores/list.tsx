@@ -4,16 +4,25 @@ import { Plus } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Fab } from "@/components/ui/fab"
 import { Input } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { EmptyState } from "@/components/ui/states"
 import { day } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { listStores, storesKeys, type StoreSummary } from "@/lib/queries/stores"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
+import {
+  CardFigure,
+  CardFoot,
+  CardName,
+  PhoneCard,
+} from "@/components/ui/phone-cards"
 import {
   ReadinessRing,
   ServerDot,
@@ -36,6 +45,9 @@ import { OpenStoresSheet } from "@/screens/setup/open-stores-sheet"
 /// use (`screens/setup/open-stores-sheet.tsx`): a store is made in exactly one
 /// place, whichever screen the button sits on.
 export function StoresList() {
+  // A phone keeps the search and "Open a new store" in the drawer over the
+  // bottom bar and reads each store as a card.
+  const phone = useLayout() === "phone"
   const opening = useSheet("new-stores")
   const [search, setSearch] = useState("")
   const navigate = useNavigate()
@@ -89,23 +101,32 @@ export function StoresList() {
             : "Your own store, and its server."
         }
         actions={
-          <>
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              className="h-8 w-48"
-            />
-            {canManage && (
-              <Button variant="primary" onClick={() => opening.open(true)}>
-                <Plus className="size-4" />
-                Open a new store
-              </Button>
-            )}
-          </>
+          phone ? undefined : (
+            <>
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                className="h-8 w-48"
+              />
+              {canManage && (
+                <Button variant="primary" onClick={() => opening.open(true)}>
+                  <Plus className="size-4" />
+                  Open a new store
+                </Button>
+              )}
+            </>
+          )
         }
       />
 
-      <Card className="overflow-hidden">
+      {canManage && (
+        <Fab label="Open a new store" onClick={() => opening.open(true)} />
+      )}
+      <DockTools
+        search={{ value: search, onChange: setSearch, label: "Search Stores" }}
+      />
+
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(stores, {
           loading: "Reading the stores…",
           render: () =>
@@ -120,10 +141,18 @@ export function StoresList() {
                 <EmptyState>No store matches that search.</EmptyState>
               )
             ) : (
-              <ul className="divide-y divide-hairline">
-                {rows.map((store) => (
-                  <StoreRow key={store.unit_id} store={store} />
-                ))}
+              <ul
+                className={
+                  phone ? "flex flex-col gap-2.5" : "divide-y divide-hairline"
+                }
+              >
+                {rows.map((store) =>
+                  phone ? (
+                    <StoreCard key={store.unit_id} store={store} />
+                  ) : (
+                    <StoreRow key={store.unit_id} store={store} />
+                  )
+                )}
               </ul>
             ),
         })}
@@ -184,5 +213,72 @@ function StoreRow({ store }: { store: StoreSummary }) {
         </span>
       </Link>
     </li>
+  )
+}
+
+/// One store as a phone's card: its name over its code and where it is, how many
+/// of its tills are online as the figure (while it is still getting ready, how
+/// many of its steps are done), its server in the foot, and where it stands as a
+/// pill. A tap opens the store's page, as the row does.
+function StoreCard({ store }: { store: StoreSummary }) {
+  const navigate = useNavigate()
+  const getting = store.status === "GETTING_READY"
+  return (
+    <PhoneCard
+      onOpen={() =>
+        void navigate({
+          to: `/stores/${encodeURIComponent(store.unit_id)}` as LinkProps["to"],
+        })
+      }
+      head={
+        <CardName
+          name={store.name}
+          code={store.code}
+          line={
+            <>
+              {store.city ?? "—"}
+              {store.status === "OPEN" && store.opened_at
+                ? ` · open since ${day(store.opened_at)}`
+                : store.status === "CLOSED"
+                  ? " · closed"
+                  : " · getting ready"}
+            </>
+          }
+        />
+      }
+      lead={
+        getting ? (
+          <CardFigure
+            value={`${store.readiness.done}/${store.readiness.total}`}
+            caption="steps done"
+          />
+        ) : (
+          <CardFigure
+            value={`${store.tills.online}/${store.tills.active}`}
+            caption="tills online"
+            tone={store.tills.online === 0 ? "quiet" : undefined}
+          />
+        )
+      }
+      foot={
+        <CardFoot
+          status={
+            <span className="inline-flex items-center gap-1.5">
+              <ServerDot state={store.server.state} />
+              {serverStateLabel(store.server.state)}
+            </span>
+          }
+        >
+          {store.tills.waiting > 0
+            ? `${store.tills.waiting} waiting`
+            : `${store.tills.seats} ${store.tills.seats === 1 ? "seat" : "seats"}`}
+        </CardFoot>
+      }
+      action={
+        <Pill tone={storeStatusTone(store.status)}>
+          {storeStatusLabel(store.status)}
+        </Pill>
+      }
+    />
   )
 }

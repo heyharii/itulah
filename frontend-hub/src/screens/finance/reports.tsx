@@ -211,9 +211,9 @@ export function Reports() {
         <span className="text-[0.875rem] text-mute">
           {kind === "PROFIT_LOSS" ? range.chip : asOf.chip}
           {spread ? (
-            " · every unit, broken out"
+            " · all units, broken out"
           ) : unit === "" ? (
-            " · every unit"
+            " · all units"
           ) : (
             <>
               {" · "}
@@ -701,7 +701,7 @@ function LocationSpread({
                     <TotalsLadder
                       rows={[]}
                       total={{
-                        label: "Every unit",
+                        label: "All units",
                         value: money(data.grand_total_minor),
                       }}
                     />

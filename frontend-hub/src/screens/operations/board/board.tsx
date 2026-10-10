@@ -2,6 +2,10 @@ import { useQueries } from "@tanstack/react-query"
 import { Search, Truck } from "lucide-react"
 import { useMemo, useState } from "react"
 
+import { DockPortal } from "@/components/shell/dock"
+import { DockTools } from "@/components/shell/dock-tools"
+import { useLayout } from "@/lib/layout"
+
 import { PageContent } from "@/components/shell/app-shell"
 import { useShopName } from "@/components/operations/outbound-papers"
 import { Button } from "@/components/ui/button"
@@ -11,8 +15,16 @@ import { ErrorState, LoadingState } from "@/components/ui/states"
 import { dc } from "@/lib/api"
 import { SHOW_MISSING } from "@/lib/features"
 import { ago, count } from "@/lib/format"
+import { useAcknowledgeChanges } from "@/lib/operations/acknowledge"
+import {
+  dcChanges,
+  owedWork,
+  shortPicks,
+  type DcChange,
+} from "@/lib/operations/changes"
 import { keys } from "@/lib/operations/keys"
 import { useBusinessNow } from "@/lib/queries/clock"
+import { toast } from "@/lib/toast"
 import { tripDocumentNumber } from "@/lib/operations/trip-number"
 import type {
   Dispatch,
@@ -25,6 +37,7 @@ import {
   Lane,
   Lanes,
   Tile,
+  type DraggedCard,
 } from "@/screens/operations/board/parts"
 import { useSheet } from "@/lib/sheets"
 import {
@@ -34,6 +47,17 @@ import {
 import { PackSheets } from "@/screens/operations/packing/packing"
 import { PickSheets } from "@/screens/operations/picking/picking"
 import { useBoardView } from "@/screens/operations/board/board-view"
+import { MoveBackDialog } from "@/screens/operations/board/move-back"
+import {
+  changeTags,
+  indexOwed,
+  markOf,
+  pickCardKey,
+  placeChanges,
+  shortCard,
+  shortPickMarks,
+  type MoveBackTarget,
+} from "@/screens/operations/board/owed"
 import {
   StageTable,
   type StageRow,
@@ -46,7 +70,7 @@ import { receivedShipments } from "@/screens/operations/board/received"
 /// and the badge beside it never disagree for longer than one poll.
 const POLL_MS = 30_000
 
-/// A received surat jalan stays on the board this long; one still short
+/// A received delivery note stays on the board this long; one still short
 /// stays until it is not, however old.
 const RECEIVED_DAYS = 7
 
@@ -74,9 +98,13 @@ const LATE_DAYS = 3
 export function Board() {
   const accepting = useSheet("accept")
   const dispatchSheet = useSheet("new-dispatch")
+  const packing = useSheet("pack")
   const shop = useShopName()
-  const viewState = useBoardView()
-  const [view] = viewState
+  const [seen] = useBoardView()
+  const phone = useLayout() === "phone"
+  // The Allotment board is the board, with no table to switch to (owner,
+  // 2026-10-10); only a phone, which has no room for lanes, reads it as rows.
+  const view = phone ? seen : "board"
   // Fixed when the board opens: a window that slid on every render would be a
   // new cache key, and a new request, every time anything re-rendered.
   const [since] = useState(() =>
@@ -85,7 +113,17 @@ export function Board() {
 
   // Written out rather than mapped, as in `useWaiting`: `useQueries` keeps one
   // result type per entry only while the entries are literal.
-  const [toPick, picklists, koli, shipments, dispatches, received] = useQueries(
+  const [
+    toPick,
+    picklists,
+    koli,
+    shipments,
+    dispatches,
+    received,
+    owed,
+    shorts,
+    changes,
+  ] = useQueries(
     {
       queries: [
         {
@@ -124,8 +162,36 @@ export function Board() {
             receivedShipments(since, signal),
           refetchInterval: POLL_MS,
         },
+        // What MD took out that the Gudang still has to move back, and the
+        // pickers' short picks: they mark cards, they never block the board,
+        // so a failed read of either leaves the board as it was.
+        {
+          queryKey: keys.owed(),
+          queryFn: ({ signal }: { signal: AbortSignal }) => owedWork(signal),
+          refetchInterval: POLL_MS,
+        },
+        {
+          queryKey: keys.shortPicks(),
+          queryFn: ({ signal }: { signal: AbortSignal }) => shortPicks(signal),
+          refetchInterval: POLL_MS,
+        },
+        // What MD changed that the Gudang has not acknowledged: tags and a
+        // "Got it" on the cards, so it marks cards and never blocks the board.
+        {
+          queryKey: keys.changes(),
+          queryFn: ({ signal }: { signal: AbortSignal }) => dcChanges(signal),
+          refetchInterval: POLL_MS,
+        },
       ],
     }
+  )
+
+  /// Where the Move back dialog stands, when it is open.
+  const [moving, setMoving] = useState<MoveBackTarget | null>(null)
+  const owedIndex = useMemo(() => indexOwed(owed.data ?? []), [owed.data])
+  const shortMarks = useMemo(
+    () => shortPickMarks(shorts.data ?? []),
+    [shorts.data]
   )
 
   /// Cartons ticked on the board, by koli id, to go on the next trip.
@@ -162,9 +228,44 @@ export function Board() {
   const allSealed = (koli.data ?? []).filter(
     (one) => one.position === "PACKED" || one.position === "SHIPMENT"
   )
-  // A ticked carton that left on a trip (or was unsealed) is no longer one
-  // to pick.
-  const readyIds = new Set(allSealed.map((one) => one.koli_id))
+  /// A carton holding pieces MD took out cannot go on a trip: the server
+  /// refuses it, so the board never offers it.
+  const held = (id: string) => owedIndex.koli.has(id)
+
+  /// Where each change MD made that the Gudang has not acknowledged is drawn,
+  /// worked out on the whole board so the search and the store filter never
+  /// turn a change into a card of its own.
+  const placement = placeChanges(
+    changes.data ?? [],
+    allPicks,
+    new Set(allToPack.map((row) => row.shopId)),
+    allSealed.map((one) => ({
+      koli_id: one.koli_id,
+      destination_id: one.destination_store_id,
+    })),
+    owed.data ?? []
+  )
+  const acknowledge = useAcknowledgeChanges()
+  const changeId = (one: DcChange) =>
+    `${one.allotment_id}~${one.destination_id}`
+  /// The "Got it" of a card carrying these changes; absent when it carries none.
+  const ackOf = (items: readonly DcChange[] | undefined, label = "Got it") =>
+    items === undefined || items.length === 0
+      ? undefined
+      : {
+          label,
+          pending:
+            acknowledge.isPending &&
+            (acknowledge.variables ?? []).some((v) =>
+              items.some((one) => changeId(one) === changeId(v))
+            ),
+          onClick: () => acknowledge.mutate(items),
+        }
+  // A ticked carton that left on a trip (or was unsealed, or has just had
+  // pieces taken out by MD) is no longer one to pick.
+  const readyIds = new Set(
+    allSealed.filter((one) => !held(one.koli_id)).map((one) => one.koli_id)
+  )
   if (koli.data !== undefined && [...picked].some((id) => !readyIds.has(id))) {
     setPicked(new Set([...picked].filter((id) => readyIds.has(id))))
   }
@@ -176,13 +277,89 @@ export function Board() {
       else next.delete(id)
       return next
     })
-  /// Ticked → only those go on the trip; nothing ticked → everything does.
+  /// Ticked → only those go on the trip; nothing ticked → everything does,
+  /// except a carton holding pieces MD took out.
   const dispatchPicked = () => {
-    setHandoff(pickedCount > 0 ? new Set(picked) : null)
+    if (pickedCount > 0) {
+      setHandoff(new Set(picked))
+    } else if (readyIds.size < allSealed.length) {
+      if (readyIds.size === 0) {
+        toast("Move back what MD took out before a carton can go")
+        return
+      }
+      setHandoff(new Set(readyIds))
+    } else {
+      setHandoff(null)
+    }
     void dispatchSheet.open(true)
   }
   const dispatchLabel =
     pickedCount > 0 ? `Dispatch (${count(pickedCount)})` : "Dispatch"
+
+  /// Where a dropped card may go, and what the drop opens — never a write:
+  /// the sheet that owns the step asks first (the pick's counts, the carton's
+  /// quantities, the trip's cartons). Going backwards opens the same work
+  /// from its own lane, so "back" is a look before anything moves.
+  ///
+  /// Going back asks the same question from every door: **Move back**, with
+  /// the lines prefilled. Nothing moves back from a trip, so a card in
+  /// transit has no drop at all.
+  const koliShop = (id: string) =>
+    allSealed.find((one) => one.koli_id === id)?.destination_store_id
+  const backFromKoli =
+    (to: "picked" | "pick") =>
+    (card: string): void => {
+      const destinationId = koliShop(card)
+      if (destinationId !== undefined)
+        setMoving({ from: "packed", to, destinationId, koliId: card })
+    }
+  const DROPS: Record<string, (card: string) => void> = {
+    "to-pick>to-pack": (card) => accepting.open(card),
+    "to-pack>packed": (card) => packing.open(card),
+    "packed>in-transit": (card) => {
+      setHandoff(new Set([card]))
+      void dispatchSheet.open(true)
+    },
+    "to-pack>to-pick": (card) =>
+      setMoving({ from: "picked", to: "pick", destinationId: card }),
+    "packed>to-pack": backFromKoli("picked"),
+    "packed>to-pick": backFromKoli("pick"),
+  }
+  const LANE_ORDER: Record<string, number> = {
+    "to-pick": 0,
+    "to-pack": 1,
+    packed: 2,
+    "in-transit": 3,
+    received: 4,
+  }
+
+  /// A card dropped on a lane. A desk's drag only: a phone has no lanes and a
+  /// finger never starts one.
+  function moveCard(moved: DraggedCard, lane: string) {
+    if (phone || moved.lane === lane) return
+    if ((LANE_ORDER[lane] ?? 0) > (LANE_ORDER[moved.lane] ?? 0)) {
+      // A carton MD changed goes back before it goes on. A Picked card MD
+      // reduced still packs what is wanted of it (owner, 10 Oct 2026; the
+      // server caps the pack at that): it is stopped only when nothing is
+      // wanted any more.
+      const owedHere =
+        moved.lane === "to-pack"
+          ? owedIndex.shop.get(moved.card)
+          : moved.lane === "packed"
+            ? owedIndex.koli.get(moved.card)
+            : undefined
+      const wanted =
+        moved.lane === "to-pack"
+          ? (allToPack.find((row) => row.shopId === moved.card)?.pieces ?? 0) -
+            (owedHere?.pieces ?? 0)
+          : 0
+      if (owedHere !== undefined && owedHere.pieces > 0 && wanted <= 0) {
+        toast(`Move back ${count(owedHere.pieces)} pcs first`)
+        return
+      }
+    }
+    DROPS[`${moved.lane}>${lane}`]?.(moved.card)
+  }
 
   const departedAt = useMemo(
     () => departures(dispatches.data ?? []),
@@ -195,7 +372,7 @@ export function Board() {
         departedAt.get(right.dispatch_id ?? "") ?? ""
       )
     )
-  // The centre keys a surat jalan by its number; the DC's sheet by its id.
+  // The centre keys a delivery note by its number; the DC's sheet by its id.
   const shipmentIdByNumber = useMemo(
     () =>
       new Map(
@@ -207,7 +384,7 @@ export function Board() {
     [shipments.data]
   )
   const allArrived = received.data?.items ?? []
-  /// One trip, one surat jalan (owner, 2 Oct 2026): a per-store card shows
+  /// One trip, one delivery note (owner, 2 Oct 2026): a per-store card shows
   /// its trip's number, so cards of one trip share it. The centre's received
   /// list only knows the shipment number, so it goes through the shipment.
   const tripNumberOf = useMemo(() => {
@@ -230,25 +407,37 @@ export function Board() {
   const picks = [...allPicks]
     .filter((one) => keep(one.destination_id, one.allotment_number))
     .sort((left, right) => left.created_at.localeCompare(right.created_at))
+  const aloneChanges = placement.alone.filter((one) =>
+    keep(one.destination_id, one.allotment_number)
+  )
   const toPack = allToPack.filter((row) => keep(row.shopId, ...row.allotments))
   const sealed = allSealed.filter((one) =>
     keep(one.destination_store_id, one.koli_number)
   )
   const sealedPicked = sealed.filter((one) => picked.has(one.koli_id)).length
+  const sealedReady = sealed.filter((one) => !held(one.koli_id)).length
   const pickAll = (on: boolean) =>
     setPicked((current) => {
       const next = new Set(current)
       for (const one of sealed) {
+        if (held(one.koli_id)) continue
         if (on) next.add(one.koli_id)
         else next.delete(one.koli_id)
       }
       return next
     })
-  const pickOf = (one: { koli_id: string; koli_number: string }) => ({
-    checked: picked.has(one.koli_id),
-    onChange: (on: boolean) => togglePick(one.koli_id, on),
-    label: `Select ${one.koli_number}`,
-  })
+  const pickOf = (one: { koli_id: string; koli_number: string }) => {
+    const away = held(one.koli_id)
+    return {
+      checked: !away && picked.has(one.koli_id),
+      onChange: (on: boolean) => togglePick(one.koli_id, on),
+      label: `Select ${one.koli_number}`,
+      disabled: away,
+      title: away
+        ? "Holds pieces MD took out. Move them back before it can go."
+        : undefined,
+    }
+  }
   const onRoad = allOnRoad.filter((one) =>
     keep(
       one.destination_store_id,
@@ -318,49 +507,102 @@ export function Board() {
     order,
   })
   const rows: StageRow[] = [
-    ...picks.map((pick) => ({
-      key: `pick~${pick.allotment_id}~${pick.destination_id}`,
+    ...picks.map((pick) => {
+      const key = pickCardKey(pick.allotment_id, pick.destination_id)
+      const short = shortMarks.get(key)
+      return {
+        key: `pick~${pick.allotment_id}~${pick.destination_id}`,
+        stage: stage("to-pick", "Pick list", "bg-mute", 0),
+        title: shop(pick.destination_id),
+        doc: pick.allotment_number,
+        detail: many(pick.lines.length, "SKU"),
+        pieces: pick.pieces,
+        at: pick.created_at,
+        act: "Pick",
+        mark: short === undefined ? undefined : shortCard(short).row,
+        tags: changeTags(placement.pick.get(key) ?? []),
+        ack: ackOf(placement.pick.get(key)),
+        onOpen: () =>
+          accepting.open(`${pick.allotment_id}~${pick.destination_id}`),
+      }
+    }),
+    // A picklist MD cancelled while it was still to pick has no card of its
+    // own any more: it stays as one until the Gudang acknowledges it.
+    ...aloneChanges.map((one) => ({
+      key: `change~${changeId(one)}`,
       stage: stage("to-pick", "Pick list", "bg-mute", 0),
-      title: shop(pick.destination_id),
-      doc: pick.allotment_number,
-      detail: many(pick.lines.length, "SKU"),
-      pieces: pick.pieces,
-      at: pick.created_at,
-      act: "Pick",
-      onOpen: () =>
-        accepting.open(`${pick.allotment_id}~${pick.destination_id}`),
+      title: shop(one.destination_id),
+      doc: one.allotment_number,
+      pieces: 0,
+      at: one.at,
+      tags: changeTags([one]),
+      stamp: one.cancelled ? "CANCELLED" : undefined,
+      off: one.cancelled,
+      ack: ackOf([one], one.cancelled ? "Remove" : "Got it"),
     })),
-    ...toPack.map((row) => ({
-      key: `pack~${row.shopId}`,
-      stage: stage("to-pack", "Picked", "bg-warn", 1),
-      title: shop(row.shopId),
-      doc:
-        row.allotments.length === 1
-          ? row.allotments[0]
-          : `${row.allotments.length} allotments`,
-      detail: many(row.picklists, "picklist"),
-      pieces: row.pieces,
-      at: row.lastPickedAt,
-      act: "Pack",
-      open: {
-        to: "/operations/packing",
-        sheet: { key: "pack" as const, value: row.shopId },
-      },
-    })),
-    ...sealed.map((one) => ({
-      key: `packed~${one.koli_id}`,
-      stage: stage("packed", "Pack", "bg-body", 2),
-      title: shop(one.destination_store_id),
-      doc: one.koli_number,
-      detail: one.position === "SHIPMENT" ? "On a surat jalan" : undefined,
-      pieces: one.unit_count,
-      at: one.sealed_at,
-      pick: pickOf(one),
-      open: {
-        to: "/operations/packing",
-        sheet: { key: "koli" as const, value: one.koli_id },
-      },
-    })),
+    ...toPack.map((row) => {
+      const mark = markOf(owedIndex.shop.get(row.shopId), row.pieces)
+      return {
+        key: `pack~${row.shopId}`,
+        stage: stage("to-pack", "Picked", "bg-warn", 1),
+        title: shop(row.shopId),
+        doc:
+          row.allotments.length === 1
+            ? row.allotments[0]
+            : `${row.allotments.length} allotments`,
+        detail: many(row.picklists, "picklist"),
+        pieces: row.pieces,
+        at: row.lastPickedAt,
+        act: mark === null ? "Pack" : "Move back",
+        mark: mark?.row,
+        tags: changeTags(placement.shop.get(row.shopId) ?? []),
+        ack: ackOf(placement.shop.get(row.shopId)),
+        change: mark?.change,
+        stamp: mark?.stamp,
+        off: mark?.switchedOff,
+        moveBack:
+          mark === null
+            ? undefined
+            : () => setMoving({ from: "picked", destinationId: row.shopId }),
+        open: {
+          to: "/operations/packing",
+          sheet: { key: "pack" as const, value: row.shopId },
+        },
+      }
+    }),
+    ...sealed.map((one) => {
+      const mark = markOf(owedIndex.koli.get(one.koli_id), one.unit_count)
+      return {
+        key: `packed~${one.koli_id}`,
+        stage: stage("packed", "Pack", "bg-body", 2),
+        title: shop(one.destination_store_id),
+        doc: one.koli_number,
+        detail: one.position === "SHIPMENT" ? "On a delivery note" : undefined,
+        pieces: one.unit_count,
+        at: one.sealed_at,
+        act: mark === null ? undefined : "Move back",
+        mark: mark?.row,
+        tags: changeTags(placement.koli.get(one.koli_id) ?? []),
+        ack: ackOf(placement.koli.get(one.koli_id)),
+        change: mark?.change,
+        stamp: mark?.stamp,
+        off: mark?.switchedOff,
+        moveBack:
+          mark === null
+            ? undefined
+            : () =>
+                setMoving({
+                  from: "packed",
+                  destinationId: one.destination_store_id,
+                  koliId: one.koli_id,
+                }),
+        pick: pickOf(one),
+        open: {
+          to: "/operations/packing",
+          sheet: { key: "koli" as const, value: one.koli_id },
+        },
+      }
+    }),
     ...onRoad.map((one) => {
       const left = departedAt.get(one.dispatch_id ?? "") ?? null
       return {
@@ -368,7 +610,7 @@ export function Board() {
         stage: stage("in-transit", "Dispatch", "bg-info", 3),
         title: shop(one.destination_store_id),
         doc: tripNumberOf(one.shipment_number),
-        detail: `${count(one.koli_count)} koli`,
+        detail: `${count(one.koli_count)} ${one.koli_count === 1 ? "carton" : "cartons"}`,
         pieces: one.unit_count,
         at: left,
         late:
@@ -388,7 +630,7 @@ export function Board() {
         stage: stage("received", "Received", "bg-ok", 4),
         title: shop(one.destination_store_id) || one.destination_name,
         doc: tripNumberOf(one.shipment_number),
-        detail: `${count(one.koli_count)} koli`,
+        detail: `${count(one.koli_count)} ${one.koli_count === 1 ? "carton" : "cartons"}`,
         pieces: one.received_qty + one.found_qty,
         of: short ? one.sent_qty : undefined,
         flag:
@@ -412,7 +654,7 @@ export function Board() {
   if (toPick.isPending || picklists.isPending || koli.isPending) {
     return (
       <PageContent fill>
-        <Header view={viewState} />
+        <Header />
         <LoadingState>Reading the stations…</LoadingState>
       </PageContent>
     )
@@ -420,7 +662,7 @@ export function Board() {
   if (edgeFailed) {
     return (
       <PageContent fill>
-        <Header view={viewState} />
+        <Header />
         <ErrorState
           error={edgeFailed.error}
           onRetry={() => edgeFailed.refetch()}
@@ -431,7 +673,41 @@ export function Board() {
 
   return (
     <PageContent fill>
-      <Header actions={filters} view={viewState} />
+      {/* On a phone the search and the store are the dock's, as on every
+      list; the desk keeps them in its header. */}
+      <Header actions={phone ? undefined : filters} />
+      {phone && (
+        <>
+          <DockTools
+            search={{
+              value: typed,
+              onChange: setTyped,
+              label: "Search the board",
+            }}
+            status={{
+              value: store,
+              options: [
+                { value: "", label: "All stores" },
+                ...stores.map((one) => ({ value: one.id, label: one.name })),
+              ],
+              onChange: setStore,
+            }}
+          />
+          {pickedCount > 0 && (
+            <DockPortal slot="action">
+              <button
+                type="button"
+                aria-label={dispatchLabel}
+                title={dispatchLabel}
+                onClick={dispatchPicked}
+                className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-cta text-cta-fg shadow-soft transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.96]"
+              >
+                <Truck className="size-5" />
+              </button>
+            </DockPortal>
+          )}
+        </>
+      )}
       {view === "table" ? (
         <StageTable rows={rows} empty="Nothing matches." />
       ) : (
@@ -441,20 +717,50 @@ export function Board() {
             tone="bg-mute"
             title="Pick List"
             pieces={sum(picks, (pick) => pick.pieces)}
-            cards={picks.length}
+            cards={picks.length + aloneChanges.length}
+            onDropCard={moveCard}
           >
-            {picks.map((pick) => (
+            {picks.map((pick) => {
+              const key = pickCardKey(pick.allotment_id, pick.destination_id)
+              const short = shortMarks.get(key)
+              const here = placement.pick.get(key)
+              return (
+                <Tile
+                  key={`${pick.allotment_id}~${pick.destination_id}`}
+                  to="/operations/picking"
+                  onOpen={() =>
+                    accepting.open(
+                      `${pick.allotment_id}~${pick.destination_id}`
+                    )
+                  }
+                  title={shop(pick.destination_id)}
+                  sub={pick.allotment_number}
+                  meta={many(pick.lines.length, "SKU")}
+                  pieces={pick.pieces}
+                  act="Pick"
+                  strip={
+                    short === undefined ? undefined : shortCard(short).strip
+                  }
+                  tags={changeTags(here ?? [])}
+                  ack={ackOf(here)}
+                  drag={{
+                    lane: "to-pick",
+                    card: `${pick.allotment_id}~${pick.destination_id}`,
+                  }}
+                />
+              )
+            })}
+            {aloneChanges.map((one) => (
               <Tile
-                key={`${pick.allotment_id}~${pick.destination_id}`}
+                key={`change~${changeId(one)}`}
                 to="/operations/picking"
-                onOpen={() =>
-                  accepting.open(`${pick.allotment_id}~${pick.destination_id}`)
-                }
-                title={shop(pick.destination_id)}
-                sub={pick.allotment_number}
-                meta={many(pick.lines.length, "SKU")}
-                pieces={pick.pieces}
-                act="Pick"
+                title={shop(one.destination_id)}
+                sub={one.allotment_number}
+                pieces={0}
+                stamp={one.cancelled ? "CANCELLED" : undefined}
+                switchedOff={one.cancelled}
+                tags={changeTags([one])}
+                ack={ackOf([one], one.cancelled ? "Remove" : "Got it")}
               />
             ))}
           </Lane>
@@ -465,23 +771,45 @@ export function Board() {
             title="Picked"
             pieces={sum(toPack, (row) => row.pieces)}
             cards={toPack.length}
+            onDropCard={moveCard}
           >
-            {toPack.map((row) => (
-              <Tile
-                key={row.shopId}
-                to="/operations/packing"
-                sheet={{ key: "pack", value: row.shopId }}
-                title={shop(row.shopId)}
-                sub={
-                  row.allotments.length === 1
-                    ? row.allotments[0]
-                    : `${row.allotments.length} allotments`
-                }
-                meta={many(row.picklists, "picklist")}
-                pieces={row.pieces}
-                act="Pack"
-              />
-            ))}
+            {toPack.map((row) => {
+              const mark = markOf(owedIndex.shop.get(row.shopId), row.pieces)
+              return (
+                <Tile
+                  key={row.shopId}
+                  to="/operations/packing"
+                  sheet={{ key: "pack", value: row.shopId }}
+                  title={shop(row.shopId)}
+                  sub={
+                    row.allotments.length === 1
+                      ? row.allotments[0]
+                      : `${row.allotments.length} allotments`
+                  }
+                  meta={many(row.picklists, "picklist")}
+                  pieces={row.pieces}
+                  // MD reduced it: what is still wanted can be packed, so the
+                  // hint stays beside Move back; nothing wanted, no hint.
+                  act={
+                    mark !== null && mark.owed >= row.pieces ? undefined : "Pack"
+                  }
+                  strip={mark?.strip}
+                  change={mark?.change}
+                  stamp={mark?.stamp}
+                  switchedOff={mark?.switchedOff}
+                  actionLabel={mark === null ? undefined : "Move back"}
+                  onAction={
+                    mark === null
+                      ? undefined
+                      : () =>
+                          setMoving({ from: "picked", destinationId: row.shopId })
+                  }
+                  tags={changeTags(placement.shop.get(row.shopId) ?? [])}
+                  ack={ackOf(placement.shop.get(row.shopId))}
+                  drag={{ lane: "to-pack", card: row.shopId }}
+                />
+              )
+            })}
           </Lane>
 
           <Lane
@@ -490,15 +818,18 @@ export function Board() {
             title="Pack"
             pieces={sum(sealed, (one) => one.unit_count)}
             cards={sealed.length}
+            onDropCard={moveCard}
             summary={
               <div className="flex items-center justify-between gap-3">
-                <span>{count(sealed.length)} koli</span>
+                <span>
+                  {count(sealed.length)}{" "}
+                  {sealed.length === 1 ? "carton" : "cartons"}
+                </span>
                 <Checkbox
                   label="Select All"
-                  checked={sealed.length > 0 && sealedPicked === sealed.length}
-                  indeterminate={
-                    sealedPicked > 0 && sealedPicked < sealed.length
-                  }
+                  checked={sealedReady > 0 && sealedPicked === sealedReady}
+                  indeterminate={sealedPicked > 0 && sealedPicked < sealedReady}
+                  disabled={sealedReady === 0}
                   onChange={pickAll}
                   className="-my-3 [&>label]:min-h-11 [&>label]:pl-2"
                 />
@@ -515,20 +846,46 @@ export function Board() {
               </Button>
             }
           >
-            {sealed.map((one) => (
-              <Tile
-                key={one.koli_id}
-                to="/operations/packing"
-                sheet={{ key: "koli", value: one.koli_id }}
-                title={shop(one.destination_store_id)}
-                sub={one.koli_number}
-                meta={
-                  one.position === "SHIPMENT" ? "On a surat jalan" : undefined
-                }
-                pieces={one.unit_count}
-                pick={pickOf(one)}
-              />
-            ))}
+            {sealed.map((one) => {
+              const mark = markOf(
+                owedIndex.koli.get(one.koli_id),
+                one.unit_count
+              )
+              return (
+                <Tile
+                  key={one.koli_id}
+                  to="/operations/packing"
+                  sheet={{ key: "koli", value: one.koli_id }}
+                  title={shop(one.destination_store_id)}
+                  sub={one.koli_number}
+                  meta={
+                    one.position === "SHIPMENT"
+                      ? "On a delivery note"
+                      : undefined
+                  }
+                  pieces={one.unit_count}
+                  pick={pickOf(one)}
+                  strip={mark?.strip}
+                  change={mark?.change}
+                  stamp={mark?.stamp}
+                  switchedOff={mark?.switchedOff}
+                  actionLabel={mark === null ? undefined : "Move back"}
+                  onAction={
+                    mark === null
+                      ? undefined
+                      : () =>
+                          setMoving({
+                            from: "packed",
+                            destinationId: one.destination_store_id,
+                            koliId: one.koli_id,
+                          })
+                  }
+                  tags={changeTags(placement.koli.get(one.koli_id) ?? [])}
+                  ack={ackOf(placement.koli.get(one.koli_id))}
+                  drag={{ lane: "packed", card: one.koli_id }}
+                />
+              )
+            })}
           </Lane>
 
           <Lane
@@ -538,6 +895,7 @@ export function Board() {
             pieces={sum(onRoad, (one) => one.unit_count)}
             cards={onRoad.length}
             problem={shipments.isError ? shipments.error : undefined}
+            onDropCard={moveCard}
           >
             {onRoad.map((one) => {
               const left = departedAt.get(one.dispatch_id ?? "") ?? null
@@ -552,7 +910,7 @@ export function Board() {
                   sheet={{ key: "shipment", value: one.shipment_id }}
                   title={shop(one.destination_store_id)}
                   sub={tripNumberOf(one.shipment_number)}
-                  meta={`${count(one.koli_count)} koli`}
+                  meta={`${count(one.koli_count)} ${one.koli_count === 1 ? "carton" : "cartons"}`}
                   pieces={one.unit_count}
                   pill={
                     late ? undefined : (
@@ -592,18 +950,19 @@ export function Board() {
       <PackSheets />
       <ShipmentSheets />
       <DispatchSheet only={handoff} onDispatched={() => setPicked(new Set())} />
+      <MoveBackDialog target={moving} onClose={() => setMoving(null)} />
     </PageContent>
   )
 }
 
-function Header({
-  actions,
-  view,
-}: {
-  actions?: React.ReactNode
-  view: ReturnType<typeof useBoardView>
-}) {
-  return <BoardHeader board="stores" actions={actions} view={view} />
+function Header({ actions }: { actions?: React.ReactNode }) {
+  return (
+    <BoardHeader
+      board="stores"
+      actions={actions}
+      closeTo="/operations/intake"
+    />
+  )
 }
 
 function ReceivedTile({
@@ -628,7 +987,7 @@ function ReceivedTile({
       }
       title={shop(one.destination_store_id) || one.destination_name}
       sub={doc}
-      meta={`${count(one.koli_count)} koli`}
+      meta={`${count(one.koli_count)} ${one.koli_count === 1 ? "carton" : "cartons"}`}
       pieces={one.received_qty + one.found_qty}
       of={short ? one.sent_qty : undefined}
       flag={
@@ -689,7 +1048,7 @@ function waitingByShop(rounds: readonly PicklistSummary[]): ShopToPack[] {
     )
 }
 
-/// When each trip left, by its id. A surat jalan carries no time of its own.
+/// When each trip left, by its id. A delivery note carries no time of its own.
 function departures(trips: readonly Dispatch[]): Map<string, string> {
   const map = new Map<string, string>()
   for (const trip of trips) {

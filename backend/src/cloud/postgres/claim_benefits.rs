@@ -34,7 +34,9 @@ pub async fn claim_benefits(pool: &PgPool) -> Result<Vec<ClaimBenefitView>, AppE
                 type_name: row.try_get("type_name")?,
                 effective_from: row.try_get("effective_from")?,
                 yearly_limit_minor: row.try_get("yearly_limit_minor")?,
-                ratified_by: row.try_get::<Option<String>, _>("ratified_by")?.unwrap_or_default(),
+                ratified_by: row
+                    .try_get::<Option<String>, _>("ratified_by")?
+                    .unwrap_or_default(),
             })
         })
         .collect()
@@ -48,7 +50,9 @@ pub async fn state_claim_benefit(
     ratified: &Authorization,
 ) -> Result<(), AppError> {
     if yearly_limit_minor.is_some_and(|l| l <= 0) {
-        return Err(AppError::Validation("an allowance is a positive amount, or none".into()));
+        return Err(AppError::Validation(
+            "an allowance is a positive amount, or none".into(),
+        ));
     }
     sqlx::query(
         "INSERT INTO claim_benefit (type_code, effective_from, yearly_limit_minor, ratified)
@@ -80,7 +84,9 @@ pub async fn override_claim_benefit(
     set_by: &Authorization,
 ) -> Result<(), AppError> {
     if limit_minor < 0 {
-        return Err(AppError::Validation("an allowance cannot be below nothing".into()));
+        return Err(AppError::Validation(
+            "an allowance cannot be below nothing".into(),
+        ));
     }
     sqlx::query(
         "INSERT INTO claim_benefit_override (employee_id, type_code, year, limit_minor, set_by)
@@ -170,7 +176,12 @@ async fn balance_of(
     .fetch_one(pool)
     .await?;
     let limit = personal.or(company.flatten());
-    Ok((limit, personal.is_some(), row.try_get("used")?, row.try_get("pending")?))
+    Ok((
+        limit,
+        personal.is_some(),
+        row.try_get("used")?,
+        row.try_get("pending")?,
+    ))
 }
 
 pub async fn claim_balances(
@@ -185,7 +196,8 @@ pub async fn claim_balances(
     .await?;
     let mut rows = Vec::with_capacity(types.len());
     for (code, name) in types {
-        let (limit, personal, used, pending) = balance_of(pool, employee_id, &code, year, None).await?;
+        let (limit, personal, used, pending) =
+            balance_of(pool, employee_id, &code, year, None).await?;
         rows.push(ClaimBalanceRow {
             type_code: code,
             type_name: name,
@@ -214,12 +226,11 @@ pub async fn check_claim_within_allowance(
         .ok_or_else(|| AppError::NotFound(format!("expense claim {claim_id}")))?;
     let employee_id: String = claim.try_get("employee_id")?;
     let posted_on: NaiveDate = claim.try_get("posted_on")?;
-    let lines: Vec<(Uuid, String)> = sqlx::query_as(
-        "SELECT line_id, type_code FROM expense_claim_line WHERE claim_id = $1",
-    )
-    .bind(claim_id)
-    .fetch_all(pool)
-    .await?;
+    let lines: Vec<(Uuid, String)> =
+        sqlx::query_as("SELECT line_id, type_code FROM expense_claim_line WHERE claim_id = $1")
+            .bind(claim_id)
+            .fetch_all(pool)
+            .await?;
     let mut per_type: std::collections::BTreeMap<String, i64> = std::collections::BTreeMap::new();
     for (line_id, type_code) in lines {
         let amount = sanctions
@@ -229,8 +240,14 @@ pub async fn check_claim_within_allowance(
         *per_type.entry(type_code).or_default() += amount;
     }
     for (type_code, asked) in per_type {
-        let (limit, _, used, _) =
-            balance_of(pool, &employee_id, &type_code, posted_on.year(), Some(claim_id)).await?;
+        let (limit, _, used, _) = balance_of(
+            pool,
+            &employee_id,
+            &type_code,
+            posted_on.year(),
+            Some(claim_id),
+        )
+        .await?;
         if let Some(limit) = limit {
             if used + asked > limit {
                 return Err(AppError::Conflict(format!(

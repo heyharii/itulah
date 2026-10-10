@@ -9,6 +9,9 @@ import { ChevronLeft, ChevronRight } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
+import { Fab } from "@/components/ui/fab"
+import { DockChoice } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
@@ -22,7 +25,7 @@ import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { Timeline } from "@/components/ui/timeline"
-import { count, day, moment } from "@/lib/format"
+import { count, day, moment, weekday } from "@/lib/format"
 import {
   listEmployees,
   listShifts,
@@ -41,6 +44,12 @@ import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { FileCorrectionSheet } from "@/screens/people/attendance-correction-sheet"
 import { Quiet, UnitChoice, useUnit } from "@/screens/people/parts"
+import {
+  CardButton,
+  CardFigure,
+  CardName,
+  PhoneCards,
+} from "@/components/ui/phone-cards"
 import type {
   AttendanceDayView,
   PunchRow,
@@ -125,14 +134,6 @@ function todayIso(): string {
   return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()))
     .toISOString()
     .slice(0, 10)
-}
-
-/// `Sen` — the weekday of a calendar day, in UTC for the reason above.
-function weekdayOf(iso: string): string {
-  return new Date(`${iso}T00:00:00Z`).toLocaleDateString("id-ID", {
-    weekday: "long",
-    timeZone: "UTC",
-  })
 }
 
 /// `2026-09-13 08:03` → `08:03`, and a next-day reading keeps its `+1`.
@@ -401,7 +402,38 @@ function postureOf(
     : { kind: "REPORTING", last }
 }
 
+/// The day, on a phone: tomorrow back to a fortnight ago as the chip over the
+/// bottom bar, and whichever day is on screen if it is further away. The desk
+/// has its arrows and its calendar.
+function DayChoice({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (next: string) => void
+}) {
+  const today = todayIso()
+  const days = new Set<string>([value])
+  for (let by = 1; by >= -13; by -= 1) days.add(addDays(today, by))
+  const label = (iso: string) => weekday(iso, true)
+  return (
+    <DockChoice
+      value={value}
+      onChange={onChange}
+      options={[...days]
+        .sort()
+        .reverse()
+        .map((iso) => ({
+          value: iso,
+          label: iso === today ? `Today · ${label(iso)}` : label(iso),
+          short: iso === today ? "Today" : weekday(iso),
+        }))}
+    />
+  )
+}
+
 export function AttendanceDays() {
+  const phone = useLayout() === "phone"
   const unit = useUnit()
   const unitId = unit.unitId
   const person = useSheet("attendanceOf")
@@ -619,51 +651,66 @@ export function AttendanceDays() {
             ? "What a day amounted to. Head office reads any unit's; the unit that worked it lives in it."
             : `What the day amounted to at ${unit.name ?? "your place"}.`
         }
+        // On a phone the unit and the day are the chips over the bottom bar and
+        // filing a correction is the round +.
         actions={
-          <>
-            <UnitChoice
-              unitId={unitId}
-              units={unit.units}
-              onChange={unit.setUnitId}
-            />
-            {/* A day at a time, because attendance is asked about a day. The
+          phone ? undefined : (
+            <>
+              <UnitChoice
+                unitId={unitId}
+                units={unit.units}
+                onChange={unit.setUnitId}
+              />
+              {/* A day at a time, because attendance is asked about a day. The
                 picker stays for the jump to a month back. */}
-            <ButtonGroup>
-              <Button
-                variant="ghost"
-                aria-label="Previous day"
-                onClick={() => setDate(addDays(date, -1))}
-              >
-                <ChevronLeft className="size-4 stroke-[1.7]" />
+              <ButtonGroup>
+                <Button
+                  variant="ghost"
+                  aria-label="Previous day"
+                  onClick={() => setDate(addDays(date, -1))}
+                >
+                  <ChevronLeft className="size-4 stroke-[1.7]" />
+                </Button>
+                <Button variant="ghost" onClick={() => setDate(todayIso())}>
+                  Today
+                </Button>
+                <Button
+                  variant="ghost"
+                  aria-label="Next day"
+                  onClick={() => setDate(addDays(date, 1))}
+                >
+                  <ChevronRight className="size-4 stroke-[1.7]" />
+                </Button>
+              </ButtonGroup>
+              <Day
+                value={date}
+                onChange={(next) => {
+                  // A day-shaped screen has no "any day": there is always a date
+                  // whose attendance is being read, so cleared is not a state
+                  // this screen can be in.
+                  if (next !== "") setDate(next)
+                }}
+                clearable={false}
+                className="h-8 w-36"
+              />
+              <Button variant="primary" onClick={() => setCorrecting(true)}>
+                File correction
               </Button>
-              <Button variant="ghost" onClick={() => setDate(todayIso())}>
-                Today
-              </Button>
-              <Button
-                variant="ghost"
-                aria-label="Next day"
-                onClick={() => setDate(addDays(date, 1))}
-              >
-                <ChevronRight className="size-4 stroke-[1.7]" />
-              </Button>
-            </ButtonGroup>
-            <Day
-              value={date}
-              onChange={(next) => {
-                // A day-shaped screen has no "any day": there is always a date
-                // whose attendance is being read, so cleared is not a state
-                // this screen can be in.
-                if (next !== "") setDate(next)
-              }}
-              clearable={false}
-              className="h-8 w-36"
-            />
-            <Button variant="primary" onClick={() => setCorrecting(true)}>
-              File correction
-            </Button>
-          </>
+            </>
+          )
         }
       />
+      {phone && (
+        <>
+          <UnitChoice
+            unitId={unitId}
+            units={unit.units}
+            onChange={unit.setUnitId}
+          />
+          <DayChoice value={date} onChange={setDate} />
+          <Fab label="File correction" onClick={() => setCorrecting(true)} />
+        </>
+      )}
 
       {unitId === null && !unit.choosing && (
         <Banner tone="warn" className="mb-4">
@@ -721,11 +768,9 @@ export function AttendanceDays() {
         </Banner>
       )}
 
-      <Card className="mb-4 overflow-hidden">
+      <Card className="mb-4 overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         <CardHeader>
-          <CardTitle>
-            {weekdayOf(date)}, {day(date)}
-          </CardTitle>
+          <CardTitle>{weekday(date, true)}</CardTitle>
           {posture.kind === "REPORTING" && (
             <span className="text-meta text-mute">
               last punch delivered {moment(posture.last)}
@@ -749,6 +794,74 @@ export function AttendanceDays() {
                 . A day with no plan has no attendance to derive — "absent" only
                 means something against a scheduled day.
               </EmptyState>
+            ) : phone ? (
+              <PhoneCards
+                rows={[...rows].sort((a, b) => a.who.localeCompare(b.who))}
+                onOpen={(row) => person.open(row.employeeId)}
+                rowId={(row) => row.employeeId}
+                spec={{
+                  title: (row) => (
+                    <CardName
+                      name={row.who}
+                      line={
+                        <>
+                          <span className="block">{row.plan}</span>
+                          {(row.canClockIn === false ||
+                            row.correction !== null ||
+                            row.punchesConsidered === 0) && (
+                            <span className="mt-1 flex flex-wrap items-center gap-1">
+                              {row.canClockIn === false && (
+                                <Tag tone="bad">no finger</Tag>
+                              )}
+                              {row.correction !== null && (
+                                <Tag tone="info">corrected</Tag>
+                              )}
+                              {row.punchesConsidered === 0 && (
+                                <Tag>no punch</Tag>
+                              )}
+                            </span>
+                          )}
+                        </>
+                      }
+                    />
+                  ),
+                  lead: (row) => (
+                    <CardFigure
+                      value={clock(row.arrival)}
+                      caption={
+                        row.departure === null
+                          ? row.arrival === null
+                            ? "no arrival"
+                            : "arrived"
+                          : `out ${clock(row.departure)}`
+                      }
+                      tone={row.arrival === null ? "quiet" : undefined}
+                    />
+                  ),
+                  foot: (row) =>
+                    row.outcomes.length === 0 ? (
+                      <>—</>
+                    ) : (
+                      <span className="flex flex-wrap items-center gap-1">
+                        {row.outcomes.map((code) => {
+                          const read = outcome(code)
+                          return (
+                            <Pill key={code} tone={read.tone}>
+                              {read.label}
+                            </Pill>
+                          )
+                        })}
+                      </span>
+                    ),
+                  action: (row) => (
+                    <CardButton
+                      label="Open"
+                      ariaLabel={`Open ${row.who}’s attendance`}
+                      onClick={() => person.open(row.employeeId)}
+                    />
+                  ),
+                }}
+              />
             ) : (
               <DataTable<DayRow>
                 table={table}

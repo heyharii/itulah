@@ -1703,7 +1703,9 @@ fn validate_allotment_cancellation_binding(
         .as_deref()
         .ok_or_else(|| "inventory origin has no registered node_role".to_string())?;
     if payload.source_site_id != expected_site {
-        return Err("allotment cancellation must come from its exact registered source site".into());
+        return Err(
+            "allotment cancellation must come from its exact registered source site".into(),
+        );
     }
     let role = EdgeRole::from_str(expected_role).map_err(|error| error.to_string())?;
     let site_id = SiteId::new(expected_site).map_err(|error| error.to_string())?;
@@ -1754,8 +1756,7 @@ fn validate_official_count_owner_binding(
         ));
     }
     let site = SiteId::new(expected_site).map_err(|error| error.to_string())?;
-    let node =
-        NodeContext::new(batch_origin_id, role, site).map_err(|error| error.to_string())?;
+    let node = NodeContext::new(batch_origin_id, role, site).map_err(|error| error.to_string())?;
     let pool = OperationalPool::from_str(pool_id).map_err(|error| error.to_string())?;
     if pool.id() != pool_id || !node.owns_pool(&pool) {
         return Err(format!(
@@ -3495,7 +3496,9 @@ async fn apply_transfer_claim(
                 .get::<Option<String>, _>("shipment_reference")
                 .as_deref()
                 != claim.shipment_reference.as_deref()
-            || progress.get::<DateTime<Utc>, _>("occurred_at") != claim.occurred_at
+            // Microseconds, as stored: see the fulfillment-progress check.
+            || progress.get::<DateTime<Utc>, _>("occurred_at").timestamp_micros()
+                != claim.occurred_at.timestamp_micros()
         {
             return Err(AppError::Validation(
                 "IN_TRANSIT claim does not match immutable package progress identity or order"
@@ -4460,7 +4463,12 @@ async fn apply_fulfillment_progress(
         || movement.get::<Option<String>, _>("reference_id").as_deref()
             != Some(koli_id_text.as_str())
         || movement.get::<String, _>("actor_id") != progress.actor_id
-        || movement.get::<DateTime<Utc>, _>("occurred_at") != progress.occurred_at
+        // Compared at the precision Postgres keeps (microseconds): the node's
+        // clock may be finer (a Linux edge reads nanoseconds), and the stored
+        // movement was rounded on the way in, so an exact comparison never
+        // matched and blocked the node's whole stream at its first pack.
+        || movement.get::<DateTime<Utc>, _>("occurred_at").timestamp_micros()
+            != progress.occurred_at.timestamp_micros()
     {
         return Err(AppError::Validation(
             "fulfillment progress does not match its exact preceding package movement".into(),
@@ -4511,9 +4519,7 @@ async fn apply_fulfillment_progress(
             FulfillmentStage::Packed => OperationalPool::DcOutboundPacked { dc_id, store_id },
             FulfillmentStage::Shipment => OperationalPool::DcOutboundShipment { dc_id, store_id },
             FulfillmentStage::Loaded => OperationalPool::DcOutboundLoaded { dc_id, store_id },
-            FulfillmentStage::InTransit => {
-                OperationalPool::DcOutboundInTransit { dc_id, store_id }
-            }
+            FulfillmentStage::InTransit => OperationalPool::DcOutboundInTransit { dc_id, store_id },
         };
         format!("{}:on_hand", pool.id())
     };
@@ -5746,15 +5752,15 @@ fn validate_issued_command(command_type: &str, payload: &Value) -> Result<(), Ap
         crate::cloud::domain::COMMAND_COMMERCIAL_ELIGIBILITY => {
             // A shop that cannot read the frozen eligibility charges the wrong
             // price or refuses the promotion outright, so it is refused here.
-            crate::cloud::domain::parse_rule_eligibility(payload)
-                .map_err(AppError::Validation)?;
+            crate::cloud::domain::parse_rule_eligibility(payload).map_err(AppError::Validation)?;
         }
         INVENTORY_STORE_INBOUND_ANNOUNCE_V1 => {
             // A shop that cannot read it blocks its command stream.
             parse_store_inbound_announcement(payload).map_err(AppError::Validation)?;
         }
         crate::cloud::domain::COMMAND_PAYMENT_METHODS_REPLACE => {
-            crate::cloud::domain::parse_payment_method_book(payload).map_err(AppError::Validation)?;
+            crate::cloud::domain::parse_payment_method_book(payload)
+                .map_err(AppError::Validation)?;
         }
         crate::sync::transfer::INVENTORY_IN_TRANSIT_RELEASE_V1 => {
             // Same reason: an origin that cannot read it stops there.
@@ -5762,8 +5768,7 @@ fn validate_issued_command(command_type: &str, payload: &Value) -> Result<(), Ap
                 .map_err(AppError::Validation)?;
         }
         crate::sync::transfer::INVENTORY_IN_TRANSIT_SHORT_V1 => {
-            crate::sync::transfer::parse_in_transit_short(payload)
-                .map_err(AppError::Validation)?;
+            crate::sync::transfer::parse_in_transit_short(payload).map_err(AppError::Validation)?;
         }
         crate::sync::flow::INVENTORY_FLOW_EVENTS_V1 => {
             // A flow's outbox for one node (`flow_stages::after_stage_tx`),
@@ -5900,8 +5905,7 @@ pub(super) async fn inventory_owner_tx(
     if owner.is_some() {
         return Ok(owner);
     }
-    if super::sites::site_kind(&mut **tx, site_id).await?
-        == Some(crate::ids::SiteKind::HeadOffice)
+    if super::sites::site_kind(&mut **tx, site_id).await? == Some(crate::ids::SiteKind::HeadOffice)
     {
         return sole_dc_origin_tx(tx).await;
     }
@@ -6103,6 +6107,104 @@ pub(super) async fn issue_command_tx(
     Ok(command_id)
 }
 
+/// Issue one command to each origin in a small bounded batch. The input and
+/// output stay in caller order; cursor rows are locked in origin order so two
+/// overlapping batches cannot deadlock by visiting those rows differently.
+/// This is for fan-out paths whose payload differs per recipient. Broadcast
+/// commands continue to use [`issue_command_tx`].
+pub(super) async fn issue_commands_one_per_origin_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    command_type: &str,
+    payloads: &[(Value, String)],
+    issued_by: &str,
+    expires_at: Option<DateTime<Utc>>,
+) -> Result<Vec<Uuid>, AppError> {
+    if payloads.is_empty() {
+        return Err(AppError::Validation(
+            "transactional command issue requires explicit targets".into(),
+        ));
+    }
+    if payloads.len() > 8 {
+        return Err(AppError::Validation(
+            "transactional command batch may contain at most eight targets".into(),
+        ));
+    }
+    let issued_by = issued_by.trim();
+
+    let mut origins = BTreeSet::new();
+    let mut rows = Vec::with_capacity(payloads.len());
+    for (ordinal, (payload, target)) in payloads.iter().enumerate() {
+        validate_issued_command(command_type, payload)?;
+        if issued_by.is_empty() {
+            return Err(AppError::Validation("issued_by is required".into()));
+        }
+        let origin_id = target.trim().to_owned();
+        if origin_id.is_empty() {
+            return Err(AppError::Validation(
+                "transactional command issue requires explicit targets".into(),
+            ));
+        }
+        if !origins.insert(origin_id.clone()) {
+            return Err(AppError::Validation(
+                "transactional command batch requires unique target origins".into(),
+            ));
+        }
+        rows.push(json!({
+            "ordinal": ordinal as i32,
+            "command_id": Uuid::new_v4(),
+            "origin_id": origin_id,
+            "command_type": command_type,
+            "payload": payload,
+            "issued_by": issued_by,
+            "expires_at": expires_at,
+        }));
+    }
+
+    let command_ids: Vec<Uuid> = sqlx::query_scalar(
+        "WITH incoming AS MATERIALIZED (
+             SELECT * FROM jsonb_to_recordset($1::jsonb) AS row(
+                 ordinal int, command_id uuid, origin_id text, command_type text,
+                 payload jsonb, issued_by text, expires_at timestamptz)
+         ), headers AS (
+             INSERT INTO sync_command
+                 (command_id, command_type, payload, issued_by, expires_at)
+             SELECT command_id, command_type, payload, issued_by, expires_at
+               FROM incoming ORDER BY ordinal
+             RETURNING command_id
+         ), cursors AS (
+             INSERT INTO sync_command_cursor (origin_id, next_seq)
+             SELECT i.origin_id, 1
+               FROM incoming i
+               JOIN headers h USING (command_id)
+              ORDER BY i.origin_id
+             ON CONFLICT (origin_id) DO UPDATE SET
+                 next_seq = sync_command_cursor.next_seq + 1,
+                 updated_at = now()
+             RETURNING origin_id, next_seq
+         ), deliveries AS (
+             INSERT INTO sync_command_delivery (origin_id, seq, command_id)
+             SELECT i.origin_id, c.next_seq, i.command_id
+               FROM incoming i
+               JOIN cursors c USING (origin_id)
+              ORDER BY i.origin_id
+             RETURNING command_id
+         )
+         SELECT d.command_id
+           FROM deliveries d
+           JOIN incoming i USING (command_id)
+          ORDER BY i.ordinal",
+    )
+    .bind(Value::Array(rows))
+    .fetch_all(&mut **tx)
+    .await?;
+    if command_ids.len() != payloads.len() {
+        return Err(AppError::Conflict(
+            "command batch did not create one delivery per target".into(),
+        ));
+    }
+    Ok(command_ids)
+}
+
 pub async fn issue_command(
     pool: &PgPool,
     command_type: &str,
@@ -6217,7 +6319,9 @@ pub async fn commands_for(
     // A store action carried by one of these is now SENT
     // (`store_actions.rs`). Never allowed to fail the node's sync.
     if let Some(through) = rows.iter().map(|row| row.get::<i64, _>("seq")).max() {
-        if let Err(error) = super::store_actions::mark_sent(pool, origin_id, after_seq, through).await {
+        if let Err(error) =
+            super::store_actions::mark_sent(pool, origin_id, after_seq, through).await
+        {
             tracing::warn!(%error, origin_id, "store actions were not marked sent");
         }
     }
@@ -6827,22 +6931,23 @@ pub async fn publish_catalog_if_changed(
     pool: &PgPool,
     issued_by: &str,
 ) -> Result<Option<i64>, AppError> {
-    let items = catalog_items(pool).await?;
-    let content_hash = catalog_content_hash(&items);
-
-    let last: Option<(i64, String)> = sqlx::query_as(
-        "SELECT generation, content_hash FROM catalog_publication
+    // Read before the rows (0929): a write that lands while the catalogue is
+    // being built bumps the revision past this one, so the next pass looks
+    // again instead of believing it has already seen it.
+    let revision: i64 = sqlx::query_scalar("SELECT revision FROM catalog_revision")
+        .fetch_one(pool)
+        .await?;
+    let last: Option<(i64, String, Option<i64>)> = sqlx::query_as(
+        "SELECT generation, content_hash, source_revision FROM catalog_publication
           ORDER BY generation DESC LIMIT 1",
     )
     .fetch_optional(pool)
     .await?;
-    if last
-        .as_ref()
-        .is_some_and(|(_, previous)| *previous == content_hash)
-    {
+    // Nothing the catalogue is made of has been written since the last
+    // publication was built: there is nothing to look at.
+    if last.as_ref().is_some_and(|(_, _, built_from)| *built_from == Some(revision)) {
         return Ok(None);
     }
-    let generation = last.map_or(1, |(previous, _)| previous + 1);
 
     // Everything with a site, DC and shop alike. A DC needs the list too: a
     // stock count that turns up an unexpected tag prices it from here.
@@ -6856,18 +6961,35 @@ pub async fn publish_catalog_if_changed(
         return Ok(None);
     }
 
+    let items = catalog_items(pool).await?;
+    let content_hash = catalog_content_hash(&items);
+    if let Some((generation, previous, _)) = last.as_ref() {
+        if *previous == content_hash {
+            // Written to, but to the same effect (a save that changed nothing
+            // the tills read). Remember that this revision was looked at.
+            sqlx::query("UPDATE catalog_publication SET source_revision = $2 WHERE generation = $1")
+                .bind(generation)
+                .bind(revision)
+                .execute(pool)
+                .await?;
+            return Ok(None);
+        }
+    }
+    let generation = last.map_or(1, |(previous, _, _)| previous + 1);
+
     let (snapshot_id, _, _) =
         publish_catalog(pool, generation, &items, issued_by, &targets).await?;
     sqlx::query(
         "INSERT INTO catalog_publication
-             (generation, snapshot_id, content_hash, item_count, published_by)
-         VALUES ($1,$2,$3,$4,$5)",
+             (generation, snapshot_id, content_hash, item_count, published_by, source_revision)
+         VALUES ($1,$2,$3,$4,$5,$6)",
     )
     .bind(generation)
     .bind(snapshot_id)
     .bind(&content_hash)
     .bind(items.len() as i64)
     .bind(issued_by)
+    .bind(revision)
     .execute(pool)
     .await?;
     Ok(Some(generation))
@@ -6900,14 +7022,7 @@ pub async fn publish_current_catalog_to(
         return Ok(None);
     };
     let items = catalog_items(pool).await?;
-    publish_catalog(
-        pool,
-        generation,
-        &items,
-        issued_by,
-        &[origin_id.to_owned()],
-    )
-    .await?;
+    publish_catalog(pool, generation, &items, issued_by, &[origin_id.to_owned()]).await?;
     Ok(Some(generation))
 }
 
@@ -7057,7 +7172,8 @@ async fn apply_sale(
     let node_role: String = origin.try_get("node_role")?;
     if node_role != "STORE" || registered_site.as_deref() != Some(sale.site_id.trim()) {
         return Err(AppError::Forbidden(format!(
-            "sale site {:?} does not match the registered Store origin", sale.site_id
+            "sale site {:?} does not match the registered Store origin",
+            sale.site_id
         )));
     }
 
@@ -7208,6 +7324,31 @@ async fn apply_sale(
             tender.amount_minor,
             &sale.site_id,
             tender.voucher_code.as_deref(),
+            &sale.actor_id,
+        )
+        .await?;
+    }
+    // A limited coupon was held at head office before the till applied it; the
+    // hold rides on the promotion it opened and becomes the redemption here.
+    // Never an error that stops this fact — see `commit_coupon_hold_for_fact`
+    // for why a hold that cannot be committed is recorded instead.
+    for promotion in &sale.promotions {
+        let Some(hold_id) = promotion
+            .coupon_authorization_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+        else {
+            continue;
+        };
+        super::coupons::commit_coupon_hold_for_fact(
+            tx,
+            hold_id,
+            sale.sale_id,
+            sale.occurred_at,
+            promotion.coupon_code.as_deref(),
+            promotion.benefit_minor,
+            &sale.site_id,
             &sale.actor_id,
         )
         .await?;
@@ -7932,20 +8073,57 @@ pub async fn create_purchase_order_as(
         AppError::Conflict(format!("cannot raise PO {}: {error}", request.po_number))
     })?;
 
-    let mut wire_lines = Vec::with_capacity(request.lines.len());
-    let mut flow_lines: Vec<(Uuid, i64)> = Vec::with_capacity(request.lines.len());
+    // The unit factors every line will be resolved against, read once per
+    // distinct (article, unit) pair instead of once per line (suppliers::
+    // `OrderUnitFactors`). The per-line checks still run per line, in the
+    // order the lines were sent, so the first line carrying an impossible
+    // unit is still the one reported, and with the same "line n:" prefix.
+    let mut unit_pairs: Vec<(Option<String>, String)> = Vec::new();
+    for line in &request.lines {
+        let Some(unit_code) = line
+            .unit_code
+            .as_deref()
+            .map(str::trim)
+            .filter(|code| !code.is_empty())
+        else {
+            continue;
+        };
+        let pair = (Some(line.article_code.clone()), unit_code.to_uppercase());
+        if !unit_pairs.contains(&pair) {
+            unit_pairs.push(pair);
+        }
+    }
+    let unit_factors = super::suppliers::load_order_unit_factors(&mut tx, &unit_pairs).await?;
+
+    // One id per line, minted here: the flow below consumes it and the write
+    // has to carry the same one.
+    let po_line_ids: Vec<Uuid> = std::iter::repeat_with(Uuid::new_v4)
+        .take(request.lines.len())
+        .collect();
+    let flow_lines: Vec<(Uuid, i64)> = po_line_ids
+        .iter()
+        .copied()
+        .zip(request.lines.iter().map(|line| line.ordered_quantity))
+        .collect();
+
+    // The pricing stays per line (it is arithmetic, not I/O); what reaches SQL
+    // is the transcript of it, every line at once.
+    let mut line_rows = Vec::with_capacity(request.lines.len());
+    let mut tag_line_numbers: Vec<i32> = Vec::new();
+    let mut tag_codes: Vec<String> = Vec::new();
+    let mut payloads: Vec<PurchaseOrderLinePayload> = Vec::with_capacity(request.lines.len());
+    let mut line_order_units: Vec<Option<(String, rust_decimal::Decimal, rust_decimal::Decimal)>> =
+        Vec::with_capacity(request.lines.len());
     for (index, line) in request.lines.iter().enumerate() {
         let line_number = (index + 1) as i32;
-        let po_line_id = Uuid::new_v4();
-        flow_lines.push((po_line_id, line.ordered_quantity));
-        let order_unit = super::units::resolve_order_unit(
-            &mut tx,
+        let po_line_id = po_line_ids[index];
+        let order_unit = super::suppliers::resolve_order_unit_cached(
+            &unit_factors,
             Some(line.article_code.as_str()),
             line.unit_code.as_deref(),
             line.unit_quantity.as_deref(),
             line.ordered_quantity,
         )
-        .await
         .map_err(|error| match error {
             AppError::Validation(message) => {
                 AppError::Validation(format!("line {line_number}: {message}"))
@@ -7964,53 +8142,38 @@ pub async fn create_purchase_order_as(
             }
             other => other,
         })?;
-        sqlx::query(
-            "INSERT INTO purchase_order_line
-                 (po_line_id, purchase_order_id, line_number, article_code, article_name,
-                  image_url, division_code, ordered_quantity,
-                  unit_price_minor, line_amount_minor, promised_date,
-                  order_unit_code, order_unit_quantity, unit_factor, order_unit_price_minor)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)",
-        )
-        .bind(po_line_id)
-        .bind(purchase_order_id)
-        .bind(line_number)
-        .bind(&line.article_code)
-        .bind(&line.article_name)
-        .bind(&line.image_url)
-        .bind(&line.division_code)
-        .bind(line.ordered_quantity)
-        .bind(unit_price)
-        .bind(line_amount)
-        .bind(line.promised_date)
-        .bind(order_unit.as_ref().map(|(code, _, _)| code.clone()))
-        .bind(order_unit.as_ref().map(|(_, quantity, _)| *quantity))
-        .bind(order_unit.as_ref().map(|(_, _, factor)| *factor))
-        .bind(order_unit_price)
-        .execute(&mut *tx)
-        .await?;
-        let units =
-            super::units::purchase_line_units(&mut tx, Some(line.article_code.as_str()), &order_unit)
-                .await?;
-        // Tags come from the vocabulary, so an unknown one is refused here
+        let (unit_code, unit_quantity, unit_factor) = match &order_unit {
+            Some((code, quantity, factor)) => (
+                Some(code.clone()),
+                Some(quantity.to_string()),
+                Some(factor.to_string()),
+            ),
+            None => (None, None, None),
+        };
+        line_order_units.push(order_unit.clone());
+        // Tags come from the vocabulary, so an unknown one is refused below
         // rather than quietly filed under a word that does not exist.
         for tag in &line.tags {
-            sqlx::query(
-                "INSERT INTO purchase_order_line_tag (po_line_id, tag_code) VALUES ($1, $2)
-                 ON CONFLICT DO NOTHING",
-            )
-            .bind(po_line_id)
-            .bind(tag.trim())
-            .execute(&mut *tx)
-            .await
-            .map_err(|error| {
-                AppError::Validation(format!(
-                    "line {line_number} carries tag {tag:?}, which is not in the tag \
-                     vocabulary: {error}"
-                ))
-            })?;
+            tag_line_numbers.push(line_number);
+            tag_codes.push(tag.trim().to_owned());
         }
-        wire_lines.push(PurchaseOrderLinePayload {
+        line_rows.push(json!({
+            "po_line_id": po_line_id,
+            "line_number": line_number,
+            "article_code": line.article_code,
+            "article_name": line.article_name,
+            "image_url": line.image_url,
+            "division_code": line.division_code,
+            "ordered_quantity": line.ordered_quantity,
+            "unit_price_minor": unit_price,
+            "line_amount_minor": line_amount,
+            "promised_date": line.promised_date,
+            "order_unit_code": unit_code,
+            "order_unit_quantity": unit_quantity,
+            "unit_factor": unit_factor,
+            "order_unit_price_minor": order_unit_price,
+        }));
+        payloads.push(PurchaseOrderLinePayload {
             po_line_id,
             line_number,
             article_code: line.article_code.clone(),
@@ -8021,9 +8184,109 @@ pub async fn create_purchase_order_as(
             ordered_quantity: line.ordered_quantity,
             unit_price_minor: unit_price,
             promised_date: line.promised_date.map(|d| d.to_string()),
-            units: Some(units),
+            units: None,
         });
     }
+
+    // Every line, in one statement: the rows the per-line loop used to bind,
+    // travelling together.
+    sqlx::query(
+        "INSERT INTO purchase_order_line
+             (po_line_id, purchase_order_id, line_number, article_code, article_name,
+              image_url, division_code, ordered_quantity,
+              unit_price_minor, line_amount_minor, promised_date,
+              order_unit_code, order_unit_quantity, unit_factor, order_unit_price_minor)
+         SELECT row.po_line_id, $2, row.line_number, row.article_code, row.article_name,
+                row.image_url, row.division_code, row.ordered_quantity,
+                row.unit_price_minor, row.line_amount_minor, row.promised_date,
+                row.order_unit_code, row.order_unit_quantity, row.unit_factor,
+                row.order_unit_price_minor
+           FROM jsonb_to_recordset($1::jsonb) AS row(
+                po_line_id uuid, line_number int, article_code text, article_name text,
+                image_url text, division_code text, ordered_quantity bigint,
+                unit_price_minor bigint, line_amount_minor bigint, promised_date date,
+                order_unit_code text, order_unit_quantity numeric, unit_factor numeric,
+                order_unit_price_minor bigint)",
+    )
+    .bind(serde_json::Value::Array(line_rows))
+    .bind(purchase_order_id)
+    .execute(&mut *tx)
+    .await?;
+
+    // What the bay may count each line in: asked once per article, not once
+    // per line.
+    let mut count_units_cache = super::suppliers::CountUnitsCache::new();
+    for ((index, line), order_unit) in request.lines.iter().enumerate().zip(&line_order_units) {
+        let units = super::suppliers::purchase_line_units_cached(
+            &mut tx,
+            Some(line.article_code.as_str()),
+            order_unit,
+            &mut count_units_cache,
+        )
+        .await?;
+        payloads[index].units = Some(units);
+    }
+
+    // Tags come from the vocabulary, so an unknown one is refused here rather
+    // than quietly filed under a word that does not exist. All of a line's
+    // tags used to travel one INSERT each; all of the order's travel in one
+    // now. When that statement refuses a tag, the first offending pair — in
+    // line order, as the loop would have met it — is written alone so the
+    // failure, and the message built from it, is exactly the one the loop
+    // produced.
+    if !tag_codes.is_empty() {
+        let tag_rows: Vec<serde_json::Value> = tag_line_numbers
+            .iter()
+            .zip(&tag_codes)
+            .map(|(line_number, tag_code)| {
+                json!({
+                    "po_line_id": po_line_ids[(line_number - 1) as usize],
+                    "tag_code": tag_code,
+                })
+            })
+            .collect();
+        if let Err(error) = sqlx::query(
+            "INSERT INTO purchase_order_line_tag (po_line_id, tag_code)
+             SELECT row.po_line_id, row.tag_code
+               FROM jsonb_to_recordset($1::jsonb) AS row(po_line_id uuid, tag_code text)
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(serde_json::Value::Array(tag_rows))
+        .execute(&mut *tx)
+        .await
+        {
+            let culprit: Option<(i32, String)> = sqlx::query_as(
+                "SELECT p.line_number, p.tag
+                   FROM unnest($1::int[], $2::text[]) WITH ORDINALITY
+                        AS p(line_number, tag, ord)
+                  WHERE NOT EXISTS (SELECT 1 FROM tag t WHERE t.code = p.tag)
+                  ORDER BY p.ord
+                  LIMIT 1",
+            )
+            .bind(&tag_line_numbers)
+            .bind(&tag_codes)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if let Some((line_number, tag)) = culprit {
+                sqlx::query(
+                    "INSERT INTO purchase_order_line_tag (po_line_id, tag_code)
+                     VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                )
+                .bind(po_line_ids[(line_number - 1) as usize])
+                .bind(tag.trim())
+                .execute(&mut *tx)
+                .await
+                .map_err(|error| {
+                    AppError::Validation(format!(
+                        "line {line_number} carries tag {tag:?}, which is not in the tag \
+                         vocabulary: {error}"
+                    ))
+                })?;
+            }
+            return Err(error.into());
+        }
+    }
+    let wire_lines = payloads;
     // The agreed price goes with the order. The verifier is asked to check it
     // against the supplier's invoice, which arrives on the same lorry as the
     // goods — checking a match against a number you are not allowed to see is
@@ -8262,8 +8525,7 @@ pub(crate) async fn apply_goods_receipt_line(
     // cumulative quantity, so the receipts of a line add up to the line's
     // share exactly once it has all arrived and no receipt's share changes
     // once written. A discount on goods that never arrived was never earned.
-    let allocated_discount = if line_discount > 0 && ordered_quantity > 0 && matched_quantity > 0
-    {
+    let allocated_discount = if line_discount > 0 && ordered_quantity > 0 && matched_quantity > 0 {
         let allocated_so_far: i64 = sqlx::query_scalar(
             "SELECT COALESCE(sum(allocated_discount_minor), 0)::bigint
                FROM goods_receipt_line WHERE po_line_id = $1",
@@ -8595,6 +8857,20 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
                 po.issued_at, po.activation_command_id, po.discount_minor, po.notes,
                 po.supplier_ref_id, po.payment_terms_code, po.payment_method, po.discount_bps,
                 po.terms_and_conditions,
+                EXISTS (
+                    SELECT 1 FROM goods_receipt_line r
+                    JOIN purchase_order_line l ON l.po_line_id = r.po_line_id
+                    WHERE l.purchase_order_id = po.purchase_order_id
+                ) AS cancel_has_receipt,
+                EXISTS (
+                    SELECT 1 FROM supplier_invoice_line b
+                    JOIN purchase_order_line l ON l.po_line_id = b.po_line_id
+                    WHERE l.purchase_order_id = po.purchase_order_id
+                ) AS cancel_has_bill,
+                EXISTS (
+                    SELECT 1 FROM supplier_advance a
+                    WHERE a.purchase_order_id = po.purchase_order_id
+                ) AS cancel_has_advance,
                 t.label AS payment_terms_name
          FROM purchase_order po
          LEFT JOIN payment_terms_template t ON t.code = po.payment_terms_code
@@ -8605,82 +8881,87 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
     .await?
     .ok_or_else(|| AppError::NotFound("purchase order".into()))?;
     let lines = sqlx::query(
-        "SELECT l.po_line_id, l.line_number, l.article_code, l.article_name, l.division_code,
+        "WITH po_lines AS MATERIALIZED (
+             SELECT * FROM purchase_order_line WHERE purchase_order_id = $1
+         ), receipt_totals AS (
+             -- Read each receipt fact once for this order. The previous query
+             -- ran five independent receipt aggregates plus a JSON read for
+             -- every line, multiplying index probes by line count on a large
+             -- receiving sheet.
+             SELECT r.po_line_id,
+                    sum(r.matched_quantity)::bigint AS received_quantity,
+                    sum(r.excess_quantity)::bigint AS excess_quantity,
+                    sum(r.excess_quantity) FILTER (
+                        WHERE r.excess_quantity > 0 AND d.receipt_line_id IS NULL
+                    )::bigint AS excess_pending_quantity,
+                    sum(r.wrong_quantity)::bigint AS wrong_quantity,
+                    (sum(purchase_receipt_value(
+                         r.matched_quantity, r.agreed_unit_price_minor,
+                         l.unit_price_minor, l.order_unit_price_minor, l.unit_factor
+                     )) - sum(r.allocated_discount_minor))::bigint AS expected_value_minor,
+                    jsonb_agg(jsonb_build_object(
+                        'receipt_number', g.receipt_number,
+                        'quantity', r.quantity,
+                        'matched_quantity', r.matched_quantity,
+                        'excess_quantity', r.excess_quantity,
+                        'wrong_quantity', r.wrong_quantity,
+                        'received_at', r.verified_at
+                    ) ORDER BY r.verified_at, r.receipt_line_id) AS receipts
+               FROM po_lines l
+               JOIN goods_receipt_line r ON r.po_line_id = l.po_line_id
+               JOIN goods_receipt g ON g.receipt_id = r.receipt_id
+               LEFT JOIN purchase_excess_decision d
+                 ON d.receipt_line_id = r.receipt_line_id
+              GROUP BY r.po_line_id
+         ), line_tags AS (
+             SELECT t.po_line_id, array_agg(t.tag_code ORDER BY t.tag_code) AS tags
+               FROM po_lines l
+               JOIN purchase_order_line_tag t USING (po_line_id)
+              GROUP BY t.po_line_id
+         ), line_variants AS (
+             SELECT v.po_line_id,
+                    jsonb_agg(jsonb_build_object(
+                        'colour_code', v.colour_code,
+                        'size_code', v.size_code,
+                        'quantity', v.quantity,
+                        'base_price_minor', v.base_price_minor,
+                        'image_urls', to_jsonb(v.image_urls)
+                    ) ORDER BY v.colour_code NULLS FIRST, v.size_code NULLS FIRST) AS variants
+               FROM po_lines l
+               JOIN purchase_order_line_variant v USING (po_line_id)
+              GROUP BY v.po_line_id
+         )
+         SELECT l.po_line_id, l.line_number, l.article_code, l.article_name, l.division_code,
                 l.image_url, l.supplier_item_id,
-                l.ordered_quantity,
-                l.cancelled_quantity, l.line_status, l.promised_date,
+                l.ordered_quantity, l.cancelled_quantity, l.line_status, l.promised_date,
                 l.closed_short_units, l.closed_short_by, l.closed_short_reason,
                 l.unit_price_minor, l.line_amount_minor,
-                -- What answered the order, and what arrived beyond it. Two
-                -- numbers because they are two different facts: one is the
-                -- company's purchase, the other is goods it has not agreed to
-                -- buy and may be sending back.
-                COALESCE((SELECT sum(r.matched_quantity) FROM goods_receipt_line r
-                          WHERE r.po_line_id = l.po_line_id), 0)::bigint AS received_quantity,
-                COALESCE((SELECT sum(r.excess_quantity) FROM goods_receipt_line r
-                          WHERE r.po_line_id = l.po_line_id), 0)::bigint AS excess_quantity,
-                -- The part of it nobody has put on a return yet (0710).
-                COALESCE((SELECT sum(r.excess_quantity) FROM goods_receipt_line r
-                          WHERE r.po_line_id = l.po_line_id
-                            AND r.excess_quantity > 0
-                            AND NOT EXISTS (SELECT 1 FROM purchase_excess_decision d
-                                             WHERE d.receipt_line_id = r.receipt_line_id)),
-                         0)::bigint AS excess_pending_quantity,
-                -- How much of what arrived the checker counted as not the
-                -- article the order names (0829). Inside the excess above.
-                COALESCE((SELECT sum(r.wrong_quantity) FROM goods_receipt_line r
-                          WHERE r.po_line_id = l.po_line_id), 0)::bigint AS wrong_quantity,
-                -- What the acceptances are expected to be worth, at the prices
-                -- that applied when each was accepted and net of the discount
-                -- allocated to it. An estimate for Finance to match against —
-                -- nothing here is owed, and nothing here is posted.
-                -- Valued by the one rule (`purchase_receipt_value`, 0823).
-                COALESCE((SELECT sum(purchase_receipt_value(
-                                         r.matched_quantity, r.agreed_unit_price_minor,
-                                         l.unit_price_minor, l.order_unit_price_minor,
-                                         l.unit_factor))
-                                 - sum(r.allocated_discount_minor)
-                          FROM goods_receipt_line r
-                          WHERE r.po_line_id = l.po_line_id), 0)::bigint AS expected_value_minor,
+                COALESCE(r.received_quantity, 0)::bigint AS received_quantity,
+                COALESCE(r.excess_quantity, 0)::bigint AS excess_quantity,
+                COALESCE(r.excess_pending_quantity, 0)::bigint AS excess_pending_quantity,
+                COALESCE(r.wrong_quantity, 0)::bigint AS wrong_quantity,
+                COALESCE(r.expected_value_minor, 0)::bigint AS expected_value_minor,
                 l.discount_minor,
-                COALESCE((SELECT array_agg(t.tag_code ORDER BY t.tag_code)
-                          FROM purchase_order_line_tag t
-                          WHERE t.po_line_id = l.po_line_id), '{}')::text[] AS tags,
+                COALESCE(t.tags, '{}'::text[]) AS tags,
                 l.base_price_minor, l.markup_bps,
                 l.order_unit_code, trim_scale(l.order_unit_quantity)::text AS order_unit_quantity,
                 trim_scale(l.unit_factor)::text AS unit_factor,
                 l.order_unit_price_minor,
-                COALESCE((SELECT jsonb_agg(jsonb_build_object(
-                                     'colour_code', v.colour_code,
-                                     'size_code', v.size_code,
-                                     'quantity', v.quantity,
-                                     'base_price_minor', v.base_price_minor)
-                                 ORDER BY v.colour_code NULLS FIRST, v.size_code NULLS FIRST)
-                          FROM purchase_order_line_variant v
-                          WHERE v.po_line_id = l.po_line_id), '[]'::jsonb) AS variants,
-                -- Each receiving against the line, oldest first: one entry per
-                -- accepted count. `received_at` is when the count was accepted
-                -- at the DC (the line's `verified_at`).
-                COALESCE((SELECT jsonb_agg(jsonb_build_object(
-                                     'receipt_number', g.receipt_number,
-                                     'quantity', r.quantity,
-                                     'matched_quantity', r.matched_quantity,
-                                     'excess_quantity', r.excess_quantity,
-                                     'wrong_quantity', r.wrong_quantity,
-                                     'received_at', r.verified_at)
-                                 ORDER BY r.verified_at, r.receipt_line_id)
-                          FROM goods_receipt_line r
-                          JOIN goods_receipt g ON g.receipt_id = r.receipt_id
-                          WHERE r.po_line_id = l.po_line_id), '[]'::jsonb) AS receipts
-         FROM purchase_order_line l
-         WHERE l.purchase_order_id = $1
-         ORDER BY l.line_number",
+                COALESCE(v.variants, '[]'::jsonb) AS variants,
+                COALESCE(r.receipts, '[]'::jsonb) AS receipts
+           FROM po_lines l
+           LEFT JOIN receipt_totals r USING (po_line_id)
+           LEFT JOIN line_tags t USING (po_line_id)
+           LEFT JOIN line_variants v USING (po_line_id)
+
+          ORDER BY l.line_number",
     )
     .bind(id)
     .fetch_all(pool)
     .await?;
     let mut fully_received = true;
     let mut any_received = false;
+    let line_count = lines.len();
     let mut expected_units_total: i64 = 0;
     let mut received_units_total: i64 = 0;
     let mut all_lines_settled = true;
@@ -8704,9 +8985,7 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
             // A line has stopped waiting when it was closed short or
             // cancelled, or when everything expected has arrived — a line
             // received in full is never closed, so its status stays OPEN.
-            if r.get::<String, _>("line_status") == "OPEN"
-                && received < expected_stock_units
-            {
+            if r.get::<String, _>("line_status") == "OPEN" && received < expected_stock_units {
                 all_lines_settled = false;
             }
             // A line closed short has stopped waiting: nothing is outstanding
@@ -8800,14 +9079,43 @@ pub async fn purchase_order_status(pool: &PgPool, id: Uuid) -> Result<Value, App
             })
         })
         .collect();
-    // Asked on every read so the screen offers Edit only where the server
-    // would take it, and can say why not where it would not.
-    let edit_blocked_reason = super::purchase_order_edit_blocker(pool, id).await?;
+    let order_status: String = header.get("order_status");
+    // These are the exact totals and settled state used by the edit guard.
+    // The detail query already read every line and receipt, so asking the
+    // helper to aggregate the same facts again only adds another round trip
+    // and repeats receipt probes per line.
+    let edit_blocked_reason = if order_status == "CANCELLED" {
+        Some("a cancelled order cannot be edited".to_owned())
+    } else if header.get::<Option<Uuid>, _>("supplier_ref_id").is_none() {
+        Some("only an order raised from a supplier catalogue can be edited".to_owned())
+    } else if expected_units_total > 0 && received_units_total >= expected_units_total {
+        Some("this order has been fully received".to_owned())
+    } else if order_status == "CLOSED" || (line_count > 0 && all_lines_settled) {
+        Some("every line on this order has been closed".to_owned())
+    } else {
+        None
+    };
     let revisions = super::purchase_order_revisions(pool, id).await?;
-    let cancel_blocked_reason = super::purchase_order_cancel_blocker(pool, id).await?;
+    // Cancellation's three independent guards ride on the header read rather
+    // than making another request after the line details have been fetched.
+    let cancel_blocked_reason = if order_status == "CANCELLED" {
+        Some("this order is already cancelled".to_owned())
+    } else if order_status == "CLOSED" {
+        Some("this order has been closed".to_owned())
+    } else if header.get::<bool, _>("cancel_has_receipt") {
+        Some(
+            "goods have already been received against this order; close it short instead"
+                .to_owned(),
+        )
+    } else if header.get::<bool, _>("cancel_has_bill") {
+        Some("a supplier bill has already been matched to this order".to_owned())
+    } else if header.get::<bool, _>("cancel_has_advance") {
+        Some("money has been advanced against this order".to_owned())
+    } else {
+        None
+    };
     // The excess already sent back, or on its way (0710).
     let returns = super::purchase_returns_of_order(pool, id).await?;
-    let order_status = header.get::<String, _>("order_status");
     // The same reading as the order book's — see `ORDER_BOOK_ROWS`.
     let lifecycle = if order_status == "CANCELLED" {
         "CANCELLED"
@@ -8886,6 +9194,10 @@ pub struct PurchaseOrderFilter {
     /// one question — "where is that order" — and a buyer holding a number does
     /// not want to be asked which KIND of thing they are holding.
     pub q: Option<String>,
+    /// Whether the response includes global status and supplier facets.
+    /// `None` preserves the full book API; paged callers can opt out while
+    /// retaining the exact filtered total.
+    pub include_facets: Option<bool>,
     /// Empty means every status, never "no status". An empty list bound as an
     /// array would match nothing and empty the screen on a filter nobody set.
     pub statuses: Vec<String>,
@@ -8993,6 +9305,9 @@ pub struct PurchaseOrderRow {
     /// When the order was finished — the last receipt, or the last line
     /// closed short. Absent while it is still open.
     pub fulfilled_at: Option<DateTime<Utc>>,
+    /// When anything last happened to the order — made, issued, edited,
+    /// received, closed short, cancelled. The list's default order.
+    pub updated_at: DateTime<Utc>,
     /// The delivery date has passed and pieces are still owed. The list pins
     /// these to the top and marks them red.
     pub overdue: bool,
@@ -9138,9 +9453,19 @@ const ORDER_BOOK_ROWS: &str = "
                s.expected_stock_units, s.ordered_label, s.received_stock_units,
                s.invoiced_stock_units, s.excess_stock_units, s.excess_pending_stock_units,
                s.received_value_minor, s.last_received_at, s.last_closed_at, s.cancelled_at,
-               s.all_lines_settled, s.lifecycle
+               s.all_lines_settled, s.lifecycle,
+               -- When anything last happened to the order: made, issued,
+               -- edited, received, closed short or cancelled. What the list
+               -- sorts by by default (owner, 2026-10-10).
+               GREATEST(o.created_at, o.issued_at, s.last_received_at,
+                        s.last_closed_at, s.cancelled_at, rev.revised_at) AS updated_at
         FROM purchase_order o
         JOIN purchase_order_summary s ON s.purchase_order_id = o.purchase_order_id
+        LEFT JOIN (
+            SELECT purchase_order_id, max(revised_at) AS revised_at
+              FROM purchase_order_revision
+             GROUP BY purchase_order_id
+        ) rev ON rev.purchase_order_id = o.purchase_order_id
         WHERE ($1::text IS NULL
                OR o.po_number ILIKE $1
                OR o.supplier_name ILIKE $1
@@ -9148,10 +9473,17 @@ const ORDER_BOOK_ROWS: &str = "
     ) b
     -- Today at the receiving site, worked out once per site and not once per
     -- order: there are a handful of sites and a quarter of a million orders.
+    -- The sites come from the credential table — the registration a site
+    -- cannot be ordered to without — because reading them off the orders
+    -- themselves (`SELECT DISTINCT destination_site_id FROM purchase_order`)
+    -- was a second full scan of the book under every page. An order whose
+    -- destination has since been unregistered gets no `today` and so cannot
+    -- read as overdue: nothing is left that could receive it, late or not.
     LEFT JOIN (
-        SELECT d.destination_site_id AS site_id,
-               site_local_date(now(), d.destination_site_id) AS today
-          FROM (SELECT DISTINCT destination_site_id FROM purchase_order) d
+        SELECT d.site_id AS site_id,
+               site_local_date(now(), d.site_id) AS today
+          FROM (SELECT DISTINCT site_id FROM sync_origin_credential
+                 WHERE site_id IS NOT NULL) d
     ) st ON st.site_id = b.destination_site_id
 ";
 
@@ -9203,6 +9535,7 @@ pub async fn list_purchase_orders(
         Some("value") => ("net_key", true),
         Some("expected") => ("expected_key", false),
         Some("issued") => ("issued_key", true),
+        Some("updated") => ("updated_at", true),
         // The house order: late orders first, then the newest issued.
         _ => ("attention_key", false),
     };
@@ -9235,16 +9568,45 @@ pub async fn list_purchase_orders(
     // pushed through. Materialised, this reads the whole table and sorts it
     // to hand back one page; inlined, it seeks the index. See
     // `postgres::audit::list_audit`, where the difference was measured.
+    // The filtered total rides on the same statement: it is NOT over the
+    // page's seek, or page two would report only the rows from its cursor
+    // onward. When every active filter lives on the summary row, count that
+    // table directly instead of joining the full order book just to count it.
+    // Search, supplier, and issued-date filters need canonical order fields,
+    // so those retain the joined path. One round trip answers both, and
+    // `order_book_total` is gone.
+    let summary_count = needle.is_none()
+        && suppliers.is_none()
+        && filter.issued_from.is_none()
+        && filter.issued_to.is_none();
+    let total_query = if summary_count {
+        "SELECT count(*)::bigint AS total_count
+           FROM purchase_order_summary s
+          WHERE ($2::text[] IS NULL OR s.lifecycle = ANY($2))
+            AND ($6::date IS NULL OR s.expected_arrival >= $6::date)
+            AND ($7::date IS NULL OR s.expected_arrival <= $7::date)"
+            .to_owned()
+    } else {
+        format!(
+            "SELECT count(*)::bigint AS total_count
+               FROM searched WHERE {ORDER_BOOK_FILTERS}"
+        )
+    };
     let sql = format!(
         "WITH searched AS NOT MATERIALIZED ({ORDER_BOOK_ROWS}),
               kept AS NOT MATERIALIZED (
              SELECT * FROM searched WHERE {ORDER_BOOK_FILTERS}
          )
-         SELECT * FROM kept
-          WHERE $8::uuid IS NULL
-             OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE purchase_order_id = $8)
-          ORDER BY {order}
-          LIMIT $9"
+         SELECT page.*, total.total_count
+           FROM ({total_query}) total
+           LEFT JOIN (
+             SELECT * FROM kept
+              WHERE $8::uuid IS NULL
+                 OR ({cols}) {seek} (SELECT {cols} FROM kept WHERE purchase_order_id = $8)
+              ORDER BY {order}
+              LIMIT $9
+         ) page ON true
+          ORDER BY {order}"
     );
     let rows = sqlx::query(&sql)
         .bind(&needle)
@@ -9258,12 +9620,25 @@ pub async fn list_purchase_orders(
         .bind(limit)
         .fetch_all(pool)
         .await?;
+    let total: i64 = rows
+        .first()
+        .map(|row| row.try_get("total_count"))
+        .transpose()?
+        .unwrap_or(0);
+    // The count sits on the LEFT side of the join, so even a page that lands
+    // past the last row answers: one row whose page columns are all NULL.
+    // A real order cannot have a NULL id — it is the primary key — so that
+    // one row is recognised and dropped.
+    let empty_page = rows.len() == 1
+        && rows[0]
+            .try_get::<Option<Uuid>, _>("purchase_order_id")?
+            .is_none();
+    let page = if empty_page { &rows[1..] } else { &rows[..] };
 
     // A short page is the last page. A full one may not be — the next request
-    // can come back empty — and that is the honest answer: knowing whether more
-    // rows exist without asking costs a second count of the same query.
-    let next_cursor = match rows.last() {
-        Some(row) if rows.len() as i64 == limit => {
+    // can come back empty, and the total above still answers when it is.
+    let next_cursor = match page.last() {
+        Some(row) if page.len() as i64 == limit => {
             Some(super::encode_cursor(&PurchaseOrderCursor {
                 purchase_order_id: row.try_get("purchase_order_id")?,
             })?)
@@ -9271,8 +9646,8 @@ pub async fn list_purchase_orders(
         _ => None,
     };
 
-    let mut items = Vec::with_capacity(rows.len());
-    for r in &rows {
+    let mut items = Vec::with_capacity(page.len());
+    for r in page {
         let expected: i64 = r.try_get("expected_stock_units")?;
         let received: i64 = r.try_get("received_stock_units")?;
         let gross: i64 = r.try_get("gross_minor")?;
@@ -9302,12 +9677,23 @@ pub async fn list_purchase_orders(
             fully_received: received >= expected,
             received_value_minor: r.try_get("received_value_minor")?,
             fulfilled_at: r.try_get("fulfilled_at")?,
+            updated_at: r.try_get("updated_at")?,
             overdue: r.try_get("overdue")?,
             terms_and_conditions: r.try_get("terms_and_conditions")?,
         });
     }
 
-    let (total, facets) = order_book_facets(pool, filter, needle.as_deref()).await?;
+    // The facet counts, when asked for, are the one remaining extra
+    // statement — the page above already carries the filtered total, so the
+    // facets read only groups, and only of the searched set.
+    let facets = if filter.include_facets != Some(false) {
+        order_book_facets(pool, needle.as_deref()).await?
+    } else {
+        PurchaseOrderFacets {
+            order_status: Vec::new(),
+            supplier: Vec::new(),
+        }
+    };
     Ok(PurchaseOrderPage {
         rows: items,
         next_cursor,
@@ -9316,56 +9702,51 @@ pub async fn list_purchase_orders(
     })
 }
 
-/// How many orders there are, and how they split.
+/// How the book splits, for the filter panel.
 ///
 /// Counted from the SAME [`ORDER_BOOK_ROWS`] the page is drawn from, so a
-/// change to what a listable order is moves both together. The two scopes are
-/// deliberate:
-///
-///   per-value counts read the SEARCHED set, ignoring which filters are
-///     applied. The number answers "is this filter worth pressing" — a count
-///     already narrowed by the filter it is offering would be zero beside every
-///     option nobody has ticked, which reads as a book with nothing in it.
-///   the total reads the FILTERED set, because it describes the list on screen.
-///
-/// The old version counted the whole `purchase_order` table for both — search
-/// included — so a search with three hits sat under a filter panel promising
-/// hundreds, and the counts described a book the caller was not looking at.
-/// This is the same correction the pricelist's facets already carry.
+/// change to what a listable order is moves both together. The counts read
+/// the SEARCHED set, ignoring which filters are applied. The number answers
+/// "is this filter worth pressing" — a count already narrowed by the filter
+/// it is offering would be zero beside every option nobody has ticked, which
+/// reads as a book with nothing in it. The FILTERED total describes the list
+/// on screen, and it is the page statement's answer now: it rides beside the
+/// page in the same round trip, so this statement no longer counts anything
+/// for itself. (The old version counted the whole `purchase_order` table for
+/// both — search included — so a search with three hits sat under a filter
+/// panel promising hundreds; that correction the pricelist's facets already
+/// carried.)
 async fn order_book_facets(
     pool: &PgPool,
-    filter: &PurchaseOrderFilter,
     needle: Option<&str>,
-) -> Result<(i64, PurchaseOrderFacets), AppError> {
-    let statuses = (!filter.statuses.is_empty()).then(|| filter.statuses.clone());
-    let suppliers = (!filter.suppliers.is_empty()).then(|| filter.suppliers.clone());
+) -> Result<PurchaseOrderFacets, AppError> {
     let sql = format!(
-        "WITH searched AS ({ORDER_BOOK_ROWS}), kept AS (
-             SELECT * FROM searched WHERE {ORDER_BOOK_FILTERS}
+        // Only the columns the counts read. `searched` is read twice, so it
+        // is materialised; carrying every column of a row (the overdue test,
+        // the sort keys, the site's today) into it for every order in the
+        // book is most of what this costs.
+        //
+        // The supplier counts group on the code's bytes ("C"): the same groups
+        // — equal text is equal bytes — without a locale-aware comparison per
+        // row, which at a hundred thousand orders was most of the rest. The
+        // top fifty are still ordered as before.
+        "WITH searched AS MATERIALIZED (
+             SELECT lifecycle, supplier_id, supplier_name
+               FROM ({ORDER_BOOK_ROWS}) r
          )
          SELECT 'status' AS facet, lifecycle AS value, NULL::text AS label,
                 count(*)::bigint AS n
            FROM searched GROUP BY lifecycle
           UNION ALL
-         (SELECT 'supplier', supplier_id, max(supplier_name), count(*)::bigint AS n
-            FROM searched GROUP BY supplier_id
-           ORDER BY n DESC, supplier_id
-           LIMIT 50)
-          UNION ALL
-         SELECT 'all', '', NULL::text, count(*)::bigint FROM kept"
+         (SELECT 'supplier', g.supplier_id COLLATE \"default\", g.label, g.n
+            FROM (SELECT supplier_id COLLATE \"C\" AS supplier_id,
+                         max(supplier_name) AS label, count(*)::bigint AS n
+                    FROM searched GROUP BY 1) g
+           ORDER BY g.n DESC, g.supplier_id COLLATE \"default\"
+           LIMIT 50)"
     );
-    let rows = sqlx::query(&sql)
-        .bind(needle)
-        .bind(&statuses)
-        .bind(&suppliers)
-        .bind(filter.issued_from)
-        .bind(filter.issued_to)
-        .bind(filter.delivery_from)
-        .bind(filter.delivery_to)
-        .fetch_all(pool)
-        .await?;
+    let rows = sqlx::query(&sql).bind(needle).fetch_all(pool).await?;
 
-    let mut total = 0i64;
     let mut order_status = Vec::new();
     let mut supplier = Vec::new();
     for row in &rows {
@@ -9377,8 +9758,7 @@ async fn order_book_facets(
         };
         match facet.as_str() {
             "status" => order_status.push(one),
-            "supplier" => supplier.push(one),
-            _ => total = one.count,
+            _ => supplier.push(one),
         }
     }
     // Biggest first, ties broken on the value, as every other facet panel in
@@ -9387,13 +9767,10 @@ async fn order_book_facets(
     for list in [&mut order_status, &mut supplier] {
         list.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)));
     }
-    Ok((
-        total,
-        PurchaseOrderFacets {
-            order_status,
-            supplier,
-        },
-    ))
+    Ok(PurchaseOrderFacets {
+        order_status,
+        supplier,
+    })
 }
 
 // ---- Price amendments: the question, and head office's answer ------------
@@ -9456,12 +9833,9 @@ pub(crate) async fn apply_price_amendment_request(
     // "we noticed a few minutes later" is not a property worth building in.
     // Those who may act at the warehouse it happened at, not every
     // supervisor in the company: a shop head has no part in a receipt.
-    let recipients = super::notifications::recipients_with_role_at(
-        tx,
-        &["ADMIN", "SUPERVISOR"],
-        origin_id,
-    )
-    .await?;
+    let recipients =
+        super::notifications::recipients_with_role_at(tx, &["ADMIN", "SUPERVISOR"], origin_id)
+            .await?;
     let difference = request.invoiced_price_minor - ordered_price;
     super::notifications::raise_notification(
         tx,

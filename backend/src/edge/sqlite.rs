@@ -2,9 +2,9 @@
 
 use crate::edge::pricing;
 use crate::edge::{
-    derive_allotment_status, validate_command, AdvanceKoliRequest, BeginCheckoutRequest,
-    CatalogIdentity, CatalogSnapshotItem, CatalogSnapshotPage, CatalogSnapshotQuery,
-    CatalogSnapshotState, CheckoutResult, CheckoutTenderState, CommandResult,
+    derive_allotment_status, sku_stock_pools, validate_command, AdvanceKoliRequest,
+    BeginCheckoutRequest, CatalogIdentity, CatalogSnapshotItem, CatalogSnapshotPage,
+    CatalogSnapshotQuery, CatalogSnapshotState, CheckoutResult, CheckoutTenderState, CommandResult,
     CreateKoliShipmentRequest, CreatePicklistRequest, EdgeError, EdgeInventory,
     EdgeOfficialCountDetail, EdgeOfficialCountLine, EdgeOfficialCountSummary, EdgeRole,
     FulfillmentProgressResult, GoodsReceiptView, IntakeRequest, InventoryState, InvoiceDocument,
@@ -13,15 +13,14 @@ use crate::edge::{
     OfficialCountSubmitRequest, OfficialCountSubmitResult, OpenGoodsReceiptRequest,
     OperationalPool, PackKoliRequest, PackRequest, PickRequest, PickResult, PicklistRefusal,
     PicklistResult, Place, PoolBalance, PoolRole, PurchaseCountAwaitingVerification,
-    PurchaseCountRequest,
-    PurchaseCountResult, PurchaseVerifyDecision, PurchaseVerifyRequest, PurchaseVerifyResult,
+    PurchaseCountBatchRequest, PurchaseCountBatchResult, PurchaseCountRequest, PurchaseCountResult,
     PurchaseReturnHandoverRequest, PurchaseReturnWork, PurchaseReturnWorkLine,
-    PurchaseWorkLine, ReceiveBatchRequest, ReceiveRequest, RecordInvoiceRequest,
-    RejectDeliveryRequest, ResolveCheckoutRequest, SaleRequest, SaleResult, SiteId, SiteKind,
-    sku_stock_pools, SkuStockRow,
+    PurchaseVerifyDecision, PurchaseVerifyRequest, PurchaseVerifyResult, PurchaseWorkLine,
+    ReceiveBatchRequest, ReceiveRequest, RecordInvoiceRequest, RejectDeliveryRequest,
+    ResolveCheckoutRequest, SaleRequest, SaleResult, SiteId, SiteKind, SkuStockRow,
     StoreInvoiceDocumentRequest, SubjectId, SystemPlace, TaggingConfirmRequest,
     TaggingConfirmResult, TaggingWorkJob, TaggingWorkLine, TenderOutcomeRequest,
-    UnresolvedCheckout, VoucherHoldRecord,
+    CouponHoldRecord, UnresolvedCheckout, VoucherHoldRecord,
 };
 use crate::sync::workflow::{
     FulfillmentProgressPayload, FulfillmentStage, OfficialCountResultLine,
@@ -186,6 +185,14 @@ pub(crate) const VOUCHER_HOLD_SCHEMA: &str = include_str!(concat!(
     "/migrations/sqlite/0044_a_till_takes_only_the_vouchers_head_office_held.sql"
 ));
 
+/// The limited-coupon holds head office granted through this node (`0078`). A
+/// quote or sale may lean only on one of these. `IF NOT EXISTS`, so it runs on
+/// every open like the voucher holds beside it.
+pub(crate) const COUPON_HOLD_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0078_a_till_takes_only_the_coupon_uses_head_office_held.sql"
+));
+
 /// The style, division and tags a range-wide markdown matches on.
 pub(crate) const CATALOG_MERCHANDISE_SCHEMA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -306,6 +313,13 @@ pub(crate) const PURCHASE_LINE_CLOSE_SCHEMA: &str = include_str!(concat!(
 pub(crate) const KOLI_YEAR_COUNTER_SCHEMA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/migrations/sqlite/0074_a_koli_is_numbered_by_its_year.sql"
+));
+
+/// POS-PERFORMANCE-PLAN Phase 2/3: the SKU index reporting was missing, and
+/// the chunk receipts the bounded RFID ingest writes. Both `IF NOT EXISTS`.
+pub(crate) const POS_PERF_SCHEMA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/migrations/sqlite/0077_sale_lines_by_sku_and_rfid_chunks.sql"
 ));
 
 /// Counting and accepting are a permission, not two names (`0075`): the
@@ -603,11 +617,12 @@ pub(crate) const PRINT_MACHINE_SCHEMA: &str = include_str!(concat!(
 /// `apply_print_machine_schema` below does it. Null on every tender rung
 /// before a till sent them, which the centre already reads as "not recorded".
 fn apply_till_approval_schema(connection: &Connection) -> Result<(), EdgeError> {
-    connection
-        .execute_batch(TILL_APPROVAL_SCHEMA)
-        .map_err(db)?;
+    connection.execute_batch(TILL_APPROVAL_SCHEMA).map_err(db)?;
     for (column, definition) in [
-        ("acquirer", "ALTER TABLE sale_tender ADD COLUMN acquirer TEXT"),
+        (
+            "acquirer",
+            "ALTER TABLE sale_tender ADD COLUMN acquirer TEXT",
+        ),
         (
             "card_kind",
             "ALTER TABLE sale_tender ADD COLUMN card_kind TEXT \
@@ -615,11 +630,9 @@ fn apply_till_approval_schema(connection: &Connection) -> Result<(), EdgeError> 
         ),
     ] {
         let present: i64 = connection
-            .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('sale_tender') WHERE name=?1",
-                [column],
-                |row| row.get(0),
-            )
+            .prepare_cached("SELECT COUNT(*) FROM pragma_table_info('sale_tender') WHERE name=?1")
+            .map_err(db)?
+            .query_row([column], |row| row.get(0))
             .map_err(db)?;
         if present == 0 {
             connection.execute_batch(definition).map_err(db)?;
@@ -630,12 +643,12 @@ fn apply_till_approval_schema(connection: &Connection) -> Result<(), EdgeError> 
 
 fn apply_print_machine_schema(connection: &Connection) -> Result<(), EdgeError> {
     let present: i64 = connection
-        .query_row(
+        .prepare_cached(
             "SELECT COUNT(*) FROM pragma_table_info('print_session')
               WHERE name IN ('darkness','speed_ips')",
-            [],
-            |row| row.get(0),
         )
+        .map_err(db)?
+        .query_row([], |row| row.get(0))
         .map_err(db)?;
     if present == 2 {
         return Ok(());
@@ -665,6 +678,15 @@ pub(crate) const SYNC_HANDSHAKE_SCHEMA: &str = include_str!(concat!(
 #[derive(Clone)]
 pub struct SqliteEdge {
     connection: Arc<Mutex<Connection>>,
+    /// A second, READ-ONLY handle on the same file.
+    ///
+    /// WAL lets readers proceed while the one writer works, so the till's
+    /// read paths — quote, catalog, receipt, reports — stop queueing behind a
+    /// sale on the writer mutex. `None` for in-memory nodes (tests), where a
+    /// second handle cannot see the writer's schema; those fall back to the
+    /// writer lock and behave exactly as before. See
+    /// POS-PERFORMANCE-PLAN.md Phase 1.
+    reader: Option<Arc<Mutex<Connection>>>,
     node: NodeContext,
     /// The business clock every sale, count and punch on this node is
     /// stamped with. Security time (sessions, leases) never reads it —
@@ -692,7 +714,27 @@ const SUPPLIER_PLACE: &str = "external/supplier";
 
 impl SqliteEdge {
     pub fn open(path: impl AsRef<Path>, node: NodeContext) -> Result<Self, EdgeError> {
-        Self::from_connection(Connection::open(path).map_err(db)?, node)
+        let path = path.as_ref();
+        let connection = Connection::open(path).map_err(db)?;
+        // The read-only companion opens against the same file. If it cannot
+        // (an exotic path, a filesystem that refuses a second handle), the
+        // node still boots — read paths fall back to the writer lock, which
+        // is the pre-Phase-1 behavior — but the fallback is loud, not silent.
+        let reader = Connection::open_with_flags(
+            path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+                | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX
+                | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+        )
+        .map_err(db)
+        .ok();
+        if reader.is_none() {
+            tracing::warn!(
+                "could not open a read-only SQLite companion on {path:?}; \
+                 store reads will share the writer lock"
+            );
+        }
+        Self::from_connection(connection, node, reader)
     }
 
     /// The node's connection, shared with [`crate::edge::SqliteSyncStore`].
@@ -720,11 +762,11 @@ impl SqliteEdge {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(db)?;
         let origin: Option<(String, i64, i64)> = tx
-            .query_row(
+            .prepare_cached(
                 "SELECT origin_id, generation, next_seq FROM sync_origin WHERE singleton=1",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
+            .map_err(db)?
+            .query_row([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
             .optional()
             .map_err(db)?;
         let Some((origin_id, current_generation, next_seq)) = origin else {
@@ -744,22 +786,21 @@ impl SqliteEdge {
             )));
         }
         if generation == current_generation {
-            tx.execute(
-                "UPDATE sync_origin SET enqueue_enabled=1 WHERE singleton=1",
-                [],
-            )
-            .map_err(db)?;
+            tx.prepare_cached("UPDATE sync_origin SET enqueue_enabled=1 WHERE singleton=1")
+                .map_err(db)?
+                .execute([])
+                .map_err(db)?;
             Self::enqueue_bootstrap_if_missing(&tx, &self.node)?;
             tx.commit().map_err(db)?;
             return Ok(());
         }
 
         let durable_seq: i64 = tx
-            .query_row(
+            .prepare_cached(
                 "SELECT durable_seq FROM sync_watermark WHERE origin_id=?1 AND generation=?2",
-                params![origin_id, current_generation],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row(params![origin_id, current_generation], |row| row.get(0))
             .optional()
             .map_err(db)?
             .unwrap_or(0);
@@ -770,12 +811,13 @@ impl SqliteEdge {
             )));
         }
 
-        tx.execute(
+        tx.prepare_cached(
             "UPDATE sync_origin
              SET generation=?1, next_seq=0, enqueue_enabled=1, provisioned_at=?2
              WHERE singleton=1",
-            params![generation, now_text()],
         )
+        .map_err(db)?
+        .execute(params![generation, now_text()])
         .map_err(db)?;
         Self::enqueue_bootstrap_if_missing(&tx, &self.node)?;
         tx.commit().map_err(db)?;
@@ -783,11 +825,49 @@ impl SqliteEdge {
     }
 
     pub fn open_in_memory(node: NodeContext) -> Result<Self, EdgeError> {
-        Self::from_connection(Connection::open_in_memory().map_err(db)?, node)
+        Self::from_connection(Connection::open_in_memory().map_err(db)?, node, None)
     }
 
-    fn from_connection(mut connection: Connection, node: NodeContext) -> Result<Self, EdgeError> {
+    fn from_connection(
+        mut connection: Connection,
+        node: NodeContext,
+        reader: Option<Connection>,
+    ) -> Result<Self, EdgeError> {
+        // Durability and robustness pragmas (POS-PERFORMANCE-PLAN Phase 1).
+        //
+        // WAL is set by the schema below and is already on. What was missing:
+        //
+        // busy_timeout — without it, ANY second process touching this file
+        // (a backup job, a diagnostic, a support engineer's sqlite3) turns a
+        // momentary write collision into SQLITE_BUSY and a failed sale.
+        //
+        // synchronous — SQLite's default is FULL: an fsync of the WAL on
+        // every commit. NORMAL in WAL mode is safe against corruption and
+        // against process crash (the OS keeps the WAL); it can only lose the
+        // last commits to an OS crash or power cut within one
+        // checkpoint window. Shops get NORMAL by default and can pin FULL
+        // with INVENTORY_SQLITE_SYNCHRONOUS=FULL — the tradeoff is the
+        // operator's, and the crash test in scripts/benchmark-pos-edge.py
+        // exercises it.
+        connection
+            .busy_timeout(std::time::Duration::from_millis(5_000))
+            .map_err(db)?;
+        let synchronous = std::env::var("INVENTORY_SQLITE_SYNCHRONOUS")
+            .ok()
+            .map(|value| value.trim().to_ascii_uppercase())
+            .unwrap_or_default();
+        let synchronous_sql = if synchronous == "FULL" {
+            "PRAGMA synchronous=FULL;"
+        } else {
+            "PRAGMA synchronous=NORMAL;"
+        };
+        connection
+            .execute_batch(&format!(
+                "PRAGMA busy_timeout=5000; PRAGMA wal_autocheckpoint=1000; {synchronous_sql}"
+            ))
+            .map_err(db)?;
         connection.execute_batch(SCHEMA).map_err(db)?;
+        connection.execute_batch(POS_PERF_SCHEMA).map_err(db)?;
         connection.execute_batch(SYNC_SCHEMA).map_err(db)?;
         connection.execute_batch(CATALOG_SCHEMA).map_err(db)?;
         connection.execute_batch(PURCHASE_SCHEMA).map_err(db)?;
@@ -803,22 +883,22 @@ impl SqliteEdge {
         // box is created under its own name in 0004, so its presence says
         // nothing about whether containment has been applied.
         let has_containment: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='shipment'",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         if has_containment == 0 {
             connection.execute_batch(OUTBOUND_SCHEMA).map_err(db)?;
         }
         let picks_know_their_round: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM pragma_table_info('dc_pick_event')
                   WHERE name='pick_session_id'",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         if picks_know_their_round == 0 {
             connection
@@ -826,11 +906,11 @@ impl SqliteEdge {
                 .map_err(db)?;
         }
         let boxes_have_targets: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM pragma_table_info('packing_session') WHERE name='koli_id'",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         if boxes_have_targets == 0 {
             connection
@@ -838,12 +918,12 @@ impl SqliteEdge {
                 .map_err(db)?;
         }
         let picks_renamed: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM sqlite_master
                   WHERE type='table' AND name='dc_pick_event'",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         if picks_renamed == 0 {
             connection
@@ -851,23 +931,23 @@ impl SqliteEdge {
                 .map_err(db)?;
         }
         let stage_is_loaded: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM sqlite_master
                   WHERE type='table' AND name='koli' AND sql LIKE '%LOADED%'",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         if stage_is_loaded == 0 {
             connection.execute_batch(LOADED_STAGE_SCHEMA).map_err(db)?;
         }
         let progress_names_the_koli: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM pragma_table_info('dc_fulfillment_progress_event')
                   WHERE name='koli_id'",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         if progress_names_the_koli == 0 {
             connection
@@ -875,12 +955,12 @@ impl SqliteEdge {
                 .map_err(db)?;
         }
         let price_rule_names_the_sku: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM pragma_table_info('commercial_price_rule')
                   WHERE name='sku_code'",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         if price_rule_names_the_sku == 0 {
             connection
@@ -888,34 +968,34 @@ impl SqliteEdge {
                 .map_err(db)?;
         }
         let holds_promotions: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM sqlite_master
                   WHERE type='table' AND name='commercial_rule'",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         if holds_promotions == 0 {
             connection.execute_batch(PROMOTIONS_SCHEMA).map_err(db)?;
         }
         let holds_campaigns: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM sqlite_master
                   WHERE type='table' AND name='commercial_campaign'",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         if holds_campaigns == 0 {
             connection.execute_batch(PRICE_LEVELS_SCHEMA).map_err(db)?;
         }
         let holds_usage: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM sqlite_master
                   WHERE type='table' AND name='commercial_usage'",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         if holds_usage == 0 {
             connection
@@ -927,16 +1007,17 @@ impl SqliteEdge {
         connection.execute_batch(LOCAL_USAGE_SCHEMA).map_err(db)?;
         connection.execute_batch(ALLOWANCE_SCHEMA).map_err(db)?;
         connection.execute_batch(VOUCHER_HOLD_SCHEMA).map_err(db)?;
+        connection.execute_batch(COUPON_HOLD_SCHEMA).map_err(db)?;
         // Asks after the style, which is the column the engine actually reads.
         // A catalogue without it prices every product correctly and quietly
         // ignores every markdown written against a range.
         let catalogue_knows_its_styles: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM pragma_table_info('catalog_item')
                   WHERE name='article_code'",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         if catalogue_knows_its_styles == 0 {
             connection
@@ -944,12 +1025,12 @@ impl SqliteEdge {
                 .map_err(db)?;
         }
         let records_how_it_was_paid: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM sqlite_master
                   WHERE type='table' AND name='sale_tender'",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         if records_how_it_was_paid == 0 {
             connection.execute_batch(SALE_TENDER_SCHEMA).map_err(db)?;
@@ -957,23 +1038,23 @@ impl SqliteEdge {
         // Asks whether the column is still there, which is the only way to
         // tell a database that predates the removal from one that has had it.
         let still_offers_a_tier: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM pragma_table_info('commercial_price_rule')
                   WHERE name='tier'",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         if still_offers_a_tier > 0 {
             connection.execute_batch(RETIRE_TIER_SCHEMA).map_err(db)?;
         }
         let still_counts_in_the_book: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM pragma_table_info('commercial_coupon')
                   WHERE name='used'",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         if still_counts_in_the_book > 0 {
             connection
@@ -984,28 +1065,26 @@ impl SqliteEdge {
         // A tag without it prices the garment correctly and never says whether
         // it fits.
         let label_knows_its_size: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM pragma_table_info('print_item')
                   WHERE name='size_label'",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         if label_knows_its_size == 0 {
             connection
                 .execute_batch(PRINT_ITEM_COLOUR_SIZE_SCHEMA)
                 .map_err(db)?;
         }
-        let has_count_movement_groups: i64 = connection
-            .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('dc_official_count_adjustment') WHERE name='movement_group_ids_json'",
+        let has_count_movement_groups: i64 = connection.prepare_cached("SELECT COUNT(*) FROM pragma_table_info('dc_official_count_adjustment') WHERE name='movement_group_ids_json'"
+    ).map_err(db)?.query_row(
                 [],
                 |row| row.get(0),
             )
             .map_err(db)?;
-        let has_catalog_base_price: i64 = connection
-            .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('catalog_item') WHERE name='base_price_minor'",
+        let has_catalog_base_price: i64 = connection.prepare_cached("SELECT COUNT(*) FROM pragma_table_info('catalog_item') WHERE name='base_price_minor'"
+    ).map_err(db)?.query_row(
                 [],
                 |row| row.get(0),
             )
@@ -1031,9 +1110,8 @@ impl SqliteEdge {
         // the table is rebuilt once, in place, guarded by a check for the new
         // shape. Existing rows are all EPC-tagged units and are carried across
         // as such; nothing is inferred and nothing is lost.
-        let has_subject_type: i64 = connection
-            .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('inventory_subject') WHERE name='subject_type'",
+        let has_subject_type: i64 = connection.prepare_cached("SELECT COUNT(*) FROM pragma_table_info('inventory_subject') WHERE name='subject_type'"
+    ).map_err(db)?.query_row(
                 [],
                 |row| row.get(0),
             )
@@ -1078,12 +1156,12 @@ impl SqliteEdge {
         // what this migration opens, and its absence is the only way to tell a
         // database that predates the till's day from one that has had it.
         let a_sale_can_be_taken_back: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM sqlite_master
                   WHERE type='table' AND name='cash_shift'",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         if a_sale_can_be_taken_back == 0 {
             connection.execute_batch(TILL_SCHEMA).map_err(db)?;
@@ -1098,12 +1176,12 @@ impl SqliteEdge {
         // points at it. Rebuilding the child either side of a parent rebuild
         // resolves, but only one order needs the reader to prove that.
         let a_voucher_may_settle_a_basket: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM sqlite_master
                   WHERE type='table' AND name='sale_tender' AND sql LIKE '%VOUCHER%'",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         if a_voucher_may_settle_a_basket == 0 {
             connection
@@ -1111,20 +1189,19 @@ impl SqliteEdge {
                 .map_err(db)?;
         }
         let catalogue_carries_its_photograph: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM pragma_table_info('catalog_item') WHERE name='image_url'",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         if catalogue_carries_its_photograph == 0 {
             connection
                 .execute_batch(CATALOGUE_PHOTOGRAPH_SCHEMA)
                 .map_err(db)?;
         }
-        let a_markdown_may_name_a_campaign: i64 = connection
-            .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('commercial_markdown') WHERE name='campaign_id'",
+        let a_markdown_may_name_a_campaign: i64 = connection.prepare_cached("SELECT COUNT(*) FROM pragma_table_info('commercial_markdown') WHERE name='campaign_id'"
+    ).map_err(db)?.query_row(
                 [],
                 |row| row.get(0),
             )
@@ -1135,12 +1212,12 @@ impl SqliteEdge {
                 .map_err(db)?;
         }
         let a_campaign_names_its_shops: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM pragma_table_info('commercial_campaign')
                   WHERE name='site_ids_json'",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         if a_campaign_names_its_shops == 0 {
             connection
@@ -1148,23 +1225,23 @@ impl SqliteEdge {
                 .map_err(db)?;
         }
         let a_sale_separates_tax: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM pragma_table_info('sale_line')
                   WHERE name='net_ex_tax_minor'",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         if a_sale_separates_tax == 0 {
             connection.execute_batch(SALE_TAX_SCHEMA).map_err(db)?;
         }
         let a_line_remembers_its_points: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM pragma_table_info('sale_line')
                   WHERE name='points_earned'",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         if a_line_remembers_its_points == 0 {
             connection.execute_batch(LINE_POINTS_SCHEMA).map_err(db)?;
@@ -1174,12 +1251,12 @@ impl SqliteEdge {
         // that does not exist returns no rows, which reads the same as a table
         // with no such column — so the count is of the schema entry itself.
         let an_attempt_is_written_down: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM sqlite_master
                   WHERE type='table' AND name='checkout'",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         if an_attempt_is_written_down == 0 {
             connection
@@ -1191,12 +1268,12 @@ impl SqliteEdge {
         // `sale` would be half-applied, and the column is the half that arrives
         // last.
         let a_bill_can_carry_a_fee: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM pragma_table_info('sale')
                   WHERE name='charge_total_minor'",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         if a_bill_can_carry_a_fee == 0 {
             connection.execute_batch(SALE_CHARGE_SCHEMA).map_err(db)?;
@@ -1204,21 +1281,20 @@ impl SqliteEdge {
         // Guarded on the last column the migration adds, so a run that died
         // half way through it is applied again rather than skipped.
         let a_carton_can_be_opened: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM pragma_table_info('dc_allotment_work_line')
                   WHERE name='closed_short_quantity'",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         if a_carton_can_be_opened == 0 {
             connection
                 .execute_batch(ALLOTMENT_REVERSAL_SCHEMA)
                 .map_err(db)?;
         }
-        let a_reel_states_its_offset: i64 = connection
-            .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('print_session') WHERE name='label_offset_mm'",
+        let a_reel_states_its_offset: i64 = connection.prepare_cached("SELECT COUNT(*) FROM pragma_table_info('print_session') WHERE name='label_offset_mm'"
+    ).map_err(db)?.query_row(
                 [],
                 |row| row.get(0),
             )
@@ -1226,9 +1302,8 @@ impl SqliteEdge {
         if a_reel_states_its_offset == 0 {
             connection.execute_batch(LABEL_OFFSET_SCHEMA).map_err(db)?;
         }
-        let a_clearance_may_be_scheduled: i64 = connection
-            .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('commercial_markdown') WHERE name='from_minute'",
+        let a_clearance_may_be_scheduled: i64 = connection.prepare_cached("SELECT COUNT(*) FROM pragma_table_info('commercial_markdown') WHERE name='from_minute'"
+    ).map_err(db)?.query_row(
                 [],
                 |row| row.get(0),
             )
@@ -1238,19 +1313,17 @@ impl SqliteEdge {
                 .execute_batch(CLEARANCE_HOURS_SCHEMA)
                 .map_err(db)?;
         }
-        let request_json_columns: i64 = connection
-            .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('idempotency_response') WHERE name='request_json'",
+        let request_json_columns: i64 = connection.prepare_cached("SELECT COUNT(*) FROM pragma_table_info('idempotency_response') WHERE name='request_json'"
+    ).map_err(db)?.query_row(
                 [],
                 |row| row.get(0),
             )
             .map_err(db)?;
         if request_json_columns == 0 {
             connection
-                .execute(
-                    "ALTER TABLE idempotency_response ADD COLUMN request_json TEXT",
-                    [],
-                )
+                .prepare_cached("ALTER TABLE idempotency_response ADD COLUMN request_json TEXT")
+                .map_err(db)?
+                .execute([])
                 .map_err(db)?;
         }
         // Asks whether an acceptance can say how much of it the order could
@@ -1258,17 +1331,16 @@ impl SqliteEdge {
         // the split from one that has had it, and the same migration is what
         // lets a delivery be refused.
         let an_acceptance_knows_what_matched: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM pragma_table_info('receiving_count')
                   WHERE name='matched_quantity'",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         // Whose seqs this node is writing, and whether the cloud has agreed.
-        let a_stream_says_whose_seqs_it_writes: i64 = connection
-            .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('sync_origin') WHERE name='handshake_settled'",
+        let a_stream_says_whose_seqs_it_writes: i64 = connection.prepare_cached("SELECT COUNT(*) FROM pragma_table_info('sync_origin') WHERE name='handshake_settled'"
+    ).map_err(db)?.query_row(
                 [],
                 |row| row.get(0),
             )
@@ -1289,17 +1361,14 @@ impl SqliteEdge {
         connection.execute_batch(PETTY_CASH_SCHEMA).map_err(db)?;
         // No second signer, and Finance's code above the line (`0073`): a
         // rebuild, so probed by the column it adds.
-        let an_expense_keeps_its_code: i64 = connection
-            .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('store_expense') WHERE name='approval_code'",
+        let an_expense_keeps_its_code: i64 = connection.prepare_cached("SELECT COUNT(*) FROM pragma_table_info('store_expense') WHERE name='approval_code'"
+    ).map_err(db)?.query_row(
                 [],
                 |row| row.get(0),
             )
             .map_err(db)?;
         if an_expense_keeps_its_code == 0 {
-            connection
-                .execute_batch(EXPENSE_CODE_SCHEMA)
-                .map_err(db)?;
+            connection.execute_batch(EXPENSE_CODE_SCHEMA).map_err(db)?;
         }
         connection.execute_batch(FINGERPRINT_SCHEMA).map_err(db)?;
         connection.execute_batch(STEP_UP_SCHEMA).map_err(db)?;
@@ -1309,9 +1378,8 @@ impl SqliteEdge {
         // it goes in the same table rather than a parallel one, and the column
         // says which. Guarded the way every other late column here is: an
         // unconditional ALTER succeeds once and fails every boot after.
-        let a_claim_names_its_method: i64 = connection
-            .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('edge_fingerprint_claim') WHERE name='method'",
+        let a_claim_names_its_method: i64 = connection.prepare_cached("SELECT COUNT(*) FROM pragma_table_info('edge_fingerprint_claim') WHERE name='method'"
+    ).map_err(db)?.query_row(
                 [],
                 |row| row.get(0),
             )
@@ -1334,22 +1402,18 @@ impl SqliteEdge {
         super::payment_methods::apply_schema(&connection)?;
         // Inbound deliveries (`0046`): three tables, all `IF NOT EXISTS`,
         // nothing altered, so no probe.
-        connection
-            .execute_batch(STORE_INBOUND_SCHEMA)
-            .map_err(db)?;
+        connection.execute_batch(STORE_INBOUND_SCHEMA).map_err(db)?;
         // Where a delivery lands (`0054`): an ALTER, so probed first.
         let a_delivery_names_its_pool: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM pragma_table_info('store_inbound_delivery')
                   WHERE name='destination_pool_id'",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         if a_delivery_names_its_pool == 0 {
-            connection
-                .execute_batch(DELIVERY_POOL_SCHEMA)
-                .map_err(db)?;
+            connection.execute_batch(DELIVERY_POOL_SCHEMA).map_err(db)?;
         }
         // The releases head office sends (`0055`): creates only, no probe.
         connection
@@ -1363,27 +1427,25 @@ impl SqliteEdge {
         // a start never makes the table again only to drop it.
         connection.execute_batch(FLOW_NOTICE_SCHEMA).map_err(db)?;
         let inspections_are_kept: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM sqlite_master
                   WHERE type='table' AND name='return_inspection_unit'",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         if inspections_are_kept == 0 {
             connection.execute_batch(FLOW_STEP_SCHEMA).map_err(db)?;
         }
         let putaways_are_kept: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='putaway'",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         if putaways_are_kept > 0 {
-            connection
-                .execute_batch(PUTAWAY_GONE_SCHEMA)
-                .map_err(db)?;
+            connection.execute_batch(PUTAWAY_GONE_SCHEMA).map_err(db)?;
         }
         // Fleet status (`0064`, `0065`): a reader's ping, the last backup's
         // result and the internet outages sold through. Creates only.
@@ -1401,12 +1463,12 @@ impl SqliteEdge {
             .map_err(db)?;
         // A pick for one shop, and a trip note (`0069`): ALTERs, so probed.
         let a_pick_names_its_shop: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM pragma_table_info('pick_session')
                   WHERE name='destination_id'",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         if a_pick_names_its_shop == 0 {
             connection
@@ -1414,9 +1476,8 @@ impl SqliteEdge {
                 .map_err(db)?;
         }
         // A cancelled order (`0047`): an ALTER, so probed first.
-        let an_order_can_be_cancelled: i64 = connection
-            .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('purchase_order') WHERE name='cancelled_at'",
+        let an_order_can_be_cancelled: i64 = connection.prepare_cached("SELECT COUNT(*) FROM pragma_table_info('purchase_order') WHERE name='cancelled_at'"
+    ).map_err(db)?.query_row(
                 [],
                 |row| row.get(0),
             )
@@ -1427,17 +1488,14 @@ impl SqliteEdge {
                 .map_err(db)?;
         }
         // Counting in any unit (`0048`): ALTERs, so probed first.
-        let a_line_has_units: i64 = connection
-            .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('purchase_order_line') WHERE name='count_units'",
+        let a_line_has_units: i64 = connection.prepare_cached("SELECT COUNT(*) FROM pragma_table_info('purchase_order_line') WHERE name='count_units'"
+    ).map_err(db)?.query_row(
                 [],
                 |row| row.get(0),
             )
             .map_err(db)?;
         if a_line_has_units == 0 {
-            connection
-                .execute_batch(PURCHASE_UNIT_SCHEMA)
-                .map_err(db)?;
+            connection.execute_batch(PURCHASE_UNIT_SCHEMA).map_err(db)?;
         }
         // The site directory (`0049`): one table and one index, both
         // `IF NOT EXISTS`, so no probe.
@@ -1450,11 +1508,11 @@ impl SqliteEdge {
         // so each is probed by the column it adds.
         connection.execute_batch(DEVICE_JOIN_SCHEMA).map_err(db)?;
         let a_till_has_a_status: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM pragma_table_info('edge_terminal') WHERE name='status'",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         if a_till_has_a_status == 0 {
             connection.execute_batch(TILL_DEVICE_SCHEMA).map_err(db)?;
@@ -1463,11 +1521,11 @@ impl SqliteEdge {
         crate::edge::auth::ensure_session_reason(&connection)?;
         // A reader carried or fixed (`0056`): an ALTER, so probed first.
         let a_reader_has_a_kind: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM pragma_table_info('edge_rfid_device') WHERE name='kind'",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         if a_reader_has_a_kind == 0 {
             connection
@@ -1477,11 +1535,11 @@ impl SqliteEdge {
         // Whether the store is open, and test pages (`0061`): ALTERs, so
         // probed by the first column the file adds.
         let the_directory_knows_opening: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM pragma_table_info('site_directory') WHERE name='opened'",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         if the_directory_knows_opening == 0 {
             connection
@@ -1491,19 +1549,18 @@ impl SqliteEdge {
         // Till seats and one person's shift (`0070`): ALTERs on tables 0024
         // and 0049 create, so probed after both, by the first shift column.
         let a_shift_knows_its_day: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM pragma_table_info('cash_shift') WHERE name='business_date'",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         if a_shift_knows_its_day == 0 {
             connection.execute_batch(TILL_SEAT_SCHEMA).map_err(db)?;
         }
         // A label job's delivery line (`0071`).
-        let a_label_job_knows_its_line: i64 = connection
-            .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('tagging_job') WHERE name='receipt_line_id'",
+        let a_label_job_knows_its_line: i64 = connection.prepare_cached("SELECT COUNT(*) FROM pragma_table_info('tagging_job') WHERE name='receipt_line_id'"
+    ).map_err(db)?.query_row(
                 [],
                 |row| row.get(0),
             )
@@ -1512,9 +1569,8 @@ impl SqliteEdge {
             connection.execute_batch(LABEL_JOB_PO_SCHEMA).map_err(db)?;
         }
         // A line closed short at the centre (`0072`).
-        let a_line_can_be_closed: i64 = connection
-            .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('purchase_order_line') WHERE name='closed_short_at'",
+        let a_line_can_be_closed: i64 = connection.prepare_cached("SELECT COUNT(*) FROM pragma_table_info('purchase_order_line') WHERE name='closed_short_at'"
+    ).map_err(db)?.query_row(
                 [],
                 |row| row.get(0),
             )
@@ -1531,9 +1587,8 @@ impl SqliteEdge {
         // Counting and accepting are a permission (`0075`), then a count's
         // mismatched pieces (`0076`). The first only while the old CHECK is in
         // the table's definition; the second only while the column is absent.
-        let a_count_cannot_be_accepted_by_its_counter: i64 = connection
-            .query_row(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='receiving_count' AND sql LIKE '%verified_by <> counted_by%'",
+        let a_count_cannot_be_accepted_by_its_counter: i64 = connection.prepare_cached("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='receiving_count' AND sql LIKE '%verified_by <> counted_by%'"
+    ).map_err(db)?.query_row(
                 [],
                 |row| row.get(0),
             )
@@ -1543,9 +1598,8 @@ impl SqliteEdge {
                 .execute_batch(COUNT_PERMISSION_SCHEMA)
                 .map_err(db)?;
         }
-        let a_count_knows_its_mismatch: i64 = connection
-            .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('receiving_count') WHERE name='wrong_quantity'",
+        let a_count_knows_its_mismatch: i64 = connection.prepare_cached("SELECT COUNT(*) FROM pragma_table_info('receiving_count') WHERE name='wrong_quantity'"
+    ).map_err(db)?.query_row(
                 [],
                 |row| row.get(0),
             )
@@ -1561,11 +1615,9 @@ impl SqliteEdge {
                 .map_err(db)?;
         }
         let existing: Option<(String, String, String)> = connection
-            .query_row(
-                "SELECT node_id,role,site_id FROM node_metadata WHERE singleton=1",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            )
+            .prepare_cached("SELECT node_id,role,site_id FROM node_metadata WHERE singleton=1")
+            .map_err(db)?
+            .query_row([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
             .optional()
             .map_err(db)?;
         match existing {
@@ -1581,9 +1633,8 @@ impl SqliteEdge {
             }
             Some(_) => {}
             None => {
-                connection
-                    .execute(
-                        "INSERT INTO node_metadata(singleton,node_id,role,site_id,created_at) VALUES(1,?1,?2,?3,?4)",
+                connection.prepare_cached("INSERT INTO node_metadata(singleton,node_id,role,site_id,created_at) VALUES(1,?1,?2,?3,?4)"
+    ).map_err(db)?.execute(
                         params![
                             &node.node_id,
                             node.role.to_string(),
@@ -1610,8 +1661,13 @@ impl SqliteEdge {
                 crate::clock::ClockHandle::system()
             }
         });
+        let reader = reader.map(|connection| {
+            let _ = connection.busy_timeout(std::time::Duration::from_millis(5_000));
+            Arc::new(Mutex::new(connection))
+        });
         Ok(Self {
             connection: Arc::new(Mutex::new(connection)),
+            reader,
             node,
             clock,
         })
@@ -1626,11 +1682,9 @@ impl SqliteEdge {
 
     fn ensure_capture_origin(tx: &Transaction<'_>, node: &NodeContext) -> Result<(), EdgeError> {
         let origin: Option<String> = tx
-            .query_row(
-                "SELECT origin_id FROM sync_origin WHERE singleton=1",
-                [],
-                |row| row.get(0),
-            )
+            .prepare_cached("SELECT origin_id FROM sync_origin WHERE singleton=1")
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .optional()
             .map_err(db)?;
         match origin {
@@ -1641,25 +1695,25 @@ impl SqliteEdge {
                 )));
             }
             Some(_) => {
-                tx.execute(
-                    "UPDATE sync_origin SET enqueue_enabled=1 WHERE singleton=1",
-                    [],
-                )
-                .map_err(db)?;
+                tx.prepare_cached("UPDATE sync_origin SET enqueue_enabled=1 WHERE singleton=1")
+                    .map_err(db)?
+                    .execute([])
+                    .map_err(db)?;
             }
             None => {
-                tx.execute(
-                    "INSERT INTO sync_origin
+                tx.prepare_cached("INSERT INTO sync_origin
                          (singleton, origin_id, generation, next_seq, enqueue_enabled, provisioned_at)
-                     VALUES (1, ?1, 1, 0, 1, ?2)",
+                     VALUES (1, ?1, 1, 0, 1, ?2)"
+    ).map_err(db)?.execute(
                     params![node.node_id, now_text()],
                 )
                 .map_err(db)?;
-                tx.execute(
+                tx.prepare_cached(
                     "INSERT INTO sync_sender_state (singleton, updated_at) VALUES (1, ?1)
                      ON CONFLICT(singleton) DO NOTHING",
-                    params![now_text()],
                 )
+                .map_err(db)?
+                .execute(params![now_text()])
                 .map_err(db)?;
             }
         }
@@ -1671,21 +1725,19 @@ impl SqliteEdge {
         node: &NodeContext,
     ) -> Result<(), EdgeError> {
         let (origin_id, generation): (String, i64) = tx
-            .query_row(
-                "SELECT origin_id,generation FROM sync_origin WHERE singleton=1",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
+            .prepare_cached("SELECT origin_id,generation FROM sync_origin WHERE singleton=1")
+            .map_err(db)?
+            .query_row([], |row| Ok((row.get(0)?, row.get(1)?)))
             .map_err(db)?;
         let marked: bool = tx
-            .query_row(
+            .prepare_cached(
                 "SELECT EXISTS(
                      SELECT 1 FROM sync_generation_bootstrap
                      WHERE origin_id=?1 AND generation=?2
                  )",
-                params![&origin_id, generation],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row(params![&origin_id, generation], |row| row.get(0))
             .map_err(db)?;
         if marked {
             return Ok(());
@@ -1695,10 +1747,13 @@ impl SqliteEdge {
         // bootstrap before the durable marker existed: adopt the retained
         // snapshot rather than appending another one.
         let retained_snapshot_seq: Option<i64> = tx
-            .query_row(
+            .prepare_cached(
                 "SELECT seq FROM sync_fact_log
                  WHERE origin_id=?1 AND generation=?2 AND event_type=?3
                  ORDER BY seq LIMIT 1",
+            )
+            .map_err(db)?
+            .query_row(
                 params![&origin_id, generation, INVENTORY_POOL_SNAPSHOT_V1],
                 |row| row.get(0),
             )
@@ -1708,12 +1763,13 @@ impl SqliteEdge {
             Some(seq) => seq,
             None => Self::enqueue_pool_snapshot(tx, node, Uuid::new_v4())?,
         };
-        tx.execute(
+        tx.prepare_cached(
             "INSERT INTO sync_generation_bootstrap
                  (origin_id,generation,snapshot_seq,captured_at)
              VALUES (?1,?2,?3,?4)",
-            params![origin_id, generation, snapshot_seq, now_text()],
         )
+        .map_err(db)?
+        .execute(params![origin_id, generation, snapshot_seq, now_text()])
         .map_err(db)?;
         Ok(())
     }
@@ -1865,11 +1921,9 @@ impl SqliteEdge {
         now: DateTime<Utc>,
     ) -> Result<(), EdgeError> {
         let place: String = tx
-            .query_row(
-                "SELECT place_id FROM attendance_book WHERE id = 1",
-                [],
-                |row| row.get(0),
-            )
+            .prepare_cached("SELECT place_id FROM attendance_book WHERE id = 1")
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         crate::edge::sync::enqueue_fact(
             tx,
@@ -1952,6 +2006,22 @@ impl SqliteEdge {
             .map_err(|_| EdgeError::Persistence("SQLite connection lock poisoned".into()))
     }
 
+    /// The connection a READ path should use: the read-only companion when
+    /// one exists, the writer otherwise.
+    ///
+    /// The same `MutexGuard<Connection>` either way, so every call site reads
+    /// identically — only the lock it queues on changes. Reads stop waiting
+    /// behind a sale's write transaction; WAL gives each connection its own
+    /// snapshot of the last committed state.
+    fn read_lock(&self) -> Result<MutexGuard<'_, Connection>, EdgeError> {
+        match &self.reader {
+            Some(reader) => reader
+                .lock()
+                .map_err(|_| EdgeError::Persistence("SQLite reader lock poisoned".into())),
+            None => self.lock(),
+        }
+    }
+
     fn encode_idempotent_request<T: Serialize>(request: &T) -> Result<String, EdgeError> {
         serde_json::to_string(request).map_err(|error| EdgeError::Persistence(error.to_string()))
     }
@@ -1962,9 +2032,8 @@ impl SqliteEdge {
         operation: &str,
         request_json: &str,
     ) -> Result<Option<T>, EdgeError> {
-        let row: Option<(String, Option<String>, String)> = tx
-            .query_row(
-                "SELECT operation,request_json,response_json FROM idempotency_response WHERE idempotency_key=?1",
+        let row: Option<(String, Option<String>, String)> = tx.prepare_cached("SELECT operation,request_json,response_json FROM idempotency_response WHERE idempotency_key=?1"
+    ).map_err(db)?.query_row(
                 [key],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
@@ -1997,8 +2066,8 @@ impl SqliteEdge {
     ) -> Result<(), EdgeError> {
         let response_json = serde_json::to_string(response)
             .map_err(|error| EdgeError::Persistence(error.to_string()))?;
-        tx.execute(
-            "INSERT INTO idempotency_response(idempotency_key,operation,request_json,response_json,created_at) VALUES(?1,?2,?3,?4,?5)",
+        tx.prepare_cached("INSERT INTO idempotency_response(idempotency_key,operation,request_json,response_json,created_at) VALUES(?1,?2,?3,?4,?5)"
+    ).map_err(db)?.execute(
             params![key, operation, request_json, response_json, now_text()],
         )
         .map_err(db)?;
@@ -2062,8 +2131,8 @@ impl SqliteEdge {
             sku_code: sku_code.trim().to_ascii_uppercase(),
             unit_price_minor,
         };
-        tx.execute(
-            "INSERT INTO inventory_subject(id,epc,sku_code,unit_price_minor,created_at) VALUES(?1,?2,?3,?4,?5)",
+        tx.prepare_cached("INSERT INTO inventory_subject(id,epc,sku_code,unit_price_minor,created_at) VALUES(?1,?2,?3,?4,?5)"
+    ).map_err(db)?.execute(
             params![
                 subject.id.to_string(),
                 subject.epc,
@@ -2093,20 +2162,20 @@ impl SqliteEdge {
         idempotency_key: &str,
     ) -> Result<Option<CheckoutResult>, EdgeError> {
         let head = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT id,idempotency_key,status,total_minor,sale_id
                    FROM checkout WHERE idempotency_key=?1",
-                [idempotency_key],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, i64>(3)?,
-                        row.get::<_, Option<String>>(4)?,
-                    ))
-                },
             )
+            .map_err(db)?
+            .query_row([idempotency_key], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                ))
+            })
             .optional()
             .map_err(db)?;
         let Some((checkout_id, key, status, total_minor, sale_id)) = head else {
@@ -2131,11 +2200,9 @@ impl SqliteEdge {
         checkout_id: &str,
     ) -> Result<DateTime<Utc>, EdgeError> {
         let text: String = connection
-            .query_row(
-                "SELECT opened_at FROM checkout WHERE id=?1",
-                [checkout_id],
-                |row| row.get(0),
-            )
+            .prepare_cached("SELECT opened_at FROM checkout WHERE id=?1")
+            .map_err(db)?
+            .query_row([checkout_id], |row| row.get(0))
             .map_err(db)?;
         DateTime::parse_from_rfc3339(&text)
             .map(|stamp| stamp.with_timezone(&Utc))
@@ -2203,10 +2270,15 @@ impl SqliteEdge {
             .collect::<Vec<_>>();
         crate::checkout::advance(from, crate::checkout::CheckoutState::Completed, &states)
             .map_err(|error| EdgeError::Conflict(error.to_string()))?;
-        tx.execute(
+        tx.prepare_cached(
             "UPDATE checkout SET status='COMPLETED', sale_id=?2, resolved_at=?3 WHERE id=?1",
-            params![checkout.checkout_id, sale_id.to_string(), time_text(at)],
         )
+        .map_err(db)?
+        .execute(params![
+            checkout.checkout_id,
+            sale_id.to_string(),
+            time_text(at)
+        ])
         .map_err(db)?;
         Ok(())
     }
@@ -2242,18 +2314,18 @@ impl SqliteEdge {
                 ));
             }
             let hold = tx
-                .query_row(
+                .prepare_cached(
                     "SELECT amount_minor, status, expires_at FROM voucher_hold
                       WHERE authorization_id = ?1",
-                    params![hold_id],
-                    |row| {
-                        Ok((
-                            row.get::<_, i64>(0)?,
-                            row.get::<_, String>(1)?,
-                            row.get::<_, Option<String>>(2)?,
-                        ))
-                    },
                 )
+                .map_err(db)?
+                .query_row(params![hold_id], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                    ))
+                })
                 .optional()
                 .map_err(db)?;
             let Some((amount, status, expires_at)) = hold else {
@@ -2266,7 +2338,11 @@ impl SqliteEdge {
             if status != "HELD" {
                 return Err(EdgeError::Conflict(format!(
                     "this voucher hold is already {}, and cannot pay for another basket",
-                    if status == "USED" { "spent" } else { "released" }
+                    if status == "USED" {
+                        "spent"
+                    } else {
+                        "released"
+                    }
                 )));
             }
             if let Some(expires_at) = expires_at.as_deref() {
@@ -2285,26 +2361,137 @@ impl SqliteEdge {
                     tender.amount_minor,
                 )));
             }
-            tx.execute(
+            tx.prepare_cached(
                 "UPDATE voucher_hold
                     SET status = 'USED', sale_id = ?2, closed_at = ?3
                   WHERE authorization_id = ?1 AND status = 'HELD'",
-                params![hold_id, sale_id.to_string(), now.to_rfc3339()],
             )
+            .map_err(db)?
+            .execute(params![hold_id, sale_id.to_string(), now.to_rfc3339()])
+            .map_err(db)?;
+        }
+        Ok(())
+    }
+
+    /// The coupon holds a basket names that this node can vouch for.
+    ///
+    /// A hold counts only if this node relayed it (`coupon_hold`, `0078`), for
+    /// the code the basket names it under, and it is still HELD and unexpired
+    /// by the business clock. The engine admits a limited coupon on whatever
+    /// it is handed, so this is the one place a hold is checked at the shop.
+    ///
+    /// `strict` is the difference between a preview and a sale. A quote drops
+    /// a hold it cannot vouch for and lets the engine say the coupon still
+    /// needs one — that is the till's cue to ask again. A sale REFUSES: the
+    /// shopper was shown a total with the coupon in it, and ringing a different
+    /// one without a word would be the worse failure.
+    fn vouched_coupon_holds(
+        tx: &Transaction<'_>,
+        holds: &[pricing_engine::CouponAuthorization],
+        now: DateTime<Utc>,
+        strict: bool,
+    ) -> Result<Vec<pricing_engine::CouponAuthorization>, EdgeError> {
+        let mut vouched: Vec<pricing_engine::CouponAuthorization> = Vec::new();
+        for hold in holds {
+            let id = hold.authorization_id.trim();
+            let code = hold.code.trim().to_ascii_uppercase();
+            if id.is_empty() || code.is_empty() {
+                continue;
+            }
+            if vouched.iter().any(|one| one.authorization_id == id) {
+                if strict {
+                    return Err(EdgeError::Validation(
+                        "two coupons name the same hold — one hold opens one coupon".into(),
+                    ));
+                }
+                continue;
+            }
+            let row = tx
+                .prepare_cached(
+                    "SELECT code, status, expires_at FROM coupon_hold
+                      WHERE authorization_id = ?1",
+                )
+                .map_err(db)?
+                .query_row(params![id], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                    ))
+                })
+                .optional()
+                .map_err(db)?;
+            let refusal = match &row {
+                None => Some(format!(
+                    "coupon {code} was not held by head office through this shop — \
+                     apply it again (the till needs the line to head office for that)"
+                )),
+                Some((held_code, _, _)) if *held_code != code => Some(format!(
+                    "that hold belongs to coupon {held_code}, not {code}"
+                )),
+                Some((_, status, _)) if status != "HELD" => Some(format!(
+                    "the hold on coupon {code} is already {}, and cannot open another basket",
+                    if status == "USED" { "used" } else { "released" }
+                )),
+                Some((_, _, Some(expires_at)))
+                    if DateTime::parse_from_rfc3339(expires_at)
+                        .map(|at| at.with_timezone(&Utc) <= now)
+                        .unwrap_or(false) =>
+                {
+                    Some(format!(
+                        "the hold on coupon {code} has expired — apply the coupon again"
+                    ))
+                }
+                Some(_) => None,
+            };
+            match refusal {
+                Some(sentence) if strict => return Err(EdgeError::Conflict(sentence)),
+                Some(_) => {}
+                None => vouched.push(pricing_engine::CouponAuthorization {
+                    code,
+                    authorization_id: id.to_owned(),
+                }),
+            }
+        }
+        Ok(vouched)
+    }
+
+    /// Mark the coupon holds a sale actually used as used, in the sale's own
+    /// transaction — so a hold opens one basket, and a second basket naming it
+    /// is refused here by `vouched_coupon_holds` rather than at the centre.
+    /// A hold the basket carried but whose coupon did not apply (the basket
+    /// fell under the threshold) stays HELD: nothing was redeemed against it.
+    fn spend_coupon_holds(
+        tx: &Transaction<'_>,
+        promotions: &[pricing::PromotionOutcome],
+        sale_id: Uuid,
+        now: DateTime<Utc>,
+    ) -> Result<(), EdgeError> {
+        for promotion in promotions.iter().filter(|one| one.applied) {
+            let Some(id) = promotion.coupon_authorization_id.as_deref() else {
+                continue;
+            };
+            tx.prepare_cached(
+                "UPDATE coupon_hold
+                    SET status = 'USED', sale_id = ?2, closed_at = ?3
+                  WHERE authorization_id = ?1 AND status = 'HELD'",
+            )
+            .map_err(db)?
+            .execute(params![id, sale_id.to_string(), now.to_rfc3339()])
             .map_err(db)?;
         }
         Ok(())
     }
 
     fn subject_by_epc(tx: &Transaction<'_>, epc: &str) -> Result<SubjectRow, EdgeError> {
-        tx.query_row(
+        tx.prepare_cached(
             "SELECT id,epc,sku_code,unit_price_minor FROM inventory_subject WHERE epc=?1",
-            [epc],
-            |row| {
-                let id: String = row.get(0)?;
-                Ok((id, row.get(1)?, row.get(2)?, row.get(3)?))
-            },
         )
+        .map_err(db)?
+        .query_row([epc], |row| {
+            let id: String = row.get(0)?;
+            Ok((id, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
         .optional()
         .map_err(db)?
         .map(|(id, epc, sku_code, unit_price_minor)| {
@@ -2326,11 +2513,11 @@ impl SqliteEdge {
         subject_id: SubjectId,
         place_id: &str,
     ) -> Result<i64, EdgeError> {
-        tx.query_row(
+        tx.prepare_cached(
             "SELECT quantity FROM inventory_projection WHERE subject_id=?1 AND place_id=?2",
-            params![subject_id.to_string(), place_id],
-            |row| row.get(0),
         )
+        .map_err(db)?
+        .query_row(params![subject_id.to_string(), place_id], |row| row.get(0))
         .optional()
         .map(|quantity| quantity.unwrap_or(0))
         .map_err(db)
@@ -2349,14 +2536,15 @@ impl SqliteEdge {
             )));
         }
         if balance == quantity {
-            tx.execute(
+            tx.prepare_cached(
                 "DELETE FROM inventory_projection WHERE subject_id=?1 AND place_id=?2",
-                params![subject_id.to_string(), place_id],
             )
+            .map_err(db)?
+            .execute(params![subject_id.to_string(), place_id])
             .map_err(db)?;
         } else {
-            tx.execute(
-                "UPDATE inventory_projection SET quantity=quantity-?3,updated_at=?4 WHERE subject_id=?1 AND place_id=?2",
+            tx.prepare_cached("UPDATE inventory_projection SET quantity=quantity-?3,updated_at=?4 WHERE subject_id=?1 AND place_id=?2"
+    ).map_err(db)?.execute(
                 params![subject_id.to_string(), place_id, quantity, now_text()],
             )
             .map_err(db)?;
@@ -2370,8 +2558,8 @@ impl SqliteEdge {
         place_id: &str,
         quantity: i64,
     ) -> Result<(), EdgeError> {
-        tx.execute(
-            "INSERT INTO inventory_projection(subject_id,place_id,quantity,updated_at) VALUES(?1,?2,?3,?4) ON CONFLICT(subject_id,place_id) DO UPDATE SET quantity=quantity+excluded.quantity,updated_at=excluded.updated_at",
+        tx.prepare_cached("INSERT INTO inventory_projection(subject_id,place_id,quantity,updated_at) VALUES(?1,?2,?3,?4) ON CONFLICT(subject_id,place_id) DO UPDATE SET quantity=quantity+excluded.quantity,updated_at=excluded.updated_at"
+    ).map_err(db)?.execute(
             params![subject_id.to_string(), place_id, quantity, now_text()],
         )
         .map_err(db)?;
@@ -2410,8 +2598,8 @@ impl SqliteEdge {
                 Self::decrement_projection(tx, line.subject_id, &line.from.id(), line.quantity)?;
             }
         }
-        tx.execute(
-            "INSERT INTO movement_group(id,idempotency_key,cause,reason,reference_type,reference_id,actor_id,occurred_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+        tx.prepare_cached("INSERT INTO movement_group(id,idempotency_key,cause,reason,reference_type,reference_id,actor_id,occurred_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)"
+    ).map_err(db)?.execute(
             params![
                 command.movement_group_id.to_string(),
                 idempotency_key,
@@ -2426,8 +2614,8 @@ impl SqliteEdge {
         .map_err(db)?;
         for line in &command.lines {
             let movement_id = MovementId::new();
-            tx.execute(
-                "INSERT INTO movement(id,movement_group_id,subject_id,quantity,from_place_id,to_place_id,cause,reference_type,reference_id,actor_id,occurred_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+            tx.prepare_cached("INSERT INTO movement(id,movement_group_id,subject_id,quantity,from_place_id,to_place_id,cause,reference_type,reference_id,actor_id,occurred_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)"
+    ).map_err(db)?.execute(
                 params![
                     movement_id.to_string(),
                     command.movement_group_id.to_string(),
@@ -2462,11 +2650,13 @@ impl SqliteEdge {
         let mut subject_identity: std::collections::HashMap<Uuid, (String, String)> =
             std::collections::HashMap::new();
         for line in &command.lines {
-            if let Ok((epc, sku)) = tx.query_row(
-                "SELECT epc, sku_code FROM inventory_subject WHERE id = ?1",
-                params![line.subject_id.0.to_string()],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-            ) {
+            if let Ok((epc, sku)) = tx
+                .prepare_cached("SELECT epc, sku_code FROM inventory_subject WHERE id = ?1")
+                .map_err(db)?
+                .query_row(params![line.subject_id.0.to_string()], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+            {
                 subject_identity.insert(line.subject_id.0, (epc, sku));
             }
         }
@@ -2540,7 +2730,11 @@ impl SqliteEdge {
     /// The doc this replaced read "the supplier is a place, not a destination a
     /// koli is packed for", and three queries agreed with it; the flow template
     /// disagrees, and the flow is the owner's.
-    fn normalized_destination(&self, connection: &Connection, value: &str) -> Result<String, EdgeError> {
+    fn normalized_destination(
+        &self,
+        connection: &Connection,
+        value: &str,
+    ) -> Result<String, EdgeError> {
         let value = value.trim();
         if value == SUPPLIER_PLACE {
             return Ok(value.to_owned());
@@ -2695,24 +2889,31 @@ impl SqliteEdge {
     ) -> Result<(), EdgeError> {
         for allotment_id in allotment_ids {
             let (accepted, packed, dispatched, cancelled): (i64, i64, i64, i64) = tx
-                .query_row(
+                .prepare_cached(
                     "SELECT COALESCE(SUM(accepted_quantity),0),
                             COALESCE(SUM(packed_quantity),0),
                             COALESCE(SUM(dispatched_quantity),0),
                             COALESCE(SUM(cancelled_quantity),0)
                      FROM dc_allotment_work_line WHERE allotment_id=?1",
-                    [allotment_id.to_string()],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
                 )
+                .map_err(db)?
+                .query_row([allotment_id.to_string()], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+                })
                 .map_err(db)?;
             let status = derive_allotment_status(accepted, packed, dispatched, cancelled, false)
                 .map_err(|error| EdgeError::Persistence(error.to_string()))?;
             let updated = tx
-                .execute(
+                .prepare_cached(
                     "UPDATE dc_allotment_work SET fulfillment_status=?2,updated_at=?3
                      WHERE allotment_id=?1 AND application_status='ACCEPTED'",
-                    params![allotment_id.to_string(), status.as_str(), updated_at],
                 )
+                .map_err(db)?
+                .execute(params![
+                    allotment_id.to_string(),
+                    status.as_str(),
+                    updated_at
+                ])
                 .map_err(db)?;
             if updated != 1 {
                 return Err(EdgeError::Conflict(format!(
@@ -2738,26 +2939,27 @@ impl SqliteEdge {
         .ok_or_else(|| {
             EdgeError::Persistence("edge fulfillment progress capture is disabled".into())
         })?;
-        tx.execute(
+        tx.prepare_cached(
             "INSERT INTO dc_fulfillment_progress_event
                  (progress_id,koli_id,source_site_id,destination_store_id,stage,
                   shipment_reference,movement_group_id,actor_id,occurred_at,units_json,fact_seq)
              VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
-            params![
-                payload.progress_id.to_string(),
-                payload.koli_id.to_string(),
-                payload.source_site_id,
-                payload.destination_store_id,
-                payload.stage.as_str(),
-                payload.shipment_reference,
-                payload.movement_group_id.to_string(),
-                payload.actor_id,
-                time_text(payload.occurred_at),
-                serde_json::to_string(&payload.units)
-                    .map_err(|error| EdgeError::Persistence(error.to_string()))?,
-                fact_seq
-            ],
         )
+        .map_err(db)?
+        .execute(params![
+            payload.progress_id.to_string(),
+            payload.koli_id.to_string(),
+            payload.source_site_id,
+            payload.destination_store_id,
+            payload.stage.as_str(),
+            payload.shipment_reference,
+            payload.movement_group_id.to_string(),
+            payload.actor_id,
+            time_text(payload.occurred_at),
+            serde_json::to_string(&payload.units)
+                .map_err(|error| EdgeError::Persistence(error.to_string()))?,
+            fact_seq
+        ])
         .map_err(db)?;
         Ok(fact_seq)
     }
@@ -2808,12 +3010,14 @@ impl SqliteEdge {
             String,
             Option<String>,
         ) = tx
-            .query_row(
+            .prepare_cached(
                 "SELECT destination_store_id,status,shipment_reference
                  FROM koli WHERE koli_id=?1",
-                [koli_id.to_string()],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
+            .map_err(db)?
+            .query_row([koli_id.to_string()], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
             .optional()
             .map_err(db)?
             .ok_or_else(|| EdgeError::NotFound(format!("koli {koli_id}")))?;
@@ -2956,18 +3160,19 @@ impl SqliteEdge {
             touched_allotments.insert(unit.allocation.allotment_id);
         }
         if tx
-            .execute(
+            .prepare_cached(
                 "UPDATE koli
                  SET status=?2,shipment_reference=?3,updated_at=?4
                  WHERE koli_id=?1 AND status=?5",
-                params![
-                    koli_id.to_string(),
-                    stage.as_str(),
-                    shipment_reference,
-                    updated_at,
-                    expected_previous.as_str()
-                ],
             )
+            .map_err(db)?
+            .execute(params![
+                koli_id.to_string(),
+                stage.as_str(),
+                shipment_reference,
+                updated_at,
+                expected_previous.as_str()
+            ])
             .map_err(db)?
             != 1
         {
@@ -2980,11 +3185,9 @@ impl SqliteEdge {
         // Carried again on every stage, so a koli packed before the number
         // travelled still reaches the centre's surat jalan with it.
         let koli_number: Option<String> = tx
-            .query_row(
-                "SELECT koli_number FROM koli WHERE koli_id=?1",
-                params![koli_id.to_string()],
-                |row| row.get(0),
-            )
+            .prepare_cached("SELECT koli_number FROM koli WHERE koli_id=?1")
+            .map_err(db)?
+            .query_row(params![koli_id.to_string()], |row| row.get(0))
             .optional()
             .map_err(db)?
             .flatten();
@@ -3081,7 +3284,7 @@ impl SqliteEdge {
         count_id: Uuid,
     ) -> Result<EdgeOfficialCountSummary, EdgeError> {
         let row = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT work.site_id,work.pool_id,work.kind,work.status,work.reason,
                         work.created_by,work.created_at,work.activated_at,work.submitted_at,
                         work.closed_at,work.scope_json,work.result_id,work.adjustment_id,
@@ -3091,28 +3294,28 @@ impl SqliteEdge {
                  LEFT JOIN dc_official_count_adjustment adjustment
                    ON adjustment.count_id=work.count_id
                  WHERE work.count_id=?1",
-                [count_id.to_string()],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, String>(4)?,
-                        row.get::<_, String>(5)?,
-                        row.get::<_, String>(6)?,
-                        row.get::<_, String>(7)?,
-                        row.get::<_, Option<String>>(8)?,
-                        row.get::<_, Option<String>>(9)?,
-                        row.get::<_, String>(10)?,
-                        row.get::<_, Option<String>>(11)?,
-                        row.get::<_, Option<String>>(12)?,
-                        row.get::<_, Option<String>>(13)?,
-                        row.get::<_, Option<String>>(14)?,
-                        row.get::<_, Option<String>>(15)?,
-                    ))
-                },
             )
+            .map_err(db)?
+            .query_row([count_id.to_string()], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                    row.get::<_, Option<String>>(8)?,
+                    row.get::<_, Option<String>>(9)?,
+                    row.get::<_, String>(10)?,
+                    row.get::<_, Option<String>>(11)?,
+                    row.get::<_, Option<String>>(12)?,
+                    row.get::<_, Option<String>>(13)?,
+                    row.get::<_, Option<String>>(14)?,
+                    row.get::<_, Option<String>>(15)?,
+                ))
+            })
             .optional()
             .map_err(db)?
             .ok_or_else(|| EdgeError::NotFound(format!("Official Count {count_id}")))?;
@@ -3229,11 +3432,13 @@ impl SqliteEdge {
             return Ok(response);
         }
         let (site_id, status, scope_json): (String, String, String) = tx
-            .query_row(
+            .prepare_cached(
                 "SELECT site_id,status,scope_json FROM dc_official_count_work WHERE count_id=?1",
-                [count_id.to_string()],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
+            .map_err(db)?
+            .query_row([count_id.to_string()], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
             .optional()
             .map_err(db)?
             .ok_or_else(|| EdgeError::NotFound(format!("Official Count {count_id}")))?;
@@ -3259,20 +3464,20 @@ impl SqliteEdge {
                 )));
             }
             let expected: Option<(String, String)> = tx
-                .query_row(
+                .prepare_cached(
                     "SELECT subject_id,sku_code FROM dc_official_count_expected
                      WHERE count_id=?1 AND epc=?2",
-                    params![count_id.to_string(), entry.epc],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
                 )
+                .map_err(db)?
+                .query_row(params![count_id.to_string(), entry.epc], |row| {
+                    Ok((row.get(0)?, row.get(1)?))
+                })
                 .optional()
                 .map_err(db)?;
             let existing_subject: Option<(String, String)> = tx
-                .query_row(
-                    "SELECT id,sku_code FROM inventory_subject WHERE epc=?1",
-                    [entry.epc.as_str()],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
-                )
+                .prepare_cached("SELECT id,sku_code FROM inventory_subject WHERE epc=?1")
+                .map_err(db)?
+                .query_row([entry.epc.as_str()], |row| Ok((row.get(0)?, row.get(1)?)))
                 .optional()
                 .map_err(db)?;
             let subject_id = if let Some((expected_subject_id, expected_sku)) = expected {
@@ -3306,9 +3511,8 @@ impl SqliteEdge {
                                 entry.epc, sku_code
                             )));
                         }
-                        let positioned: i64 = tx
-                            .query_row(
-                                "SELECT COALESCE(SUM(quantity),0) FROM inventory_projection WHERE subject_id=?1",
+                        let positioned: i64 = tx.prepare_cached("SELECT COALESCE(SUM(quantity),0) FROM inventory_projection WHERE subject_id=?1"
+    ).map_err(db)?.query_row(
                                 [subject_id.as_str()],
                                 |row| row.get(0),
                             )
@@ -3323,12 +3527,12 @@ impl SqliteEdge {
                     }
                     None => {
                         let base_price_minor: i64 = tx
-                            .query_row(
+                            .prepare_cached(
                                 "SELECT base_price_minor FROM catalog_item
                                  WHERE sku_code=?1 AND active=1 AND base_price_minor IS NOT NULL",
-                                [entry.sku_code.as_str()],
-                                |row| row.get(0),
                             )
+                            .map_err(db)?
+                            .query_row([entry.sku_code.as_str()], |row| row.get(0))
                             .optional()
                             .map_err(db)?
                             .ok_or_else(|| {
@@ -3343,7 +3547,7 @@ impl SqliteEdge {
                     }
                 }
             };
-            tx.execute(
+            tx.prepare_cached(
                 "INSERT INTO dc_official_count_entry
                      (count_id,subject_id,epc,sku_code,found_quantity,actor_id,recorded_at)
                  VALUES (?1,?2,?3,?4,?5,?6,?7)
@@ -3351,16 +3555,17 @@ impl SqliteEdge {
                      epc=excluded.epc,sku_code=excluded.sku_code,
                      found_quantity=excluded.found_quantity,
                      actor_id=excluded.actor_id,recorded_at=excluded.recorded_at",
-                params![
-                    count_id.to_string(),
-                    subject_id,
-                    entry.epc,
-                    entry.sku_code,
-                    entry.found_quantity,
-                    request.actor_id,
-                    time_text(self.clock.now()),
-                ],
             )
+            .map_err(db)?
+            .execute(params![
+                count_id.to_string(),
+                subject_id,
+                entry.epc,
+                entry.sku_code,
+                entry.found_quantity,
+                request.actor_id,
+                time_text(self.clock.now()),
+            ])
             .map_err(db)?;
         }
         let response = Self::official_count_detail(&tx, count_id)?;
@@ -3398,11 +3603,13 @@ impl SqliteEdge {
             return Ok(response);
         }
         let (site_id, pool_id, status): (String, String, String) = tx
-            .query_row(
+            .prepare_cached(
                 "SELECT site_id,pool_id,status FROM dc_official_count_work WHERE count_id=?1",
-                [count_id.to_string()],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
+            .map_err(db)?
+            .query_row([count_id.to_string()], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
             .optional()
             .map_err(db)?
             .ok_or_else(|| EdgeError::NotFound(format!("Official Count {count_id}")))?;
@@ -3447,17 +3654,18 @@ impl SqliteEdge {
         .map_err(db)?
         .ok_or_else(|| EdgeError::Persistence("edge count fact capture is disabled".into()))?;
         let updated = tx
-            .execute(
+            .prepare_cached(
                 "UPDATE dc_official_count_work
                  SET status='SUBMITTED',submitted_at=?2,result_id=?3,result_fact_seq=?4
                  WHERE count_id=?1 AND status='ACTIVE' AND result_id IS NULL",
-                params![
-                    count_id.to_string(),
-                    time_text(submitted_at),
-                    result_id.to_string(),
-                    fact_seq,
-                ],
             )
+            .map_err(db)?
+            .execute(params![
+                count_id.to_string(),
+                time_text(submitted_at),
+                result_id.to_string(),
+                fact_seq,
+            ])
             .map_err(db)?;
         if updated != 1 {
             return Err(EdgeError::Conflict(
@@ -3642,16 +3850,14 @@ impl SqliteEdge {
         }
         ids.into_iter()
             .map(|pool_id| {
-                let normal: i64 = connection
-                    .query_row(
-                        "SELECT COALESCE(SUM(quantity),0) FROM inventory_projection WHERE place_id=?1",
+                let normal: i64 = connection.prepare_cached("SELECT COALESCE(SUM(quantity),0) FROM inventory_projection WHERE place_id=?1"
+    ).map_err(db)?.query_row(
                         [format!("{pool_id}:on_hand")],
                         |row| row.get(0),
                     )
                     .map_err(db)?;
-                let missing: i64 = connection
-                    .query_row(
-                        "SELECT COALESCE(SUM(quantity),0) FROM inventory_projection WHERE place_id=?1",
+                let missing: i64 = connection.prepare_cached("SELECT COALESCE(SUM(quantity),0) FROM inventory_projection WHERE place_id=?1"
+    ).map_err(db)?.query_row(
                         [format!("{pool_id}:missing")],
                         |row| row.get(0),
                     )
@@ -4492,7 +4698,7 @@ impl EdgeInventory for SqliteEdge {
             _ => request.source_pool_id.clone(),
         };
         let still_needed: i64 = tx
-            .query_row(
+            .prepare_cached(
                 "SELECT COALESCE(SUM(line.accepted_quantity - line.cancelled_quantity
                                      - line.picked_quantity), 0)
                    FROM dc_allotment_work_line line
@@ -4501,20 +4707,23 @@ impl EdgeInventory for SqliteEdge {
                     AND work.fulfillment_status IN ('OPEN', 'IN_PROGRESS')
                     AND line.sku_code = ?1
                     AND line.source_pool_id IN (?2, ?3)",
+            )
+            .map_err(db)?
+            .query_row(
                 params![request.sku_code, shelf_pool, request.source_pool_id],
                 |row| row.get(0),
             )
             .map_err(db)?;
         let waiting_in_pick_area: i64 = tx
-            .query_row(
+            .prepare_cached(
                 "SELECT COALESCE(SUM(projection.quantity), 0)
                    FROM inventory_projection projection
                    JOIN inventory_subject subject ON subject.id = projection.subject_id
                   WHERE projection.place_id = ?1 AND projection.quantity > 0
                     AND subject.sku_code = ?2",
-                params![picking.id(), request.sku_code],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row(params![picking.id(), request.sku_code], |row| row.get(0))
             .map_err(db)?;
         let room = still_needed - waiting_in_pick_area;
         if room <= 0 {
@@ -4539,7 +4748,7 @@ impl EdgeInventory for SqliteEdge {
             None => room,
             Some(shop) => {
                 let wanted_by_shop: i64 = tx
-                    .query_row(
+                    .prepare_cached(
                         "SELECT COALESCE(SUM(line.accepted_quantity - line.cancelled_quantity
                                              - line.picked_quantity), 0)
                            FROM dc_allotment_work_line line
@@ -4549,6 +4758,9 @@ impl EdgeInventory for SqliteEdge {
                             AND line.sku_code = ?1
                             AND line.source_pool_id IN (?2, ?3)
                             AND line.destination_id = ?4",
+                    )
+                    .map_err(db)?
+                    .query_row(
                         params![request.sku_code, shelf_pool, request.source_pool_id, shop],
                         |row| row.get(0),
                     )
@@ -4587,14 +4799,14 @@ impl EdgeInventory for SqliteEdge {
         ) {
             (Some(allotment), Some(shop)) => {
                 let wanted_by_allotment: i64 = tx
-                    .query_row(
+                    .prepare_cached(
                         "SELECT COALESCE(SUM(accepted_quantity - cancelled_quantity
                                              - picked_quantity), 0)
                            FROM dc_allotment_work_line
                           WHERE allotment_id = ?1 AND destination_id = ?2 AND sku_code = ?3",
-                        params![allotment, shop, request.sku_code],
-                        |row| row.get(0),
                     )
+                    .map_err(db)?
+                    .query_row(params![allotment, shop, request.sku_code], |row| row.get(0))
                     .map_err(db)?;
                 let waiting_for_allotment: i64 = tx
                     .query_row(
@@ -4662,11 +4874,11 @@ impl EdgeInventory for SqliteEdge {
         let occurred_at = self.clock.now();
         if let Some(session_id) = request.pick_session_id.as_deref() {
             let open: i64 = tx
-                .query_row(
+                .prepare_cached(
                     "SELECT COUNT(*) FROM pick_session WHERE session_id=?1 AND status='OPEN'",
-                    params![session_id],
-                    |row| row.get(0),
                 )
+                .map_err(db)?
+                .query_row(params![session_id], |row| row.get(0))
                 .map_err(db)?;
             if open == 0 {
                 return Err(EdgeError::Conflict(format!(
@@ -4717,59 +4929,68 @@ impl EdgeInventory for SqliteEdge {
         let touched_allotments: BTreeSet<Uuid> = BTreeSet::new();
         for allotment_id in touched_allotments {
             let (accepted, packed, dispatched, cancelled): (i64, i64, i64, i64) = tx
-                .query_row(
+                .prepare_cached(
                     "SELECT COALESCE(SUM(accepted_quantity),0),
                             COALESCE(SUM(packed_quantity),0),
                             COALESCE(SUM(dispatched_quantity),0),
                             COALESCE(SUM(cancelled_quantity),0)
                      FROM dc_allotment_work_line WHERE allotment_id=?1",
-                    [allotment_id.to_string()],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
                 )
+                .map_err(db)?
+                .query_row([allotment_id.to_string()], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+                })
                 .map_err(db)?;
             let status = derive_allotment_status(accepted, packed, dispatched, cancelled, false)
                 .map_err(|error| EdgeError::Persistence(error.to_string()))?;
-            tx.execute(
+            tx.prepare_cached(
                 "UPDATE dc_allotment_work SET fulfillment_status=?2,updated_at=?3
                  WHERE allotment_id=?1",
-                params![allotment_id.to_string(), status.as_str(), updated_at],
             )
+            .map_err(db)?
+            .execute(params![
+                allotment_id.to_string(),
+                status.as_str(),
+                updated_at
+            ])
             .map_err(db)?;
         }
-        tx.execute(
+        tx.prepare_cached(
             "INSERT INTO dc_pick_event
                  (pick_id,source_site_id,source_pool_id,sku_code,quantity,actor_id,
                   occurred_at,allocations_json,fact_seq,pick_session_id)
              VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
-            params![
-                pick_id.to_string(),
-                payload.source_site_id,
-                payload.source_pool_id,
-                payload.sku_code,
-                payload.quantity,
-                payload.actor_id,
-                updated_at,
-                // The column predates picking committing to nobody. Kept so
-                // old rows still read, written empty so new ones say the truth.
-                "[]",
-                fact_seq,
-                request.pick_session_id
-            ],
         )
+        .map_err(db)?
+        .execute(params![
+            pick_id.to_string(),
+            payload.source_site_id,
+            payload.source_pool_id,
+            payload.sku_code,
+            payload.quantity,
+            payload.actor_id,
+            updated_at,
+            // The column predates picking committing to nobody. Kept so
+            // old rows still read, written empty so new ones say the truth.
+            "[]",
+            fact_seq,
+            request.pick_session_id
+        ])
         .map_err(db)?;
         // Which pieces this pick set aside, so its shop's carton is packed
         // from exactly these (see `pack_by_quantity`'s `pick_session_id`).
         for subject_id in &found {
-            tx.execute(
+            tx.prepare_cached(
                 "INSERT INTO dc_pick_unit (pick_id,pick_session_id,subject_id,sku_code)
                  VALUES(?1,?2,?3,?4)",
-                params![
-                    pick_id.to_string(),
-                    request.pick_session_id,
-                    subject_id,
-                    request.sku_code
-                ],
             )
+            .map_err(db)?
+            .execute(params![
+                pick_id.to_string(),
+                request.pick_session_id,
+                subject_id,
+                request.sku_code
+            ])
             .map_err(db)?;
         }
         Self::enqueue_pool_snapshot(&tx, &self.node, Uuid::new_v4())?;
@@ -4800,10 +5021,8 @@ impl EdgeInventory for SqliteEdge {
     ) -> Result<FulfillmentProgressResult, EdgeError> {
         self.require_outbound_origin()?;
         Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
-        let destination_store = self.normalized_destination(
-            &*self.lock()?,
-            &request.destination_store_id,
-        )?;
+        let destination_store =
+            self.normalized_destination(&*self.lock()?, &request.destination_store_id)?;
         if request.epcs.is_empty() {
             return Err(EdgeError::Validation(
                 "Pack requires at least one scanned EPC".into(),
@@ -4853,12 +5072,12 @@ impl EdgeInventory for SqliteEdge {
 
         for epc in &request.epcs {
             let active_package: Option<String> = tx
-                .query_row(
+                .prepare_cached(
                     "SELECT koli_id FROM koli_unit
                      WHERE epc=?1 AND released_at IS NULL",
-                    [epc],
-                    |row| row.get(0),
                 )
+                .map_err(db)?
+                .query_row([epc], |row| row.get(0))
                 .optional()
                 .map_err(db)?;
             if let Some(active_package) = active_package {
@@ -4903,7 +5122,7 @@ impl EdgeInventory for SqliteEdge {
             };
 
             let candidate: (String, String) = tx
-                .query_row(
+                .prepare_cached(
                     // The allotments this carton's picklists answer come
                     // first (`?3`), then FIFO among the lines of THIS box's
                     // store. The packer has
@@ -4934,6 +5153,9 @@ impl EdgeInventory for SqliteEdge {
                                    THEN 0 ELSE 1 END,
                               work.created_at,work.allotment_id,line.allotment_line_id
                      LIMIT 1",
+                )
+                .map_err(db)?
+                .query_row(
                     params![destination_store, subject.sku_code, prefer_allotments],
                     |row| Ok((row.get(0)?, row.get(1)?)),
                 )
@@ -4950,7 +5172,7 @@ impl EdgeInventory for SqliteEdge {
             let allotment_id = parse_uuid(&candidate.0)?;
             let allotment_line_id = parse_uuid(&candidate.1)?;
             if tx
-                .execute(
+                .prepare_cached(
                     // Picked and packed rise together. From an allotment's
                     // point of view a garment is picked FOR IT at the moment it
                     // goes into its box, because that is the moment it became
@@ -4960,8 +5182,9 @@ impl EdgeInventory for SqliteEdge {
                          packed_quantity=packed_quantity+1,updated_at=?2
                      WHERE allotment_line_id=?1
                        AND accepted_quantity-packed_quantity-cancelled_quantity>=1",
-                    params![allotment_line_id.to_string(), updated_at],
                 )
+                .map_err(db)?
+                .execute(params![allotment_line_id.to_string(), updated_at])
                 .map_err(db)?
                 != 1
             {
@@ -5006,36 +5229,38 @@ impl EdgeInventory for SqliteEdge {
             &self.node.site_id.to_string(),
             occurred_at,
         )?;
-        tx.execute(
+        tx.prepare_cached(
             "INSERT INTO koli
                  (koli_id,koli_number,destination_store_id,status,shipment_reference,
                   created_by,created_at,updated_at)
              VALUES(?1,?2,?3,'PACKED',NULL,?4,?5,?5)",
-            params![
-                koli_id.to_string(),
-                koli_number,
-                destination_store.to_string(),
-                request.actor_id,
-                updated_at
-            ],
         )
+        .map_err(db)?
+        .execute(params![
+            koli_id.to_string(),
+            koli_number,
+            destination_store.to_string(),
+            request.actor_id,
+            updated_at
+        ])
         .map_err(db)?;
         for unit in &units {
-            tx.execute(
+            tx.prepare_cached(
                 "INSERT INTO koli_unit
                      (koli_id,subject_id,epc,sku_code,allotment_id,allotment_line_id,
                       current_stage,stage_rank,packed_at,updated_at)
                  VALUES(?1,?2,?3,?4,?5,?6,'PACKED',2,?7,?7)",
-                params![
-                    koli_id.to_string(),
-                    unit.subject.id.to_string(),
-                    unit.subject.epc,
-                    unit.subject.sku_code,
-                    unit.allocation.allotment_id.to_string(),
-                    unit.allocation.allotment_line_id.to_string(),
-                    updated_at
-                ],
             )
+            .map_err(db)?
+            .execute(params![
+                koli_id.to_string(),
+                unit.subject.id.to_string(),
+                unit.subject.epc,
+                unit.subject.sku_code,
+                unit.allocation.allotment_id.to_string(),
+                unit.allocation.allotment_line_id.to_string(),
+                updated_at
+            ])
             .map_err(db)?;
         }
         Self::refresh_allotment_statuses(&tx, &touched_allotments, &updated_at)?;
@@ -5154,12 +5379,14 @@ impl EdgeInventory for SqliteEdge {
                 .transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(db)?;
             let existing: Option<(String, Option<String>, String)> = tx
-                .query_row(
+                .prepare_cached(
                     "SELECT operation,request_json,response_json FROM idempotency_response
                       WHERE idempotency_key=?1",
-                    [&request.idempotency_key],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )
+                .map_err(db)?
+                .query_row([&request.idempotency_key], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                })
                 .optional()
                 .map_err(db)?;
             let claimed = if let Some((operation, stored_request, stored_response)) = existing {
@@ -5170,8 +5397,7 @@ impl EdgeInventory for SqliteEdge {
                 }
                 if stored_request.as_deref() != Some(request_json.as_str()) {
                     return Err(EdgeError::Conflict(
-                        "idempotency key was already used with a different request payload"
-                            .into(),
+                        "idempotency key was already used with a different request payload".into(),
                     ));
                 }
                 let session_id: String = serde_json::from_str(&stored_response)
@@ -5186,15 +5412,16 @@ impl EdgeInventory for SqliteEdge {
                         note: request.note.clone(),
                     },
                 )?;
-                tx.execute(
+                tx.prepare_cached(
                     "UPDATE pick_session SET destination_id=?2, allotment_id=?3
                       WHERE session_id=?1",
-                    params![
-                        session.session_id,
-                        request.destination_id,
-                        request.allotment_id
-                    ],
                 )
+                .map_err(db)?
+                .execute(params![
+                    session.session_id,
+                    request.destination_id,
+                    request.allotment_id
+                ])
                 .map_err(db)?;
                 Self::save_idempotent(
                     &tx,
@@ -5397,18 +5624,18 @@ impl EdgeInventory for SqliteEdge {
         let epcs = {
             let connection = self.lock()?;
             if let Some(response) = connection
-                .query_row(
+                .prepare_cached(
                     "SELECT operation,request_json,response_json FROM idempotency_response
                       WHERE idempotency_key=?1",
-                    [&request.idempotency_key],
-                    |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, Option<String>>(1)?,
-                            row.get::<_, String>(2)?,
-                        ))
-                    },
                 )
+                .map_err(db)?
+                .query_row([&request.idempotency_key], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                })
                 .optional()
                 .map_err(db)?
             {
@@ -5460,12 +5687,7 @@ impl EdgeInventory for SqliteEdge {
             for line in &request.lines {
                 let found = statement
                     .query_map(
-                        params![
-                            picking.id(),
-                            line.sku_code,
-                            line.quantity,
-                            picks_json
-                        ],
+                        params![picking.id(), line.sku_code, line.quantity, picks_json],
                         |row| row.get::<_, String>(0),
                     )
                     .map_err(db)?
@@ -5669,8 +5891,8 @@ impl EdgeInventory for SqliteEdge {
             occurred_at,
         )
         .map_err(|error| EdgeError::Validation(error.to_string()))?;
-        tx.execute(
-            "INSERT INTO store_receipt(id,idempotency_key,subject_id,source_dc_id,shipment_reference,movement_group_id,received_at) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+        tx.prepare_cached("INSERT INTO store_receipt(id,idempotency_key,subject_id,source_dc_id,shipment_reference,movement_group_id,received_at) VALUES(?1,?2,?3,?4,?5,?6,?7)"
+    ).map_err(db)?.execute(
             params![
                 receipt_id.to_string(),
                 request.idempotency_key,
@@ -5817,8 +6039,8 @@ impl EdgeInventory for SqliteEdge {
                 occurred_at,
             )
             .map_err(|error| EdgeError::Validation(error.to_string()))?;
-            tx.execute(
-                "INSERT INTO store_receipt(id,idempotency_key,subject_id,source_dc_id,shipment_reference,movement_group_id,received_at) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+            tx.prepare_cached("INSERT INTO store_receipt(id,idempotency_key,subject_id,source_dc_id,shipment_reference,movement_group_id,received_at) VALUES(?1,?2,?3,?4,?5,?6,?7)"
+    ).map_err(db)?.execute(
                 params![
                     Uuid::new_v4().to_string(),
                     format!("{}:{}", request.idempotency_key, subject.epc),
@@ -5844,9 +6066,7 @@ impl EdgeInventory for SqliteEdge {
         Ok(response)
     }
 
-    fn store_return_asks(
-        &self,
-    ) -> Result<crate::edge::store_returns::StoreReturnList, EdgeError> {
+    fn store_return_asks(&self) -> Result<crate::edge::store_returns::StoreReturnList, EdgeError> {
         let connection = self.lock()?;
         crate::edge::store_returns::asks(&connection)
     }
@@ -5947,11 +6167,9 @@ impl EdgeInventory for SqliteEdge {
         let epcs = {
             let connection = self.lock()?;
             let known: i64 = connection
-                .query_row(
-                    "SELECT COUNT(*) FROM store_inbound_delivery WHERE delivery_id=?1",
-                    [&delivery_id],
-                    |row| row.get(0),
-                )
+                .prepare_cached("SELECT COUNT(*) FROM store_inbound_delivery WHERE delivery_id=?1")
+                .map_err(db)?
+                .query_row([&delivery_id], |row| row.get(0))
                 .map_err(db)?;
             if known == 0 {
                 return Err(EdgeError::NotFound(format!(
@@ -6026,7 +6244,10 @@ impl EdgeInventory for SqliteEdge {
             ));
         }
         let digest = crate::security::sha256_hex(
-            epcs.iter().map(String::as_str).collect::<Vec<_>>().join("\n"),
+            epcs.iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+                .join("\n"),
         );
         let request_json = Self::encode_idempotent_request(&serde_json::json!({
             "delivery_id": delivery_id,
@@ -6047,14 +6268,28 @@ impl EdgeInventory for SqliteEdge {
             tx.commit().map_err(db)?;
             return Ok(saved);
         }
-        type Header = (String, Option<String>, String, Option<String>, Option<String>);
+        type Header = (
+            String,
+            Option<String>,
+            String,
+            Option<String>,
+            Option<String>,
+        );
         let header: Option<Header> = tx
-            .query_row(
+            .prepare_cached(
                 "SELECT source_site_id,shipment_reference,status,receive_digest,destination_pool_id
                  FROM store_inbound_delivery WHERE delivery_id=?1",
-                [&delivery_id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
             )
+            .map_err(db)?
+            .query_row([&delivery_id], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            })
             .optional()
             .map_err(db)?;
         let Some((source_site_id, shipment_reference, status, received_digest, landing_pool_id)) =
@@ -6096,13 +6331,13 @@ impl EdgeInventory for SqliteEdge {
         // `NodeContext::authorize_line` forbids a DC to write, which blocked
         // the node's whole command stream over a delivery nobody could
         // receive.
-        let (arrival_cause, reference_type) =
-            if self.node.role == EdgeRole::Dc || landing.role() == crate::pool_role::PoolRole::Return
-            {
-                (MovementCause::ReturnToWarehouse, "RETURN_RECEIPT")
-            } else {
-                (MovementCause::StoreReceive, "STORE_RECEIPT")
-            };
+        let (arrival_cause, reference_type) = if self.node.role == EdgeRole::Dc
+            || landing.role() == crate::pool_role::PoolRole::Return
+        {
+            (MovementCause::ReturnToWarehouse, "RETURN_RECEIPT")
+        } else {
+            (MovementCause::StoreReceive, "STORE_RECEIPT")
+        };
         if status == inbound::STATUS_RECEIVED {
             // The same sweep sent again under a new key is a resend, not a
             // second receipt; a different sweep is a second receipt, and a
@@ -6141,14 +6376,14 @@ impl EdgeInventory for SqliteEdge {
             // sends back is one the Gudang knows by its EPC and no longer
             // holds; it is booked in again, under the subject it always had.
             let on_books = tx
-                .query_row(
+                .prepare_cached(
                     "SELECT 1 FROM inventory_subject subject
                        JOIN inventory_projection projection ON projection.subject_id=subject.id
                       WHERE subject.epc=?1 AND projection.quantity>0
                       LIMIT 1",
-                    [epc],
-                    |_| Ok(()),
                 )
+                .map_err(db)?
+                .query_row([epc], |_| Ok(()))
                 .optional()
                 .map_err(db)?
                 .is_some();
@@ -6183,11 +6418,9 @@ impl EdgeInventory for SqliteEdge {
             let mut subjects = Vec::with_capacity(chunk.len());
             for (epc, sku_code, _) in chunk {
                 let unit_price_minor: i64 = tx
-                    .query_row(
-                        "SELECT base_price_minor FROM catalog_item WHERE sku_code=?1",
-                        [sku_code],
-                        |row| row.get::<_, Option<i64>>(0),
-                    )
+                    .prepare_cached("SELECT base_price_minor FROM catalog_item WHERE sku_code=?1")
+                    .map_err(db)?
+                    .query_row([sku_code], |row| row.get::<_, Option<i64>>(0))
                     .optional()
                     .map_err(db)?
                     .flatten()
@@ -6244,8 +6477,8 @@ impl EdgeInventory for SqliteEdge {
                     occurred_at,
                 )
                 .map_err(|error| EdgeError::Validation(error.to_string()))?;
-                tx.execute(
-                    "INSERT INTO store_receipt(id,idempotency_key,subject_id,source_dc_id,shipment_reference,movement_group_id,received_at) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+                tx.prepare_cached("INSERT INTO store_receipt(id,idempotency_key,subject_id,source_dc_id,shipment_reference,movement_group_id,received_at) VALUES(?1,?2,?3,?4,?5,?6,?7)"
+    ).map_err(db)?.execute(
                     params![
                         Uuid::new_v4().to_string(),
                         format!("{idempotency_key}:{}", subject.epc),
@@ -6262,46 +6495,50 @@ impl EdgeInventory for SqliteEdge {
         }
 
         let now = now_text();
-        tx.execute(
+        tx.prepare_cached(
             "UPDATE store_inbound_unit SET outcome='MISSING'
              WHERE delivery_id=?1 AND late_announcement=0",
-            [&delivery_id],
         )
+        .map_err(db)?
+        .execute([&delivery_id])
         .map_err(db)?;
         for (epc, sku_code, on_manifest) in &to_book {
             if *on_manifest {
-                tx.execute(
+                tx.prepare_cached(
                     "UPDATE store_inbound_unit SET outcome='RECEIVED'
                      WHERE delivery_id=?1 AND epc=?2 AND late_announcement=0",
-                    params![delivery_id, epc],
                 )
+                .map_err(db)?
+                .execute(params![delivery_id, epc])
                 .map_err(db)?;
             } else {
-                tx.execute(
+                tx.prepare_cached(
                     "INSERT INTO store_inbound_extra(delivery_id,epc,sku_code,created_at)
                      VALUES(?1,?2,?3,?4)",
-                    params![delivery_id, epc, sku_code, now],
                 )
+                .map_err(db)?
+                .execute(params![delivery_id, epc, sku_code, now])
                 .map_err(db)?;
             }
         }
         let skipped_json = serde_json::to_string(&skipped)
             .map_err(|error| EdgeError::Persistence(error.to_string()))?;
-        tx.execute(
+        tx.prepare_cached(
             "UPDATE store_inbound_delivery
              SET status='RECEIVED',received_at=?2,received_by=?3,receive_idempotency_key=?4,
                  receive_digest=?5,skipped_epcs_json=?6,updated_at=?7
              WHERE delivery_id=?1 AND status='IN_TRANSIT'",
-            params![
-                delivery_id,
-                time_text(occurred_at),
-                actor_id,
-                idempotency_key,
-                digest,
-                skipped_json,
-                now
-            ],
         )
+        .map_err(db)?
+        .execute(params![
+            delivery_id,
+            time_text(occurred_at),
+            actor_id,
+            idempotency_key,
+            digest,
+            skipped_json,
+            now
+        ])
         .map_err(db)?;
         // The delivery as one receipt, for the flow its goods travel on: after
         // the claims above, so head office has every claim of it first.
@@ -6440,37 +6677,39 @@ impl EdgeInventory for SqliteEdge {
         // The drawer of the person taking the money — never whichever shift
         // happens to be open on the node (`till::shift_for_sale`).
         let shift_id = crate::edge::till::shift_for_sale(&tx, &request.actor_id, now)?;
-        tx.execute(
+        tx.prepare_cached(
             "INSERT INTO checkout
                  (id,idempotency_key,status,actor_id,shift_id,total_minor,
                   pricing_trace_id,opened_at,finalizing_at)
              VALUES(?1,?2,'FINALIZING',?3,?4,?5,?6,?7,?7)",
-            params![
-                checkout_id.to_string(),
-                request.idempotency_key,
-                request.actor_id,
-                shift_id,
-                request.total_minor,
-                request.pricing_trace_id,
-                time_text(now),
-            ],
         )
+        .map_err(db)?
+        .execute(params![
+            checkout_id.to_string(),
+            request.idempotency_key,
+            request.actor_id,
+            shift_id,
+            request.total_minor,
+            request.pricing_trace_id,
+            time_text(now),
+        ])
         .map_err(db)?;
         for (seq, tender) in request.tenders.iter().enumerate() {
-            tx.execute(
+            tx.prepare_cached(
                 "INSERT INTO checkout_tender
                      (checkout_id,tender_seq,method,amount_minor,reference,
                       status,attempt_count,updated_at)
                  VALUES(?1,?2,?3,?4,?5,'PENDING',0,?6)",
-                params![
-                    checkout_id.to_string(),
-                    i64::try_from(seq).unwrap_or(i64::MAX),
-                    tender.method.as_str(),
-                    tender.amount_minor,
-                    tender.reference,
-                    time_text(now),
-                ],
             )
+            .map_err(db)?
+            .execute(params![
+                checkout_id.to_string(),
+                i64::try_from(seq).unwrap_or(i64::MAX),
+                tender.method.as_str(),
+                tender.amount_minor,
+                tender.reference,
+                time_text(now),
+            ])
             .map_err(db)?;
         }
         let result = Self::checkout_by_key(&tx, &request.idempotency_key)?.ok_or_else(|| {
@@ -6514,20 +6753,21 @@ impl EdgeInventory for SqliteEdge {
         // retried three times is one tender attempted three times; three rows
         // would be three charges in every report that sums them.
         let touched = tx
-            .execute(
+            .prepare_cached(
                 "UPDATE checkout_tender
                     SET status=?3, external_reference=COALESCE(?4,external_reference),
                         last_error=?5, attempt_count=attempt_count+1, updated_at=?6
                   WHERE checkout_id=?1 AND tender_seq=?2",
-                params![
-                    checkout.checkout_id,
-                    request.tender_seq,
-                    status.as_str(),
-                    request.external_reference,
-                    request.last_error,
-                    time_text(now),
-                ],
             )
+            .map_err(db)?
+            .execute(params![
+                checkout.checkout_id,
+                request.tender_seq,
+                status.as_str(),
+                request.external_reference,
+                request.last_error,
+                time_text(now),
+            ])
             .map_err(db)?;
         if touched == 0 {
             return Err(EdgeError::NotFound(format!(
@@ -6661,17 +6901,18 @@ impl EdgeInventory for SqliteEdge {
                     .into(),
             ));
         }
-        tx.execute(
+        tx.prepare_cached(
             "UPDATE checkout
                 SET status=?2, resolved_at=?3, last_error=COALESCE(?4,last_error)
               WHERE id=?1",
-            params![
-                checkout.checkout_id,
-                target.as_str(),
-                time_text(now),
-                request.last_error,
-            ],
         )
+        .map_err(db)?
+        .execute(params![
+            checkout.checkout_id,
+            target.as_str(),
+            time_text(now),
+            request.last_error,
+        ])
         .map_err(db)?;
         let result = Self::checkout_by_key(&tx, &request.idempotency_key)?
             .ok_or_else(|| EdgeError::Persistence("the checkout could not be read back".into()))?;
@@ -6732,15 +6973,14 @@ impl EdgeInventory for SqliteEdge {
         let connection = self.lock()?;
         // Idempotent on the hold: a relayed retry that head office answered
         // with the same hold rewrites nothing that matters.
-        connection
-            .execute(
-                "INSERT INTO voucher_hold
+        connection.prepare_cached("INSERT INTO voucher_hold
                      (authorization_id, code, checkout_id, amount_minor, expires_at, status, held_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, 'HELD', ?6)
                  ON CONFLICT (authorization_id) DO UPDATE
                     SET amount_minor = excluded.amount_minor,
                         expires_at = excluded.expires_at
-                  WHERE voucher_hold.status = 'HELD'",
+                  WHERE voucher_hold.status = 'HELD'"
+    ).map_err(db)?.execute(
                 params![
                     hold.authorization_id.trim(),
                     hold.code.trim().to_ascii_uppercase(),
@@ -6757,15 +6997,58 @@ impl EdgeInventory for SqliteEdge {
     fn close_voucher_hold(&self, code: &str, checkout_id: &str) -> Result<(), EdgeError> {
         let connection = self.lock()?;
         connection
-            .execute(
+            .prepare_cached(
                 "UPDATE voucher_hold SET status = 'RELEASED', closed_at = ?3
                   WHERE code = ?1 AND checkout_id = ?2 AND status = 'HELD'",
-                params![
-                    code.trim().to_ascii_uppercase(),
-                    checkout_id,
-                    self.clock.now().to_rfc3339()
-                ],
             )
+            .map_err(db)?
+            .execute(params![
+                code.trim().to_ascii_uppercase(),
+                checkout_id,
+                self.clock.now().to_rfc3339()
+            ])
+            .map_err(db)?;
+        Ok(())
+    }
+
+    fn record_coupon_hold(&self, hold: CouponHoldRecord) -> Result<(), EdgeError> {
+        let connection = self.lock()?;
+        // Idempotent on the hold, like the voucher's: head office answers a
+        // repeated ask for the same basket with the same hold.
+        connection
+            .prepare_cached(
+                "INSERT INTO coupon_hold
+                     (authorization_id, code, checkout_id, expires_at, status, held_at)
+                 VALUES (?1, ?2, ?3, ?4, 'HELD', ?5)
+                 ON CONFLICT (authorization_id) DO UPDATE
+                    SET expires_at = excluded.expires_at
+                  WHERE coupon_hold.status = 'HELD'",
+            )
+            .map_err(db)?
+            .execute(params![
+                hold.authorization_id.trim(),
+                hold.code.trim().to_ascii_uppercase(),
+                hold.checkout_id,
+                hold.expires_at.map(|at| at.to_rfc3339()),
+                self.clock.now().to_rfc3339(),
+            ])
+            .map_err(db)?;
+        Ok(())
+    }
+
+    fn close_coupon_hold(&self, code: &str, checkout_id: &str) -> Result<(), EdgeError> {
+        let connection = self.lock()?;
+        connection
+            .prepare_cached(
+                "UPDATE coupon_hold SET status = 'RELEASED', closed_at = ?3
+                  WHERE code = ?1 AND checkout_id = ?2 AND status = 'HELD'",
+            )
+            .map_err(db)?
+            .execute(params![
+                code.trim().to_ascii_uppercase(),
+                checkout_id,
+                self.clock.now().to_rfc3339()
+            ])
             .map_err(db)?;
         Ok(())
     }
@@ -6828,7 +7111,11 @@ impl EdgeInventory for SqliteEdge {
             .iter()
             .map(|subject| subject.sku_code.clone())
             .collect();
-        let quoted = pricing::quote(
+        // The limited coupons' holds, each one this node relayed and still
+        // holds — refused outright otherwise, see `vouched_coupon_holds`.
+        let coupon_holds =
+            Self::vouched_coupon_holds(&tx, &request.coupon_authorizations, occurred_at, true)?;
+        let quoted = pricing::quote_with_coupon_holds(
             &tx,
             self.node.site_id.as_str(),
             pricing::STORE_CHANNEL,
@@ -6837,6 +7124,7 @@ impl EdgeInventory for SqliteEdge {
             &request.coupon_codes,
             request.customer_id.as_deref(),
             &request.charges,
+            &coupon_holds,
         )?;
         // A promotion acts on a line, not on a unit, so what a line comes to is
         // not always a whole number of unit prices. The line total is what is
@@ -6942,6 +7230,10 @@ impl EdgeInventory for SqliteEdge {
         // sale exists — and a second basket naming it is refused here, at the
         // counter, rather than at the centre after the goods have gone.
         Self::spend_voucher_holds(&tx, &request.tenders, sale_id, occurred_at)?;
+        // And the coupon holds it used, likewise.
+        if let Some(quote) = quoted.as_ref() {
+            Self::spend_coupon_holds(&tx, &quote.promotions, sale_id, occurred_at)?;
+        }
         let from = Place::Operational {
             pool: OperationalPool::StoreFloor {
                 store_id: self.node.site_id.clone(),
@@ -6971,18 +7263,17 @@ impl EdgeInventory for SqliteEdge {
         let movement = self.append_command(&tx, &request.idempotency_key, &command)?;
         // The drawer of the person who rang it, as it stood when they rang it
         // (`till::shift_for_sale`), and so the day it trades for.
-        let shift_id =
-            crate::edge::till::shift_for_sale(&tx, &request.actor_id, occurred_at)?;
+        let shift_id = crate::edge::till::shift_for_sale(&tx, &request.actor_id, occurred_at)?;
         let business_date =
             crate::edge::till::business_date_for(&tx, shift_id.as_deref(), occurred_at)?;
-        tx.execute(
-            // `pricing_trace_id` is written here, and it was not before: the
+        tx.prepare_cached(// `pricing_trace_id` is written here, and it was not before: the
             // column existed, the engine produced the value, the fact carried
             // it to the centre, and the shop's own copy stayed null. So the one
             // node that can be asked "why was I charged this" with the customer
             // still at the counter — and offline, which is when it matters —
             // was the node that had thrown the answer away.
-            "INSERT INTO sale(id,idempotency_key,status,total_minor,paid_minor,change_minor,movement_group_id,actor_id,completed_at,pricing_trace_id,shift_id,net_ex_tax_minor,tax_total_minor,charge_total_minor,charge_net_ex_tax_minor,charge_tax_minor) VALUES(?1,?2,'COMPLETED',?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
+                    "INSERT INTO sale(id,idempotency_key,status,total_minor,paid_minor,change_minor,movement_group_id,actor_id,completed_at,pricing_trace_id,shift_id,net_ex_tax_minor,tax_total_minor,charge_total_minor,charge_net_ex_tax_minor,charge_tax_minor) VALUES(?1,?2,'COMPLETED',?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)"
+    ).map_err(db)?.execute(
             params![
                 sale_id.to_string(),
                 request.idempotency_key,
@@ -7032,41 +7323,43 @@ impl EdgeInventory for SqliteEdge {
         // same rows rather than billing a second delivery.
         for (seq, charge) in request.charges.iter().enumerate() {
             let priced = quoted.as_ref().and_then(|quote| quote.charges.get(seq));
-            tx.execute(
+            tx.prepare_cached(
                 "INSERT INTO sale_charge
                      (sale_id,charge_seq,code,description,amount_minor,
                       net_ex_tax_minor,tax_minor,tax_category)
                  VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
-                params![
-                    sale_id.to_string(),
-                    i64::try_from(seq).unwrap_or(i64::MAX),
-                    charge.code,
-                    charge.description,
-                    charge.amount_minor,
-                    priced.map(|one| one.net_ex_tax_minor),
-                    priced.map(|one| one.tax_minor),
-                    charge.tax_category,
-                ],
             )
+            .map_err(db)?
+            .execute(params![
+                sale_id.to_string(),
+                i64::try_from(seq).unwrap_or(i64::MAX),
+                charge.code,
+                charge.description,
+                charge.amount_minor,
+                priced.map(|one| one.net_ex_tax_minor),
+                priced.map(|one| one.tax_minor),
+                charge.tax_category,
+            ])
             .map_err(db)?;
         }
         // Keyed by position, so a retry of this whole sale writes the same rows
         // rather than a second copy of each payment.
         for (seq, tender) in request.tenders.iter().enumerate() {
-            tx.execute(
+            tx.prepare_cached(
                 "INSERT INTO sale_tender(sale_id,tender_seq,method,amount_minor,reference,
                                          acquirer,card_kind)
                  VALUES(?1,?2,?3,?4,?5,?6,?7)",
-                params![
-                    sale_id.to_string(),
-                    i64::try_from(seq).unwrap_or(i64::MAX),
-                    tender.method.as_str(),
-                    tender.amount_minor,
-                    tender.reference,
-                    tender_acquirer(tender),
-                    tender_card_kind(tender),
-                ],
             )
+            .map_err(db)?
+            .execute(params![
+                sale_id.to_string(),
+                i64::try_from(seq).unwrap_or(i64::MAX),
+                tender.method.as_str(),
+                tender.amount_minor,
+                tender.reference,
+                tender_acquirer(tender),
+                tender_card_kind(tender),
+            ])
             .map_err(db)?;
         }
         for (subject, line) in subjects.iter().zip(priced.iter()) {
@@ -7080,7 +7373,7 @@ impl EdgeInventory for SqliteEdge {
                 publication_version,
                 ..
             } = line;
-            tx.execute(
+            tx.prepare_cached(
                 // `base_unit_price_minor` is written here, and it was not
                 // before: the engine produced it and the shop's own copy threw
                 // it away, so a receipt could say what was charged and never
@@ -7090,20 +7383,21 @@ impl EdgeInventory for SqliteEdge {
                       price_source,publication_version,base_unit_price_minor,
                       net_ex_tax_minor,tax_minor,points_earned)
                  VALUES(?1,?2,?3,?4,?5,1,?6,?7,?8,?9,?10,?11)",
-                params![
-                    sale_id.to_string(),
-                    subject.id.to_string(),
-                    subject.epc,
-                    subject.sku_code,
-                    charged_minor,
-                    price_source,
-                    publication_version,
-                    base_minor,
-                    net_ex_tax_minor,
-                    tax_minor,
-                    points_earned
-                ],
             )
+            .map_err(db)?
+            .execute(params![
+                sale_id.to_string(),
+                subject.id.to_string(),
+                subject.epc,
+                subject.sku_code,
+                charged_minor,
+                price_source,
+                publication_version,
+                base_minor,
+                net_ex_tax_minor,
+                tax_minor,
+                points_earned
+            ])
             .map_err(db)?;
         }
         // The attempt and the sale finish together or not at all. Outside this
@@ -7130,11 +7424,11 @@ impl EdgeInventory for SqliteEdge {
                     .filter(|id| !id.is_empty())
                 {
                     Some(authorization_id) => Some(
-                        tx.query_row(
+                        tx.prepare_cached(
                             "SELECT code FROM voucher_hold WHERE authorization_id = ?1",
-                            params![authorization_id],
-                            |row| row.get::<_, String>(0),
                         )
+                        .map_err(db)?
+                        .query_row(params![authorization_id], |row| row.get::<_, String>(0))
                         .optional()
                         .map_err(db)?
                         .ok_or_else(|| {
@@ -7175,6 +7469,9 @@ impl EdgeInventory for SqliteEdge {
                 "business_date": business_date,
                 "currency": "IDR",
                 "total_minor": payment.total_minor,
+                // The fees inside that total (a bag): the centre re-sums the
+                // lines against the total and needs to know what is not goods.
+                "charge_total_minor": charge_total_minor,
                 "paid_minor": payment.paid_minor,
                 "change_minor": payment.change_minor,
                 "net_ex_tax_minor": quoted.as_ref().map(|quote| {
@@ -7260,6 +7557,11 @@ impl EdgeInventory for SqliteEdge {
                                 "rule_id": promotion.rule_id,
                                 "campaign_id": promotion.campaign_id,
                                 "coupon_code": promotion.coupon_code,
+                                // Head office's hold on a limited code. It
+                                // commits exactly this hold against this sale
+                                // when the fact lands — the till never calls
+                                // commit, as with a voucher's.
+                                "coupon_authorization_id": promotion.coupon_authorization_id,
                                 "benefit_minor": promotion.benefit_minor,
                                 // Which units it came off. Sent as subject ids
                                 // rather than positions: a position is only
@@ -7333,14 +7635,14 @@ impl EdgeInventory for SqliteEdge {
     }
 
     fn list_pools(&self) -> Result<Vec<PoolBalance>, EdgeError> {
-        let connection = self.lock()?;
+        let connection = self.read_lock()?;
         Self::collect_pool_balances(&connection, &self.node)
     }
 
     fn sku_stock(&self) -> Result<Vec<SkuStockRow>, EdgeError> {
         let (floor, warehouse) = sku_stock_pools(&self.node.site_id);
         let (floor, warehouse) = (floor.id(), warehouse.id());
-        let connection = self.lock()?;
+        let connection = self.read_lock()?;
         // What this site still owes out of these two rooms: the open part of
         // every accepted allotment line sourced from either. Charged to the
         // warehouse first, then the floor — the racks before the shelf, the
@@ -7448,7 +7750,7 @@ impl EdgeInventory for SqliteEdge {
                 "a basket cannot contain duplicate EPCs".into(),
             ));
         }
-        let mut connection = self.lock()?;
+        let mut connection = self.read_lock()?;
         // A read-only transaction, so the basket is priced against one
         // consistent state: a price book landing mid-quote must not show a
         // shopper two books' answers in one total.
@@ -7465,15 +7767,22 @@ impl EdgeInventory for SqliteEdge {
         // against the same resident book. If these two ever answer differently
         // the counter is quoting a price the till will not honour, which is the
         // one thing a preview must never do.
-        let quoted = pricing::quote(
+        let now = self.clock.now();
+        // A hold this node cannot vouch for is left out rather than refused: the
+        // quote then lists the coupon in `coupons_to_authorize`, which is the
+        // till's cue to ask head office again.
+        let coupon_holds =
+            Self::vouched_coupon_holds(&tx, &request.coupon_authorizations, now, false)?;
+        let quoted = pricing::quote_with_coupon_holds(
             &tx,
             self.node.site_id.as_str(),
             pricing::STORE_CHANNEL,
-            self.clock.now(),
+            now,
             &sku_codes,
             &request.coupon_codes,
             request.customer_id.as_deref(),
             &request.charges,
+            &coupon_holds,
         )?;
         Ok(match quoted {
             Some(quote) => serde_json::to_value(quote)
@@ -7513,7 +7822,7 @@ impl EdgeInventory for SqliteEdge {
                 sku_codes.len()
             )));
         }
-        let connection = self.lock()?;
+        let connection = self.read_lock()?;
         let placeholders = std::iter::repeat("?")
             .take(sku_codes.len())
             .collect::<Vec<_>>()
@@ -7576,7 +7885,7 @@ impl EdgeInventory for SqliteEdge {
     /// pulls — and a 404 is the same thing it sees when it is pointed at a node
     /// too old to serve this route, which is the opposite instruction.
     fn catalog_snapshot_state(&self) -> Result<CatalogSnapshotState, EdgeError> {
-        let connection = self.lock()?;
+        let connection = self.read_lock()?;
         resident_catalog_state(&connection)
     }
 
@@ -7599,7 +7908,7 @@ impl EdgeInventory for SqliteEdge {
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty());
-        let connection = self.lock()?;
+        let connection = self.read_lock()?;
         // Read under the same lock the rows are read under, so the generation
         // reported with a page is the generation that page came out of.
         // `apply_catalog_chunk` swaps the whole table and writes this row in
@@ -7665,7 +7974,7 @@ impl EdgeInventory for SqliteEdge {
                 "a catalogue is priced for a shop, and a DC does not sell".into(),
             ));
         }
-        let connection = self.lock()?;
+        let connection = self.read_lock()?;
         pricing::store_catalog_page(
             &connection,
             self.node.site_id.as_str(),
@@ -7681,7 +7990,7 @@ impl EdgeInventory for SqliteEdge {
                 "promotions are offered to shoppers, and a DC has none".into(),
             ));
         }
-        let connection = self.lock()?;
+        let connection = self.read_lock()?;
         pricing::store_offers(
             &connection,
             self.node.site_id.as_str(),
@@ -7691,13 +8000,12 @@ impl EdgeInventory for SqliteEdge {
     }
 
     fn campaign_image_url(&self, campaign_id: &str) -> Result<Option<String>, EdgeError> {
-        let connection = self.lock()?;
-        connection
-            .query_row(
-                "SELECT image_url FROM commercial_campaign WHERE campaign_id=?1",
-                [campaign_id],
-                |row| row.get::<_, Option<String>>(0),
-            )
+        let connection = self.read_lock()?;
+        let mut statement = connection
+            .prepare_cached("SELECT image_url FROM commercial_campaign WHERE campaign_id=?1")
+            .map_err(db)?;
+        statement
+            .query_row([campaign_id], |row| row.get::<_, Option<String>>(0))
             .optional()
             .map(Option::flatten)
             .map_err(db)
@@ -7712,7 +8020,7 @@ impl EdgeInventory for SqliteEdge {
                 "only a shop has takings; a DC does not sell".into(),
             ));
         }
-        let connection = self.lock()?;
+        let connection = self.read_lock()?;
         super::reports::sales_series(&connection, self.node.site_id.as_str(), query)
     }
 
@@ -7725,7 +8033,7 @@ impl EdgeInventory for SqliteEdge {
                 "only a shop has takings; a DC does not sell".into(),
             ));
         }
-        let connection = self.lock()?;
+        let connection = self.read_lock()?;
         super::reports::sales_window(&connection, self.node.site_id.as_str(), query)
     }
 
@@ -7801,6 +8109,13 @@ impl EdgeInventory for SqliteEdge {
         request: PurchaseCountRequest,
     ) -> Result<PurchaseCountResult, EdgeError> {
         self.count_purchase_impl(request)
+    }
+
+    fn count_purchase_batch(
+        &self,
+        request: PurchaseCountBatchRequest,
+    ) -> Result<PurchaseCountBatchResult, EdgeError> {
+        self.count_purchase_batch_impl(request)
     }
 
     fn counts_awaiting_verification(
@@ -8020,9 +8335,12 @@ impl EdgeInventory for SqliteEdge {
         let tx = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(db)?;
-        if let Some(response) =
-            Self::load_idempotent(&tx, &request.idempotency_key, "TILL_APPROVAL", &request_json)?
-        {
+        if let Some(response) = Self::load_idempotent(
+            &tx,
+            &request.idempotency_key,
+            "TILL_APPROVAL",
+            &request_json,
+        )? {
             tx.commit().map_err(db)?;
             return Ok(response);
         }
@@ -8138,7 +8456,13 @@ impl EdgeInventory for SqliteEdge {
         }
         let report = crate::edge::till::count_shift(&tx, shift_id, &request, self.clock.now())?;
         crate::edge::till::enqueue_shift_fact(&tx, shift_id, &self.node.site_id.to_string())?;
-        Self::save_idempotent(&tx, &request.idempotency_key, "SHIFT_COUNT", &request_json, &report)?;
+        Self::save_idempotent(
+            &tx,
+            &request.idempotency_key,
+            "SHIFT_COUNT",
+            &request_json,
+            &report,
+        )?;
         tx.commit().map_err(db)?;
         Ok(report)
     }
@@ -8176,12 +8500,8 @@ impl EdgeInventory for SqliteEdge {
             tx.commit().map_err(db)?;
             return Ok(response);
         }
-        let recorded = crate::edge::petty::record_expense(
-            &tx,
-            &request,
-            approval.as_ref(),
-            self.clock.now(),
-        )?;
+        let recorded =
+            crate::edge::petty::record_expense(&tx, &request, approval.as_ref(), self.clock.now())?;
         // The centre hears about it in the same transaction as the row, or not
         // at all. See `capture_store_expense` for what the centre can do with
         // it today, which is nothing.
@@ -8597,7 +8917,7 @@ impl EdgeInventory for SqliteEdge {
         &self,
         sale_id: &str,
     ) -> Result<crate::edge::escpos::ReceiptDocument, EdgeError> {
-        let connection = self.lock()?;
+        let connection = self.read_lock()?;
         crate::edge::till::receipt_document(
             &connection,
             sale_id,
@@ -8613,7 +8933,7 @@ impl EdgeInventory for SqliteEdge {
         request: crate::edge::till::PrintReceiptRequest,
     ) -> Result<serde_json::Value, EdgeError> {
         let document = {
-            let connection = self.lock()?;
+            let connection = self.read_lock()?;
             crate::edge::till::receipt_document(
                 &connection,
                 sale_id,
@@ -8657,12 +8977,14 @@ fn parse_time(value: &str) -> Result<DateTime<Utc>, EdgeError> {
 /// come out of the table and is unambiguous as "no catalogue here at all".
 fn resident_catalog_state(connection: &Connection) -> Result<CatalogSnapshotState, EdgeError> {
     let row: Option<(i64, i64, String, String)> = connection
-        .query_row(
+        .prepare_cached(
             "SELECT generation,item_count,content_hash,activated_at
                FROM catalog_state WHERE singleton=1",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
+        .map_err(db)?
+        .query_row([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
         .optional()
         .map_err(db)?;
     let Some((generation, item_count, content_hash, activated_at)) = row else {
@@ -8807,7 +9129,10 @@ mod tests {
             .unwrap_or_else(|error| panic!("count rounds: {error}"));
         assert_eq!(rounds, 1, "one picklist, one round");
         for answer in &answers {
-            assert_eq!(answer.summary.total_picked, 4, "each answer is the whole round");
+            assert_eq!(
+                answer.summary.total_picked, 4,
+                "each answer is the whole round"
+            );
             assert!(answer.refused.is_empty());
         }
     }
@@ -8892,6 +9217,7 @@ mod tests {
                 }],
                 actor_id: "cashier-07".into(),
                 idempotency_key: "store-sale-001".into(),
+                coupon_authorizations: Vec::new(),
             })
             .unwrap_or_else(|error| panic!("sale: {error}"));
         assert_eq!(sale.total_minor, 150_000);
@@ -8959,6 +9285,7 @@ mod tests {
                 }],
                 actor_id: "siti".into(),
                 idempotency_key: format!("{key}-sale"),
+                coupon_authorizations: Vec::new(),
             })
             .unwrap_or_else(|error| panic!("sale: {error}"));
         (store, sale.sale_id.to_string())
@@ -8974,12 +9301,18 @@ mod tests {
         let hash = crate::security::hash_password(password, 8)
             .unwrap_or_else(|error| panic!("hash: {error}"));
         connection
-            .execute(
+            .prepare_cached(
                 "INSERT INTO edge_user(id,username,display_name,password_hash,role,active,
                                        auth_version,source,created_at,updated_at)
                  VALUES(?1,?2,?2,?3,'SUPERVISOR',1,1,'LOCAL',?4,?4)",
-                params![Uuid::new_v4().to_string(), username, hash, now_text()],
             )
+            .map_err(db)?
+            .execute(params![
+                Uuid::new_v4().to_string(),
+                username,
+                hash,
+                now_text()
+            ])
             .unwrap_or_else(|error| panic!("seed supervisor: {error}"));
     }
 
@@ -9081,6 +9414,7 @@ mod tests {
                 }],
                 actor_id: "siti".into(),
                 idempotency_key: "expected-sale-2".into(),
+                coupon_authorizations: Vec::new(),
             })
             .unwrap_or_else(|error| panic!("sale: {error}"));
 
@@ -9143,6 +9477,7 @@ mod tests {
                 }],
                 actor_id: "siti".into(),
                 idempotency_key: "card-sale".into(),
+                coupon_authorizations: Vec::new(),
             })
             .unwrap_or_else(|error| panic!("sale: {error}"));
         let report = store
@@ -9210,6 +9545,7 @@ mod tests {
             }],
             actor_id: "siti".into(),
             idempotency_key: "unauth-sale".into(),
+            coupon_authorizations: Vec::new(),
         });
         assert!(
             refused.is_err(),
@@ -9292,6 +9628,7 @@ mod tests {
                 }],
                 actor_id: "siti".into(),
                 idempotency_key: "voucher-sale".into(),
+                coupon_authorizations: Vec::new(),
             })
             .unwrap_or_else(|error| panic!("sale: {error}"));
         assert_eq!(sale.total_minor, 150_000);
@@ -9362,6 +9699,7 @@ mod tests {
             tenders,
             actor_id: "siti".into(),
             idempotency_key: key.into(),
+            coupon_authorizations: Vec::new(),
         })
     }
 
@@ -9452,9 +9790,18 @@ mod tests {
             })
             .unwrap_or_else(|error| panic!("shift: {error}"));
         let sheet = vec![
-            CashCount { value_minor: 50_000, pieces: 2 },
-            CashCount { value_minor: 100_000, pieces: 4 },
-            CashCount { value_minor: 1_000, pieces: 0 },
+            CashCount {
+                value_minor: 50_000,
+                pieces: 2,
+            },
+            CashCount {
+                value_minor: 100_000,
+                pieces: 4,
+            },
+            CashCount {
+                value_minor: 1_000,
+                pieces: 0,
+            },
         ];
         let off = store
             .close_shift(
@@ -9465,6 +9812,7 @@ mod tests {
                     note: None,
                     actor_id: "siti".into(),
                     idempotency_key: "count-off".into(),
+                    supervising: false,
                 },
             )
             .expect_err("a sheet adding to 500,000 cannot declare 499,000");
@@ -9478,14 +9826,21 @@ mod tests {
                     note: None,
                     actor_id: "siti".into(),
                     idempotency_key: "count-on".into(),
+                    supervising: false,
                 },
             )
             .unwrap_or_else(|error| panic!("close: {error}"));
         assert_eq!(
             closed.counted,
             vec![
-                CashCount { value_minor: 100_000, pieces: 4 },
-                CashCount { value_minor: 50_000, pieces: 2 },
+                CashCount {
+                    value_minor: 100_000,
+                    pieces: 4
+                },
+                CashCount {
+                    value_minor: 50_000,
+                    pieces: 2
+                },
             ],
             "empty lines are not kept, and the sheet reads largest first"
         );
@@ -9500,8 +9855,8 @@ mod tests {
         let store = SqliteEdge::open_in_memory(node(EdgeRole::Store, "store-07"))
             .unwrap_or_else(|error| panic!("store: {error}"));
         seed_supervisor(&store, "rina", "rina-secret-1");
-        let request = |key: &str, action: &str, password: &str| {
-            crate::edge::till::TillApprovalRequest {
+        let request =
+            |key: &str, action: &str, password: &str| crate::edge::till::TillApprovalRequest {
                 action: action.into(),
                 terminal_id: "TILL-1".into(),
                 detail: "Kemeja Linen Putih · …00001005".into(),
@@ -9511,8 +9866,7 @@ mod tests {
                 supervisor: supervisor("rina", password),
                 actor_id: "siti".into(),
                 idempotency_key: key.into(),
-            }
-        };
+            };
         let approved = store
             .record_till_approval(request("approve-1", "EDIT_CART", "rina-secret-1"))
             .unwrap_or_else(|error| panic!("approve: {error}"));
@@ -9521,7 +9875,10 @@ mod tests {
         let replayed = store
             .record_till_approval(request("approve-1", "EDIT_CART", "rina-secret-1"))
             .unwrap_or_else(|error| panic!("replay: {error}"));
-        assert_eq!(replayed.approval_id, approved.approval_id, "a retry is the same row");
+        assert_eq!(
+            replayed.approval_id, approved.approval_id,
+            "a retry is the same row"
+        );
 
         let wrong = store
             .record_till_approval(request("approve-2", "EDIT_CART", "not-her-password"))
@@ -9564,6 +9921,7 @@ mod tests {
                     note: Some("kurang 5rb".into()),
                     actor_id: "siti".into(),
                     idempotency_key: "close-1".into(),
+                    supervising: false,
                 },
             )
             .unwrap_or_else(|error| panic!("close: {error}"));
@@ -9582,6 +9940,7 @@ mod tests {
                     note: None,
                     actor_id: "siti".into(),
                     idempotency_key: "close-2".into(),
+                    supervising: false,
                 },
             )
             .is_err());
@@ -9612,6 +9971,7 @@ mod tests {
                     actor_id: "siti".into(),
                     supervisor: None,
                     idempotency_key: "drop-1".into(),
+                    supervising: false,
                 },
             )
             .unwrap_or_else(|error| panic!("drop: {error}"));
@@ -9626,6 +9986,7 @@ mod tests {
                     actor_id: "siti".into(),
                     supervisor: None,
                     idempotency_key: "payout-unsigned".into(),
+                    supervising: false,
                 },
             )
             .is_err());
@@ -9641,6 +10002,7 @@ mod tests {
                     actor_id: "siti".into(),
                     supervisor: Some(supervisor("budi", "salah")),
                     idempotency_key: "payout-wrong".into(),
+                    supervising: false,
                 },
             )
             .is_err());
@@ -9655,6 +10017,7 @@ mod tests {
                     actor_id: "siti".into(),
                     supervisor: Some(supervisor("budi", "rahasia-panjang")),
                     idempotency_key: "payout-signed".into(),
+                    supervising: false,
                 },
             )
             .unwrap_or_else(|error| panic!("payout: {error}"));
@@ -10063,11 +10426,9 @@ mod tests {
             .lock()
             .unwrap_or_else(|error| panic!("connection: {error}"));
         connection
-            .query_row(
-                "SELECT origin_id,generation,next_seq FROM sync_origin",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            )
+            .prepare_cached("SELECT origin_id,generation,next_seq FROM sync_origin")
+            .map_err(db)?
+            .query_row([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
             .unwrap_or_else(|error| panic!("sync position: {error}"))
     }
 
@@ -10182,13 +10543,19 @@ mod tests {
                 .lock()
                 .unwrap_or_else(|error| panic!("connection: {error}"));
             connection
-                .execute("DELETE FROM sync_fact_log", [])
+                .prepare_cached("DELETE FROM sync_fact_log")
+                .map_err(db)?
+                .execute([])
                 .unwrap_or_else(|error| panic!("delete facts: {error}"));
             connection
-                .execute("DELETE FROM sync_generation_bootstrap", [])
+                .prepare_cached("DELETE FROM sync_generation_bootstrap")
+                .map_err(db)?
+                .execute([])
                 .unwrap_or_else(|error| panic!("delete bootstrap marker: {error}"));
             connection
-                .execute("DELETE FROM sync_origin", [])
+                .prepare_cached("DELETE FROM sync_origin")
+                .map_err(db)?
+                .execute([])
                 .unwrap_or_else(|error| panic!("delete origin: {error}"));
             expected
         };
@@ -10217,11 +10584,12 @@ mod tests {
                     .lock()
                     .unwrap_or_else(|error| panic!("connection: {error}"));
                 connection
-                    .execute(
+                    .prepare_cached(
                         "INSERT INTO sync_watermark(origin_id,generation,durable_seq,updated_at)
                          VALUES ('dc-01-edge',1,2,?1)",
-                        [now_text()],
                     )
+                    .map_err(db)?
+                    .execute([now_text()])
                     .unwrap_or_else(|error| panic!("acknowledge generation one: {error}"));
             }
             edge.configure_sync_generation(2)
@@ -10261,17 +10629,17 @@ mod tests {
                 .lock()
                 .unwrap_or_else(|error| panic!("connection: {error}"));
             connection
-                .execute(
+                .prepare_cached(
                     "INSERT INTO sync_watermark(origin_id,generation,durable_seq,updated_at)
                      VALUES ('store-07-edge',1,1,?1)",
-                    [now_text()],
                 )
+                .map_err(db)?
+                .execute([now_text()])
                 .unwrap_or_else(|error| panic!("acknowledge bootstrap: {error}"));
             connection
-                .execute(
-                    "UPDATE sync_fact_log SET created_at='2000-01-01T00:00:00.000000Z'",
-                    [],
-                )
+                .prepare_cached("UPDATE sync_fact_log SET created_at='2000-01-01T00:00:00.000000Z'")
+                .map_err(db)?
+                .execute([])
                 .unwrap_or_else(|error| panic!("age bootstrap: {error}"));
             assert_eq!(
                 crate::edge::sync::purge_synced(&connection, 0)
@@ -10291,11 +10659,9 @@ mod tests {
                 .lock()
                 .unwrap_or_else(|error| panic!("connection: {error}"));
             let markers: i64 = connection
-                .query_row(
-                    "SELECT count(*) FROM sync_generation_bootstrap",
-                    [],
-                    |row| row.get(0),
-                )
+                .prepare_cached("SELECT count(*) FROM sync_generation_bootstrap")
+                .map_err(db)?
+                .query_row([], |row| row.get(0))
                 .unwrap_or_else(|error| panic!("bootstrap markers: {error}"));
             assert_eq!(markers, 1);
         }
@@ -10368,31 +10734,33 @@ mod tests {
             .unwrap_or_else(|error| panic!("connection: {error}"));
         for index in 0..count {
             connection
-                .execute(
+                .prepare_cached(
                     "INSERT INTO catalog_item
                          (sku_code,name,uom,barcode,tax_category,active,generation,
                           updated_at,base_price_minor,article_code,division_code,
                           tags_json,image_url)
                      VALUES (?1,?2,'PCS',?3,'STANDARD',?4,?5,'2026-09-15T00:00:00Z',
                              ?6,'ART-0001','DIV-01','[]',NULL)",
-                    params![
-                        format!("SKU-{index:05}"),
-                        format!("Sonny Denim {index}"),
-                        format!("899{index:07}"),
-                        i64::from(index % 10 != 0),
-                        generation,
-                        150_000 + index as i64,
-                    ],
                 )
+                .map_err(db)?
+                .execute(params![
+                    format!("SKU-{index:05}"),
+                    format!("Sonny Denim {index}"),
+                    format!("899{index:07}"),
+                    i64::from(index % 10 != 0),
+                    generation,
+                    150_000 + index as i64,
+                ])
                 .unwrap_or_else(|error| panic!("catalogue item {index}: {error}"));
         }
         connection
-            .execute(
+            .prepare_cached(
                 "INSERT INTO catalog_state
                      (singleton,snapshot_id,generation,item_count,content_hash,activated_at)
                  VALUES (1,'snapshot-0001',?1,?2,?3,'2026-09-15T01:00:00Z')",
-                params![generation, count as i64, "a".repeat(64)],
             )
+            .map_err(db)?
+            .execute(params![generation, count as i64, "a".repeat(64)])
             .unwrap_or_else(|error| panic!("catalogue state: {error}"));
     }
 
@@ -10608,6 +10976,11 @@ impl SqliteEdge {
                     order_unit_code: row.get(10)?,
                     count_units: parse_count_units(row.get::<_, Option<String>>(11)?.as_deref()),
                     recount_reason: row.get(12)?,
+                    // A DC server cannot recall a count yet (0950 is the
+                    // cloud-run Gudang's).
+                    recalled: None,
+                    // Nor count per variant (0963): the line as a whole.
+                    variants: Vec::new(),
                 })
             })
             .map_err(db)?;
@@ -10670,10 +11043,15 @@ impl SqliteEdge {
                     unit_factor: row.get(18)?,
                     counted_unit_code: row.get(19)?,
                     counted_unit_quantity: row.get(20)?,
-                    stock_unit_code: parse_count_units(row.get::<_, Option<String>>(21)?.as_deref())
-                        .into_iter()
-                        .find(|unit| unit.is_stock)
-                        .map(|unit| unit.code),
+                    stock_unit_code: parse_count_units(
+                        row.get::<_, Option<String>>(21)?.as_deref(),
+                    )
+                    .into_iter()
+                    .find(|unit| unit.is_stock)
+                    .map(|unit| unit.code),
+                    // A DC server counts the line as a whole (0963 is the
+                    // cloud-run Gudang's).
+                    variants: Vec::new(),
                 })
             })
             .map_err(db)?;
@@ -10722,14 +11100,16 @@ impl SqliteEdge {
             return Ok(response);
         }
         let ordered_from: Option<(String, Option<String>)> = tx
-            .query_row(
+            .prepare_cached(
                 "SELECT o.supplier_id, o.cancelled_at
                    FROM purchase_order_line l
                    JOIN purchase_order o ON o.purchase_order_id = l.purchase_order_id
                   WHERE l.po_line_id = ?1",
-                params![request.po_line_id.to_string()],
-                |row| Ok((row.get(0)?, row.get(1)?)),
             )
+            .map_err(db)?
+            .query_row(params![request.po_line_id.to_string()], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
             .optional()
             .map_err(db)?;
         // Head office called the order off: nothing is counted against it.
@@ -10750,11 +11130,11 @@ impl SqliteEdge {
             None => None,
             Some(code) => {
                 let units: Option<String> = tx
-                    .query_row(
+                    .prepare_cached(
                         "SELECT count_units FROM purchase_order_line WHERE po_line_id = ?1",
-                        params![request.po_line_id.to_string()],
-                        |row| row.get(0),
                     )
+                    .map_err(db)?
+                    .query_row(params![request.po_line_id.to_string()], |row| row.get(0))
                     .optional()
                     .map_err(db)?
                     .flatten();
@@ -10775,9 +11155,7 @@ impl SqliteEdge {
                     .trim()
                     .replace(',', ".");
                 let pieces = pieces_of(&typed, &factor).ok_or_else(|| {
-                    EdgeError::Validation(format!(
-                        "{typed} {code} is not a whole number of pieces"
-                    ))
+                    EdgeError::Validation(format!("{typed} {code} is not a whole number of pieces"))
                 })?;
                 if pieces != request.counted_quantity {
                     return Err(EdgeError::Validation(format!(
@@ -10798,11 +11176,11 @@ impl SqliteEdge {
         // refused has been settled — counting into it afterwards would change
         // a document somebody has already acted on.
         let delivery: Option<(String, String)> = tx
-            .query_row(
-                "SELECT status, supplier_id FROM goods_receipt WHERE receipt_id = ?1",
-                params![request.receipt_id.to_string()],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
+            .prepare_cached("SELECT status, supplier_id FROM goods_receipt WHERE receipt_id = ?1")
+            .map_err(db)?
+            .query_row(params![request.receipt_id.to_string()], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
             .optional()
             .map_err(db)?;
         let Some((status, delivered_by)) = delivery else {
@@ -10828,11 +11206,11 @@ impl SqliteEdge {
             )));
         }
         let purchase_order_id: String = tx
-            .query_row(
+            .prepare_cached(
                 "SELECT purchase_order_id FROM purchase_order_line WHERE po_line_id = ?1",
-                params![request.po_line_id.to_string()],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row(params![request.po_line_id.to_string()], |row| row.get(0))
             .map_err(db)?;
         let receipt_id = self.receipt_for_order(
             &tx,
@@ -10843,23 +11221,24 @@ impl SqliteEdge {
         )?;
         let count_id = Uuid::new_v4();
         let counted_at = self.clock.now();
-        tx.execute(
+        tx.prepare_cached(
             "INSERT INTO receiving_count
                  (count_id, receipt_id, po_line_id, counted_quantity, wrong_quantity,
                   counted_by, counted_at, status, counted_unit_code, counted_unit_quantity)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'AWAITING_VERIFICATION', ?8, ?9)",
-            params![
-                count_id.to_string(),
-                receipt_id.to_string(),
-                request.po_line_id.to_string(),
-                request.counted_quantity,
-                request.wrong_quantity,
-                request.actor_id,
-                time_text(counted_at),
-                counted_unit.as_ref().map(|(code, _)| code.clone()),
-                counted_unit.as_ref().map(|(_, quantity)| quantity.clone())
-            ],
         )
+        .map_err(db)?
+        .execute(params![
+            count_id.to_string(),
+            receipt_id.to_string(),
+            request.po_line_id.to_string(),
+            request.counted_quantity,
+            request.wrong_quantity,
+            request.actor_id,
+            time_text(counted_at),
+            counted_unit.as_ref().map(|(code, _)| code.clone()),
+            counted_unit.as_ref().map(|(_, quantity)| quantity.clone())
+        ])
         .map_err(db)?;
         let response = PurchaseCountResult {
             count_id,
@@ -10873,6 +11252,261 @@ impl SqliteEdge {
             &tx,
             &request.idempotency_key,
             "PURCHASE_COUNT",
+            &request_json,
+            &response,
+        )?;
+        tx.commit().map_err(db)?;
+        // The lock is not re-entrant, and receiving takes it again.
+        drop(connection);
+        self.auto_receive_exact_counts(&purchase_order_id);
+        Ok(response)
+    }
+
+    /// A whole count sheet in one transaction: every counted line of one
+    /// order, one delivery document. The per-line rules are exactly
+    /// [`count_purchase_impl`]'s — this is that path with the delivery, the
+    /// order and the idempotency claim read once instead of per line.
+    fn count_purchase_batch_impl(
+        &self,
+        request: PurchaseCountBatchRequest,
+    ) -> Result<PurchaseCountBatchResult, EdgeError> {
+        if self.node.role != EdgeRole::Dc {
+            return Err(EdgeError::Forbidden(
+                "supplier deliveries are counted at a DC".into(),
+            ));
+        }
+        if request.counts.is_empty() {
+            return Err(EdgeError::Validation(
+                "a count sheet carries at least one counted line".into(),
+            ));
+        }
+        for entry in &request.counts {
+            if entry.counted_quantity <= 0 {
+                return Err(EdgeError::Validation(
+                    "a count of nothing is not a count; refuse the delivery instead".into(),
+                ));
+            }
+            if entry.wrong_quantity < 0 || entry.wrong_quantity > entry.counted_quantity {
+                return Err(EdgeError::Validation(format!(
+                    "{} pieces cannot be not as ordered out of a count of {}",
+                    entry.wrong_quantity, entry.counted_quantity
+                )));
+            }
+        }
+        Self::validate_command_identity(&request.idempotency_key, &request.actor_id)?;
+        let request_json = Self::encode_idempotent_request(&request)?;
+        let mut connection = self.lock()?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db)?;
+        if let Some(response) = Self::load_idempotent(
+            &tx,
+            &request.idempotency_key,
+            "PURCHASE_COUNT_BATCH",
+            &request_json,
+        )? {
+            tx.commit().map_err(db)?;
+            return Ok(response);
+        }
+        // Every line of the sheet, its order and its countable units, in one
+        // read. A sheet is one order's lines; a second order on it is a
+        // caller's mistake and is refused rather than split across receipts.
+        let mut sheet = std::collections::HashMap::<String, (String, Option<String>)>::new();
+        let mut first_order: Option<(String, String)> = None;
+        {
+            let mut statement = tx
+                .prepare(
+                    "SELECT l.po_line_id, l.purchase_order_id, l.count_units,
+                            o.supplier_id, o.cancelled_at
+                       FROM purchase_order_line l
+                       JOIN purchase_order o ON o.purchase_order_id = l.purchase_order_id
+                      WHERE l.po_line_id = ?1",
+                )
+                .map_err(db)?;
+            for entry in &request.counts {
+                let line = entry.po_line_id.to_string();
+                if sheet.contains_key(&line) {
+                    return Err(EdgeError::Validation(format!(
+                        "line {line} is counted twice on one sheet"
+                    )));
+                }
+                let row: Option<(String, String, Option<String>, String, Option<String>)> =
+                    statement
+                        .query_row(params![line], |row| {
+                            Ok((
+                                row.get(0)?,
+                                row.get(1)?,
+                                row.get(2)?,
+                                row.get(3)?,
+                                row.get(4)?,
+                            ))
+                        })
+                        .optional()
+                        .map_err(db)?;
+                let Some((_, order, units, supplier, cancelled_at)) = row else {
+                    return Err(EdgeError::NotFound(format!(
+                        "this DC holds no purchase order line {line}; it cannot count against \
+                         one it was never given"
+                    )));
+                };
+                match &first_order {
+                    Some((order_id, supplier_id)) => {
+                        if &order != order_id {
+                            return Err(EdgeError::Validation(
+                                "a count sheet carries one order's lines; send each order's \
+                                 sheet as its own command"
+                                    .into(),
+                            ));
+                        }
+                        // An order names one supplier; if the book ever said
+                        // two, the sheet must not invent which to bill.
+                        if supplier.trim() != supplier_id.trim() {
+                            return Err(EdgeError::Persistence(format!(
+                                "order {order_id} names two suppliers: {supplier_id} and \
+                                 {supplier}"
+                            )));
+                        }
+                    }
+                    None => {
+                        // Head office called the order off: nothing is
+                        // counted against it.
+                        if cancelled_at.is_some() {
+                            return Err(EdgeError::Conflict(
+                                "this purchase order was cancelled by head office; refuse \
+                                 the delivery"
+                                    .into(),
+                            ));
+                        }
+                        first_order = Some((order.clone(), supplier));
+                    }
+                }
+                sheet.insert(line, (order, units));
+            }
+        }
+        // Unit conversion with each line's own factors, checked against the
+        // pieces sent — the same arithmetic as the single-line path.
+        let mut counted_units = Vec::with_capacity(request.counts.len());
+        for entry in &request.counts {
+            let counted_unit = match entry
+                .counted_unit_code
+                .as_deref()
+                .map(str::trim)
+                .filter(|code| !code.is_empty())
+            {
+                None => None,
+                Some(code) => {
+                    let (_, units) = sheet
+                        .get(&entry.po_line_id.to_string())
+                        .expect("row read above");
+                    let code = code.to_uppercase();
+                    let factor = parse_count_units(units.as_deref())
+                        .into_iter()
+                        .find(|unit| unit.code == code)
+                        .map(|unit| unit.factor)
+                        .ok_or_else(|| {
+                            EdgeError::Validation(format!(
+                                "this line cannot be counted in {code}; count it in pieces"
+                            ))
+                        })?;
+                    let typed = entry
+                        .counted_unit_quantity
+                        .as_deref()
+                        .unwrap_or_default()
+                        .trim()
+                        .replace(',', ".");
+                    let pieces = pieces_of(&typed, &factor).ok_or_else(|| {
+                        EdgeError::Validation(format!(
+                            "{typed} {code} is not a whole number of pieces"
+                        ))
+                    })?;
+                    if pieces != entry.counted_quantity {
+                        return Err(EdgeError::Validation(format!(
+                            "{typed} {code} is {pieces} pieces, not the {} sent",
+                            entry.counted_quantity
+                        )));
+                    }
+                    Some((code, typed))
+                }
+            };
+            counted_units.push(counted_unit);
+        }
+        let (purchase_order_id, supplier_id) = first_order.expect("checked non-empty");
+        let delivery: Option<(String, String)> = tx
+            .prepare_cached("SELECT status, supplier_id FROM goods_receipt WHERE receipt_id = ?1")
+            .map_err(db)?
+            .query_row(params![request.receipt_id.to_string()], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .optional()
+            .map_err(db)?;
+        let Some((status, delivered_by)) = delivery else {
+            return Err(EdgeError::NotFound(format!(
+                "no delivery {}: open the document when the lorry arrives, then count into it",
+                request.receipt_id
+            )));
+        };
+        if status != "OPEN" {
+            return Err(EdgeError::Conflict(format!(
+                "delivery {} is {}; open a new one for goods arriving now",
+                request.receipt_id,
+                status.to_lowercase()
+            )));
+        }
+        // One supplier's lorry cannot answer another supplier's order.
+        if delivered_by.trim() != supplier_id.trim() {
+            return Err(EdgeError::Validation(format!(
+                "this delivery came from {delivered_by} and that order is with {supplier_id}; \
+                 a supplier's goods cannot be received against another supplier's order"
+            )));
+        }
+        let receipt_id = self.receipt_for_order(
+            &tx,
+            request.receipt_id,
+            &purchase_order_id,
+            delivered_by.trim(),
+            &request.actor_id,
+        )?;
+        let counted_at = self.clock.now();
+        let mut items = Vec::with_capacity(request.counts.len());
+        {
+            let mut statement = tx
+                .prepare(
+                    "INSERT INTO receiving_count
+                         (count_id, receipt_id, po_line_id, counted_quantity, wrong_quantity,
+                          counted_by, counted_at, status, counted_unit_code, counted_unit_quantity)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'AWAITING_VERIFICATION', ?8, ?9)",
+                )
+                .map_err(db)?;
+            for (entry, counted_unit) in request.counts.iter().zip(&counted_units) {
+                let count_id = Uuid::new_v4();
+                statement
+                    .execute(params![
+                        count_id.to_string(),
+                        receipt_id.to_string(),
+                        entry.po_line_id.to_string(),
+                        entry.counted_quantity,
+                        entry.wrong_quantity,
+                        request.actor_id,
+                        time_text(counted_at),
+                        counted_unit.as_ref().map(|(code, _)| code.clone()),
+                        counted_unit.as_ref().map(|(_, quantity)| quantity.clone()),
+                    ])
+                    .map_err(db)?;
+                items.push(PurchaseCountResult {
+                    count_id,
+                    po_line_id: entry.po_line_id,
+                    wrong_quantity: entry.wrong_quantity,
+                    counted_quantity: entry.counted_quantity,
+                    counted_by: request.actor_id.clone(),
+                    counted_at,
+                });
+            }
+        }
+        let response = PurchaseCountBatchResult { receipt_id, items };
+        Self::save_idempotent(
+            &tx,
+            &request.idempotency_key,
+            "PURCHASE_COUNT_BATCH",
             &request_json,
             &response,
         )?;
@@ -10936,11 +11570,13 @@ impl SqliteEdge {
     ) -> Result<Option<(String, Vec<Uuid>)>, EdgeError> {
         let connection = self.lock()?;
         let header: Option<(Option<String>, Option<String>)> = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT created_by, cancelled_at FROM purchase_order WHERE purchase_order_id = ?1",
-                params![purchase_order_id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
             )
+            .map_err(db)?
+            .query_row(params![purchase_order_id], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
             .optional()
             .map_err(db)?;
         let Some((raised_by, cancelled_at)) = header else {
@@ -11078,29 +11714,29 @@ impl SqliteEdge {
     /// leaves no trace of having not looked, and no code can change that.
     /// Read one delivery document back, with how far it has got.
     fn receipt_view(tx: &Transaction<'_>, receipt_id: Uuid) -> Result<GoodsReceiptView, EdgeError> {
-        tx.query_row(
+        tx.prepare_cached(
             "SELECT r.receipt_number, r.supplier_id, r.arrived_at, r.status, r.opened_by,
                     r.invoice_number, r.invoice_total_minor,
                     (SELECT count(*) FROM receiving_count c WHERE c.receipt_id = r.receipt_id),
                     (SELECT count(*) FROM receiving_count c
                      WHERE c.receipt_id = r.receipt_id AND c.status = 'ACCEPTED')
              FROM goods_receipt r WHERE r.receipt_id = ?1",
-            params![receipt_id.to_string()],
-            |row| {
-                Ok(GoodsReceiptView {
-                    receipt_id,
-                    receipt_number: row.get(0)?,
-                    supplier_id: row.get(1)?,
-                    arrived_at: parse_time_row(row.get::<_, String>(2)?)?,
-                    status: row.get(3)?,
-                    opened_by: row.get(4)?,
-                    invoice_number: row.get(5)?,
-                    invoice_total_minor: row.get(6)?,
-                    counted_lines: row.get(7)?,
-                    accepted_lines: row.get(8)?,
-                })
-            },
         )
+        .map_err(db)?
+        .query_row(params![receipt_id.to_string()], |row| {
+            Ok(GoodsReceiptView {
+                receipt_id,
+                receipt_number: row.get(0)?,
+                supplier_id: row.get(1)?,
+                arrived_at: parse_time_row(row.get::<_, String>(2)?)?,
+                status: row.get(3)?,
+                opened_by: row.get(4)?,
+                invoice_number: row.get(5)?,
+                invoice_total_minor: row.get(6)?,
+                counted_lines: row.get(7)?,
+                accepted_lines: row.get(8)?,
+            })
+        })
         .optional()
         .map_err(db)?
         .ok_or_else(|| EdgeError::NotFound(format!("no delivery {receipt_id}")))
@@ -11117,19 +11753,20 @@ impl SqliteEdge {
         // Gapless per site. The number goes on a document a supplier will
         // quote back at you, so a hole in the sequence is a question somebody
         // has to answer.
-        tx.execute(
+        tx.prepare_cached(
             "INSERT INTO goods_receipt_counter (singleton, last_number) VALUES (1, 0)
              ON CONFLICT(singleton) DO NOTHING",
-            [],
         )
+        .map_err(db)?
+        .execute([])
         .map_err(db)?;
         let next: i64 = tx
-            .query_row(
+            .prepare_cached(
                 "UPDATE goods_receipt_counter SET last_number = last_number + 1
                  WHERE singleton = 1 RETURNING last_number",
-                [],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .map_err(db)?;
         let receipt_id = Uuid::new_v4();
         let opened_at = self.clock.now();
@@ -11141,20 +11778,21 @@ impl SqliteEdge {
             "GRN-{}-{next:06}",
             crate::edge::site_profile::own_display_code(tx, self.node.site_id.as_str())
         );
-        tx.execute(
+        tx.prepare_cached(
             "INSERT INTO goods_receipt
                  (receipt_id, receipt_number, supplier_id, arrived_at, status, opened_by,
                   opened_at)
              VALUES (?1, ?2, ?3, ?4, 'OPEN', ?5, ?6)",
-            params![
-                receipt_id.to_string(),
-                receipt_number,
-                supplier_id,
-                time_text(arrived_at),
-                opened_by,
-                time_text(opened_at)
-            ],
         )
+        .map_err(db)?
+        .execute(params![
+            receipt_id.to_string(),
+            receipt_number,
+            supplier_id,
+            time_text(arrived_at),
+            opened_by,
+            time_text(opened_at)
+        ])
         .map_err(db)?;
         Ok(receipt_id)
     }
@@ -11178,19 +11816,21 @@ impl SqliteEdge {
         actor_id: &str,
     ) -> Result<Uuid, EdgeError> {
         let foreign: i64 = tx
-            .query_row(
+            .prepare_cached(
                 "SELECT count(*) FROM receiving_count c
                    JOIN purchase_order_line l ON l.po_line_id = c.po_line_id
                   WHERE c.receipt_id = ?1 AND l.purchase_order_id <> ?2",
-                params![requested.to_string(), purchase_order_id],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row(params![requested.to_string(), purchase_order_id], |row| {
+                row.get(0)
+            })
             .map_err(db)?;
         if foreign == 0 {
             return Ok(requested);
         }
         let own: Option<String> = tx
-            .query_row(
+            .prepare_cached(
                 "SELECT r.receipt_id FROM goods_receipt r
                   WHERE r.status = 'OPEN' AND r.invoice_number IS NULL
                     AND r.supplier_id = ?2
@@ -11203,9 +11843,9 @@ impl SqliteEdge {
                                      WHERE c.receipt_id = r.receipt_id
                                        AND l.purchase_order_id <> ?1)
                   ORDER BY r.opened_at DESC LIMIT 1",
-                params![purchase_order_id, supplier_id],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row(params![purchase_order_id, supplier_id], |row| row.get(0))
             .optional()
             .map_err(db)?;
         if let Some(own) = own {
@@ -11213,11 +11853,9 @@ impl SqliteEdge {
                 .map_err(|error| EdgeError::Persistence(format!("stored receipt id: {error}")));
         }
         let arrived_at: String = tx
-            .query_row(
-                "SELECT arrived_at FROM goods_receipt WHERE receipt_id = ?1",
-                params![requested.to_string()],
-                |row| row.get(0),
-            )
+            .prepare_cached("SELECT arrived_at FROM goods_receipt WHERE receipt_id = ?1")
+            .map_err(db)?
+            .query_row(params![requested.to_string()], |row| row.get(0))
             .map_err(db)?;
         let arrived_at = DateTime::parse_from_rfc3339(&arrived_at)
             .map(|parsed| parsed.with_timezone(&Utc))
@@ -11268,11 +11906,9 @@ impl SqliteEdge {
         // every check downstream that compares them is worthless if either
         // side can be typed.
         let expected_from: i64 = tx
-            .query_row(
-                "SELECT COUNT(*) FROM purchase_order WHERE supplier_id = ?1",
-                params![request.supplier_id.trim()],
-                |row| row.get(0),
-            )
+            .prepare_cached("SELECT COUNT(*) FROM purchase_order WHERE supplier_id = ?1")
+            .map_err(db)?
+            .query_row(params![request.supplier_id.trim()], |row| row.get(0))
             .map_err(db)?;
         if expected_from == 0 {
             return Err(EdgeError::Validation(format!(
@@ -11369,11 +12005,11 @@ impl SqliteEdge {
         }
 
         let held: Option<(String, String)> = tx
-            .query_row(
-                "SELECT status, supplier_id FROM goods_receipt WHERE receipt_id = ?1",
-                params![request.receipt_id.to_string()],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
+            .prepare_cached("SELECT status, supplier_id FROM goods_receipt WHERE receipt_id = ?1")
+            .map_err(db)?
+            .query_row(params![request.receipt_id.to_string()], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
             .optional()
             .map_err(db)?;
         let Some((status, supplier_id)) = held else {
@@ -11390,12 +12026,12 @@ impl SqliteEdge {
             )));
         }
         let accepted: i64 = tx
-            .query_row(
+            .prepare_cached(
                 "SELECT COUNT(*) FROM receiving_count
                   WHERE receipt_id = ?1 AND status = 'ACCEPTED'",
-                params![request.receipt_id.to_string()],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row(params![request.receipt_id.to_string()], |row| row.get(0))
             .map_err(db)?;
         if accepted > 0 {
             return Err(EdgeError::Conflict(format!(
@@ -11406,17 +12042,18 @@ impl SqliteEdge {
         }
 
         let decided_at = self.clock.now();
-        tx.execute(
+        tx.prepare_cached(
             "UPDATE goods_receipt
                 SET status='REJECTED', rejected_reason=?2, closed_by=?3, closed_at=?4
               WHERE receipt_id=?1",
-            params![
-                request.receipt_id.to_string(),
-                request.reason.trim(),
-                request.actor_id,
-                time_text(decided_at)
-            ],
         )
+        .map_err(db)?
+        .execute(params![
+            request.receipt_id.to_string(),
+            request.reason.trim(),
+            request.actor_id,
+            time_text(decided_at)
+        ])
         .map_err(db)?;
 
         // The centre hears about this one the same way it hears about an
@@ -11484,22 +12121,23 @@ impl SqliteEdge {
 
         let recorded_at = self.clock.now();
         let updated = tx
-            .execute(
+            .prepare_cached(
                 "UPDATE goods_receipt
                  SET invoice_number = ?2, invoice_date = ?3, invoice_total_minor = ?4,
                      invoice_document_ref = ?5, invoice_recorded_by = ?6,
                      invoice_recorded_at = ?7
                  WHERE receipt_id = ?1",
-                params![
-                    request.receipt_id.to_string(),
-                    request.invoice_number.trim(),
-                    request.invoice_date,
-                    request.invoice_total_minor,
-                    request.invoice_document_ref,
-                    request.actor_id,
-                    time_text(recorded_at)
-                ],
             )
+            .map_err(db)?
+            .execute(params![
+                request.receipt_id.to_string(),
+                request.invoice_number.trim(),
+                request.invoice_date,
+                request.invoice_total_minor,
+                request.invoice_document_ref,
+                request.actor_id,
+                time_text(recorded_at)
+            ])
             .map_err(db)?;
         if updated == 0 {
             return Err(EdgeError::NotFound(format!(
@@ -11521,12 +12159,12 @@ impl SqliteEdge {
         // where it lands. It is also the truer rule: an invoice is agreement
         // about goods somebody checked, and nobody has checked these yet.
         let verified: i64 = tx
-            .query_row(
+            .prepare_cached(
                 "SELECT count(*) FROM receiving_count
                  WHERE receipt_id = ?1 AND verified_at IS NOT NULL",
-                params![request.receipt_id.to_string()],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row(params![request.receipt_id.to_string()], |row| row.get(0))
             .map_err(db)?;
         if verified == 0 {
             return Err(EdgeError::Conflict(format!(
@@ -11605,11 +12243,9 @@ impl SqliteEdge {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(db)?;
         let known: i64 = tx
-            .query_row(
-                "SELECT COUNT(*) FROM goods_receipt WHERE receipt_id = ?1",
-                params![request.receipt_id.to_string()],
-                |row| row.get(0),
-            )
+            .prepare_cached("SELECT COUNT(*) FROM goods_receipt WHERE receipt_id = ?1")
+            .map_err(db)?
+            .query_row(params![request.receipt_id.to_string()], |row| row.get(0))
             .map_err(db)?;
         if known == 0 {
             return Err(EdgeError::NotFound(format!(
@@ -11620,7 +12256,7 @@ impl SqliteEdge {
 
         let uploaded_at = self.clock.now();
         let byte_count = request.bytes.len() as i64;
-        tx.execute(
+        tx.prepare_cached(
             "INSERT INTO goods_receipt_invoice_document
                  (receipt_id, filename, content_type, byte_count, bytes, uploaded_by, uploaded_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
@@ -11631,16 +12267,17 @@ impl SqliteEdge {
                  bytes = excluded.bytes,
                  uploaded_by = excluded.uploaded_by,
                  uploaded_at = excluded.uploaded_at",
-            params![
-                request.receipt_id.to_string(),
-                filename,
-                content_type,
-                byte_count,
-                request.bytes,
-                request.actor_id,
-                time_text(uploaded_at)
-            ],
         )
+        .map_err(db)?
+        .execute(params![
+            request.receipt_id.to_string(),
+            filename,
+            content_type,
+            byte_count,
+            request.bytes,
+            request.actor_id,
+            time_text(uploaded_at)
+        ])
         .map_err(db)?;
         tx.commit().map_err(db)?;
 
@@ -11657,19 +12294,20 @@ impl SqliteEdge {
     /// The page back, for a verifier who wants to read it again.
     fn invoice_document_impl(&self, receipt_id: Uuid) -> Result<InvoiceDocument, EdgeError> {
         let connection = self.lock()?;
-        connection
-            .query_row(
+        let mut statement = connection
+            .prepare_cached(
                 "SELECT filename, content_type, bytes
                  FROM goods_receipt_invoice_document WHERE receipt_id = ?1",
-                params![receipt_id.to_string()],
-                |row| {
-                    Ok(InvoiceDocument {
-                        filename: row.get(0)?,
-                        content_type: row.get(1)?,
-                        bytes: row.get(2)?,
-                    })
-                },
             )
+            .map_err(db)?;
+        statement
+            .query_row(params![receipt_id.to_string()], |row| {
+                Ok(InvoiceDocument {
+                    filename: row.get(0)?,
+                    content_type: row.get(1)?,
+                    bytes: row.get(2)?,
+                })
+            })
             .map_err(|error| match error {
                 rusqlite::Error::QueryReturnedNoRows => EdgeError::NotFound(format!(
                     "no invoice page on file for delivery {receipt_id}"
@@ -11828,11 +12466,11 @@ impl SqliteEdge {
         }
 
         let (session_id, status): (String, String) = tx
-            .query_row(
-                "SELECT session_id, status FROM tagging_job WHERE job_id = ?1",
-                params![request.job_id.to_string()],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
+            .prepare_cached("SELECT session_id, status FROM tagging_job WHERE job_id = ?1")
+            .map_err(db)?
+            .query_row(params![request.job_id.to_string()], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
             .optional()
             .map_err(db)?
             .ok_or_else(|| EdgeError::NotFound(format!("no tagging job {}", request.job_id)))?;
@@ -11931,27 +12569,27 @@ impl SqliteEdge {
             // ...and comes back as that many things that can be told apart.
             for epc in &epcs {
                 let unit_subject = Uuid::new_v4();
-                tx.execute(
+                tx.prepare_cached(
                     "INSERT INTO inventory_subject
                          (id, subject_type, article_code, epc, sku_code, quantity,
                           unit_price_minor, created_at)
                      SELECT ?1, 'UNIT', article_code, ?2, ?3, 1, ?4, ?5
                      FROM inventory_subject WHERE id = ?6",
-                    params![
-                        unit_subject.to_string(),
-                        epc,
-                        sku_code,
-                        base_price_minor,
-                        created_at,
-                        subject_id
-                    ],
                 )
+                .map_err(db)?
+                .execute(params![
+                    unit_subject.to_string(),
+                    epc,
+                    sku_code,
+                    base_price_minor,
+                    created_at,
+                    subject_id
+                ])
                 .map_err(db)?;
-                tx.execute(
-                    "UPDATE tagging_job_epc SET subject_id = ?2 WHERE epc = ?1",
-                    params![epc, unit_subject.to_string()],
-                )
-                .map_err(db)?;
+                tx.prepare_cached("UPDATE tagging_job_epc SET subject_id = ?2 WHERE epc = ?1")
+                    .map_err(db)?
+                    .execute(params![epc, unit_subject.to_string()])
+                    .map_err(db)?;
                 movement_lines.push(MovementLine {
                     subject_id: SubjectId(unit_subject),
                     quantity: 1,
@@ -11986,11 +12624,9 @@ impl SqliteEdge {
         };
         let movement_group_id: Uuid = if printed_only {
             let stored: Option<String> = tx
-                .query_row(
-                    "SELECT movement_group_id FROM tagging_job WHERE job_id = ?1",
-                    params![request.job_id.to_string()],
-                    |row| row.get(0),
-                )
+                .prepare_cached("SELECT movement_group_id FROM tagging_job WHERE job_id = ?1")
+                .map_err(db)?
+                .query_row(params![request.job_id.to_string()], |row| row.get(0))
                 .map_err(db)?;
             let stored = stored.ok_or_else(|| {
                 EdgeError::Persistence(format!(
@@ -12006,17 +12642,18 @@ impl SqliteEdge {
                 .movement_group_id
         };
 
-        tx.execute(
+        tx.prepare_cached(
             "UPDATE tagging_job
              SET status='TAGGED', confirmed_by=?2, confirmed_at=?3, movement_group_id=?4
              WHERE job_id=?1",
-            params![
-                request.job_id.to_string(),
-                request.actor_id,
-                created_at,
-                movement_group_id.to_string()
-            ],
         )
+        .map_err(db)?
+        .execute(params![
+            request.job_id.to_string(),
+            request.actor_id,
+            created_at,
+            movement_group_id.to_string()
+        ])
         .map_err(db)?;
 
         // The centre hears that the job is done. It does not hear the EPCs:
@@ -12166,12 +12803,14 @@ impl SqliteEdge {
 
         let id = return_id.to_string();
         let header: Option<(String, String, String, Option<String>)> = tx
-            .query_row(
+            .prepare_cached(
                 "SELECT status, return_number, supplier_id, supplier_name
                    FROM purchase_return WHERE return_id = ?1",
-                params![id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
+            .map_err(db)?
+            .query_row(params![id], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })
             .optional()
             .map_err(db)?;
         let Some((status, number, supplier_id, supplier_name)) = header else {
@@ -12194,7 +12833,9 @@ impl SqliteEdge {
                 )
                 .map_err(db)?;
             let rows = statement
-                .query_map(params![id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+                .query_map(params![id], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                })
                 .map_err(db)?
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(db)?;
@@ -12215,14 +12856,14 @@ impl SqliteEdge {
         let mut lines = Vec::with_capacity(wanted.len());
         for (receipt_line_id, article_code, quantity) in &wanted {
             let subject: String = tx
-                .query_row(
+                .prepare_cached(
                     "SELECT m.subject_id
                        FROM receiving_count c
                        JOIN movement m ON m.movement_group_id = c.movement_group_id
                       WHERE c.receipt_line_id = ?1 AND c.status = 'ACCEPTED'",
-                    params![receipt_line_id],
-                    |row| row.get(0),
                 )
+                .map_err(db)?
+                .query_row(params![receipt_line_id], |row| row.get(0))
                 .optional()
                 .map_err(db)?
                 .ok_or_else(|| {
@@ -12232,12 +12873,12 @@ impl SqliteEdge {
                     ))
                 })?;
             let on_hand: i64 = tx
-                .query_row(
+                .prepare_cached(
                     "SELECT quantity FROM inventory_projection
                       WHERE subject_id = ?1 AND place_id = ?2",
-                    params![subject, from.id()],
-                    |row| row.get(0),
                 )
+                .map_err(db)?
+                .query_row(params![subject, from.id()], |row| row.get(0))
                 .optional()
                 .map_err(db)?
                 .unwrap_or(0);
@@ -12280,25 +12921,28 @@ impl SqliteEdge {
             occurred_at,
         };
         let movement = self.append_command(&tx, &request.idempotency_key, &command)?;
-        tx.execute(
+        tx.prepare_cached(
             "UPDATE purchase_return
                 SET status = 'HANDED_OVER', handed_over_by = ?2, handed_over_to = ?3,
                     handed_over_at = ?4, movement_group_id = ?5
               WHERE return_id = ?1",
-            params![
-                id,
-                request.actor_id,
-                handed_to,
-                time_text(occurred_at),
-                movement.movement_group_id.to_string()
-            ],
         )
+        .map_err(db)?
+        .execute(params![
+            id,
+            request.actor_id,
+            handed_to,
+            time_text(occurred_at),
+            movement.movement_group_id.to_string()
+        ])
         .map_err(db)?;
         let view = Self::load_purchase_returns(&tx, Some(&id))?
             .into_iter()
             .next()
             .ok_or_else(|| {
-                EdgeError::Persistence("the purchase return vanished while being handed over".into())
+                EdgeError::Persistence(
+                    "the purchase return vanished while being handed over".into(),
+                )
             })?;
         Self::save_idempotent(
             &tx,
@@ -12349,8 +12993,18 @@ impl SqliteEdge {
         }
 
         #[allow(clippy::type_complexity)]
-        let row: Option<(String, String, i64, i64, String, String, i64, Option<i64>, i64)> = tx
-            .query_row(
+        let row: Option<(
+            String,
+            String,
+            i64,
+            i64,
+            String,
+            String,
+            i64,
+            Option<i64>,
+            i64,
+        )> = tx
+            .prepare_cached(
                 "SELECT c.po_line_id, c.counted_by, c.counted_quantity, c.wrong_quantity,
                         c.status, l.article_code, l.ordered_quantity, l.unit_price_minor,
                         COALESCE((SELECT SUM(a.matched_quantity) FROM receiving_count a
@@ -12358,21 +13012,21 @@ impl SqliteEdge {
                  FROM receiving_count c
                  JOIN purchase_order_line l ON l.po_line_id = c.po_line_id
                  WHERE c.count_id = ?1",
-                params![request.count_id.to_string()],
-                |row| {
-                    Ok((
-                        row.get(0)?,
-                        row.get(1)?,
-                        row.get(2)?,
-                        row.get(3)?,
-                        row.get(4)?,
-                        row.get(5)?,
-                        row.get(6)?,
-                        row.get(7)?,
-                        row.get(8)?,
-                    ))
-                },
             )
+            .map_err(db)?
+            .query_row(params![request.count_id.to_string()], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                    row.get(7)?,
+                    row.get(8)?,
+                ))
+            })
             .optional()
             .map_err(db)?;
         let Some((
@@ -12403,14 +13057,14 @@ impl SqliteEdge {
         // void. Neither accepting nor sending it back may touch the order,
         // or goods would be booked against an order nobody will pay for.
         let cancelled: Option<String> = tx
-            .query_row(
+            .prepare_cached(
                 "SELECT o.cancelled_at
                    FROM purchase_order_line l
                    JOIN purchase_order o ON o.purchase_order_id = l.purchase_order_id
                   WHERE l.po_line_id = ?1",
-                params![po_line_id],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row(params![po_line_id], |row| row.get(0))
             .optional()
             .map_err(db)?
             .flatten();
@@ -12425,17 +13079,18 @@ impl SqliteEdge {
         let decided_at = self.clock.now();
 
         if request.decision == PurchaseVerifyDecision::Recount {
-            tx.execute(
+            tx.prepare_cached(
                 "UPDATE receiving_count
                  SET status='RECOUNT_REQUESTED', verified_by=?2, verified_at=?3, verifier_note=?4
                  WHERE count_id=?1",
-                params![
-                    request.count_id.to_string(),
-                    request.verifier_actor_id,
-                    time_text(decided_at),
-                    request.note
-                ],
             )
+            .map_err(db)?
+            .execute(params![
+                request.count_id.to_string(),
+                request.verifier_actor_id,
+                time_text(decided_at),
+                request.note
+            ])
             .map_err(db)?;
             let response = PurchaseVerifyResult {
                 count_id: request.count_id,
@@ -12475,11 +13130,9 @@ impl SqliteEdge {
         // A line the centre closed short is owed nothing more: what still
         // arrives against it is beyond the order.
         let closed_short: Option<String> = tx
-            .query_row(
-                "SELECT closed_short_at FROM purchase_order_line WHERE po_line_id = ?1",
-                params![po_line_id.to_string()],
-                |row| row.get(0),
-            )
+            .prepare_cached("SELECT closed_short_at FROM purchase_order_line WHERE po_line_id = ?1")
+            .map_err(db)?
+            .query_row(params![po_line_id.to_string()], |row| row.get(0))
             .map_err(db)?;
         let outstanding = if closed_short.is_some() {
             0
@@ -12488,25 +13141,27 @@ impl SqliteEdge {
         };
         // The count path refuses a wrong quantity outside 0..=counted; the
         // clamp is for a count written before the column meant anything.
-        let correct_quantity = (counted_quantity - wrong_quantity.clamp(0, counted_quantity)).max(0);
+        let correct_quantity =
+            (counted_quantity - wrong_quantity.clamp(0, counted_quantity)).max(0);
         let matched_quantity = correct_quantity.min(outstanding);
         let excess_quantity = counted_quantity - matched_quantity;
 
         // Accepted. The goods come into existence as a quantity of an article
         // — the only thing anyone yet knows about them.
         let subject_id = SubjectId::new();
-        tx.execute(
+        tx.prepare_cached(
             "INSERT INTO inventory_subject
                  (id, subject_type, article_code, epc, sku_code, quantity,
                   unit_price_minor, created_at)
              VALUES (?1, 'QUANTITY', ?2, NULL, NULL, ?3, 0, ?4)",
-            params![
-                subject_id.to_string(),
-                article_code,
-                counted_quantity,
-                time_text(decided_at)
-            ],
         )
+        .map_err(db)?
+        .execute(params![
+            subject_id.to_string(),
+            article_code,
+            counted_quantity,
+            time_text(decided_at)
+        ])
         .map_err(db)?;
         let command = MovementCommand {
             movement_group_id: MovementGroupId::new(),
@@ -12546,27 +13201,28 @@ impl SqliteEdge {
         // session against. Both happen in one statement because the CHECK
         // ties them together: a count is accepted exactly when it has a line.
         let receipt_line_id = Uuid::new_v4();
-        tx.execute(
+        tx.prepare_cached(
             "UPDATE receiving_count
              SET status='ACCEPTED', verified_by=?2, verified_at=?3, movement_group_id=?4,
                  receipt_line_id=?5, matched_quantity=?6, excess_quantity=?7,
                  agreed_unit_price_minor=?8
              WHERE count_id=?1",
-            params![
-                request.count_id.to_string(),
-                request.verifier_actor_id,
-                time_text(decided_at),
-                movement.movement_group_id.to_string(),
-                receipt_line_id.to_string(),
-                matched_quantity,
-                excess_quantity,
-                // The price as it stands right now. Written onto the
-                // acceptance rather than read back from the order later,
-                // because approving an amendment next month must not restate
-                // what this delivery was worth.
-                agreed_unit_price_minor
-            ],
         )
+        .map_err(db)?
+        .execute(params![
+            request.count_id.to_string(),
+            request.verifier_actor_id,
+            time_text(decided_at),
+            movement.movement_group_id.to_string(),
+            receipt_line_id.to_string(),
+            matched_quantity,
+            excess_quantity,
+            // The price as it stands right now. Written onto the
+            // acceptance rather than read back from the order later,
+            // because approving an amendment next month must not restate
+            // what this delivery was worth.
+            agreed_unit_price_minor
+        ])
         .map_err(db)?;
         // A price that disagrees with the invoice is reported, not obeyed and
         // not waited on. The goods are already going in above; this only asks
@@ -12581,11 +13237,11 @@ impl SqliteEdge {
                 ));
             }
             let agreed: Option<i64> = tx
-                .query_row(
+                .prepare_cached(
                     "SELECT unit_price_minor FROM purchase_order_line WHERE po_line_id = ?1",
-                    params![po_line_id.to_string()],
-                    |row| row.get(0),
                 )
+                .map_err(db)?
+                .query_row(params![po_line_id.to_string()], |row| row.get(0))
                 .optional()
                 .map_err(db)?
                 .flatten();
@@ -12606,21 +13262,22 @@ impl SqliteEdge {
                             agreed.unwrap_or_default()
                         )
                     });
-                tx.execute(
+                tx.prepare_cached(
                     "INSERT INTO purchase_price_amendment
                          (request_id, po_line_id, count_id, invoiced_price_minor, note,
                           requested_by, requested_at)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                    params![
-                        query_id.to_string(),
-                        po_line_id.to_string(),
-                        request.count_id.to_string(),
-                        invoiced,
-                        note,
-                        request.verifier_actor_id,
-                        time_text(decided_at)
-                    ],
                 )
+                .map_err(db)?
+                .execute(params![
+                    query_id.to_string(),
+                    po_line_id.to_string(),
+                    request.count_id.to_string(),
+                    invoiced,
+                    note,
+                    request.verifier_actor_id,
+                    time_text(decided_at)
+                ])
                 .map_err(db)?;
                 crate::edge::sync::enqueue_fact(
                     &tx,
@@ -13050,6 +13707,7 @@ mod charge_tests {
             }],
             actor_id: "cashier".into(),
             idempotency_key: "fee-sale-short".into(),
+            coupon_authorizations: Vec::new(),
         });
         assert!(
             matches!(refused, Err(EdgeError::Validation(_))),
@@ -13079,6 +13737,7 @@ mod charge_tests {
                 }],
                 actor_id: "cashier".into(),
                 idempotency_key: "fee-sale-1".into(),
+                coupon_authorizations: Vec::new(),
             })
             .unwrap_or_else(|error| panic!("sale: {error}"));
 
@@ -13092,12 +13751,14 @@ mod charge_tests {
 
         let connection = store.lock().unwrap_or_else(|error| panic!("lock: {error}"));
         let (code, amount, category): (String, i64, String) = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT code, amount_minor, tax_category FROM sale_charge
                   WHERE sale_id=?1 AND charge_seq=0",
-                [sale.sale_id.to_string()],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
+            .map_err(db)?
+            .query_row([sale.sale_id.to_string()], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
             .unwrap_or_else(|error| panic!("read the fee back: {error}"));
         assert_eq!(
             (code.as_str(), amount, category.as_str()),
@@ -13105,11 +13766,9 @@ mod charge_tests {
         );
 
         let on_the_sale: Option<i64> = connection
-            .query_row(
-                "SELECT charge_total_minor FROM sale WHERE id=?1",
-                [sale.sale_id.to_string()],
-                |row| row.get(0),
-            )
+            .prepare_cached("SELECT charge_total_minor FROM sale WHERE id=?1")
+            .map_err(db)?
+            .query_row([sale.sale_id.to_string()], |row| row.get(0))
             .unwrap_or_else(|error| panic!("read the sale back: {error}"));
         assert_eq!(on_the_sale, Some(20_000), "readable without a join");
     }
@@ -13136,24 +13795,21 @@ mod charge_tests {
                 }],
                 actor_id: "cashier".into(),
                 idempotency_key: "fee-sale-none".into(),
+                coupon_authorizations: Vec::new(),
             })
             .unwrap_or_else(|error| panic!("sale: {error}"));
 
         let connection = store.lock().unwrap_or_else(|error| panic!("lock: {error}"));
         let on_the_sale: Option<i64> = connection
-            .query_row(
-                "SELECT charge_total_minor FROM sale WHERE id=?1",
-                [sale.sale_id.to_string()],
-                |row| row.get(0),
-            )
+            .prepare_cached("SELECT charge_total_minor FROM sale WHERE id=?1")
+            .map_err(db)?
+            .query_row([sale.sale_id.to_string()], |row| row.get(0))
             .unwrap_or_else(|error| panic!("read the sale back: {error}"));
         assert_eq!(on_the_sale, None);
         let fees: i64 = connection
-            .query_row(
-                "SELECT COUNT(*) FROM sale_charge WHERE sale_id=?1",
-                [sale.sale_id.to_string()],
-                |row| row.get(0),
-            )
+            .prepare_cached("SELECT COUNT(*) FROM sale_charge WHERE sale_id=?1")
+            .map_err(db)?
+            .query_row([sale.sale_id.to_string()], |row| row.get(0))
             .unwrap_or_else(|error| panic!("count: {error}"));
         assert_eq!(fees, 0);
     }
@@ -13204,12 +13860,19 @@ mod petty_tests {
         let hash = crate::security::hash_password(password, 8)
             .unwrap_or_else(|error| panic!("hash: {error}"));
         connection
-            .execute(
+            .prepare_cached(
                 "INSERT INTO edge_user(id,username,display_name,password_hash,role,active,
                                        auth_version,source,created_at,updated_at)
                  VALUES(?1,?2,?2,?3,?4,1,1,'LOCAL',?5,?5)",
-                params![Uuid::new_v4().to_string(), username, hash, role, now_text()],
             )
+            .map_err(db)?
+            .execute(params![
+                Uuid::new_v4().to_string(),
+                username,
+                hash,
+                role,
+                now_text()
+            ])
             .unwrap_or_else(|error| panic!("seed {role}: {error}"));
     }
 
@@ -13482,7 +14145,10 @@ mod counting_in_units {
     #[test]
     fn a_count_in_units_is_exact_whole_pieces() {
         assert_eq!(pieces_of("9.5", "20"), Some(190));
-        assert_eq!(pieces_of("2,5".replace(',', ".").as_str(), "20.0000"), Some(50));
+        assert_eq!(
+            pieces_of("2,5".replace(',', ".").as_str(), "20.0000"),
+            Some(50)
+        );
         assert_eq!(pieces_of("10", "12"), Some(120));
         assert_eq!(pieces_of("0.1", "30"), Some(3));
         assert_eq!(pieces_of("9.53", "20"), None);

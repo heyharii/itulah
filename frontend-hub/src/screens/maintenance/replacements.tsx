@@ -8,12 +8,14 @@ import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { EmptyState, LoadMore, type Pageable } from "@/components/ui/states"
 import { count } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { gaKeys, gaReplacements } from "@/lib/queries/ga"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { FinanceMark } from "@/screens/contracts/parts"
 import { ReplacementSheet } from "@/screens/maintenance/hub"
 import { ReplacementStagePill } from "@/screens/maintenance/parts"
+import { type CardSpec, PhoneCards } from "@/components/ui/phone-cards"
 import { SupplierName } from "@/screens/procurement/supplier-name"
 import type { GaMaintenanceFacet, GaReplacementRow } from "@itulah/contract"
 
@@ -121,6 +123,30 @@ function SummaryStrip({
   )
 }
 
+/// A swap as a phone's card: the old asset, why it goes and what takes its
+/// place, who supplies it, the repair that led there, and where it stands.
+const REPLACEMENT_CARD: CardSpec<GaReplacementRow> = {
+  title: (row) => (
+    <span className="min-w-0 break-words">{row.old_asset_name ?? "—"}</span>
+  ),
+  meta: [
+    (row) => row.reason,
+    (row) =>
+      row.new_asset_name === null
+        ? "New asset created once installed"
+        : `Replaced by ${row.new_asset_name}`,
+    (row) =>
+      row.supplier_name === null && row.supplier_id === null ? null : (
+        <SupplierName code={row.supplier_id} name={row.supplier_name} />
+      ),
+  ],
+  foot: (row) =>
+    row.repair_id === null
+      ? "No repair"
+      : `Repair ${row.repair_id.slice(0, 8)}`,
+  action: (row) => <ReplacementStagePill status={row.status} />,
+}
+
 function ReplacementTable({
   rows,
   onOpen,
@@ -130,6 +156,18 @@ function ReplacementTable({
   onOpen: (replacementId: string) => void
   more: Pageable
 }) {
+  const phone = useLayout() === "phone"
+  if (phone) {
+    return (
+      <PhoneCards
+        rows={rows}
+        rowId={(row) => row.replacement_id}
+        spec={REPLACEMENT_CARD}
+        onOpen={(row) => onOpen(row.replacement_id)}
+        more={more}
+      />
+    )
+  }
   return (
     <Card className="overflow-hidden">
       {/* The book scrolls INSIDE its own box rather than squeezing the

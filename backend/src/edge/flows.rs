@@ -20,8 +20,8 @@
 
 use super::sqlite::db;
 use super::{
-    EdgeError, InventoryState, MovementCause, MovementCommand, MovementGroupId,
-    MovementLine, NodeContext, OperationalPool, Place, SubjectId,
+    EdgeError, InventoryState, MovementCause, MovementCommand, MovementGroupId, MovementLine,
+    NodeContext, OperationalPool, Place, SubjectId,
 };
 use crate::sync::flow::{
     FlowEventsPayload, ReturnInspectedLine, ReturnInspectedPayload, FLOW_FACT_SCHEMA_VERSION,

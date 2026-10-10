@@ -14,6 +14,7 @@ import {
 } from "recharts"
 
 import type { ChartRow } from "@/components/ui/chart"
+import { compactFormat } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 /// The Money module's two charts, in the hub's grammar.
@@ -33,11 +34,9 @@ import { cn } from "@/lib/utils"
 /// Type size is inherited: the container carries `text-eyebrow` and the SVG
 /// text picks it up, so no px literal reaches a tick.
 
-/// Axis ticks only, in the shop's own locale.
-const compact = new Intl.NumberFormat("id-ID", {
-  notation: "compact",
-  maximumFractionDigits: 1,
-})
+/// Axis ticks only: K, M, B — the hub's `compactFormat`, so an axis reads the
+/// same here as at head office. The exact figure is in the tooltip.
+const compact = compactFormat()
 
 const GRID = (
   <CartesianGrid

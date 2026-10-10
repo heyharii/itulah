@@ -222,18 +222,25 @@ function DockDrawer({
         style={{ height }}
         className="group/dock overflow-hidden rounded-[1.75rem] border border-black/[0.06] bg-canvas/95 shadow-float backdrop-blur-xl transition-[height] duration-300 ease-(--ease-drawer) motion-reduce:transition-none"
       >
+        {/* 44px, the least a thumb is asked to hit (owner, 2026-10-06, D1).
+            The controls in the slots are drawn at 44; the floor on each slot's
+            children is the net under any a screen draws by hand at 36, so a
+            chip nobody remembered cannot be the one that is missed. */}
         <div ref={inside} className="flex items-center gap-1.5 p-2">
           <div
             ref={tabsRef}
-            className="min-w-0 group-data-[searching]/dock:hidden empty:hidden has-[[role=tablist]]:flex-1"
+            className="flex min-w-0 items-center gap-1.5 group-data-[searching]/dock:hidden empty:hidden has-[[role=tablist]]:flex-1 [&>*]:min-h-11 [&>*]:min-w-11"
           />
           <div
             ref={searchRef}
-            className="shrink-0 group-data-[searching]/dock:flex-1 empty:hidden has-[.dock-field]:min-w-0 has-[.dock-field]:flex-1"
+            className="shrink-0 group-data-[searching]/dock:flex-1 empty:hidden has-[.dock-field]:min-w-0 has-[.dock-field]:flex-1 [&>*]:min-h-11 [&>*]:min-w-11"
           />
           <div
             ref={actionRef}
-            className="shrink-0 group-data-[searching]/dock:hidden empty:hidden has-[.dock-wide]:flex-1"
+            // A row of its own children: the reload (`RefreshStamp`) stands
+            // beside the screen's one action, and a wide action takes what
+            // the reload leaves.
+            className="flex shrink-0 items-center gap-1.5 group-data-[searching]/dock:hidden empty:hidden has-[.dock-wide]:flex-1 [&>*]:min-h-11 [&>*]:min-w-11 [&>.dock-wide]:w-auto [&>.dock-wide]:min-w-0 [&>.dock-wide]:flex-1"
           />
         </div>
       </div>
@@ -243,7 +250,7 @@ function DockDrawer({
 
 const tabClass = (on: boolean) =>
   cn(
-    "group relative flex h-full w-full flex-col items-center justify-center gap-0.5 text-[0.75rem] font-medium tracking-[0.005em] transition-colors",
+    "group relative flex h-full w-full flex-col items-center justify-center gap-0.5 text-[0.875rem] leading-[1.2] font-medium tracking-[0.005em] transition-colors",
     on ? "text-accent" : "text-mute"
   )
 
@@ -290,7 +297,10 @@ function TabFace({
           />
         )}
       </span>
-      <span className="relative max-w-full truncate px-1">{label}</span>
+      {/* 14px, the floor, and a label that is longer than its fifth of the
+          bar asks the others for the room instead of being cut: see the
+          columns of `DepartmentTabs`. */}
+      <span className="relative max-w-[6rem] truncate px-0.5">{label}</span>
     </>
   )
 }
@@ -335,7 +345,13 @@ function DepartmentTabs({
     <>
       <ul
         className="grid h-[3.25rem]"
-        style={{ gridTemplateColumns: `repeat(${slots}, minmax(0, 1fr))` }}
+        // Equal fifths, except that a word wider than its fifth takes what it
+        // needs from the rest (a 14px label does not fit 75px at 375 wide:
+        // "Exceptions", "Promotions", "New Articles"). The label's own cap
+        // (6rem) keeps the sum inside the bar.
+        style={{
+          gridTemplateColumns: `repeat(${slots}, minmax(min-content, 1fr))`,
+        }}
       >
         <li>
           <HomeButton fallback="/apps" />
@@ -448,7 +464,7 @@ function HomeButton({ fallback = "/apps" }: { fallback?: string }) {
       // is greyed only on Home itself, where there is nowhere to go.
       disabled={within(pathname, fallback)}
       onClick={() => void router.navigate({ to: fallback as never })}
-      className="group relative flex h-full w-full flex-col items-center justify-center gap-1 text-[0.75rem] font-medium tracking-[0.005em] text-mute transition-opacity disabled:opacity-40"
+      className="group relative flex h-full w-full flex-col items-center justify-center gap-0.5 text-[0.875rem] leading-[1.2] font-medium tracking-[0.005em] text-mute transition-opacity disabled:opacity-40"
     >
       <span className="transition-[scale] duration-(--t-press) ease-(--ease-out) group-active:scale-[0.9]">
         <House className="size-[1.375rem] stroke-[1.7]" />

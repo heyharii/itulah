@@ -271,6 +271,110 @@ fn setup_for(receipt_line_id: Uuid, article_code: Option<&str>) -> NewSetupSessi
     }
 }
 
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn background_setup_replays_and_two_workers_mint_once(pool: PgPool) {
+    enrol_dc(&pool).await;
+    let dc = distribution_centre();
+    let receipt = deliver(&pool, &dc, "background-once", SUPPLIER_CODE).await;
+    let request = setup_for(receipt, None);
+    let session = cloud::create_setup_session_background(&pool, &request, "background-once")
+        .await
+        .unwrap_or_else(|e| panic!("accept: {e}"));
+    let replay = cloud::create_setup_session_background(&pool, &request, "background-once")
+        .await
+        .unwrap_or_else(|e| panic!("replay: {e}"));
+    assert_eq!(session, replay);
+    let before = cloud::setup_session_status(&pool, session)
+        .await
+        .unwrap_or_else(|e| panic!("status: {e}"));
+    assert_eq!(before["issue_state"], "QUEUED");
+    assert!(
+        before["job"].is_null(),
+        "accepting a setup does not wait for minting"
+    );
+    let (a, b) = tokio::join!(
+        cloud::process_setup_issue_queue(&pool),
+        cloud::process_setup_issue_queue(&pool)
+    );
+    assert_eq!(
+        a.unwrap_or_else(|e| panic!("worker a: {e}"))
+            + b.unwrap_or_else(|e| panic!("worker b: {e}")),
+        1
+    );
+    let after = cloud::setup_session_status(&pool, session)
+        .await
+        .unwrap_or_else(|e| panic!("status: {e}"));
+    assert_eq!(after["status"], "ISSUED");
+    assert_eq!(after["issue_state"], "DONE");
+    let jobs: i64 = sqlx::query_scalar("SELECT count(*) FROM tagging_job WHERE session_id=$1")
+        .bind(session)
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("jobs: {e}"));
+    assert_eq!(jobs, 1);
+    assert_eq!(
+        cloud::process_setup_issue_queue(&pool)
+            .await
+            .unwrap_or_else(|e| panic!("idle: {e}")),
+        0
+    );
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn background_setup_rolls_back_invalid_save_and_recovers_failed_work(pool: PgPool) {
+    enrol_dc(&pool).await;
+    let dc = distribution_centre();
+    let receipt = deliver(&pool, &dc, "background-recovery", SUPPLIER_CODE).await;
+    let request = setup_for(receipt, None);
+    let mut short = request.clone();
+    short.variants[0].quantity -= 1;
+    assert!(
+        cloud::create_setup_session_background(&pool, &short, "invalid-background")
+            .await
+            .is_err()
+    );
+    let saved: i64 = sqlx::query_scalar("SELECT count(*) FROM article_setup_issue_queue")
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("queue: {e}"));
+    assert_eq!(saved, 0);
+    let session = cloud::create_setup_session_background(&pool, &request, "background-recovery")
+        .await
+        .unwrap_or_else(|e| panic!("accept: {e}"));
+    sqlx::query("UPDATE sync_origin_credential SET inventory_enabled=false WHERE origin_id=$1")
+        .bind(DC_ORIGIN)
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("disconnect: {e}"));
+    for attempt in 0..3 {
+        if attempt > 0 {
+            // Simulate a lost worker lease as well as a scheduled retry.
+            sqlx::query("UPDATE article_setup_issue_queue SET state='PROCESSING',lease_until=now()-interval '1 second' WHERE session_id=$1")
+                .bind(session).execute(&pool).await.unwrap_or_else(|e| panic!("expire: {e}"));
+        }
+        cloud::process_setup_issue_queue(&pool)
+            .await
+            .unwrap_or_else(|e| panic!("failed worker: {e}"));
+    }
+    let failed = cloud::setup_session_status(&pool, session)
+        .await
+        .unwrap_or_else(|e| panic!("status: {e}"));
+    assert_eq!(failed["status"], "OPEN");
+    assert_eq!(failed["issue_state"], "FAILED");
+    assert!(failed["job"].is_null());
+    enrol_dc(&pool).await;
+    cloud::enqueue_setup_issue(&pool, session, "merchandiser-1")
+        .await
+        .unwrap_or_else(|e| panic!("retry: {e}"));
+    cloud::process_setup_issue_queue(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("recovered worker: {e}"));
+    let done = cloud::setup_session_status(&pool, session)
+        .await
+        .unwrap_or_else(|e| panic!("done: {e}"));
+    assert_eq!(done["issue_state"], "DONE");
+}
+
 // ---------------------------------------------------------------------------
 
 #[sqlx::test(migrations = "./migrations/postgres")]
@@ -562,6 +666,149 @@ async fn two_deliveries_of_one_sku_never_share_a_serial(pool: PgPool) {
     assert_eq!(counters.len(), 2);
     assert_eq!(counters[0].1, 120, "60 from each of two deliveries");
     assert_eq!(counters[1].1, 116, "58 from each of two deliveries");
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn concurrent_setup_issues_reserve_disjoint_ranges(pool: PgPool) {
+    enrol_dc(&pool).await;
+    let dc = distribution_centre();
+    let first = deliver(&pool, &dc, "concurrent-1", SUPPLIER_CODE).await;
+    let first_session = cloud::create_setup_session(&pool, &setup_for(first, None))
+        .await
+        .unwrap_or_else(|e| panic!("first setup: {e}"));
+    cloud::issue_setup_session(&pool, first_session, "merchandiser-1")
+        .await
+        .unwrap_or_else(|e| panic!("first issue: {e}"));
+    let article: String =
+        sqlx::query_scalar("SELECT article_code FROM article_setup_session WHERE session_id = $1")
+            .bind(first_session)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|e| panic!("article: {e}"));
+
+    let second = deliver(&pool, &dc, "concurrent-2", SUPPLIER_CODE).await;
+    let third = deliver(&pool, &dc, "concurrent-3", SUPPLIER_CODE).await;
+    let second_session = cloud::create_setup_session(&pool, &setup_for(second, Some(&article)))
+        .await
+        .unwrap_or_else(|e| panic!("second setup: {e}"));
+    let third_session = cloud::create_setup_session(&pool, &setup_for(third, Some(&article)))
+        .await
+        .unwrap_or_else(|e| panic!("third setup: {e}"));
+
+    let (second_issue, third_issue) = tokio::join!(
+        cloud::issue_setup_session(&pool, second_session, "merchandiser-2"),
+        cloud::issue_setup_session(&pool, third_session, "merchandiser-3"),
+    );
+    second_issue.unwrap_or_else(|e| panic!("second issue: {e}"));
+    third_issue.unwrap_or_else(|e| panic!("third issue: {e}"));
+
+    let ranges = sqlx::query(
+        "SELECT l.sku_code, array_agg(l.serial_from ORDER BY l.serial_from) AS starts,
+                array_agg(l.serial_to ORDER BY l.serial_from) AS ends,
+                c.last_serial
+           FROM tagging_job_line l
+           JOIN epc_serial_counter c USING (sku_code)
+          GROUP BY l.sku_code, c.last_serial
+          ORDER BY l.sku_code",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_else(|e| panic!("ranges: {e}"));
+    assert_eq!(ranges.len(), 2, "the article has two SKUs");
+    for row in ranges {
+        let sku: String = row.get("sku_code");
+        let starts: Vec<i64> = row.get("starts");
+        let ends: Vec<i64> = row.get("ends");
+        let last_serial: i64 = row.get("last_serial");
+        assert_eq!(starts.len(), 3, "{sku} should have one range per delivery");
+        assert_eq!(ends.len(), starts.len());
+        for index in 1..starts.len() {
+            assert!(
+                starts[index] > ends[index - 1],
+                "{sku} ranges overlap: {starts:?} {ends:?}"
+            );
+        }
+        assert_eq!(last_serial, *ends.last().unwrap_or(&0), "{sku} counter");
+    }
+}
+
+#[sqlx::test(migrations = "./migrations/postgres")]
+async fn serial_counter_overflow_rolls_back_the_setup_issue(pool: PgPool) {
+    enrol_dc(&pool).await;
+    let dc = distribution_centre();
+    let first = deliver(&pool, &dc, "overflow-1", SUPPLIER_CODE).await;
+    let first_session = cloud::create_setup_session(&pool, &setup_for(first, None))
+        .await
+        .unwrap_or_else(|e| panic!("first setup: {e}"));
+    cloud::issue_setup_session(&pool, first_session, "merchandiser-1")
+        .await
+        .unwrap_or_else(|e| panic!("first issue: {e}"));
+    let article: String =
+        sqlx::query_scalar("SELECT article_code FROM article_setup_session WHERE session_id = $1")
+            .bind(first_session)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|e| panic!("article: {e}"));
+
+    let second = deliver(&pool, &dc, "overflow-2", SUPPLIER_CODE).await;
+    let second_session = cloud::create_setup_session(&pool, &setup_for(second, Some(&article)))
+        .await
+        .unwrap_or_else(|e| panic!("second setup: {e}"));
+    let sku_03 = format!("{article}103");
+    let sku_04 = format!("{article}104");
+    sqlx::query(
+        "UPDATE epc_serial_counter SET last_serial = $2
+          WHERE rtrim(sku_code::text) = ANY($1::text[])",
+    )
+    .bind(vec![sku_03.clone()])
+    .bind(i64::MAX - 10)
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|e| panic!("set counters near overflow: {e}"));
+    let counters_before: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT rtrim(sku_code::text), last_serial FROM epc_serial_counter
+          WHERE rtrim(sku_code::text) = ANY($1::text[]) ORDER BY sku_code",
+    )
+    .bind(vec![sku_03.clone(), sku_04.clone()])
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_else(|e| panic!("read counters before issue: {e}"));
+    assert_eq!(counters_before.len(), 2);
+    assert_eq!(counters_before[0].0, sku_03);
+    assert_eq!(counters_before[0].1, i64::MAX - 10);
+    assert_eq!(counters_before[1].0, sku_04);
+    assert_eq!(
+        counters_before[1].1, 58,
+        "the other SKU has room to advance"
+    );
+
+    let error = cloud::issue_setup_session(&pool, second_session, "merchandiser-2")
+        .await
+        .err()
+        .unwrap_or_else(|| panic!("an overflowing counter must refuse the issue"));
+    assert!(error.to_string().contains("serial counter"), "{error}");
+
+    let counters_after: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT rtrim(sku_code::text), last_serial FROM epc_serial_counter
+          WHERE rtrim(sku_code::text) = ANY($1::text[]) ORDER BY sku_code",
+    )
+    .bind(vec![sku_03, sku_04])
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_else(|e| panic!("read counters: {e}"));
+    assert_eq!(
+        counters_after, counters_before,
+        "failed issue must roll back every counter update"
+    );
+    let job_lines: i64 = sqlx::query_scalar(
+        "SELECT count(*)::bigint FROM tagging_job_line l
+         JOIN tagging_job j USING (job_id) WHERE j.session_id = $1",
+    )
+    .bind(second_session)
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|e| panic!("check rolled-back lines: {e}"));
+    assert_eq!(job_lines, 0, "the rejected issue must leave no job lines");
 }
 
 #[sqlx::test(migrations = "./migrations/postgres")]

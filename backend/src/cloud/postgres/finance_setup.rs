@@ -149,7 +149,9 @@ fn bank_code_of(raw: &str) -> Result<String, AppError> {
     let valid = code.len() >= 2
         && code.len() <= 16
         && code.starts_with(|c: char| c.is_ascii_uppercase())
-        && code.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit());
+        && code
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit());
     if !valid {
         return Err(AppError::Validation(format!(
             "'{raw}' is not a bank code: 2-16 letters and digits starting with a letter, like BCA"
@@ -186,12 +188,15 @@ pub async fn upsert_edc_terminal(
     let bank = bank_code_of(&request.bank_code)?;
     let terminal = request.terminal_id.trim().to_ascii_uppercase();
     if terminal.is_empty() {
-        return Err(AppError::Validation("name the terminal id the POS sends".into()));
+        return Err(AppError::Validation(
+            "name the terminal id the POS sends".into(),
+        ));
     }
-    let known: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM bank WHERE upper(code) = $1 AND active)")
-        .bind(&bank)
-        .fetch_one(pool)
-        .await?;
+    let known: bool =
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM bank WHERE upper(code) = $1 AND active)")
+            .bind(&bank)
+            .fetch_one(pool)
+            .await?;
     if !known {
         return Err(AppError::Validation(format!(
             "{bank} is not a bank this company knows; add it first (Finance → Tambah bank)"
@@ -206,7 +211,13 @@ pub async fn upsert_edc_terminal(
     .bind(request.site_id.trim())
     .bind(&terminal)
     .bind(&bank)
-    .bind(request.label.as_deref().map(str::trim).filter(|l| !l.is_empty()))
+    .bind(
+        request
+            .label
+            .as_deref()
+            .map(str::trim)
+            .filter(|l| !l.is_empty()),
+    )
     .bind(request.active)
     .bind(actor)
     .execute(pool)
@@ -459,7 +470,9 @@ pub async fn add_bank(
     let bank = bank_code_of(&request.bank_code)?;
     let name = request.bank_name.trim();
     if name.is_empty() {
-        return Err(AppError::Validation("name the bank as the chart should print it".into()));
+        return Err(AppError::Validation(
+            "name the bank as the chart should print it".into(),
+        ));
     }
     if !(request.giro || request.savings || request.debit_card) {
         return Err(AppError::Validation(
@@ -493,20 +506,52 @@ pub async fn add_bank(
     let mut mapped = 0i64;
     if request.giro {
         let heading = heading_of(&mut tx, "bank_giro").await?;
-        let cash = ensure_leaf(&mut tx, &heading, &format!("Cash In Bank Giro {display}"), "D", "ASSET", &mut created).await?;
+        let cash = ensure_leaf(
+            &mut tx,
+            &heading,
+            &format!("Cash In Bank Giro {display}"),
+            "D",
+            "ASSET",
+            &mut created,
+        )
+        .await?;
         mapped += map_everywhere(&mut tx, "bank_giro", &bank, &cash, actor).await?;
         let heading = heading_of(&mut tx, "giro_outstanding").await?;
-        let outstanding = ensure_leaf(&mut tx, &heading, &format!("Outstanding Giro {display}"), "C", "LIABILITY", &mut created).await?;
+        let outstanding = ensure_leaf(
+            &mut tx,
+            &heading,
+            &format!("Outstanding Giro {display}"),
+            "C",
+            "LIABILITY",
+            &mut created,
+        )
+        .await?;
         mapped += map_everywhere(&mut tx, "giro_outstanding", &bank, &outstanding, actor).await?;
     }
     if request.savings {
         let heading = heading_of(&mut tx, "bank_savings").await?;
-        let cash = ensure_leaf(&mut tx, &heading, &format!("Cash In Bank Tabungan {display}"), "D", "ASSET", &mut created).await?;
+        let cash = ensure_leaf(
+            &mut tx,
+            &heading,
+            &format!("Cash In Bank Tabungan {display}"),
+            "D",
+            "ASSET",
+            &mut created,
+        )
+        .await?;
         mapped += map_everywhere(&mut tx, "bank_savings", &bank, &cash, actor).await?;
     }
     if request.debit_card {
         let heading = heading_of(&mut tx, "revenue_debit").await?;
-        let sales = ensure_leaf(&mut tx, &heading, &format!("Penjualan Debit Card {display}"), "C", "REVENUE", &mut created).await?;
+        let sales = ensure_leaf(
+            &mut tx,
+            &heading,
+            &format!("Penjualan Debit Card {display}"),
+            "C",
+            "REVENUE",
+            &mut created,
+        )
+        .await?;
         mapped += map_everywhere(&mut tx, "revenue_debit", &bank, &sales, actor).await?;
         for role in ["card_receivable_debit", "card_fee", "sales_return"] {
             let usual = usual_account(&mut tx, role).await?;
@@ -514,7 +559,8 @@ pub async fn add_bank(
         }
         // The bank's debit cards and its QRIS become payment methods the
         // tills accept (0468), settling through the acquirer as the others do.
-        for (prefix, label, tender) in [("DEBIT", "Debit", "DEBIT_CARD"), ("QRIS", "QRIS", "QRIS")] {
+        for (prefix, label, tender) in [("DEBIT", "Debit", "DEBIT_CARD"), ("QRIS", "QRIS", "QRIS")]
+        {
             sqlx::query(
                 "INSERT INTO payment_method (code, name, tender_type, bank_code, settlement_mode, created_by)
                  VALUES ($1, $2, $3, $4, 'VIA_RECEIVABLE', $5)
@@ -553,15 +599,28 @@ pub async fn add_bank(
     // The register row goes through the one door that describes our accounts,
     // so its checks (a postable leaf, a real number, one primary) are the same.
     let mut bank_account_id = None;
-    if let Some(account_no) = request.account_no.as_deref().filter(|n| !n.trim().is_empty()) {
-        let (kind, semantic) = if request.giro { ("GIRO", "bank_giro") } else { ("SAVINGS", "bank_savings") };
+    if let Some(account_no) = request
+        .account_no
+        .as_deref()
+        .filter(|n| !n.trim().is_empty())
+    {
+        let (kind, semantic) = if request.giro {
+            ("GIRO", "bank_giro")
+        } else {
+            ("SAVINGS", "bank_savings")
+        };
         if !(request.giro || request.savings) {
             return Err(AppError::Validation(
                 "an account number needs a giro or savings account to register it against".into(),
             ));
         }
         // No unit named means head office's books, found by its kind (0605).
-        let unit = match request.account_unit_id.as_deref().map(str::trim).filter(|u| !u.is_empty()) {
+        let unit = match request
+            .account_unit_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|u| !u.is_empty())
+        {
             Some(unit) => {
                 if !super::sites::unit_exists(pool, unit).await? {
                     return Err(AppError::NotFound(format!("unit {unit}")));

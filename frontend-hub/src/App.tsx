@@ -3,6 +3,7 @@ import { RouterProvider } from "@tanstack/react-router"
 import { Suspense, lazy, useEffect, useRef, useState } from "react"
 
 import { BusinessChooser, BusinessEyebrow } from "@/components/business-door"
+import { Launch } from "@/components/brand-mark"
 import { LoginForm } from "@/components/login-form"
 import { SignInDoor } from "@/components/sign-in-door"
 import { Toasts } from "@/components/ui/toast"
@@ -187,11 +188,7 @@ export function App() {
   }
 
   if (session.isPending || tenancy.isPending || resolvingLink) {
-    return (
-      <main className="grid h-full place-items-center">
-        <p className="text-meta text-body">Checking your session…</p>
-      </main>
-    )
+    return <Launch />
   }
 
   if ((session.data ?? null) === null) {
@@ -221,6 +218,7 @@ export function App() {
       <SignInDoor>
         <LoginForm
           title="Sign in"
+          titleOnPhone={false}
           caption="Use the account your administrator set up for you."
           footnote="Forgot your password? An administrator can set a new one for you."
           className="flex-1"
@@ -258,11 +256,7 @@ export function App() {
   }
 
   if (setup.isPending) {
-    return (
-      <main className="grid h-full place-items-center">
-        <p className="text-meta text-body">Checking your session…</p>
-      </main>
-    )
+    return <Launch />
   }
 
   if (setup.data !== undefined && !setup.data.finished && !deferred) {

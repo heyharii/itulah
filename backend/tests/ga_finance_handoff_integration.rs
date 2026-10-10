@@ -163,9 +163,13 @@ async fn a_draft(
     amount: i64,
     lines: Vec<cloud::RecordBillLine>,
 ) -> cloud::SupplierBill {
-    cloud::record_bill_draft(pool, &a_bill_request(supplier_id, number, amount, lines), ACTOR)
-        .await
-        .unwrap_or_else(|error| panic!("draft {number}: {error}"))
+    cloud::record_bill_draft(
+        pool,
+        &a_bill_request(supplier_id, number, amount, lines),
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("draft {number}: {error}"))
 }
 
 async fn a_posted(
@@ -175,9 +179,13 @@ async fn a_posted(
     amount: i64,
     lines: Vec<cloud::RecordBillLine>,
 ) -> cloud::SupplierBill {
-    cloud::record_bill(pool, &a_bill_request(supplier_id, number, amount, lines), ACTOR)
-        .await
-        .unwrap_or_else(|error| panic!("posted {number}: {error}"))
+    cloud::record_bill(
+        pool,
+        &a_bill_request(supplier_id, number, amount, lines),
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("posted {number}: {error}"))
 }
 
 /// A contract with a free-text counterparty, so a bill pointing at it can be
@@ -322,11 +330,20 @@ async fn the_migration_installs_the_references_and_the_holds(pool: PgPool) {
     // A hold with no reason is refused by the database, not only by Rust.
     seed_payables(&pool).await;
     let supplier = a_supplier(&pool, "PT Uji", Some("6045")).await;
-    let bill = a_draft(&pool, &supplier, "MIG-1", 1_000, vec![a_line("6045", 1_000)]).await;
-    let held = sqlx::query("UPDATE supplier_invoice SET on_hold = true, hold_reason = NULL WHERE invoice_id = $1")
-        .bind(bill.invoice_id)
-        .execute(&pool)
-        .await;
+    let bill = a_draft(
+        &pool,
+        &supplier,
+        "MIG-1",
+        1_000,
+        vec![a_line("6045", 1_000)],
+    )
+    .await;
+    let held = sqlx::query(
+        "UPDATE supplier_invoice SET on_hold = true, hold_reason = NULL WHERE invoice_id = $1",
+    )
+    .bind(bill.invoice_id)
+    .execute(&pool)
+    .await;
     assert!(held.is_err(), "an unexplained hold must be refused");
 
     // A service period that ends before it starts is refused too.
@@ -345,7 +362,10 @@ async fn the_migration_installs_the_references_and_the_holds(pool: PgPool) {
     .bind(line_id)
     .execute(&pool)
     .await;
-    assert!(backwards.is_err(), "a backwards service period must be refused");
+    assert!(
+        backwards.is_err(),
+        "a backwards service period must be refused"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -439,7 +459,11 @@ async fn a_ga_draft_becomes_the_same_bill_once_posted(pool: PgPool) {
     assert_eq!(draft.status, "DRAFT");
     assert_eq!(draft.submitted_by_domain.as_deref(), Some("GA"));
     assert!(draft.journal_entry_id.is_none(), "a draft is not AP yet");
-    let line = draft.lines.as_ref().and_then(|lines| lines.first()).unwrap();
+    let line = draft
+        .lines
+        .as_ref()
+        .and_then(|lines| lines.first())
+        .unwrap();
     assert_eq!(line.repair_id, Some(repair.repair_id));
 
     // Not a debt until it posts.
@@ -532,7 +556,14 @@ async fn the_suggestion_follows_the_brief_order(pool: PgPool) {
     assert!(repaired.source.starts_with("objek perbaikan"));
 
     // 3a. A contract paid in advance speaks `prepaid_kind`, not the type.
-    map(&pool, "prepaid_expense", "SEWA_TOKO_BAYAR_DIMUKA", "1038", None).await;
+    map(
+        &pool,
+        "prepaid_expense",
+        "SEWA_TOKO_BAYAR_DIMUKA",
+        "1038",
+        None,
+    )
+    .await;
     let contract = a_contract(&pool, Some(240_000_000), None).await;
     let prepaid = cloud::suggest_account(
         &pool,
@@ -546,7 +577,11 @@ async fn the_suggestion_follows_the_brief_order(pool: PgPool) {
     .await
     .unwrap_or_else(|error| panic!("prepaid suggest: {error}"));
     assert_eq!(prepaid.account_code.as_deref(), Some("1038"));
-    assert!(prepaid.source.contains("bayar dimuka"), "{}", prepaid.source);
+    assert!(
+        prepaid.source.contains("bayar dimuka"),
+        "{}",
+        prepaid.source
+    );
 
     // 3b. A contract NOT paid in advance goes by its type.
     map(&pool, "contract_expense", "SEWA_TOKO", "7004", None).await;
@@ -670,8 +705,14 @@ async fn the_suggestion_follows_the_brief_order(pool: PgPool) {
     )
     .await
     .unwrap_or_else(|error| panic!("missing suggest: {error}"));
-    assert_eq!(missing.account_code, None, "an absent account is not invented");
-    assert!(missing.missing.is_some(), "and it names what Finance must decide");
+    assert_eq!(
+        missing.account_code, None,
+        "an absent account is not invented"
+    );
+    assert!(
+        missing.missing.is_some(),
+        "and it names what Finance must decide"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -711,7 +752,10 @@ async fn only_posted_lines_count_and_an_object_is_counted_once(pool: PgPool) {
     let hub = cloud::ga_contract_hub_on(&pool, contract.contract_id, today())
         .await
         .unwrap_or_else(|error| panic!("contract hub: {error}"));
-    assert_eq!(hub.contract.billed_minor, 2_000_000, "only the contract line");
+    assert_eq!(
+        hub.contract.billed_minor, 2_000_000,
+        "only the contract line"
+    );
     assert_eq!(
         hub.contract.remaining_minor,
         Some(98_000_000),
@@ -738,7 +782,10 @@ async fn only_posted_lines_count_and_an_object_is_counted_once(pool: PgPool) {
     let held_hub = cloud::ga_contract_hub_on(&pool, contract.contract_id, today())
         .await
         .unwrap_or_else(|error| panic!("held hub: {error}"));
-    assert_eq!(held_hub.contract.billed_minor, 2_000_000, "hold bukan batal");
+    assert_eq!(
+        held_hub.contract.billed_minor, 2_000_000,
+        "hold bukan batal"
+    );
 
     // The supply request's own billed figure.
     let request = a_supply_request(&pool).await;
@@ -756,7 +803,10 @@ async fn only_posted_lines_count_and_an_object_is_counted_once(pool: PgPool) {
     )
     .await
     .unwrap_or_else(|error| panic!("supplies: {error}"));
-    let supply = rows.iter().find(|row| row.request_id == request.request_id).unwrap();
+    let supply = rows
+        .iter()
+        .find(|row| row.request_id == request.request_id)
+        .unwrap();
     assert_eq!(supply.billed_minor, 750_000);
 }
 
@@ -778,7 +828,14 @@ fn has_code(list: &[cloud::BillWarning], code: &str) -> bool {
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn a_duplicate_number_is_a_warning(pool: PgPool) {
     let supplier = a_supplier(&pool, "PT Ganda", Some("6045")).await;
-    let first = a_draft(&pool, &supplier, "INV/1", 1_000, vec![a_line("6045", 1_000)]).await;
+    let first = a_draft(
+        &pool,
+        &supplier,
+        "INV/1",
+        1_000,
+        vec![a_line("6045", 1_000)],
+    )
+    .await;
     // The writer refuses this, so the second is inserted the way an older row
     // might have arrived — and the WARNING is what sees it. It is a
     // MERCHANDISE bill, which carries no lines, so the expense trigger has
@@ -857,7 +914,14 @@ async fn a_recurring_bill_off_its_promise_is_a_warning(pool: PgPool) {
     .await
     .unwrap_or_else(|error| panic!("template: {error}"));
 
-    let bill = a_draft(&pool, &supplier, "RUTIN Listrik Rutin 2026-09", 3_000_000, vec![a_line("6045", 3_000_000)]).await;
+    let bill = a_draft(
+        &pool,
+        &supplier,
+        "RUTIN Listrik Rutin 2026-09",
+        3_000_000,
+        vec![a_line("6045", 3_000_000)],
+    )
+    .await;
     sqlx::query(
         "INSERT INTO bill_template_run (template_id, period, invoice_id, raised_by)
          VALUES ($1, DATE '2026-09-01', $2, 'ana')",
@@ -920,7 +984,14 @@ async fn a_warning_does_not_stop_posting(pool: PgPool) {
 async fn a_hold_hides_a_bill_from_ready_to_pay_and_a_release_brings_it_back(pool: PgPool) {
     seed_payables(&pool).await;
     let supplier = a_supplier(&pool, "PT Tahan", Some("6045")).await;
-    let bill = a_posted(&pool, &supplier, "HOLD-1", 2_000_000, vec![a_line("6045", 2_000_000)]).await;
+    let bill = a_posted(
+        &pool,
+        &supplier,
+        "HOLD-1",
+        2_000_000,
+        vec![a_line("6045", 2_000_000)],
+    )
+    .await;
 
     // No reason is refused before the database has to.
     assert!(
@@ -935,9 +1006,15 @@ async fn a_hold_hides_a_bill_from_ready_to_pay_and_a_release_brings_it_back(pool
         .unwrap_or_else(|error| panic!("context: {error}"));
     assert_eq!(ready.obligations.len(), 1, "offered before the hold");
 
-    cloud::hold_bill(&pool, bill.invoice_id, "salah vendor", Some(day(2026, 10, 1)), ACTOR)
-        .await
-        .unwrap_or_else(|error| panic!("hold: {error}"));
+    cloud::hold_bill(
+        &pool,
+        bill.invoice_id,
+        "salah vendor",
+        Some(day(2026, 10, 1)),
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("hold: {error}"));
 
     let blocked = cloud::payment_context_resolve(&pool, "SUPPLIER", &supplier)
         .await
@@ -969,7 +1046,14 @@ async fn a_hold_hides_a_bill_from_ready_to_pay_and_a_release_brings_it_back(pool
 async fn posting_a_held_bill_is_the_one_refusal(pool: PgPool) {
     seed_payables(&pool).await;
     let supplier = a_supplier(&pool, "PT Tahan Dua", Some("6045")).await;
-    let bill = a_draft(&pool, &supplier, "HOLD-2", 1_000, vec![a_line("6045", 1_000)]).await;
+    let bill = a_draft(
+        &pool,
+        &supplier,
+        "HOLD-2",
+        1_000,
+        vec![a_line("6045", 1_000)],
+    )
+    .await;
     cloud::hold_bill(&pool, bill.invoice_id, "cek dulu", None, ACTOR)
         .await
         .unwrap_or_else(|error| panic!("hold: {error}"));
@@ -1019,13 +1103,12 @@ async fn an_approved_ask_raises_one_draft_and_a_refusal_raises_nothing(pool: PgP
     )
     .await
     .unwrap_or_else(|error| panic!("refuse: {error}"));
-    let bills_for_supplier: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM supplier_invoice WHERE supplier_id = $1",
-    )
-    .bind(&supplier)
-    .fetch_one(&pool)
-    .await
-    .unwrap_or_else(|error| panic!("count: {error}"));
+    let bills_for_supplier: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM supplier_invoice WHERE supplier_id = $1")
+            .bind(&supplier)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("count: {error}"));
     assert_eq!(bills_for_supplier, 0, "a refusal creates no bill");
 
     // APPROVED creates exactly one DRAFT, pointing at the ask.
@@ -1051,7 +1134,10 @@ async fn an_approved_ask_raises_one_draft_and_a_refusal_raises_nothing(pool: PgP
         .await
         .unwrap_or_else(|error| panic!("draft: {error}"));
     assert_eq!(draft.status, "DRAFT");
-    assert_eq!(draft.submitted_by_domain.as_deref(), Some("PAYMENT_REQUEST"));
+    assert_eq!(
+        draft.submitted_by_domain.as_deref(),
+        Some("PAYMENT_REQUEST")
+    );
     assert!(draft.journal_entry_id.is_none(), "a draft is not AP");
     assert_eq!(draft.total_minor, 2_000_000);
 }
@@ -1102,7 +1188,11 @@ async fn an_approved_ask_carries_the_repair_its_bill_named(pool: PgPool) {
     let draft = cloud::bill(&pool, approved.bill_id.unwrap())
         .await
         .unwrap_or_else(|error| panic!("draft: {error}"));
-    let line = draft.lines.as_ref().and_then(|lines| lines.first()).unwrap();
+    let line = draft
+        .lines
+        .as_ref()
+        .and_then(|lines| lines.first())
+        .unwrap();
     assert_eq!(line.repair_id, Some(repair.repair_id), "the repair travels");
 }
 
@@ -1149,7 +1239,14 @@ async fn a_vendor_with_no_bank_account_cannot_be_approved(pool: PgPool) {
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn invoice_numbers_are_compared_without_spaces(pool: PgPool) {
     let supplier = a_supplier(&pool, "PT Nomor", Some("6045")).await;
-    a_draft(&pool, &supplier, "INV/1", 1_000, vec![a_line("6045", 1_000)]).await;
+    a_draft(
+        &pool,
+        &supplier,
+        "INV/1",
+        1_000,
+        vec![a_line("6045", 1_000)],
+    )
+    .await;
     let refused = cloud::record_bill_draft(
         &pool,
         &a_bill_request(&supplier, "inv / 1", 1_000, vec![a_line("6045", 1_000)]),
@@ -1175,8 +1272,22 @@ async fn an_unverified_vendor_waits_but_a_pajak_daerah_vendor_does_not(pool: PgP
     a_bank(&pool, &unverified, "UNVERIFIED").await;
     let no_account = a_supplier(&pool, "Pajak Daerah", Some("6045")).await;
 
-    a_posted(&pool, &unverified, "UNV-1", 1_000_000, vec![a_line("6045", 1_000_000)]).await;
-    a_posted(&pool, &no_account, "PDRD-1", 500_000, vec![a_line("6045", 500_000)]).await;
+    a_posted(
+        &pool,
+        &unverified,
+        "UNV-1",
+        1_000_000,
+        vec![a_line("6045", 1_000_000)],
+    )
+    .await;
+    a_posted(
+        &pool,
+        &no_account,
+        "PDRD-1",
+        500_000,
+        vec![a_line("6045", 500_000)],
+    )
+    .await;
 
     let waiting = cloud::payment_context_resolve(&pool, "SUPPLIER", &unverified)
         .await
@@ -1246,12 +1357,11 @@ async fn two_concurrent_sweeps_raise_one_draft(pool: PgPool) {
         .await
         .unwrap_or_else(|error| panic!("runs: {error}"));
     assert_eq!(runs, 1, "one run row");
-    let drafts: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM supplier_invoice WHERE status = 'DRAFT'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap_or_else(|error| panic!("drafts: {error}"));
+    let drafts: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM supplier_invoice WHERE status = 'DRAFT'")
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("drafts: {error}"));
     assert_eq!(drafts, 1, "one draft");
 }
 
@@ -1324,7 +1434,11 @@ async fn a_returned_draft_stays_the_same_document(pool: PgPool) {
         .await
         .unwrap_or_else(|error| panic!("return: {error}"));
     assert_eq!(returned.invoice_id, draft.invoice_id, "the id stays");
-    assert_eq!(returned.submitted_by_domain.as_deref(), Some("GA"), "and the mark");
+    assert_eq!(
+        returned.submitted_by_domain.as_deref(),
+        Some("GA"),
+        "and the mark"
+    );
     assert_eq!(returned.returned_reason.as_deref(), Some("nomornya salah"));
     assert_eq!(returned.status, "DRAFT", "still fixable");
 }

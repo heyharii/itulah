@@ -92,7 +92,10 @@ pub async fn list(
     .bind(needle)
     .fetch_all(&state.db)
     .await?;
-    rows.iter().map(from_row).collect::<Result<Vec<_>, _>>().map(Json)
+    rows.iter()
+        .map(from_row)
+        .collect::<Result<Vec<_>, _>>()
+        .map(Json)
 }
 
 pub async fn create(

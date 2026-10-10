@@ -423,9 +423,7 @@ fn normal_pool_transition(from: &OperationalPool, to: &OperationalPool) -> bool 
         }
         // Packing binds goods to a koli, and the koli to a destination.
         (_, Packed) => from.is_fulfillment_source_for(to.site_id()),
-        (Packed, Shipment) | (Shipment, Loaded) | (Loaded, InTransit) => {
-            same_destination(from, to)
-        }
+        (Packed, Shipment) | (Shipment, Loaded) | (Loaded, InTransit) => same_destination(from, to),
         // Inside a site's own rooms.
         (Stockroom, Floor) | (Floor, Stockroom) | (Stockroom, Reject) | (Floor, Reject) => true,
         // Inspection of a store's return: good goods to the racks, damaged

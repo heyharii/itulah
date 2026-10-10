@@ -84,7 +84,7 @@ function Brief({ data }: { data: Brief }) {
           title="Stock"
           detail={
             <>
-              <Figure>{count(data.stock.on_hand)}</Figure> pieces on hand across{" "}
+              <Figure>{count(data.stock.on_hand)}</Figure> pcs on hand across{" "}
               <Figure>{count(data.stock.sites)}</Figure> sites
               {SHOW_MISSING && (
                 <>
@@ -115,7 +115,7 @@ function Brief({ data }: { data: Brief }) {
                 <>
                   <Figure>{count(data.missing.count)}</Figure> tags the fleet
                   expected to see and has not, covering{" "}
-                  <Figure>{count(data.missing.quantity)}</Figure> pieces.
+                  <Figure>{count(data.missing.quantity)}</Figure> pcs.
                 </>
               )
             }

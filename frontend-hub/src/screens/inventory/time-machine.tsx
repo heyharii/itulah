@@ -4,9 +4,10 @@ import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Field, Input } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
@@ -19,6 +20,7 @@ import { Tag } from "@/components/ui/tag"
 import { Timeline } from "@/components/ui/timeline"
 import { useFilters } from "@/lib/filters"
 import { count, moment } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   fleetPools,
   inventoryKeys,
@@ -32,6 +34,8 @@ import { queryState } from "@/lib/query-state"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { Choice } from "@/screens/inventory/parts"
 import { edgeOrigins, signed } from "@/screens/inventory/shared"
+import { CardFigure, CardName } from "@/components/ui/phone-cards"
+import { DockSettings } from "@/components/ui/filter-sheet"
 import {
   DisplayUnitPicker,
   useDisplayUnit,
@@ -57,15 +61,14 @@ import {
 /// still exact and what is above it is simply absent, which the screen says
 /// rather than quietly showing less.
 
-function stateColumns(display: DisplayUnit): ColumnDef<
-  TableSetup,
-  {
-    subject_id: string
-    place_id: string
-    quantity: number
-    last_fact_sequence: number
-  }
->[] {
+interface StateRow {
+  subject_id: string
+  place_id: string
+  quantity: number
+  last_fact_sequence: number
+}
+
+function stateColumns(display: DisplayUnit): ColumnDef<TableSetup, StateRow>[] {
   return [
     {
       accessorKey: "place_id",
@@ -75,7 +78,7 @@ function stateColumns(display: DisplayUnit): ColumnDef<
       /// always a part of it — "contains :missing", "starts with
       /// store-07". A fold of the whole ledger has more places than a
       /// facet list can hold.
-      meta: { filter: { kind: "text" } },
+      meta: { card: "hide", filter: { kind: "text" } },
       cell: ({ row }) => (
         <span className="font-mono text-id text-body">
           {row.original.place_id}
@@ -88,6 +91,7 @@ function stateColumns(display: DisplayUnit): ColumnDef<
       size: 300,
       // No filter: a subject is a uuid somebody arrives holding, and the
       // box that takes one is the what-if tab.
+      meta: { card: "hide" },
       cell: ({ row }) => (
         <span className="font-mono text-id text-mute">
           {row.original.subject_id}
@@ -102,7 +106,11 @@ function stateColumns(display: DisplayUnit): ColumnDef<
       /// position in a fold is an invariant the ledger broke, and the
       /// violations card above only lists the ones the server checked for.
       /// The filter stays in pieces regardless of what the cell prints.
-      meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
+      meta: {
+        align: "right",
+        card: "hide",
+        filter: { kind: "number", unit: "pcs" },
+      },
       cell: ({ row }) => display.format(row.original.quantity),
     },
     {
@@ -112,8 +120,66 @@ function stateColumns(display: DisplayUnit): ColumnDef<
       // The decision metric here: which rows moved most recently is what
       // an operator scans for when a fold looks wrong. A sequence number,
       // not a quantity — never read through the unit picker.
-      meta: { align: "right", filter: { kind: "number" } },
+      meta: { align: "right", card: "hide", filter: { kind: "number" } },
       cell: ({ row }) => count(row.original.last_fact_sequence),
+    },
+  ]
+}
+
+/// The card a phone draws for a position, as columns of their own that exist
+/// there only (`cardLead`): the place over its subject, the quantity standing
+/// there, and the last fact that moved it.
+function stateCards(display: DisplayUnit): ColumnDef<TableSetup, StateRow>[] {
+  return [
+    {
+      id: "head",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "title" },
+      accessorFn: (row) => row.place_id,
+      cell: ({ row }) => (
+        <CardName
+          name={
+            <span className="font-mono text-[0.9375rem] break-all">
+              {row.original.place_id}
+            </span>
+          }
+          line={
+            <span className="font-mono break-all">
+              {row.original.subject_id}
+            </span>
+          }
+        />
+      ),
+    },
+    {
+      id: "lead",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "lead" },
+      accessorFn: (row) => row.quantity,
+      cell: ({ row }) => (
+        <CardFigure
+          value={display.format(row.original.quantity)}
+          caption="standing"
+          tone={row.original.quantity < 0 ? "bad" : undefined}
+        />
+      ),
+    },
+    {
+      id: "foot",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "foot" },
+      accessorFn: (row) => row.last_fact_sequence,
+      cell: ({ row }) => (
+        <span className="tabular-nums">
+          Last fact {count(row.original.last_fact_sequence)}
+        </span>
+      ),
     },
   ]
 }
@@ -150,6 +216,8 @@ export function TimeMachine() {
 
 function StateTab() {
   const display = useDisplayUnit()
+  const phone = useLayout() === "phone"
+  const [query, setQuery] = useState("")
   const [seq, setSeq] = useState("")
   const [pool, setPool] = useState("")
   const [sorting, setSorting] = useState<SortingState>([
@@ -168,7 +236,10 @@ function StateTab() {
 
   const rows = useMemo(() => world.data?.items ?? [], [world.data])
 
-  const columns = useMemo(() => stateColumns(display), [display])
+  const columns = useMemo(
+    () => [...stateColumns(display), ...(phone ? stateCards(display) : [])],
+    [display, phone]
+  )
 
   /// Only this tab gets a panel. The three beside it are a diff report, a
   /// two-log comparison and a form — none of them a list, and a filter over a
@@ -184,16 +255,52 @@ function StateTab() {
         columns: filters.columns,
         getRowId: (row: { subject_id: string; place_id: string }) =>
           `${row.subject_id}/${row.place_id}`,
-        state: { columnFilters: filters.columnFilters, sorting },
+        state: {
+          columnFilters: filters.columnFilters,
+          globalFilter: query,
+          sorting,
+        },
         onSortingChange: setSorting,
+        onGlobalFilterChange: setQuery,
       }),
-      [rows, filters.columns, filters.columnFilters, sorting]
+      [rows, filters.columns, filters.columnFilters, query, sorting]
     )
   )
 
   return (
     <>
-      <Toolbar>
+      {/* On a phone WHAT is folded (the fact, the pool, the unit) is one chip
+          in the dock, and the search, the filter and the order of the
+          positions are the dock's too. */}
+      <DockSettings label="Fold the ledger" title="Fold the ledger" compact>
+        <Input
+          aria-label="Fold to fact"
+          placeholder="Fact sequence"
+          inputMode="numeric"
+          value={seq}
+          onChange={(event) => setSeq(event.target.value)}
+        />
+        <Choice
+          value={pool}
+          onChange={setPool}
+          options={(pools.data?.items ?? []).map((one) => ({
+            value: one.id,
+            label: one.label,
+          }))}
+          className="h-10 max-w-none"
+        />
+        <DisplayUnitPicker display={display} />
+      </DockSettings>
+      <DockTools
+        search={{ value: query, onChange: setQuery, label: "Search positions" }}
+        filter={{
+          count: filters.filters.length,
+          panel: { model: filters, table },
+        }}
+        sort={dockSortOf(table)}
+      />
+
+      <Toolbar className="max-md:hidden">
         <Input
           value={seq}
           onChange={(event) => setSeq(event.target.value)}
@@ -278,7 +385,7 @@ function StateTab() {
               </Card>
             )}
 
-            <Card className="overflow-hidden">
+            <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
               {rows.length === 0 ? (
                 <EmptyState>
                   {seq === ""
@@ -290,6 +397,9 @@ function StateTab() {
                   table={table}
                   empty="Nothing in this fold matches the filters in force."
                   className="max-h-[calc(100dvh-28rem)]"
+                  cardSort={false}
+                  cardsApart
+                  cardLead
                 />
               )}
             </Card>

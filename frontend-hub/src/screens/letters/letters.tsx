@@ -18,8 +18,10 @@ import {
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Fab } from "@/components/ui/fab"
 import { Field, Input, Textarea } from "@/components/ui/field"
 import { ChoiceMenu } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
@@ -30,6 +32,7 @@ import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState, LoadMore } from "@/components/ui/states"
 import { count, day } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { queryState } from "@/lib/query-state"
 import {
   discardLetter,
@@ -58,6 +61,14 @@ import { useDebounced } from "@/lib/use-debounced"
 import { cn } from "@/lib/utils"
 import { LetterBody } from "@/screens/letters/editor"
 import { LetterPaper, PrintStyles } from "@/screens/letters/document"
+import {
+  CardFigure,
+  CardName,
+  type CardSpec,
+  DESK_BAR,
+  PhoneCards,
+} from "@/components/ui/phone-cards"
+import { FilterSheet } from "@/components/ui/filter-sheet"
 import type { LetterRow, LetterSource } from "@itulah/contract"
 
 /// Letters — surat terima barang, surat jalan, and the register they live in.
@@ -113,6 +124,8 @@ function Register({ onOpen }: { onOpen: (id: string) => void }) {
   const [status, setStatus] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const [writing, setWriting] = useState(false)
+  const [filtering, setFiltering] = useState(false)
+  const phone = useLayout() === "phone"
   // The search is the server's, so it waits for the typing to stop.
   const needle = useDebounced(search.trim(), 300)
 
@@ -149,21 +162,58 @@ function Register({ onOpen }: { onOpen: (id: string) => void }) {
         title="Letters"
         sub="Manage deliveries and surat jalan. The letter number is assigned when it's issued."
         actions={
-          <>
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              className="h-8 w-56"
-            />
-            <Button variant="primary" onClick={() => setWriting(true)}>
-              <Plus />
-              New letter
-            </Button>
-          </>
+          // On a phone the search, the kind and the status are the dock's, and
+          // the one thing this page makes is its round button.
+          phone ? undefined : (
+            <>
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                className="h-8 w-56"
+              />
+              <Button variant="primary" onClick={() => setWriting(true)}>
+                <Plus />
+                New letter
+              </Button>
+            </>
+          )
         }
       />
 
-      <Toolbar>
+      <Fab label="New letter" onClick={() => setWriting(true)} />
+      <DockTools
+        search={{ value: search, onChange: setSearch, label: "Search letters" }}
+        filter={{
+          count: status === null ? 0 : 1,
+          onOpen: () => setFiltering(true),
+        }}
+        status={{
+          value: kind,
+          options: KINDS.map((one) => ({
+            value: one.value,
+            label: one.label,
+          })),
+          onChange: (next) => setKind(next as typeof kind),
+        }}
+      />
+      <FilterSheet
+        open={filtering}
+        onOpenChange={setFiltering}
+        groups={[
+          {
+            key: "status",
+            label: "Status",
+            value: status,
+            options: STATUSES.map((one) => ({
+              value: one.value as string | null,
+              label: one.label,
+            })),
+            onChange: setStatus,
+          },
+        ]}
+      />
+
+      <div className={DESK_BAR}>
         <Segmented options={KINDS} value={kind} onChange={setKind} />
         <ChoiceMenu
           heading="Status"
@@ -191,7 +241,7 @@ function Register({ onOpen }: { onOpen: (id: string) => void }) {
             )}
           </span>
         )}
-      </Toolbar>
+      </div>
 
       {queryState(letters, {
         loading: "Opening the letters list…",
@@ -209,6 +259,14 @@ function Register({ onOpen }: { onOpen: (id: string) => void }) {
                 store, or start with a blank letter.
               </EmptyState>
             </Card>
+          ) : phone ? (
+            <PhoneCards
+              rows={rows}
+              rowId={(row) => row.letter_id}
+              spec={LETTER_CARD}
+              onOpen={(row) => onOpen(row.letter_id)}
+              more={letters}
+            />
           ) : (
             <Card className="overflow-hidden">
               <div className="grid h-10 grid-cols-[9rem_minmax(0,1fr)_9rem_5rem_6rem_6rem] items-center gap-3 border-b border-hairline bg-soft px-3.5 text-eyebrow font-medium text-body">
@@ -242,6 +300,31 @@ function Register({ onOpen }: { onOpen: (id: string) => void }) {
       />
     </PageContent>
   )
+}
+
+/// A letter as a phone's card: the kind over its number (or the word that says
+/// it has none yet), who it is for, how many, and where it stands.
+const LETTER_CARD: CardSpec<LetterRow> = {
+  title: (row) => (
+    <CardName
+      name={letterKindLabel(row.kind)}
+      code={row.letter_number ?? "no number yet"}
+    />
+  ),
+  meta: [
+    (row) =>
+      [row.counterparty, row.place].filter((part) => part !== "").join(" · "),
+    (row) => (row.reference === "" ? null : row.reference),
+  ],
+  lead: (row) => <CardFigure value={count(row.quantity)} caption="Quantity" />,
+  foot: (row) => (row.issued_at === null ? "Not issued" : day(row.issued_at)),
+  action: (row) => (
+    <Pill tone={letterTone(row.status)}>
+      {STATUS_WORDS[row.status] ??
+        LETTER_STATUS_LABEL[row.status] ??
+        row.status}
+    </Pill>
+  ),
 }
 
 function LetterRowLine({

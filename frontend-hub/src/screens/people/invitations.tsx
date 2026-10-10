@@ -2,6 +2,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
+import { Fab } from "@/components/ui/fab"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Select } from "@/components/ui/field"
@@ -33,6 +35,12 @@ import {
   InviteSheet,
   WhatsAppLinkButton,
 } from "@/screens/people/invite-sheet"
+import {
+  CardButton,
+  CardDate,
+  CardName,
+  PhoneCards,
+} from "@/components/ui/phone-cards"
 
 /// Everyone who has been sent a link to set up their own sign-in.
 ///
@@ -78,6 +86,7 @@ export function Invitations() {
   const [status, setStatus] = useState<InvitationStatus>("PENDING")
   const [unitId, setUnitId] = useState("")
   const canWrite = useCanWrite()
+  const phone = useLayout() === "phone"
   const invite = useSheet("invite")
   const client = useQueryClient()
   const units = useUnits()
@@ -99,6 +108,7 @@ export function Invitations() {
         title="Invitations"
         sub="Everyone who has been sent a link to set up their own sign-in."
         actions={
+          !phone &&
           canWrite && (
             <Button variant="primary" onClick={() => invite.open(true)}>
               Invite people
@@ -106,6 +116,9 @@ export function Invitations() {
           )
         }
       />
+      {canWrite && (
+        <Fab label="Invite people" onClick={() => invite.open(true)} />
+      )}
 
       <SubTabs
         tabs={TABS}
@@ -130,7 +143,7 @@ export function Invitations() {
 
       <Problem error={revoke.error} className="mb-3" />
 
-      <Card className="divide-y divide-hairline overflow-hidden">
+      <Card className="divide-y divide-hairline overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {invitations.isPending ? (
           <LoadingState>Loading invitations…</LoadingState>
         ) : rows.length === 0 ? (
@@ -138,6 +151,54 @@ export function Invitations() {
             No {statusLabel(status).toLowerCase()} invitations
             {unitId !== "" ? " for this unit" : ""}.
           </EmptyState>
+        ) : phone ? (
+          <PhoneCards
+            rows={rows}
+            onOpen={(row) =>
+              row.status === "PENDING" && canWrite
+                ? setRenewing(row)
+                : undefined
+            }
+            rowId={(row) => row.invitation_id}
+            spec={{
+              title: (row) => (
+                <CardName
+                  name={row.name}
+                  line={[
+                    row.role_name,
+                    row.unit_name,
+                    row.position,
+                    row.username,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                />
+              ),
+              lead: (row) =>
+                row.status === "ACCEPTED" && row.accepted_at ? (
+                  <CardDate iso={row.accepted_at} label="accepted" />
+                ) : row.status === "REVOKED" && row.revoked_at ? (
+                  <CardDate iso={row.revoked_at} label="revoked" tone="quiet" />
+                ) : row.status === "PENDING" ? (
+                  <CardDate iso={row.expires_at} label="expires" />
+                ) : (
+                  <CardDate iso={row.created_at} label="sent" tone="quiet" />
+                ),
+              foot: (row) => (
+                <Pill tone={statusTone(row.status)}>
+                  {statusLabel(row.status)}
+                </Pill>
+              ),
+              action: (row) =>
+                canWrite && row.status === "PENDING" ? (
+                  <CardButton
+                    label="Renew"
+                    ariaLabel={`Renew ${row.name}’s link`}
+                    onClick={() => setRenewing(row)}
+                  />
+                ) : null,
+            }}
+          />
         ) : (
           rows.map((row) => (
             <div
@@ -208,8 +269,14 @@ function RenewSheet({
   onClose: () => void
 }) {
   const client = useQueryClient()
+  const phone = useLayout() === "phone"
   const renew = useMutation({
     mutationFn: () => renewInvitation(row!.invitation_id),
+    onSuccess: () =>
+      void client.invalidateQueries({ queryKey: invitationKeys.all }),
+  })
+  const revoke = useMutation({
+    mutationFn: (id: string) => revokeInvitation(id),
     onSuccess: () =>
       void client.invalidateQueries({ queryKey: invitationKeys.all }),
   })
@@ -239,6 +306,20 @@ function RenewSheet({
           </div>
         ) : (
           <div className="flex justify-end gap-2">
+            {/* The row's Revoke, which the card has no room for. */}
+            {phone && (
+              <Button
+                variant="danger"
+                className="mr-auto"
+                pending={revoke.isPending}
+                onClick={() =>
+                  row !== null &&
+                  revoke.mutate(row.invitation_id, { onSuccess: onClose })
+                }
+              >
+                Revoke
+              </Button>
+            )}
             <Button variant="quiet" onClick={onClose}>
               Cancel
             </Button>

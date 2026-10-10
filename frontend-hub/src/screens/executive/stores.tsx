@@ -10,6 +10,7 @@ import { Card } from "@/components/ui/card"
 import { BarSeries } from "@/components/ui/chart"
 import { DataTable } from "@/components/ui/data-table"
 import { Segmented } from "@/components/ui/segmented"
+import { useLayout } from "@/lib/layout"
 import { count, money } from "@/lib/format"
 import { fleetPools, inventoryKeys } from "@/lib/queries/inventory"
 import { queryState } from "@/lib/query-state"
@@ -29,7 +30,7 @@ import { useReportScope } from "@/screens/executive/scope"
 import { useTrade } from "@/screens/executive/sales"
 import { spanDays } from "@itulah/contract/reporting"
 
-/// Kinerja toko — every shop side by side: how much it sold, how that moved,
+/// Store Performance — every shop side by side: how much it sold, how that moved,
 /// what a basket is worth there, and how long its shelves would last.
 
 interface StoreRow {
@@ -55,26 +56,27 @@ const decimal = new Intl.NumberFormat("id-ID", {
 const columns: ColumnDef<TableSetup, StoreRow>[] = [
   {
     accessorKey: "name",
-    header: "Toko",
+    header: "Store",
     size: 170,
+    meta: { card: "hide" },
     cell: ({ row }) => (
       <span className="font-medium text-ink">{row.original.name}</span>
     ),
   },
   {
     accessorKey: "net",
-    header: "Penjualan Bersih",
+    header: "Net Sales",
     size: 150,
-    meta: { align: "right" },
+    meta: { align: "right", card: "hide" },
     cell: ({ row }) => (
       <span title={money(row.original.net)}>{rupiah(row.original.net)}</span>
     ),
   },
   {
     accessorKey: "change",
-    header: "Perubahan",
+    header: "Change",
     size: 110,
-    meta: { align: "right" },
+    meta: { align: "right", card: "hide" },
     sortUndefined: "last",
     cell: ({ row }) => (
       <span
@@ -91,49 +93,132 @@ const columns: ColumnDef<TableSetup, StoreRow>[] = [
   },
   {
     accessorKey: "share",
-    header: "Kontribusi",
+    header: "Share",
     size: 110,
-    meta: { align: "right", priority: 3 },
+    meta: { align: "right", priority: 3, card: "hide" },
     cell: ({ row }) => percent(row.original.share),
   },
   {
     accessorKey: "sales",
-    header: "Transaksi",
+    header: "Transactions",
     size: 110,
-    meta: { align: "right", priority: 2 },
+    meta: { align: "right", priority: 2, card: "hide" },
     cell: ({ row }) => count(row.original.sales),
   },
   {
     accessorKey: "basket",
-    header: "Rata-rata Struk",
+    header: "Average Sale",
     size: 130,
-    meta: { align: "right", priority: 2 },
+    meta: { align: "right", priority: 2, card: "hide" },
     cell: ({ row }) => rupiah(row.original.basket),
   },
   {
     accessorKey: "upt",
-    header: "Unit / Struk",
+    header: "Pcs / Sale",
     size: 110,
-    meta: { align: "right", priority: 3 },
+    meta: { align: "right", priority: 3, card: "hide" },
     cell: ({ row }) =>
       row.original.upt === null ? "—" : decimal.format(row.original.upt),
   },
   {
     accessorKey: "stock",
-    header: "Stok",
+    header: "Stock",
     size: 110,
-    meta: { align: "right", priority: 3 },
+    meta: { align: "right", priority: 3, card: "hide" },
     cell: ({ row }) => count(row.original.stock),
   },
   {
     accessorKey: "cover",
-    header: "Cakupan Stok",
+    header: "Stock Cover",
     size: 130,
-    meta: { align: "right", priority: 2 },
+    meta: { align: "right", priority: 2, card: "hide" },
     cell: ({ row }) =>
       row.original.cover === null
         ? "—"
-        : `${count(Math.round(row.original.cover))} hari`,
+        : `${count(Math.round(row.original.cover))} days`,
+  },
+
+  // Columns that exist only on a phone's card: the shop, the figure the card
+  // leads with, what is under it, and how it moved against last period.
+  {
+    id: "head",
+    accessorFn: (row) => row.name,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <span className="min-w-0 break-words">{row.original.name}</span>
+    ),
+  },
+  {
+    id: "lead",
+    accessorFn: (row) => row.net,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "lead" },
+    cell: ({ row }) => (
+      <span
+        title={money(row.original.net)}
+        className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink tabular-nums"
+      >
+        {rupiah(row.original.net)}
+      </span>
+    ),
+  },
+  {
+    id: "sold",
+    accessorFn: (row) => row.sales,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "meta" },
+    cell: ({ row }) =>
+      row.original.basket === null
+        ? `${count(row.original.sales)} transactions`
+        : `${count(row.original.sales)} transactions · ${rupiah(row.original.basket)} per sale`,
+  },
+  {
+    id: "shelf",
+    accessorFn: (row) => row.stock,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "meta" },
+    cell: ({ row }) =>
+      `Stock ${count(row.original.stock)}${
+        row.original.cover === null
+          ? ""
+          : ` · cover ${count(Math.round(row.original.cover))} days`
+      }`,
+  },
+  {
+    id: "foot",
+    accessorFn: (row) => row.change,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) =>
+      row.original.change === null ? (
+        <span>vs previous period —</span>
+      ) : (
+        <span>
+          <span
+            className={cn(
+              "font-medium",
+              changeTone(row.original.change) === "up" && "text-ok-fg",
+              changeTone(row.original.change) === "down" && "text-bad-fg"
+            )}
+          >
+            {changeLabel(row.original.change)}
+          </span>{" "}
+          vs previous period
+          {row.original.share !== null &&
+            ` · share ${percent(row.original.share)}`}
+        </span>
+      ),
   },
 ]
 
@@ -148,6 +233,7 @@ export function ExecutiveStores() {
   const [sorting, setSorting] = useState<SortingState>([
     { id: "net", desc: true },
   ])
+  const phone = useLayout() === "phone"
 
   const days = spanDays(scope.current.from, scope.current.to)
 
@@ -198,10 +284,20 @@ export function ExecutiveStores() {
         data: shown,
         columns,
         getRowId: (row: StoreRow) => row.site_id,
-        state: { sorting },
+        state: {
+          sorting,
+          // The card's own columns are drawn on a phone and never on a desk.
+          columnVisibility: {
+            head: phone,
+            lead: phone,
+            sold: phone,
+            shelf: phone,
+            foot: phone,
+          },
+        },
         onSortingChange: setSorting,
       }),
-      [shown, sorting]
+      [shown, sorting, phone]
     )
   )
 
@@ -210,22 +306,22 @@ export function ExecutiveStores() {
     sales === 0 ? 0 : Math.round(net / sales)
 
   return (
-    <ReportPage title="Kinerja toko" scope={scope}>
+    <ReportPage title="Store Performance" scope={scope}>
       <Figures>
         <Figure
-          label="Penjualan bersih"
+          label="Net sales"
           value={total ? rupiah(total.net) : "…"}
           now={total?.net}
           before={total?.before}
         />
         <Figure
-          label="Transaksi"
+          label="Transactions"
           value={total ? count(total.sales) : "…"}
           now={total?.sales}
           before={total?.salesBefore}
         />
         <Figure
-          label="Rata-rata struk"
+          label="Average sale"
           value={
             total && total.sales > 0
               ? rupiah(basket(total.net, total.sales))
@@ -235,22 +331,22 @@ export function ExecutiveStores() {
           before={total ? basket(total.before, total.salesBefore) : undefined}
         />
         <Figure
-          label="Toko menurun"
+          label="Stores down"
           value={trade.query.data ? `${falling} / ${rows.length}` : "…"}
-          note="Dibanding periode lalu"
+          note="Against the previous period"
         />
       </Figures>
 
       <Card className="mb-3 overflow-hidden">
-        <Head title="Penjualan per toko">
+        <Head title="Sales by store">
           <span className="ml-auto flex items-center gap-3 text-mute">
-            <Legend tone="accent">Periode ini</Legend>
-            <Legend tone="ghost">Periode lalu</Legend>
+            <Legend tone="accent">This period</Legend>
+            <Legend tone="ghost">Previous period</Legend>
           </span>
         </Head>
         <div className="px-[1.125rem] pb-4">
           {queryState(trade.query, {
-            loading: "Membaca penjualan…",
+            loading: "Reading the sales…",
             render: () => (
               <BarSeries
                 rows={[...rows]
@@ -261,8 +357,8 @@ export function ExecutiveStores() {
                     now: row.net,
                   }))}
                 series={[
-                  { key: "before", label: "Periode lalu", tone: "ghost" },
-                  { key: "now", label: "Periode ini", tone: "accent" },
+                  { key: "before", label: "Previous period", tone: "ghost" },
+                  { key: "now", label: "This period", tone: "accent" },
                 ]}
                 format={money}
                 titleOf={(id) =>
@@ -281,19 +377,19 @@ export function ExecutiveStores() {
         </div>
       </Card>
 
-      <Card className="overflow-hidden">
-        <Head title="Perbandingan toko">
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+        <Head title="Store comparison">
           <Segmented
             options={[
-              { value: "all", label: "Semua" },
-              { value: "down", label: "Menurun" },
+              { value: "all", label: "All" },
+              { value: "down", label: "Down" },
             ]}
             value={only}
             onChange={setOnly}
           />
         </Head>
         {queryState(trade.query, {
-          loading: "Membaca toko…",
+          loading: "Reading the stores…",
           render: () => (
             <DataTable<StoreRow>
               table={table}
@@ -305,9 +401,12 @@ export function ExecutiveStores() {
               isSelected={(row) => row.site_id === scope.store}
               empty={
                 only === "down"
-                  ? "Tidak ada toko yang turun dibanding periode lalu."
-                  : "Belum ada toko yang berjualan di periode ini."
+                  ? "No store is down against the previous period."
+                  : "No store has sold anything in this period yet."
               }
+              cardSort={false}
+              cardsApart
+              cardLead
             />
           ),
         })}

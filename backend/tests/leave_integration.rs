@@ -1357,7 +1357,12 @@ async fn nobody_decides_their_own_leave_head_office_included(pool: PgPool) {
             Some(json!({ "reason": "disetujui" })),
         )
         .await;
-        assert_eq!(approved.status, StatusCode::OK, "{request}: {:?}", approved.body);
+        assert_eq!(
+            approved.status,
+            StatusCode::OK,
+            "{request}: {:?}",
+            approved.body
+        );
         assert_eq!(approved.body["state"], "APPROVED", "{:?}", approved.body);
     }
 }

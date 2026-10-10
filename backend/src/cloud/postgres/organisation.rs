@@ -12,7 +12,9 @@ fn code_of(raw: &str) -> Result<String, AppError> {
     let code = raw.trim().to_ascii_uppercase();
     let shaped = code.len() <= 32
         && code.chars().next().is_some_and(|c| c.is_ascii_uppercase())
-        && code.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_');
+        && code
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_');
     if shaped {
         Ok(code)
     } else {
@@ -109,12 +111,11 @@ pub async fn save_department(
                 "{parent} is {code} or sits under it; a department cannot be inside itself"
             )));
         }
-        let usable: Option<bool> = sqlx::query_scalar(
-            "SELECT retired_at IS NULL FROM org_department WHERE code = $1",
-        )
-        .bind(parent)
-        .fetch_optional(pool)
-        .await?;
+        let usable: Option<bool> =
+            sqlx::query_scalar("SELECT retired_at IS NULL FROM org_department WHERE code = $1")
+                .bind(parent)
+                .fetch_optional(pool)
+                .await?;
         if usable != Some(true) {
             return Err(AppError::Validation(format!(
                 "{parent} is not a department in use"
@@ -231,17 +232,20 @@ pub async fn save_job_level(
     let code = code_of(raw_code)?;
     let name = name_of(raw_name)?;
     if rank <= 0 {
-        return Err(AppError::Validation("a rank is 1 or more; 1 is the most senior".into()));
+        return Err(AppError::Validation(
+            "a rank is 1 or more; 1 is the most senior".into(),
+        ));
     }
-    let taken: Option<String> = sqlx::query_scalar(
-        "SELECT code FROM job_level WHERE rank = $1 AND code <> $2",
-    )
-    .bind(rank)
-    .bind(&code)
-    .fetch_optional(pool)
-    .await?;
+    let taken: Option<String> =
+        sqlx::query_scalar("SELECT code FROM job_level WHERE rank = $1 AND code <> $2")
+            .bind(rank)
+            .bind(&code)
+            .fetch_optional(pool)
+            .await?;
     if let Some(other) = taken {
-        return Err(AppError::Conflict(format!("{other} already has rank {rank}")));
+        return Err(AppError::Conflict(format!(
+            "{other} already has rank {rank}"
+        )));
     }
     let saved = sqlx::query(
         "INSERT INTO job_level (code, name, rank, defined) VALUES ($1, $2, $3, $4)
@@ -314,13 +318,22 @@ pub async fn save_job_grade(
     max_minor: Option<i64>,
     defined: &Authorization,
 ) -> Result<(), AppError> {
-    let grade_class = grade_class.map(str::trim).filter(|c| !c.is_empty()).map(str::to_owned);
+    let grade_class = grade_class
+        .map(str::trim)
+        .filter(|c| !c.is_empty())
+        .map(str::to_owned);
     let code = code_of(raw_code)?;
     let name = name_of(raw_name)?;
-    let level = level.map(str::trim).filter(|l| !l.is_empty()).map(code_of).transpose()?;
+    let level = level
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(code_of)
+        .transpose()?;
     if let (Some(min), Some(max)) = (min_minor, max_minor) {
         if min > max {
-            return Err(AppError::Validation("the band's bottom is above its top".into()));
+            return Err(AppError::Validation(
+                "the band's bottom is above its top".into(),
+            ));
         }
     }
     if min_minor.is_some_and(|m| m <= 0) || max_minor.is_some_and(|m| m <= 0) {
@@ -346,9 +359,9 @@ pub async fn save_job_grade(
     .execute(pool)
     .await
     .map_err(|error| match &error {
-        sqlx::Error::Database(db) if db.is_foreign_key_violation() => {
-            AppError::Validation(format!("{} is not a job level", level.clone().unwrap_or_default()))
-        }
+        sqlx::Error::Database(db) if db.is_foreign_key_violation() => AppError::Validation(
+            format!("{} is not a job level", level.clone().unwrap_or_default()),
+        ),
         _ => AppError::from(error),
     })?;
     if saved.rows_affected() == 0 {
@@ -396,11 +409,19 @@ async fn retire_master(
     Ok(())
 }
 
-pub async fn retire_job_level(pool: &PgPool, code: &str, by: &Authorization) -> Result<(), AppError> {
+pub async fn retire_job_level(
+    pool: &PgPool,
+    code: &str,
+    by: &Authorization,
+) -> Result<(), AppError> {
     retire_master(pool, "job_level", "level_code", code, by).await
 }
 
-pub async fn retire_job_grade(pool: &PgPool, code: &str, by: &Authorization) -> Result<(), AppError> {
+pub async fn retire_job_grade(
+    pool: &PgPool,
+    code: &str,
+    by: &Authorization,
+) -> Result<(), AppError> {
     retire_master(pool, "job_grade", "grade_code", code, by).await
 }
 
@@ -423,7 +444,10 @@ pub struct PlacementView {
 }
 
 /// One person's placements, newest first.
-pub async fn placements_of(pool: &PgPool, employee_id: &str) -> Result<Vec<PlacementView>, AppError> {
+pub async fn placements_of(
+    pool: &PgPool,
+    employee_id: &str,
+) -> Result<Vec<PlacementView>, AppError> {
     let rows = sqlx::query(
         "SELECT p.effective_from, p.department_code, d.name AS department_name,
                 p.level_code, l.name AS level_name, p.grade_code, g.name AS grade_name,
@@ -453,8 +477,12 @@ pub async fn placements_of(pool: &PgPool, employee_id: &str) -> Result<Vec<Place
                 grade_name: row.try_get("grade_name")?,
                 reports_to: row.try_get("reports_to")?,
                 reports_to_name: row.try_get("reports_to_name")?,
-                placed_by: row.try_get::<Option<String>, _>("placed_by")?.unwrap_or_default(),
-                reason: row.try_get::<Option<String>, _>("reason")?.unwrap_or_default(),
+                placed_by: row
+                    .try_get::<Option<String>, _>("placed_by")?
+                    .unwrap_or_default(),
+                reason: row
+                    .try_get::<Option<String>, _>("reason")?
+                    .unwrap_or_default(),
             })
         })
         .collect()
@@ -474,7 +502,11 @@ pub async fn place_employee(
     reports_to: Option<&str>,
     placed: &Authorization,
 ) -> Result<(), AppError> {
-    let clean = |raw: Option<&str>| raw.map(str::trim).filter(|v| !v.is_empty()).map(str::to_owned);
+    let clean = |raw: Option<&str>| {
+        raw.map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(str::to_owned)
+    };
     let department = clean(department).map(|c| c.to_ascii_uppercase());
     let level = clean(level).map(|c| c.to_ascii_uppercase());
     let grade = clean(grade).map(|c| c.to_ascii_uppercase());
@@ -493,7 +525,9 @@ pub async fn place_employee(
             .fetch_optional(pool)
             .await?;
             if usable != Some(true) {
-                return Err(AppError::Validation(format!("{code} is not a {what} in use")));
+                return Err(AppError::Validation(format!(
+                    "{code} is not a {what} in use"
+                )));
             }
         }
     }
@@ -508,7 +542,9 @@ pub async fn place_employee(
                 .fetch_one(pool)
                 .await?;
         if !exists {
-            return Err(AppError::Validation(format!("{manager} is not an employee")));
+            return Err(AppError::Validation(format!(
+                "{manager} is not an employee"
+            )));
         }
         let looped: bool = sqlx::query_scalar(
             "WITH RECURSIVE placed AS (
@@ -660,8 +696,12 @@ pub async fn company(pool: &PgPool) -> Result<CompanyView, AppError> {
             npp: row.try_get("npp")?,
             kesehatan_code: row.try_get("kesehatan_code")?,
             jkk_risk_class: row.try_get("jkk_risk_class")?,
-            registered_by: row.try_get::<Option<String>, _>("registered_by")?.unwrap_or_default(),
-            reason: row.try_get::<Option<String>, _>("reason")?.unwrap_or_default(),
+            registered_by: row
+                .try_get::<Option<String>, _>("registered_by")?
+                .unwrap_or_default(),
+            reason: row
+                .try_get::<Option<String>, _>("reason")?
+                .unwrap_or_default(),
         })
     })
     .collect::<Result<Vec<_>, AppError>>()?;
@@ -690,13 +730,19 @@ pub async fn register_bpjs(
     jkk_risk_class: Option<&str>,
     registered: &Authorization,
 ) -> Result<(), AppError> {
-    let clean = |raw: Option<&str>| raw.map(str::trim).filter(|v| !v.is_empty()).map(str::to_owned);
+    let clean = |raw: Option<&str>| {
+        raw.map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(str::to_owned)
+    };
     let class = clean(jkk_risk_class).map(|c| c.to_ascii_uppercase());
     if class
         .as_deref()
         .is_some_and(|c| !["I", "II", "III", "IV", "V"].contains(&c))
     {
-        return Err(AppError::Validation("a JKK risk class is I, II, III, IV or V".into()));
+        return Err(AppError::Validation(
+            "a JKK risk class is I, II, III, IV or V".into(),
+        ));
     }
     let inserted = sqlx::query(
         "INSERT INTO company_bpjs_registration
@@ -856,7 +902,10 @@ pub async fn save_group_entity(
     let tax_id = tax_id
         .map(|t| t.chars().filter(char::is_ascii_digit).collect::<String>())
         .filter(|t| !t.is_empty());
-    if tax_id.as_ref().is_some_and(|t| t.len() != 15 && t.len() != 16) {
+    if tax_id
+        .as_ref()
+        .is_some_and(|t| t.len() != 15 && t.len() != 16)
+    {
         return Err(AppError::Validation("an NPWP is 15 or 16 digits".into()));
     }
     if relation == "HOLDING" {
@@ -867,7 +916,9 @@ pub async fn save_group_entity(
         .fetch_optional(pool)
         .await?;
         if let Some(other) = other {
-            return Err(AppError::Conflict(format!("{other} is already the holding")));
+            return Err(AppError::Conflict(format!(
+                "{other} is already the holding"
+            )));
         }
     }
     sqlx::query(
@@ -951,7 +1002,9 @@ pub async fn save_checklist_template(
     let id = raw_id.trim().to_ascii_lowercase();
     if id.is_empty()
         || id.len() > 32
-        || !id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        || !id
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
     {
         return Err(AppError::Validation(
             "a task id is lowercase letters, digits or underscores, at most 32".into(),
@@ -966,7 +1019,9 @@ pub async fn save_checklist_template(
     }
     let kind = kind.trim().to_ascii_uppercase();
     if !["ONBOARDING", "SEPARATION"].contains(&kind.as_str()) {
-        return Err(AppError::Validation("a checklist is ONBOARDING or SEPARATION".into()));
+        return Err(AppError::Validation(
+            "a checklist is ONBOARDING or SEPARATION".into(),
+        ));
     }
     if !(1..=99).contains(&position) {
         return Err(AppError::Validation("a position is 1 to 99".into()));

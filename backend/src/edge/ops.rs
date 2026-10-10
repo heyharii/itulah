@@ -23,8 +23,7 @@ use crate::edge::console::StopReason;
 use crate::edge::status::StatusSource;
 use crate::sync::node_ops::{
     ActionPayload, ActionReport, NodeOpPayload, UpdatePayload, ACTION_DONE, ACTION_FAILED,
-    ACTION_RUNNING, NODE_BACKUP, NODE_DIAGNOSE, NODE_RESNAPSHOT, NODE_RESTART,
-    NODE_SYNC_NOW,
+    ACTION_RUNNING, NODE_BACKUP, NODE_DIAGNOSE, NODE_RESNAPSHOT, NODE_RESTART, NODE_SYNC_NOW,
 };
 use chrono::{DateTime, Local, SecondsFormat, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -39,7 +38,10 @@ use uuid::Uuid;
 
 #[derive(Debug)]
 pub enum NodeOp {
-    Plain { kind: String, payload: NodeOpPayload },
+    Plain {
+        kind: String,
+        payload: NodeOpPayload,
+    },
     Update(UpdatePayload),
 }
 
@@ -78,7 +80,10 @@ fn send(op: NodeOp) {
         Some(queue) => {
             let _ = queue.send(op);
         }
-        None => tracing::warn!(?op, "head office asked for an operation this node does not run"),
+        None => tracing::warn!(
+            ?op,
+            "head office asked for an operation this node does not run"
+        ),
     }
 }
 
@@ -129,7 +134,9 @@ pub fn record_received(
 pub fn record_resnapshot(connection: &Connection, action: &ActionPayload) -> rusqlite::Result<()> {
     let count = |table: &str| -> Option<i64> {
         connection
-            .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| row.get(0))
+            .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
             .ok()
     };
     let catalogue = count("catalog_item");
@@ -191,18 +198,28 @@ fn mark(
     };
     let now = stamp(Utc::now());
     let finished = matches!(state, ACTION_DONE | ACTION_FAILED).then(|| now.clone());
-    let written = connection.lock().map_err(|_| "database lock poisoned".to_owned()).and_then(|guard| {
-        guard
-            .execute(
-                "UPDATE edge_node_action
+    let written = connection
+        .lock()
+        .map_err(|_| "database lock poisoned".to_owned())
+        .and_then(|guard| {
+            guard
+                .execute(
+                    "UPDATE edge_node_action
                     SET state = ?2, sentence = ?3, detail = ?4,
                         started_at = COALESCE(started_at, ?5),
                         finished_at = COALESCE(?6, finished_at)
                   WHERE action_id = ?1",
-                params![action_id.to_string(), state, sentence, detail.to_string(), now, finished],
-            )
-            .map_err(|error| error.to_string())
-    });
+                    params![
+                        action_id.to_string(),
+                        state,
+                        sentence,
+                        detail.to_string(),
+                        now,
+                        finished
+                    ],
+                )
+                .map_err(|error| error.to_string())
+        });
     if let Err(error) = written {
         tracing::warn!(%error, %action_id, "an action's progress was not written down");
     }
@@ -239,7 +256,8 @@ pub fn recent_reports(connection: &Connection) -> Option<Vec<ActionReport>> {
     let mut reports = Vec::new();
     for row in rows.flatten() {
         let (id, kind, state, received, started, finished, sentence, detail) = row;
-        let (Ok(action_id), Some(received_at)) = (Uuid::parse_str(&id), parse_stamp(Some(received)))
+        let (Ok(action_id), Some(received_at)) =
+            (Uuid::parse_str(&id), parse_stamp(Some(received)))
         else {
             continue;
         };
@@ -259,7 +277,10 @@ pub fn recent_reports(connection: &Connection) -> Option<Vec<ActionReport>> {
 
 /// At start: finish the restart that caused it, pick up what was accepted and
 /// not done, and forget what is a week old. Returns what to run again.
-fn resume(connection: &Arc<Mutex<Connection>>, started_at: DateTime<Utc>) -> Vec<(Uuid, String, NodeOpPayload)> {
+fn resume(
+    connection: &Arc<Mutex<Connection>>,
+    started_at: DateTime<Utc>,
+) -> Vec<(Uuid, String, NodeOpPayload)> {
     let Ok(guard) = connection.lock() else {
         return Vec::new();
     };
@@ -275,7 +296,14 @@ fn resume(connection: &Arc<Mutex<Connection>>, started_at: DateTime<Utc>) -> Vec
         .and_then(|mut statement| {
             statement
                 .query_map([], |row| {
-                    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
                 })
                 .map(|rows| rows.flatten().collect())
         })
@@ -322,7 +350,10 @@ fn resume(connection: &Arc<Mutex<Connection>>, started_at: DateTime<Utc>) -> Vec
         }
         let fresh = parse_stamp(Some(received)).is_some_and(|at| now - at < RESUME_WITHIN);
         match Uuid::parse_str(&id) {
-            Ok(action_id) if fresh && matches!(kind.as_str(), NODE_BACKUP | NODE_DIAGNOSE | NODE_SYNC_NOW) => {
+            Ok(action_id)
+                if fresh
+                    && matches!(kind.as_str(), NODE_BACKUP | NODE_DIAGNOSE | NODE_SYNC_NOW) =>
+            {
                 let _ = guard.execute(
                     "UPDATE edge_node_action SET state = 'QUEUED' WHERE action_id = ?1",
                     [&id],
@@ -495,7 +526,13 @@ async fn backup(source: &Arc<StatusSource>, data_dir: Option<PathBuf>, action: O
         return;
     };
     let outcome = tokio::task::spawn_blocking(move || {
-        mark(&connection, action, ACTION_RUNNING, "Taking a backup.", &json!({}));
+        mark(
+            &connection,
+            action,
+            ACTION_RUNNING,
+            "Taking a backup.",
+            &json!({}),
+        );
         let began = Instant::now();
         let result = crate::edge::backup::take(&connection, &dir);
         let took = began.elapsed();
@@ -533,7 +570,9 @@ async fn backup(source: &Arc<StatusSource>, data_dir: Option<PathBuf>, action: O
     })
     .await;
     match outcome {
-        Ok(Ok(path)) => tracing::info!(path = %path.display(), "backup taken at head office's request"),
+        Ok(Ok(path)) => {
+            tracing::info!(path = %path.display(), "backup taken at head office's request")
+        }
         Ok(Err(error)) => tracing::warn!(%error, "backup requested by head office failed"),
         Err(error) => tracing::warn!(%error, "backup task failed"),
     }
@@ -544,7 +583,13 @@ async fn diagnose(source: &Arc<StatusSource>, data_dir: Option<PathBuf>, action:
     {
         let connection = connection.clone();
         let _ = tokio::task::spawn_blocking(move || {
-            mark(&connection, action, ACTION_RUNNING, "Diagnosing.", &json!({}))
+            mark(
+                &connection,
+                action,
+                ACTION_RUNNING,
+                "Diagnosing.",
+                &json!({}),
+            )
         })
         .await;
     }
@@ -591,7 +636,11 @@ async fn diagnose(source: &Arc<StatusSource>, data_dir: Option<PathBuf>, action:
 fn applied_seq(connection: &Arc<Mutex<Connection>>) -> Option<i64> {
     connection.lock().ok().and_then(|guard| {
         guard
-            .query_row("SELECT applied_seq FROM sync_command_watermark", [], |row| row.get(0))
+            .query_row(
+                "SELECT applied_seq FROM sync_command_watermark",
+                [],
+                |row| row.get(0),
+            )
             .optional()
             .ok()
             .flatten()
@@ -623,7 +672,9 @@ async fn sync_now(source: &Arc<StatusSource>, action: Option<Uuid>) {
             (status, applied_seq(&connection))
         }
     };
-    let (before, before_seq) = tokio::task::spawn_blocking(reading.clone()).await.unwrap_or((None, None));
+    let (before, before_seq) = tokio::task::spawn_blocking(reading.clone())
+        .await
+        .unwrap_or((None, None));
     let asked_at = Utc::now();
     {
         let connection = connection.clone();
@@ -645,7 +696,9 @@ async fn sync_now(source: &Arc<StatusSource>, action: Option<Uuid>) {
     let mut after_seq = None;
     while began.elapsed() < SYNC_NOW_PATIENCE {
         tokio::time::sleep(Duration::from_secs(2)).await;
-        let (status, seq) = tokio::task::spawn_blocking(reading.clone()).await.unwrap_or((None, None));
+        let (status, seq) = tokio::task::spawn_blocking(reading.clone())
+            .await
+            .unwrap_or((None, None));
         let finished = status.as_ref().is_some_and(|status| {
             status.last_success_at.is_some_and(|at| at >= asked_at)
                 || status.last_error_at.is_some_and(|at| at >= asked_at)
@@ -711,7 +764,9 @@ async fn sync_now(source: &Arc<StatusSource>, action: Option<Uuid>) {
             format!("No sync finished within two minutes; {queue}. The server keeps trying."),
         )
     };
-    let _ = tokio::task::spawn_blocking(move || mark(&connection, action, state, &sentence, &detail)).await;
+    let _ =
+        tokio::task::spawn_blocking(move || mark(&connection, action, state, &sentence, &detail))
+            .await;
 }
 
 async fn upload_diagnosis(
@@ -766,7 +821,13 @@ mod tests {
         if let Ok(guard) = shared.lock() {
             let _ = record_received(&guard, id, NODE_RESTART, "lambat", false);
         }
-        mark(&shared, Some(id), ACTION_RUNNING, "Restarting now.", &json!({ "stopping_at": Utc::now() }));
+        mark(
+            &shared,
+            Some(id),
+            ACTION_RUNNING,
+            "Restarting now.",
+            &json!({ "stopping_at": Utc::now() }),
+        );
         assert!(resume(&shared, Utc::now()).is_empty());
         let reports = shared
             .lock()
@@ -774,6 +835,10 @@ mod tests {
             .and_then(|guard| recent_reports(&guard))
             .unwrap_or_default();
         assert_eq!(reports[0].state, ACTION_DONE);
-        assert!(reports[0].sentence.as_deref().unwrap_or("").starts_with("Restarted"));
+        assert!(reports[0]
+            .sentence
+            .as_deref()
+            .unwrap_or("")
+            .starts_with("Restarted"));
     }
 }

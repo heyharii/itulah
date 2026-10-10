@@ -490,9 +490,13 @@ pub async fn file(
     // work (0809, cuti untuk pekerja roster): the roster's own rest days and
     // holidays join whatever rest days the caller named.
     let mut rest_days = body.rest_days.clone();
-    if let Some(rostered) =
-        infrastructure::roster_rest_days(&state.db, &access.employee_id, body.from_date, body.to_date)
-            .await?
+    if let Some(rostered) = infrastructure::roster_rest_days(
+        &state.db,
+        &access.employee_id,
+        body.from_date,
+        body.to_date,
+    )
+    .await?
     {
         rest_days.extend(rostered);
         rest_days.sort();
@@ -899,7 +903,11 @@ pub async fn install_policy(
         )
     })
     .map_err(infrastructure::leave_error)?;
-    if let Some(other) = body.joiner.as_deref().filter(|j| !matches!(*j, "FULL" | "PRORATE")) {
+    if let Some(other) = body
+        .joiner
+        .as_deref()
+        .filter(|j| !matches!(*j, "FULL" | "PRORATE"))
+    {
         return Err(AppError::Validation(format!(
             "{other:?} is not a joiner rule: expected FULL or PRORATE"
         )));

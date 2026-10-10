@@ -7,6 +7,9 @@ import {
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
+import { Fab } from "@/components/ui/fab"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Day } from "@/components/ui/day"
@@ -39,6 +42,13 @@ import {
 } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
 import { cn } from "@/lib/utils"
+import { monthOptions } from "@/screens/people/parts"
+import {
+  CardButton,
+  CardFigure,
+  CardName,
+  PhoneCards,
+} from "@/components/ui/phone-cards"
 import type { LeaveRequestView } from "@itulah/contract"
 
 /// Time off › Requests — every leave request, with what is waiting on a
@@ -85,6 +95,7 @@ function stateTone(state: string): "ok" | "warn" | "bad" | "neutral" {
 }
 
 export function TimeOffRequests() {
+  const phone = useLayout() === "phone"
   const [view, setView] = useState<View>("WAITING")
   const [month, setMonth] = useState(currentMonth)
   const [search, setSearch] = useState("")
@@ -197,9 +208,11 @@ export function TimeOffRequests() {
         title="Time Off"
         sub="Leave requests — what is waiting on a decision, and who is away in a month."
         actions={
-          <Button variant="primary" onClick={() => setFiling(true)}>
-            Request leave
-          </Button>
+          !phone && (
+            <Button variant="primary" onClick={() => setFiling(true)}>
+              Request leave
+            </Button>
+          )
         }
       />
 
@@ -209,49 +222,85 @@ export function TimeOffRequests() {
         </Banner>
       )}
 
-      <Toolbar>
-        <Segmented<View>
-          value={view}
-          onChange={setView}
-          options={[
-            {
-              value: "WAITING",
-              label: `Waiting${waiting.data ? ` (${waiting.data.length})` : ""}`,
-            },
-            { value: "MONTH", label: "By month" },
-          ]}
-        />
-        {view === "MONTH" && (
-          <ButtonGroup>
-            <Button
-              variant="ghost"
-              aria-label="Previous month"
-              onClick={() => setMonth(stepMonth(month, -1))}
-            >
-              ‹
-            </Button>
-            <Button variant="ghost" onClick={() => setMonth(currentMonth())}>
-              {monthTitle(month)}
-            </Button>
-            <Button
-              variant="ghost"
-              aria-label="Next month"
-              onClick={() => setMonth(stepMonth(month, 1))}
-            >
-              ›
-            </Button>
-          </ButtonGroup>
-        )}
-        <Toolbar.Spacer />
-        <Input
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          className="h-8 w-60"
-          aria-label="Search requests"
-        />
-      </Toolbar>
+      {/* On a phone the search, the view (waiting, or a month) and the one
+          action are in the dock over the bottom bar. */}
+      {phone ? (
+        <>
+          <Fab label="Request leave" onClick={() => setFiling(true)} />
+          <DockTools
+            search={{
+              value: search,
+              onChange: setSearch,
+              label: "Search Requests",
+            }}
+            status={{
+              value: view === "WAITING" ? "WAITING" : month,
+              options: [
+                {
+                  value: "WAITING",
+                  label: "Waiting",
+                  count: waiting.data?.length,
+                },
+                ...monthOptions(month).map((value) => ({
+                  value,
+                  label: monthTitle(value),
+                })),
+              ],
+              onChange: (next) => {
+                if (next === "WAITING") setView("WAITING")
+                else {
+                  setView("MONTH")
+                  setMonth(next)
+                }
+              },
+            }}
+          />
+        </>
+      ) : (
+        <Toolbar>
+          <Segmented<View>
+            value={view}
+            onChange={setView}
+            options={[
+              {
+                value: "WAITING",
+                label: `Waiting${waiting.data ? ` (${waiting.data.length})` : ""}`,
+              },
+              { value: "MONTH", label: "By month" },
+            ]}
+          />
+          {view === "MONTH" && (
+            <ButtonGroup>
+              <Button
+                variant="ghost"
+                aria-label="Previous month"
+                onClick={() => setMonth(stepMonth(month, -1))}
+              >
+                ‹
+              </Button>
+              <Button variant="ghost" onClick={() => setMonth(currentMonth())}>
+                {monthTitle(month)}
+              </Button>
+              <Button
+                variant="ghost"
+                aria-label="Next month"
+                onClick={() => setMonth(stepMonth(month, 1))}
+              >
+                ›
+              </Button>
+            </ButtonGroup>
+          )}
+          <Toolbar.Spacer />
+          <Input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            className="h-8 w-60"
+            aria-label="Search requests"
+          />
+        </Toolbar>
+      )}
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(source, {
           loading: "Reading the requests…",
           render: () =>
@@ -264,6 +313,49 @@ export function TimeOffRequests() {
                   ? "Use Request leave to file one for somebody."
                   : "Nothing matches that search."}
               </EmptyState>
+            ) : phone ? (
+              <PhoneCards
+                rows={rows}
+                onOpen={(row) => setOpened(row)}
+                rowId={(row) => row.key}
+                spec={{
+                  title: (row) => (
+                    <CardName
+                      name={row.name}
+                      line={
+                        <>
+                          <span className="block">
+                            {row.kind} · {row.unitId}
+                          </span>
+                          <span className="block">
+                            {day(row.from)}
+                            {row.to !== row.from && <> – {day(row.to)}</>}
+                          </span>
+                        </>
+                      }
+                    />
+                  ),
+                  lead: (row) => (
+                    <CardFigure
+                      value={row.days === null ? "—" : row.days}
+                      caption={row.days === 1 ? "day" : "days"}
+                      tone={row.days === null ? "quiet" : undefined}
+                    />
+                  ),
+                  foot: (row) => (
+                    <Pill tone={stateTone(row.state)}>
+                      {leaveStateLabel(row.state)}
+                    </Pill>
+                  ),
+                  action: (row) => (
+                    <CardButton
+                      label="Open"
+                      ariaLabel={`Open ${row.name}’s leave`}
+                      onClick={() => setOpened(row)}
+                    />
+                  ),
+                }}
+              />
             ) : (
               <div className="px-4 pt-3 pb-4">
                 <MiniTable
@@ -349,6 +441,7 @@ function RequestSheet({
   onClose: () => void
 }) {
   const client = useQueryClient()
+  const phone = useLayout() === "phone"
   const [reason, setReason] = useState("")
   const [failed, setFailed] = useState<string | null>(null)
 
@@ -405,6 +498,28 @@ function RequestSheet({
         }
       }}
       id={full?.id ?? row.requestId ?? undefined}
+      footer={
+        phone && state === "PENDING" && full !== null ? (
+          <div className="flex gap-2">
+            <Button
+              variant="primary"
+              className="flex-1"
+              disabled={reason.trim() === "" || decide.isPending}
+              onClick={() => decide.mutate(true)}
+            >
+              Approve
+            </Button>
+            <Button
+              variant="danger"
+              className="flex-1"
+              disabled={reason.trim() === "" || decide.isPending}
+              onClick={() => decide.mutate(false)}
+            >
+              Reject
+            </Button>
+          </div>
+        ) : undefined
+      }
       title={`${row.name} · ${row.kind}`}
       badge={<Pill tone={stateTone(state)}>{leaveStateLabel(state)}</Pill>}
     >
@@ -452,22 +567,24 @@ function RequestSheet({
               onChange={(event) => setReason(event.target.value)}
             />
           </Field>
-          <ButtonGroup>
-            <Button
-              variant="primary"
-              disabled={reason.trim() === "" || decide.isPending}
-              onClick={() => decide.mutate(true)}
-            >
-              Approve
-            </Button>
-            <Button
-              variant="danger"
-              disabled={reason.trim() === "" || decide.isPending}
-              onClick={() => decide.mutate(false)}
-            >
-              Reject
-            </Button>
-          </ButtonGroup>
+          {!phone && (
+            <ButtonGroup>
+              <Button
+                variant="primary"
+                disabled={reason.trim() === "" || decide.isPending}
+                onClick={() => decide.mutate(true)}
+              >
+                Approve
+              </Button>
+              <Button
+                variant="danger"
+                disabled={reason.trim() === "" || decide.isPending}
+                onClick={() => decide.mutate(false)}
+              >
+                Reject
+              </Button>
+            </ButtonGroup>
+          )}
         </div>
       )}
     </Sheet>

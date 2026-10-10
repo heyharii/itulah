@@ -129,7 +129,7 @@ export function DevicesTab({
   )
 }
 
-/// How many till seats the store has — Kasir 1 to Kasir N. Head office decides
+/// How many till seats the store has — Till 1 to Till N. Head office decides
 /// it; an Admin edits it here, anyone else reads it. Fewer seats never ends a
 /// shift (the server keeps a drawer open at a removed seat listed until it is
 /// closed), so there is nothing to confirm.
@@ -160,8 +160,8 @@ function SeatsCard({
     <Card className="flex flex-col gap-3 px-4 py-3 text-[0.875rem] text-body">
       <div className="flex flex-wrap items-center gap-3">
         <span className="flex-1">
-          Till seats: <b className="text-ink">{seats}</b> — Kasir 1
-          {seats > 1 ? ` to Kasir ${seats}` : ""}
+          Till seats: <b className="text-ink">{seats}</b> — Till 1
+          {seats > 1 ? ` to Till ${seats}` : ""}
         </span>
         {canManage && (
           <>

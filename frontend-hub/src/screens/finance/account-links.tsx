@@ -12,7 +12,8 @@ import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DockTools } from "@/components/shell/dock-tools"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Checkbox, Field, Input, Select } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
@@ -23,6 +24,7 @@ import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState, LoadMore, Problem } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { count, label, moment } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { problemOf } from "@/lib/problem"
 import {
   accountLinkHistory,
@@ -109,6 +111,7 @@ const columns: ColumnDef<TableSetup, RoleRow>[] = [
     accessorKey: "label",
     header: "Role",
     size: 260,
+    meta: { card: "hide" },
     cell: ({ row }) => (
       <span className="font-medium text-ink">{row.original.label}</span>
     ),
@@ -117,6 +120,7 @@ const columns: ColumnDef<TableSetup, RoleRow>[] = [
     accessorKey: "key",
     header: "Key",
     size: 210,
+    meta: { card: "hide" },
     cell: ({ row }) => <Tag>{row.original.key}</Tag>,
   },
   {
@@ -125,7 +129,7 @@ const columns: ColumnDef<TableSetup, RoleRow>[] = [
     size: 240,
     // What a gap COSTS — the column somebody fixing payables before month end
     // filters on.
-    meta: { filter: { kind: "option" } },
+    meta: { card: "hide", filter: { kind: "option" } },
     cell: ({ row }) => (
       <span className="text-body">{row.original.needed_for}</span>
     ),
@@ -134,7 +138,7 @@ const columns: ColumnDef<TableSetup, RoleRow>[] = [
     accessorKey: "links",
     header: "Links",
     size: 100,
-    meta: { align: "right" },
+    meta: { align: "right", card: "hide" },
     cell: ({ row }) => (
       <span className="text-body tabular-nums">
         {count(row.original.links)}
@@ -145,7 +149,11 @@ const columns: ColumnDef<TableSetup, RoleRow>[] = [
     accessorKey: "gaps",
     header: "Gaps",
     size: 110,
-    meta: { align: "right", filter: { kind: "number", unit: "units" } },
+    meta: {
+      align: "right",
+      card: "hide",
+      filter: { kind: "number", unit: "units" },
+    },
     cell: ({ row }) =>
       row.original.gaps === 0 ? (
         <span className="text-ok-fg">None</span>
@@ -154,6 +162,67 @@ const columns: ColumnDef<TableSetup, RoleRow>[] = [
           {count(row.original.gaps)}
         </span>
       ),
+  },
+  // Three columns that exist only on a card (a phone): the role over its key,
+  // the gaps it leads with, and what a gap would cost.
+  {
+    id: "head",
+    accessorFn: (row) => `${row.label} ${row.key}`,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="text-[1rem] font-semibold break-words text-ink">
+          {row.original.label}
+        </span>
+        <span className="font-mono text-[0.875rem] font-normal break-all text-mute">
+          {row.original.key}
+        </span>
+      </span>
+    ),
+  },
+  {
+    id: "lead",
+    accessorFn: (row) => row.gaps,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "lead" },
+    cell: ({ row }) => (
+      <span className="flex flex-col items-end tabular-nums">
+        <span
+          className={
+            row.original.gaps === 0
+              ? "text-[1.5rem] leading-tight font-semibold tracking-tight text-mute"
+              : "text-[1.5rem] leading-tight font-semibold tracking-tight text-bad-fg"
+          }
+        >
+          {row.original.gaps === 0 ? "None" : count(row.original.gaps)}
+        </span>
+        <span className="text-[0.875rem] text-mute">
+          {row.original.gaps === 1 ? "gap" : "gaps"}
+        </span>
+      </span>
+    ),
+  },
+  {
+    id: "foot",
+    accessorFn: (row) => row.needed_for,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => (
+      <span className="flex flex-col gap-0.5 leading-6">
+        <span>{row.original.needed_for}</span>
+        <span>
+          {count(row.original.links)}{" "}
+          {row.original.links === 1 ? "link" : "links"}
+        </span>
+      </span>
+    ),
   },
 ]
 
@@ -222,6 +291,7 @@ function roleRows(
 }
 
 export function AccountLinks() {
+  const phone = useLayout() === "phone"
   const [query, setQuery] = useState("")
   const [onlyGaps, setOnlyGaps] = useState(false)
   const mapping = useSheet("mapping")
@@ -273,11 +343,13 @@ export function AccountLinks() {
           columnFilters: filters.columnFilters,
           globalFilter: query,
           sorting,
+          // The card's own columns are drawn on a phone and never on a desk.
+          columnVisibility: { head: phone, lead: phone, foot: phone },
         },
         onSortingChange: setSorting,
         onGlobalFilterChange: setQuery,
       }),
-      [rows, filters.columns, filters.columnFilters, query, sorting]
+      [rows, filters.columns, filters.columnFilters, query, sorting, phone]
     )
   )
 
@@ -289,29 +361,56 @@ export function AccountLinks() {
         crumb="Finance"
         title="Account Links"
         sub="The posting rules name roles; the client's chart has accounts. A link says which account answers, for every unit, one kind of unit, or one unit."
+        // Search, the status, the filters and the order are the dock's on a
+        // phone.
         actions={
-          <Input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            className="h-8 w-48"
-          />
+          phone ? undefined : (
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              className="h-8 w-48"
+            />
+          )
         }
       />
 
-      <Toolbar>
-        <Checkbox
-          label="Only roles with gaps"
-          checked={onlyGaps}
-          onChange={(next) => setOnlyGaps(next)}
+      {phone ? (
+        <DockTools
+          search={{
+            value: query,
+            onChange: setQuery,
+            label: "Search roles",
+          }}
+          filter={{
+            count: filters.filters.length,
+            panel: { model: filters, table },
+          }}
+          sort={dockSortOf(table)}
+          status={{
+            value: onlyGaps ? "gaps" : "all",
+            options: [
+              { value: "all", label: "All roles" },
+              { value: "gaps", label: "With gaps" },
+            ],
+            onChange: (next) => setOnlyGaps(next === "gaps"),
+          }}
         />
-        <FilterPanel model={filters} table={table} />
-        <Toolbar.Spacer />
-        <span className="text-[0.875rem] text-mute">
-          {count(page.data?.total ?? 0)} links · {count(gaps)} role-and-unit
-          gaps
-          {onlyGaps ? " · showing only what is left" : ""}
-        </span>
-      </Toolbar>
+      ) : (
+        <Toolbar>
+          <Checkbox
+            label="Only roles with gaps"
+            checked={onlyGaps}
+            onChange={(next) => setOnlyGaps(next)}
+          />
+          <FilterPanel model={filters} table={table} />
+          <Toolbar.Spacer />
+          <span className="text-[0.875rem] text-mute">
+            {count(page.data?.total ?? 0)} links · {count(gaps)} role-and-unit
+            gaps
+            {onlyGaps ? " · showing only what is left" : ""}
+          </span>
+        </Toolbar>
+      )}
 
       {preset !== null && presetRoles !== null && (
         <Banner tone="info" className="mb-3" onDismiss={linkSource.close}>
@@ -354,7 +453,7 @@ export function AccountLinks() {
         </>
       )}
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(page, {
           loading: "Loading the links…",
           render: () =>
@@ -370,7 +469,11 @@ export function AccountLinks() {
                 onRowClick={(row) => mapping.open(row.key)}
                 isSelected={(row) => row.key === mapping.value}
                 empty="No role matches the search and filters in force."
-                className="max-h-[calc(100dvh-22rem)]"
+                className="max-h-[calc(100dvh-22rem)] max-md:max-h-none"
+                pageScroll={phone}
+                cardsApart
+                cardLead
+                cardSort={false}
               />
             ),
         })}
@@ -466,7 +569,7 @@ function RoleSheet({
       }}
       id={role ?? undefined}
       title={doc?.label ?? (role === null ? "Role" : label(role))}
-      className="w-[36rem]"
+      className="w-[36rem] max-md:w-full"
     >
       {queryState(page, {
         loading: "Loading the links…",

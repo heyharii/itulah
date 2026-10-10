@@ -5,6 +5,8 @@ import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
+import { Fab } from "@/components/ui/fab"
 import { Day } from "@/components/ui/day"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -45,6 +47,12 @@ import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import {
+  CardButton,
+  CardFigure,
+  CardName,
+  PhoneCards,
+} from "@/components/ui/phone-cards"
 
 /// Expense claims: petty cash, asked for on paper and sanctioned by two
 /// people.
@@ -209,6 +217,7 @@ const listColumns: ColumnDef<TableSetup, ClaimRow>[] = [
 ]
 
 export function Claims() {
+  const phone = useLayout() === "phone"
   const claim = useSheet("claim")
   const canWrite = useCanWrite()
   const reach = useReach()
@@ -253,6 +262,7 @@ export function Claims() {
             : "Every claim the caller may see, decided or not."
         }
         actions={
+          !phone &&
           canWrite && (
             <Button variant="primary" onClick={() => setFiling(true)}>
               File claim
@@ -260,6 +270,7 @@ export function Claims() {
           )
         }
       />
+      {canWrite && <Fab label="File claim" onClick={() => setFiling(true)} />}
 
       <SubTabs
         tabs={[
@@ -340,6 +351,7 @@ function ClaimTable({
   isSelected: (row: ClaimRow) => boolean
   emptyNone: string
 }) {
+  const phone = useLayout() === "phone"
   const [sorting, setSorting] = useState<SortingState>(defaultSorting)
   const filters = useFilters(columns)
 
@@ -363,12 +375,62 @@ function ClaimTable({
         <FilterPanel model={filters} table={table} />
       </Toolbar>
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(query, {
           loading,
           render: () =>
             rows.length === 0 ? (
               <EmptyState>{emptyNone}</EmptyState>
+            ) : phone ? (
+              <PhoneCards
+                rows={table.getRowModel().rows.map((one) => one.original)}
+                onOpen={(row) => onOpen(row.claim_id)}
+                empty={`${rows.length.toLocaleString("id-ID")} claims are here, and none of them match the filters in force.`}
+                rowId={(row) => row.claim_id}
+                spec={{
+                  title: (row) => (
+                    <CardName
+                      name={
+                        row.employee_name ??
+                        row.employee_code ??
+                        row.employee_id
+                      }
+                      line={
+                        <>
+                          <span className="block">
+                            {row.claim_number} · {row.unit_name ?? row.unit_id}
+                          </span>
+                          <span className="block">
+                            Filed {day(row.posted_on)} ·{" "}
+                            {count(row.lines.length)}{" "}
+                            {row.lines.length === 1 ? "line" : "lines"}
+                          </span>
+                        </>
+                      }
+                    />
+                  ),
+                  lead: (row) => (
+                    <CardFigure
+                      value={money(row.sanctioned_minor ?? row.claimed_minor)}
+                      caption={
+                        row.sanctioned_minor === null ? "claimed" : "sanctioned"
+                      }
+                    />
+                  ),
+                  foot: (row) => (
+                    <Pill tone={claimStateTone(row.state)}>
+                      {claimStateLabel(row.state)}
+                    </Pill>
+                  ),
+                  action: (row) => (
+                    <CardButton
+                      label="Open"
+                      ariaLabel={`Open claim ${row.claim_number}`}
+                      onClick={() => onOpen(row.claim_id)}
+                    />
+                  ),
+                }}
+              />
             ) : (
               <DataTable<ClaimRow>
                 table={table}

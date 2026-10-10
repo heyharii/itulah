@@ -357,7 +357,7 @@ export function BankReconciliation() {
             period ended on or before it. */}
         <span className="text-[0.875rem] text-mute">
           {asOf.chip}
-          {unit === "" ? " · every unit" : " · "}
+          {unit === "" ? " · all units" : " · "}
           {unit !== "" && <UnitName id={unit} />}
           {" · "}
           <span

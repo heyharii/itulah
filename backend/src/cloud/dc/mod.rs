@@ -25,12 +25,16 @@
 use crate::cloud::AppState;
 use axum::Router;
 
+pub mod changes;
 pub mod common;
+pub mod move_back;
+pub mod owed;
 pub mod packing;
 pub mod picking;
 pub mod print_bridge;
 pub mod receiving;
 pub mod returns;
+pub mod short_pick;
 pub mod tagging;
 
 /// Every Gudang route, added in one call (`cloud::http::router`). Each area
@@ -40,7 +44,11 @@ pub fn routes(router: Router<AppState>) -> Router<AppState> {
     let router = receiving::routes(router);
     let router = tagging::routes(router);
     let router = picking::routes(router);
+    let router = short_pick::routes(router);
     let router = packing::routes(router);
+    let router = move_back::routes(router);
+    let router = owed::routes(router);
+    let router = changes::routes(router);
     let router = returns::routes(router);
     print_bridge::routes(router)
 }

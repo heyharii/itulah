@@ -126,14 +126,39 @@ const GOODS_SOURCES: &[&str] = &["TRANSFER", "GOODS_RECEIPT", "CREDIT_NOTE", "LA
 /// constraint (0464); when a migration adds a kind, it classifies it in the
 /// same change, and the first posting of an unclassified kind names this file.
 const FINANCING_SOURCES: &[&str] = &[
-    "ACQ_SETTLEMENT", "ADVANCE", "ASSET_CAPITALIZATION", "ASSET_DISPOSAL",
-    "BANK_STATEMENT", "CASH_COUNT", "CASH_DOC", "CASH_SHIFT", "COGS_DAY",
-    "EXPENSE_CLAIM", "EXPENSE_CLAIM_PAYOUT", "FULL_AND_FINAL", "GIRO",
-    "INTERUNIT_SETTLE", "INVENTORY_WRITE_OFF", "MANUAL", "OPENING", "PAYMENT",
-    "PAYROLL_RUN", "PERIOD_CLOSING", "PETTY_REPLENISH", "REMITTANCE",
-    "RETENDER", "REVERSAL", "SALE_DAY", "SALE_DAY_EXCEPTION", "STOCK_COUNT",
-    "STORE_DEPOSIT", "STORE_EXPENSE", "SUPPLIER_ADVANCE", "SUPPLIER_INVOICE",
-    "TAX_SETTLEMENT", "VOUCHER_ISSUE",
+    "ACQ_SETTLEMENT",
+    "ADVANCE",
+    "ASSET_CAPITALIZATION",
+    "ASSET_DISPOSAL",
+    "BANK_STATEMENT",
+    "CASH_COUNT",
+    "CASH_DOC",
+    "CASH_SHIFT",
+    "COGS_DAY",
+    "EXPENSE_CLAIM",
+    "EXPENSE_CLAIM_PAYOUT",
+    "FULL_AND_FINAL",
+    "GIRO",
+    "INTERUNIT_SETTLE",
+    "INVENTORY_WRITE_OFF",
+    "MANUAL",
+    "OPENING",
+    "PAYMENT",
+    "PAYROLL_RUN",
+    "PERIOD_CLOSING",
+    "PETTY_REPLENISH",
+    "REMITTANCE",
+    "RETENDER",
+    "REVERSAL",
+    "SALE_DAY",
+    "SALE_DAY_EXCEPTION",
+    "STOCK_COUNT",
+    "STORE_DEPOSIT",
+    "STORE_EXPENSE",
+    "SUPPLIER_ADVANCE",
+    "SUPPLIER_INVOICE",
+    "TAX_SETTLEMENT",
+    "VOUCHER_ISSUE",
 ];
 
 /// Neither money nor goods (owner decision 25 Sep): assets moved between
@@ -447,7 +472,10 @@ mod tests {
             kind_for_source("REMITTANCE").expect("classified"),
             AffiliateKind::Financing
         );
-        assert_eq!(kind_for_source("TRANSFER").expect("classified"), AffiliateKind::Goods);
+        assert_eq!(
+            kind_for_source("TRANSFER").expect("classified"),
+            AffiliateKind::Goods
+        );
         assert_eq!(
             kind_for_source("SUPPLIER_INVOICE").expect("classified"),
             AffiliateKind::Financing

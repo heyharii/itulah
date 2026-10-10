@@ -5,9 +5,10 @@ import { X } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { AppLink } from "@/components/ui/app-link"
 import { Card } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Input } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
@@ -17,6 +18,7 @@ import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { EmptyState, NoMatch } from "@/components/ui/states"
 import { isComplete, useFilters } from "@/lib/filters"
 import { count, day, money } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   describeSegment,
   listMembers,
@@ -35,6 +37,13 @@ import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { useDebounced } from "@/lib/use-debounced"
+import {
+  CardFigure,
+  CardFoot,
+  CardName,
+  Fig,
+  Sentence,
+} from "@/components/ui/phone-cards"
 import { IssueCode } from "@/screens/members/counter"
 
 /// The member directory — everybody holding a card, and what they have done
@@ -171,6 +180,7 @@ function columnsFor(
       accessorFn: (row) => `${row.member_id} ${row.display_name ?? ""}`,
       header: "Member",
       size: 200,
+      meta: { card: "hide" },
       // The card number is no longer a tag beside the name. On a scheme where
       // most shoppers give no name it was a tag on every row saying `cust-1`,
       // which is a column of noise — so the number is the identity only where
@@ -191,6 +201,7 @@ function columnsFor(
       header: "Segment",
       size: 120,
       enableSorting: false,
+      meta: { card: "hide" },
       cell: ({ row }) => (
         <Pill tone={segmentTone(row.original.segment)}>
           {windows === null
@@ -208,6 +219,7 @@ function columnsFor(
       // out the members worth a call types 5000000 and means five million.
       meta: {
         align: "right",
+        card: "hide",
         filter: { kind: "number", unit: "Rp" },
       },
       cell: ({ row }) => (
@@ -221,7 +233,11 @@ function columnsFor(
       accessorFn: (row) => row.transaction_count,
       header: "Transactions",
       size: 110,
-      meta: { align: "right", filter: { kind: "number", unit: "sales" } },
+      meta: {
+        align: "right",
+        card: "hide",
+        filter: { kind: "number", unit: "sales" },
+      },
       cell: ({ row }) =>
         row.original.transaction_count === 0 ? (
           <span className="text-mute">—</span>
@@ -240,7 +256,7 @@ function columnsFor(
       header: "Avg Transaction",
       size: 140,
       // Sorted by the server, not filtered by it: see `FILTER_COLUMN`.
-      meta: { align: "right" },
+      meta: { align: "right", card: "hide" },
       cell: ({ row }) => {
         const average = per(
           row.original.spent_minor,
@@ -260,7 +276,11 @@ function columnsFor(
       accessorFn: (row) => row.units_total,
       header: "Units",
       size: 90,
-      meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
+      meta: {
+        align: "right",
+        card: "hide",
+        filter: { kind: "number", unit: "pcs" },
+      },
       cell: ({ row }) =>
         row.original.units_total === 0 ? (
           <span className="text-mute">—</span>
@@ -277,7 +297,7 @@ function columnsFor(
       size: 80,
       // Units per transaction. Not filterable — a shopper's basket size is read
       // across the row against their spend, not narrowed by on its own.
-      meta: { align: "right" },
+      meta: { align: "right", card: "hide" },
       cell: ({ row }) => {
         const upt = per(
           row.original.units_total,
@@ -298,7 +318,11 @@ function columnsFor(
       // What is on the card NOW, which is the figure somebody at a counter is
       // being asked for — not the lifetime total, which is a fact about the
       // past and cannot be spent. The lifetime total is in the sheet.
-      meta: { align: "right", filter: { kind: "number", unit: "pts" } },
+      meta: {
+        align: "right",
+        card: "hide",
+        filter: { kind: "number", unit: "pts" },
+      },
       cell: ({ row }) => (
         <span
           className={
@@ -320,7 +344,7 @@ function columnsFor(
       accessorFn: (row) => row.points_spent_total,
       header: "Points Spent",
       size: 110,
-      meta: { align: "right" },
+      meta: { align: "right", card: "hide" },
       cell: ({ row }) =>
         row.original.points_spent_total === 0 ? (
           <span className="text-mute">—</span>
@@ -343,6 +367,7 @@ function columnsFor(
       // segment is the strip's way of saying the same.
       meta: {
         align: "right",
+        card: "hide",
         filter: { kind: "number", unit: "days" },
       },
       cell: ({ row }) => (
@@ -357,10 +382,80 @@ function columnsFor(
         </span>
       ),
     },
+    // Four columns that exist only on a card (`cardLead`; a phone): who, what
+    // they have spent as the figure with their transactions under it, a foot
+    // with the points on the card and when they last bought, and where they
+    // stand as a pill (owner, 2026-10-06).
+    {
+      id: "head",
+      accessorFn: (row) => row.display_name ?? row.member_id,
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "title" },
+      cell: ({ row }) => (
+        <CardName
+          name={row.original.display_name ?? row.original.member_id}
+          // The number is the identity only where there is no name to be it.
+          code={
+            row.original.display_name === null
+              ? undefined
+              : row.original.member_id
+          }
+        />
+      ),
+    },
+    {
+      id: "lead",
+      accessorFn: (row) => row.spent_minor,
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "lead" },
+      cell: ({ row }) => (
+        <CardFigure
+          value={money(row.original.spent_minor)}
+          caption={`${count(row.original.transaction_count)} ${row.original.transaction_count === 1 ? "transaction" : "transactions"}`}
+          tone={row.original.spent_minor === 0 ? "quiet" : undefined}
+        />
+      ),
+    },
+    {
+      id: "foot",
+      accessorFn: (row) => row.points_balance,
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { card: "foot" },
+      cell: ({ row }) => (
+        <CardFoot>
+          {count(row.original.points_balance)} points
+          <br />
+          Last purchase {lastSeen(row.original).toLowerCase()}
+        </CardFoot>
+      ),
+    },
+    {
+      id: "tag",
+      header: "",
+      enableHiding: false,
+      enableSorting: false,
+      meta: { align: "right", card: "status" },
+      cell: ({ row }) => (
+        <Pill tone={segmentTone(row.original.segment)}>
+          {windows === null
+            ? row.original.segment
+            : describeSegment(row.original.segment, windows).label}
+        </Pill>
+      ),
+    },
   ]
 }
 
 export function Members() {
+  // A phone draws the members as cards and keeps the search, the segment and
+  // the filters in the drawer over the bottom bar (`DockTools`).
+  const phone = useLayout() === "phone"
   /// What was typed. In the URL like every other search box in this app: a
   /// filtered directory is a thing people send each other, and a `useState`
   /// box cannot be sent.
@@ -479,13 +574,22 @@ export function Members() {
         data: rows,
         columns,
         getRowId: (row: MemberRow) => row.member_id,
-        state: { sorting },
+        state: {
+          sorting,
+          // The card's own columns are drawn on a phone and never on a desk.
+          columnVisibility: {
+            head: phone,
+            lead: phone,
+            foot: phone,
+            tag: phone,
+          },
+        },
         // The rows arrive in the order the request asked for. Sorting them
         // again here would sort the pages in hand and call it the directory.
         manualSorting: true,
         onSortingChange: setSorting,
       }),
-      [rows, columns, sorting]
+      [rows, columns, sorting, phone]
     )
   )
 
@@ -498,64 +602,93 @@ export function Members() {
         title="Members"
         sub="Everybody holding a card, and what they buy."
         actions={
-          <Input
-            value={search.value ?? ""}
-            onChange={(event) =>
-              event.target.value === ""
-                ? search.close()
-                : search.open(event.target.value)
-            }
-            className="h-8 w-56"
-          />
+          phone ? undefined : (
+            <Input
+              value={search.value ?? ""}
+              onChange={(event) =>
+                event.target.value === ""
+                  ? search.close()
+                  : search.open(event.target.value)
+              }
+              className="h-8 w-56"
+            />
+          )
         }
       />
 
-      <Toolbar>
-        <Segmented
-          options={[
-            { value: "ALL", label: "Everyone" },
-            ...SEGMENT_ORDER.map((key) => ({
-              value: key,
-              label:
-                windows === null ? key : describeSegment(key, windows).label,
-            })),
-          ]}
-          value={segment.value ?? "ALL"}
-          onChange={(next) =>
-            next === "ALL" ? segment.close() : segment.open(next as SegmentKey)
-          }
-        />
-        {written.value !== undefined && (
-          /* Named and dismissible. A list narrowed by something the reader
+      {/* A phone's one line of what the list holds, and the written segment it
+          is narrowed by, which has no home in the drawer. */}
+      {phone && (
+        <Sentence>
+          <Fig>{count(head?.total ?? 0)}</Fig> found,{" "}
+          <Fig>{count(head?.member_count ?? 0)}</Fig> enrolled.
+          {written.value !== undefined && (
+            <>
+              {" "}
+              Segment{" "}
+              <span className="text-ink">{narrowedBy?.name ?? "…"}</span>.{" "}
+              <button
+                type="button"
+                onClick={() => written.close()}
+                className="text-accent underline underline-offset-2"
+              >
+                Show everyone
+              </button>
+            </>
+          )}
+        </Sentence>
+      )}
+
+      {!phone && (
+        <Toolbar>
+          <Segmented
+            options={[
+              { value: "ALL", label: "Everyone" },
+              ...SEGMENT_ORDER.map((key) => ({
+                value: key,
+                label:
+                  windows === null ? key : describeSegment(key, windows).label,
+              })),
+            ]}
+            value={segment.value ?? "ALL"}
+            onChange={(next) =>
+              next === "ALL"
+                ? segment.close()
+                : segment.open(next as SegmentKey)
+            }
+          />
+          {written.value !== undefined && (
+            /* Named and dismissible. A list narrowed by something the reader
              cannot see is the failure this whole feature would otherwise
              introduce: the six are visible in the strip above, and a written
              one has to be just as visible or the count below is unexplained. */
-          <button
-            type="button"
-            onClick={() => written.close()}
-            className="ml-2 inline-flex h-8 items-center gap-1.5 rounded-full bg-soft-2 px-3 text-[0.875rem] text-ink transition-colors hover:bg-soft-3"
-          >
-            <span className="text-mute">Segment</span>
-            {narrowedBy?.name ?? "…"}
-            <X className="size-3.5 text-line-ico" />
-          </button>
-        )}
-        {/* Segment is deliberately not among the questions in here: the
+            <button
+              type="button"
+              onClick={() => written.close()}
+              className="ml-2 inline-flex h-8 items-center gap-1.5 rounded-full bg-soft-2 px-3 text-[0.875rem] text-ink transition-colors hover:bg-soft-3"
+            >
+              <span className="text-mute">Segment</span>
+              {narrowedBy?.name ?? "…"}
+              <X className="size-3.5 text-line-ico" />
+            </button>
+          )}
+          {/* Segment is deliberately not among the questions in here: the
             strip to the left already asks it, and two places to set one
             question is two answers to reconcile. */}
-        <FilterPanel model={filters} />
-        <Toolbar.Spacer />
-        <span className="text-[0.875rem] text-mute tabular-nums">
-          {/* Two different numbers, and the difference is the point: the first
+          <FilterPanel model={filters} />
+          <Toolbar.Spacer />
+          <span className="text-[0.875rem] text-mute tabular-nums">
+            {/* Two different numbers, and the difference is the point: the first
               is everybody the search, segment and chips match — the server's
               count, not the rows loaded so far — and the second is everybody
               enrolled, so a filtered list can say what it is a fraction of. */}
-          {count(head?.total ?? 0)} found · {count(head?.member_count ?? 0)}{" "}
-          enrolled
-        </span>
-      </Toolbar>
+            {count(head?.total ?? 0)} found · {count(head?.member_count ?? 0)}{" "}
+            enrolled
+          </span>
+        </Toolbar>
+      )}
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(directory, {
           // No refusal state, and the absence is the finding: `required_role`
           // sends every GET outside `/finance` and the admin prefixes to
@@ -593,11 +726,43 @@ export function Members() {
                 onRowClick={(row) => open.open(row.member_id)}
                 isSelected={(row) => row.member_id === open.value}
                 more={directory}
+                cardSort={false}
+                cardsApart
+                cardLead
                 className="max-h-[calc(100dvh-17rem)]"
               />
             ),
         })}
       </Card>
+
+      {/* On a phone the segment is the status button of the drawer over the
+          bottom bar, beside the search, the filters and the sort. */}
+      <DockTools
+        search={{
+          value: search.value ?? "",
+          onChange: (next) =>
+            next === "" ? search.close() : search.replace(next),
+          label: "Search Members",
+        }}
+        filter={{
+          count: filters.filters.length,
+          panel: { model: filters, table },
+        }}
+        sort={dockSortOf(table)}
+        status={{
+          value: segment.value ?? "ALL",
+          options: [
+            { value: "ALL", label: "Everyone" },
+            ...SEGMENT_ORDER.map((key) => ({
+              value: key,
+              label:
+                windows === null ? key : describeSegment(key, windows).label,
+            })),
+          ],
+          onChange: (next) =>
+            next === "ALL" ? segment.close() : segment.open(next as SegmentKey),
+        }}
+      />
 
       <MemberSheet
         member={selected}

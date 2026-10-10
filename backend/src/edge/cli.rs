@@ -107,8 +107,8 @@ pub fn main(default_role: EdgeRole) -> Result<(), BoxError> {
         }
         "enroll" => {
             let _logs = node::init_logging(default_role, None);
-            let code = flag(&args, "--code")
-                .ok_or("usage: enroll --code XXXXX-XXXXX [--cloud URL]")?;
+            let code =
+                flag(&args, "--code").ok_or("usage: enroll --code XXXXX-XXXXX [--cloud URL]")?;
             let cloud = flag(&args, "--cloud")
                 .or_else(|| env::var("ITULAH_CLOUD_URL").ok())
                 .ok_or("--cloud URL (or ITULAH_CLOUD_URL) is required")?;
@@ -117,8 +117,7 @@ pub fn main(default_role: EdgeRole) -> Result<(), BoxError> {
             Ok(())
         }
         "diagnose" => {
-            let report =
-                runtime()?.block_on(diagnose::diagnose(default_role, data_dir.as_deref()));
+            let report = runtime()?.block_on(diagnose::diagnose(default_role, data_dir.as_deref()));
             diagnose::print_and_save(&report);
             // Non-zero when something failed, so a script or a remote command
             // can tell without parsing the report.

@@ -98,9 +98,12 @@ async fn origin_site(
         .map(str::trim)
         .filter(|value| !value.is_empty());
     match (origin.site_id, stamped) {
-        (Some(registered), Some(claimed)) if registered != claimed => Err(AppError::Forbidden(
-            format!("origin {} speaks for {registered}, not {claimed}", origin.origin_id),
-        )),
+        (Some(registered), Some(claimed)) if registered != claimed => {
+            Err(AppError::Forbidden(format!(
+                "origin {} speaks for {registered}, not {claimed}",
+                origin.origin_id
+            )))
+        }
         (Some(registered), _) => Ok(registered),
         (None, Some(claimed)) => Ok(claimed.to_owned()),
         (None, None) => Err(AppError::Validation(

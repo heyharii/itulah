@@ -1343,7 +1343,12 @@ async fn an_approved_run_crosses_to_finance_once_and_answers_back(pool: PgPool) 
         })),
     )
     .await;
-    assert_eq!(defined.status, StatusCode::OK, "define JABATAN: {:?}", defined.body);
+    assert_eq!(
+        defined.status,
+        StatusCode::OK,
+        "define JABATAN: {:?}",
+        defined.body
+    );
     let linked = send(
         app.clone(),
         "POST",
@@ -1359,7 +1364,12 @@ async fn an_approved_run_crosses_to_finance_once_and_answers_back(pool: PgPool) 
         })),
     )
     .await;
-    assert_eq!(linked.status, StatusCode::OK, "link JABATAN: {:?}", linked.body);
+    assert_eq!(
+        linked.status,
+        StatusCode::OK,
+        "link JABATAN: {:?}",
+        linked.body
+    );
     close_april(&app, &cookies, &csrf).await;
 
     let opened = open_run(&app, &cookies, &csrf).await;
@@ -1481,11 +1491,19 @@ async fn an_approved_run_crosses_to_finance_once_and_answers_back(pool: PgPool) 
     .await
     .unwrap_or_else(|error| panic!("expense: {error}"));
     let thr = 5_000_000 / 12 + 4_000_000 / 12;
-    assert_eq!(expense, 10_000_000 + thr, "gross plus the month's THR, on store leaves");
+    assert_eq!(
+        expense,
+        10_000_000 + thr,
+        "gross plus the month's THR, on store leaves"
+    );
     assert_eq!(leaf("2017").await, -10_000_000, "net pay owed on 2017");
     assert_eq!(leaf("2018").await, -thr, "THR accrued on 2018");
     assert_eq!(leaf("6018").await, thr, "THR expense on the store THR leaf");
-    assert_eq!(leaf("6026").await, 0, "no head-office leaf for a store's staff");
+    assert_eq!(
+        leaf("6026").await,
+        0,
+        "no head-office leaf for a store's staff"
+    );
 
     // Stage two, the store way: head office sends the money (its half), the
     // store confirms it into petty cash (its half), and pays out of petty
@@ -1550,9 +1568,14 @@ async fn an_approved_run_crosses_to_finance_once_and_answers_back(pool: PgPool) 
         .is_err(),
         "the store spends the money only after confirming it into petty cash"
     );
-    cloud::operating_fund_receive(&pool, fund_id, &cloud::ReceiveFundRequest { received_on: day }, "admin")
-        .await
-        .unwrap_or_else(|error| panic!("receive: {error}"));
+    cloud::operating_fund_receive(
+        &pool,
+        fund_id,
+        &cloud::ReceiveFundRequest { received_on: day },
+        "admin",
+    )
+    .await
+    .unwrap_or_else(|error| panic!("receive: {error}"));
     cloud::fund_settlement_record(
         &pool,
         &cloud::SettleFundRequest {
@@ -1570,9 +1593,17 @@ async fn an_approved_run_crosses_to_finance_once_and_answers_back(pool: PgPool) 
     )
     .await
     .unwrap_or_else(|error| panic!("pay out: {error}"));
-    assert_eq!(leaf("2017").await, 0, "payroll payable is cleared by the payout");
+    assert_eq!(
+        leaf("2017").await,
+        0,
+        "payroll payable is cleared by the payout"
+    );
     assert_eq!(leaf("1003").await, 0, "petty cash received and paid out");
-    assert_eq!(leaf("2028").await, -10_000_000, "the store owes head office the funding");
+    assert_eq!(
+        leaf("2028").await,
+        -10_000_000,
+        "the store owes head office the funding"
+    );
     let (ho_1057, company): (i64, i64) = sqlx::query_as(
         "SELECT COALESCE(SUM(debit_minor - credit_minor) FILTER (WHERE account_code = '1057'
                                                                AND unit_id = 'ho'), 0)::bigint,

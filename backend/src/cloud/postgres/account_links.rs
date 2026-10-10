@@ -17,7 +17,10 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
 
-use super::ledger::{assert_category_for_account, assert_postable, book_locations, required_semantic_keys, BookLocation, Intent, SemanticKeyDoc};
+use super::ledger::{
+    assert_category_for_account, assert_postable, book_locations, required_semantic_keys,
+    BookLocation, Intent, SemanticKeyDoc,
+};
 use crate::cloud::application::AppError;
 
 /// One link: a role, where the decision is kept, for whom it holds, and the
@@ -156,10 +159,14 @@ const LINK_ROWS: &str = "
     SELECT l.link_id, l.role, l.source_type, l.source_id, l.scope_type, l.scope_key,
            l.account_code, a.name AS account_name, a.account_type, l.category_code,
            l.set_by, l.set_at, l.note,
-           (SELECT COUNT(*) FROM account_resolution r WHERE r.link_id = l.link_id)::bigint
-               AS decides_units
+           COALESCE(r.n, 0)::bigint AS decides_units
       FROM account_link l
-      JOIN ledger_account a ON a.account_code = l.account_code";
+      JOIN ledger_account a ON a.account_code = l.account_code
+      -- The resolution view counted once and grouped, not once per link: it
+      -- works out every unit's account for every role, and asking it again for
+      -- each of six hundred links was six seconds.
+      LEFT JOIN (SELECT link_id, COUNT(*) AS n FROM account_resolution GROUP BY link_id) r
+             ON r.link_id = l.link_id";
 
 fn to_link(row: &sqlx::postgres::PgRow) -> Result<AccountLink, AppError> {
     Ok(AccountLink {
@@ -230,7 +237,11 @@ fn company() -> String {
 
 /// The master record a link names has to exist: a link to a category nobody
 /// created is a decision about nothing.
-async fn assert_source_exists(pool: &PgPool, source_type: &str, source_id: &str) -> Result<(), AppError> {
+async fn assert_source_exists(
+    pool: &PgPool,
+    source_type: &str,
+    source_id: &str,
+) -> Result<(), AppError> {
     let lookup = match source_type {
         "COMPANY" => return Ok(()),
         "EXPENSE_CATEGORY" => "SELECT EXISTS (SELECT 1 FROM expense_category WHERE code = $1)",
@@ -239,7 +250,9 @@ async fn assert_source_exists(pool: &PgPool, source_type: &str, source_id: &str)
         "PAYMENT_METHOD" => "SELECT EXISTS (SELECT 1 FROM payment_method WHERE code = $1)",
         "TAX_TEMPLATE" => "SELECT EXISTS (SELECT 1 FROM tax_template WHERE code = $1)",
         "DIVISION" => "SELECT EXISTS (SELECT 1 FROM division WHERE code = $1)",
-        "PARTY_GROUP" => "SELECT $1 IN ('SUPPLIER:MERCHANDISE', 'SUPPLIER:EXPENSE', 'SUPPLIER:AFFILIATE')",
+        "PARTY_GROUP" => {
+            "SELECT $1 IN ('SUPPLIER:MERCHANDISE', 'SUPPLIER:EXPENSE', 'SUPPLIER:AFFILIATE')"
+        }
         "PARTY" => {
             let (kind, id) = source_id.split_once(':').unwrap_or_default();
             let known: bool = sqlx::query_scalar(
@@ -261,7 +274,10 @@ async fn assert_source_exists(pool: &PgPool, source_type: &str, source_id: &str)
             )))
         }
     };
-    let exists: bool = sqlx::query_scalar(lookup).bind(source_id).fetch_one(pool).await?;
+    let exists: bool = sqlx::query_scalar(lookup)
+        .bind(source_id)
+        .fetch_one(pool)
+        .await?;
     if exists {
         Ok(())
     } else {
@@ -272,7 +288,9 @@ async fn assert_source_exists(pool: &PgPool, source_type: &str, source_id: &str)
     }
 }
 
-fn scope_columns(request: &SetAccountLinkRequest) -> Result<(&'static str, Option<String>, Option<String>), AppError> {
+fn scope_columns(
+    request: &SetAccountLinkRequest,
+) -> Result<(&'static str, Option<String>, Option<String>), AppError> {
     let key = request.scope_key.trim();
     match request.scope_type.trim().to_ascii_uppercase().as_str() {
         "ALL" => Ok(("ALL", None, None)),
@@ -283,7 +301,9 @@ fn scope_columns(request: &SetAccountLinkRequest) -> Result<(&'static str, Optio
             )),
         },
         "UNIT" if !key.is_empty() => Ok(("UNIT", None, Some(key.to_string()))),
-        "UNIT" => Err(AppError::Validation("a link for one unit names the unit".into())),
+        "UNIT" => Err(AppError::Validation(
+            "a link for one unit names the unit".into(),
+        )),
         other => Err(AppError::Validation(format!(
             "scope {other:?} is not one of ALL, UNIT_KIND or UNIT"
         ))),
@@ -438,8 +458,16 @@ pub async fn remove_account_link(
         return Err(AppError::Conflict(format!(
             "removing this link leaves {role}{} with no account in the books of {}; link those \
              units first, or remove it anyway",
-            if source_id.is_empty() { String::new() } else { format!(" ({source_id})") },
-            orphaned.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+            if source_id.is_empty() {
+                String::new()
+            } else {
+                format!(" ({source_id})")
+            },
+            orphaned
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         )));
     }
     tx.commit().await?;
@@ -572,7 +600,10 @@ pub async fn posting_readiness(pool: &PgPool) -> Result<PostingReadiness, AppErr
                 last.gaps += gap;
             }
             _ => out.push(ReadinessRow {
-                label: docs.iter().find(|doc| doc.key == role).map(|doc| doc.label.clone()),
+                label: docs
+                    .iter()
+                    .find(|doc| doc.key == role)
+                    .map(|doc| doc.label.clone()),
                 role,
                 source_type,
                 source_id,

@@ -7,16 +7,13 @@ import { useMemo, useState } from "react"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Pill } from "@/components/ui/pill"
-import { count, day } from "@/lib/format"
+import { count, day, quantity } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import { cn } from "@/lib/utils"
 import { procurementKeys, purchaseOrderPage } from "@/lib/queries/procurement"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { titled } from "@/screens/procurement/po-print"
 import type { Row } from "@/screens/procurement/supplier-returns"
-
-/// "3 pcs", "1 pc": the kit's `quantity` is not in this tree yet.
-const quantity = (n: number) => `${count(n)} ${n === 1 ? "pc" : "pcs"}`
 
 /// The Return to supplier list as the owner drew it (2026-10-05): a card per
 /// supplier, a band on top carrying who, how much is going back to them and —

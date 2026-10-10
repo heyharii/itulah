@@ -42,8 +42,7 @@ pub async fn list_units(
     let on = match query.on {
         Some(on) => on,
         None => crate::reporting::local_today_at(
-            infrastructure::sites::business_utc_offset_minutes(&state.db, None, Utc::now())
-                .await?,
+            infrastructure::sites::business_utc_offset_minutes(&state.db, None, Utc::now()).await?,
         ),
     };
     Ok(Json(

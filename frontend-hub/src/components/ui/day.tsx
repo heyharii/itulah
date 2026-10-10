@@ -13,7 +13,7 @@ import { POPUP } from "@/lib/filter-chrome"
 import { usePickerSheet } from "@/lib/layout"
 import { dateOf, monthGrid, startOfDay, today, WEEKDAYS } from "@/lib/calendar"
 import { readDay, untilText } from "@/lib/day-parse"
-import { day } from "@/lib/format"
+import { day, monthYear, weekday } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 /// A day, chosen off a calendar this app draws.
@@ -287,10 +287,7 @@ export function Day({
             touch ? "text-[0.9375rem]" : "text-[0.875rem]"
           )}
         >
-          {month.toLocaleDateString("en-GB", {
-            month: "long",
-            year: "numeric",
-          })}
+          {monthYear(month, true)}
         </span>
         <button
           type="button"
@@ -537,10 +534,5 @@ function isDead(
 /// the weekday is how somebody checks that "jumat" landed on the Friday they
 /// meant.
 function longDay(iso: string): string {
-  return dateOf(iso).toLocaleDateString("en-GB", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  })
+  return weekday(iso, true)
 }

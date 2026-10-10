@@ -1,4 +1,4 @@
-import { moment } from "@/lib/format"
+import { moment, time } from "@/lib/format"
 import type { HealthTone, NodeIncident } from "@/lib/queries/system"
 
 /// Shared by the Nodes screen and anything else that shows a shop server's
@@ -40,10 +40,7 @@ function span(seconds: number): string {
 }
 
 function clock(iso: string): string {
-  return new Date(iso).toLocaleTimeString("id-ID", {
-    hour: "2-digit",
-    minute: "2-digit",
-  })
+  return time(iso)
 }
 
 export interface Line {

@@ -45,6 +45,7 @@ export function LoginForm({
   eyebrow,
   /// Said under the button: where to turn when the password is not known.
   footnote,
+  titleOnPhone = true,
   className,
 }: {
   onSignedIn: (session: LoginResponse) => void
@@ -54,6 +55,10 @@ export function LoginForm({
   caption?: string
   eyebrow?: ReactNode
   footnote?: ReactNode
+  /// Whether the title and caption are drawn on a phone. The sign-in door
+  /// turns them off: it has already said "Central." in the page's own header,
+  /// and a second heading under it only pushes the fields down.
+  titleOnPhone?: boolean
   className?: string
 }) {
   const [revealed, setRevealed] = useState(false)
@@ -130,14 +135,19 @@ export function LoginForm({
   })
 
   return (
-    <div className={cn("grid h-full place-items-center px-6 py-10", className)}>
+    <div
+      className={cn(
+        "grid h-full place-items-center px-6 py-10 max-md:flex max-md:flex-col max-md:py-4",
+        className
+      )}
+    >
       <form
         ref={formRef}
         onSubmit={(event) => {
           event.preventDefault()
           form.handleSubmit()
         }}
-        className="w-full max-w-[22.5rem]"
+        className="w-full max-w-[22.5rem] max-md:flex max-md:max-w-none max-md:flex-1 max-md:flex-col"
       >
         <div {...rise(0)}>
           {eyebrow && (
@@ -145,13 +155,25 @@ export function LoginForm({
               {eyebrow}
             </p>
           )}
-          <h1 className="text-[1.75rem] leading-9 font-semibold tracking-[-0.025em] text-ink">
+          <h1
+            className={cn(
+              "text-[1.75rem] leading-9 font-semibold tracking-[-0.025em] text-ink",
+              !titleOnPhone && "max-md:hidden"
+            )}
+          >
             {title}
           </h1>
-          <p className="mt-2 text-[0.9375rem] leading-6 text-body">{caption}</p>
+          <p
+            className={cn(
+              "mt-2 text-[0.9375rem] leading-6 text-body",
+              !titleOnPhone && "max-md:hidden"
+            )}
+          >
+            {caption}
+          </p>
         </div>
 
-        <div className="mt-8 flex flex-col gap-5">
+        <div className="mt-8 flex flex-col gap-5 max-md:mt-6">
           <form.Field name="username">
             {(field) => (
               <div {...rise(1)}>
@@ -228,12 +250,15 @@ export function LoginForm({
           </p>
         )}
 
-        <div {...rise(3)}>
+        <div
+          {...rise(3)}
+          className="door-rise max-md:sticky max-md:bottom-0 max-md:mt-auto max-md:bg-canvas max-md:pt-4 max-md:pb-[max(1.25rem,env(safe-area-inset-bottom))]"
+        >
           <Button
             type="submit"
             variant="primary"
             size="lg"
-            className="mt-7 w-full font-semibold shadow-[inset_0_1px_0_rgb(255_255_255/16%),0_1px_2px_rgb(24_39_60/14%)]"
+            className="mt-7 w-full font-semibold max-md:mt-0 shadow-[inset_0_1px_0_rgb(255_255_255/16%),0_1px_2px_rgb(24_39_60/14%)]"
             pending={signIn.isPending}
           >
             {signIn.isPending ? "Signing in…" : "Sign in"}

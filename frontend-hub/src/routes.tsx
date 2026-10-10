@@ -8,6 +8,7 @@ import {
 
 import { AppShell } from "@/components/shell/app-shell"
 import { allNavItems, asides, landingPath, modules } from "@/lib/navigation"
+import { prefetchRoute } from "@/lib/prefetch"
 import { validateSheetSearch } from "@/lib/sheets"
 import { Placeholder } from "@/screens/placeholder"
 import type { ScreenMap } from "@/screens/registry"
@@ -69,6 +70,17 @@ const routes = allNavItems.map((item) =>
   createRoute({
     getParentRoute: () => rootRoute,
     path: item.path,
+    // The screen's first data starts moving with its code: on a hover or a
+    // touch of any link to it (`intent`, after `defaultPreloadDelay` below)
+    // and again when it is really navigated to. Not awaited — the router must
+    // never wait for data the screen will ask for itself (`lib/prefetch.ts`).
+    loader: ({ preload, location }) => {
+      prefetchRoute(
+        item.path,
+        preload ? "intent" : "navigate",
+        location.search as Record<string, unknown>
+      )
+    },
     component: lazyRouteComponent(async () => {
       const load = loaderFor(item.path)
       const screen = load ? (await load()).screens[item.path] : undefined
@@ -197,6 +209,9 @@ export const router = createRouter({
     ...routes,
   ]),
   defaultPreload: "intent",
+  // A pointer must rest on a link this long before its code and data are asked
+  // for (the router's default is 50): a sweep across the menu fetches nothing.
+  defaultPreloadDelay: 70,
   // The screens read the signed-in user's own data; a stale answer shown for a
   // moment is better than a spinner, and Query owns freshness anyway.
   defaultPreloadStaleTime: 0,

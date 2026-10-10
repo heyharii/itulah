@@ -1,15 +1,14 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { Plus } from "lucide-react"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
-import { Field, Input } from "@/components/ui/field"
-import { Pill } from "@/components/ui/pill"
-import { RecordSheet } from "@/components/ui/record-sheet"
-import { Segmented } from "@/components/ui/segmented"
-import { Banner } from "@/components/ui/states"
-import { count } from "@/lib/format"
+import { CardList } from "@/components/ui/card-list"
+import { Field, Input, Textarea } from "@/components/ui/field"
+import { LeadCard } from "@/components/ui/lead-card"
+import { SheetSection } from "@/components/ui/people-sheet"
+import { Pill, Status } from "@/components/ui/pill"
+import { Sheet } from "@/components/ui/sheet"
+import { Banner, EmptyState } from "@/components/ui/states"
 import {
   gaKeys,
   recordGaSupply,
@@ -18,6 +17,7 @@ import {
 } from "@/lib/queries/ga"
 import { useIdentity } from "@/lib/session"
 import {
+  dateLead,
   day,
   SUPPLY_FLOW,
   supplyCategoryWords,
@@ -28,18 +28,16 @@ import {
 } from "@/screens/ga/format"
 import {
   ChoiceTiles,
-  Fact,
   Facts,
   GaScreen,
-  RowTable,
-  SheetBlock,
+  ListBar,
+  Question,
   StageLadder,
-  TextArea,
-  Toolbar,
-  TwoLine,
-  type RowColumn,
+  Submit,
+  type GaContext,
 } from "@/screens/ga/parts"
 import { describeGa, gaState } from "@/screens/ga/state"
+import { personByLogin } from "@/screens/hr/words"
 import type { GaSupplyRequestRow } from "@itulah/contract"
 
 /// What this shop has asked head office for — stationery, cleaning things,
@@ -51,38 +49,30 @@ import type { GaSupplyRequestRow } from "@itulah/contract"
 /// RECEIVED. The category list is the server's (`/ga/supply-categories`), the
 /// same seven the request is validated against — customer bags and the like
 /// are somebody else's and are not in it.
+///
+/// A card's one figure is the day it is needed by; a request with no date
+/// shows a dash. No money: what it costs is GA's quote and Finance's bill.
 export function Supplies() {
   const [composing, setComposing] = useState(false)
   const [filed, setFiled] = useState(false)
+  const start = () => {
+    setFiled(false)
+    setComposing(true)
+  }
   return (
-    <GaScreen
-      actions={
-        <Button
-          variant="primary"
-          onClick={() => {
-            setFiled(false)
-            setComposing(true)
-          }}
-        >
-          <Plus />
-          New request
-        </Button>
-      }
-    >
-      {(site) => (
+    <GaScreen primary={{ label: "New supply request", onClick: start }}>
+      {({ site, team }) => (
         <>
           {filed && (
-            <Banner tone="ok" className="mb-4">
+            <Banner
+              tone="ok"
+              className="mb-4"
+              onDismiss={() => setFiled(false)}
+            >
               Sent to head office.
             </Banner>
           )}
-          <SupplyList
-            site={site}
-            onNew={() => {
-              setFiled(false)
-              setComposing(true)
-            }}
-          />
+          <SupplyList site={site} team={team} onNew={start} />
           <SupplyComposer
             open={composing}
             onClose={() => setComposing(false)}
@@ -96,114 +86,126 @@ export function Supplies() {
 }
 
 type Phase = "OPEN" | "DONE" | "ALL"
+type Order = "needed" | "item"
 
-const columns: readonly RowColumn<GaSupplyRequestRow>[] = [
-  {
-    id: "item",
-    header: "Item",
-    className: "max-w-[22rem]",
-    cell: (row) => (
-      <TwoLine
-        top={row.item}
-        under={row.quantity === null ? undefined : row.quantity}
-      />
-    ),
-  },
-  {
-    id: "category",
-    header: "Category",
-    cell: (row) => supplyCategoryWords(row.category_code, row.category_name),
-  },
-  {
-    id: "by",
-    header: "Asked by",
-    card: "hide",
-    cell: (row) => row.requested_by,
-  },
-  {
-    id: "needed",
-    header: "Needed by",
-    cell: (row) =>
-      row.needed_by === null ? (
-        <span className="text-faint">—</span>
-      ) : (
-        <span className="tabular-nums">By {day(row.needed_by)}</span>
-      ),
-  },
-  {
-    id: "status",
-    header: "Status",
-    card: "status",
-    cell: (row) => (
-      <Pill tone={supplyStageTone(row.status)}>
-        {supplyStageWords(row.status)}
-      </Pill>
-    ),
-  },
+const ORDERS: readonly { readonly value: Order; readonly label: string }[] = [
+  { value: "needed", label: "Needed by" },
+  { value: "item", label: "Item" },
 ]
 
-function SupplyList({ site, onNew }: { site: string; onNew: () => void }) {
+function SupplyList({
+  site,
+  team,
+  onNew,
+}: {
+  site: string
+  team: GaContext["team"]
+  onNew: () => void
+}) {
   const supplies = useGaSupplies(site)
   const [phase, setPhase] = useState<Phase>("OPEN")
+  const [typed, setTyped] = useState("")
+  const [order, setOrder] = useState<Order>("needed")
   const [openId, setOpenId] = useState<string | null>(null)
   const [showing, setShowing] = useState(false)
+  const needle = typed.trim().toLowerCase()
 
   return (
     <>
       {gaState(supplies, {
-        loading: "Loading…",
+        loading: "Reading the supply requests…",
         render: (rows) => {
           if (rows.length === 0) {
             return (
-              <Card>
-                <div className="mx-auto flex max-w-[30em] flex-col items-center gap-4 px-4 py-12 text-center">
-                  <p className="text-meta text-body">
-                    No requests yet.
-                  </p>
-                  <Button variant="ghost" onClick={onNew}>
-                    <Plus />
-                    New request
+              <EmptyState
+                action={
+                  <Button variant="primary" onClick={onNew}>
+                    New supply request
                   </Button>
-                </div>
-              </Card>
+                }
+              >
+                No supply requests yet.
+              </EmptyState>
             )
           }
           const open = rows.filter((row) => supplyIsOpen(row.status))
           const done = rows.filter((row) => !supplyIsOpen(row.status))
-          const shown = phase === "OPEN" ? open : phase === "DONE" ? done : rows
+          const pool = phase === "OPEN" ? open : phase === "DONE" ? done : rows
+          const shown = pool
+            .filter(
+              (row) =>
+                needle === "" ||
+                [
+                  row.item,
+                  row.quantity,
+                  supplyCategoryWords(row.category_code, row.category_name),
+                ].some((field) => field?.toLowerCase().includes(needle)),
+            )
+            // Soonest needed first; a request with no date goes last.
+            .sort((a, b) =>
+              order === "item"
+                ? a.item.localeCompare(b.item)
+                : (a.needed_by ?? "9999").localeCompare(b.needed_by ?? "9999"),
+            )
           return (
             <>
-              <Toolbar>
-                <Segmented<Phase>
-                  value={phase}
-                  onChange={setPhase}
-                  className="md:w-auto [&>button]:px-3.5 [&>button]:whitespace-nowrap pointer-coarse:[&>button]:h-tap md:pointer-fine:[&>button]:h-8"
-                  options={[
-                    {
-                      value: "OPEN",
-                      label: `On the way · ${count(open.length)}`,
-                    },
-                    { value: "DONE", label: `Done · ${count(done.length)}` },
-                    { value: "ALL", label: `All · ${count(rows.length)}` },
-                  ]}
-                />
-              </Toolbar>
-              <Card>
-                <RowTable
-                  rows={shown}
-                  columns={columns}
-                  rowKey={(row) => row.request_id}
-                  onOpen={(row) => {
-                    setOpenId(row.request_id)
-                    setShowing(true)
-                  }}
-                  empty={
-                    phase === "OPEN"
-                      ? "Nothing on the way."
-                      : "Nothing closed yet."
+              <ListBar
+                search={{
+                  value: typed,
+                  onChange: setTyped,
+                  label: "Search supply requests",
+                }}
+                status={{
+                  title: "Show",
+                  value: phase,
+                  onChange: (next) => setPhase(next as Phase),
+                  options: [
+                    { value: "OPEN", label: "On the way", count: open.length },
+                    { value: "DONE", label: "Done", count: done.length },
+                    { value: "ALL", label: "All", count: rows.length },
+                  ],
+                }}
+                sort={{
+                  value: order,
+                  options: ORDERS,
+                  onChange: (next) => setOrder(next as Order),
+                }}
+              />
+              {shown.length === 0 ? (
+                <EmptyState
+                  action={
+                    needle !== "" || phase !== "ALL" ? (
+                      <Button
+                        onClick={() => {
+                          setTyped("")
+                          setPhase("ALL")
+                        }}
+                      >
+                        Show all requests
+                      </Button>
+                    ) : undefined
                   }
-                />
-              </Card>
+                >
+                  {needle !== ""
+                    ? `No match for “${typed.trim()}”.`
+                    : phase === "OPEN"
+                      ? "Nothing on the way."
+                      : "Nothing closed yet."}
+                </EmptyState>
+              ) : (
+                <CardList grid>
+                  {shown.map((row) => (
+                    <SupplyCard
+                      key={row.request_id}
+                      row={row}
+                      onOpen={() => {
+                        setOpenId(row.request_id)
+                        setShowing(true)
+                      }}
+                    />
+                  ))}
+                </CardList>
+              )}
             </>
           )
         },
@@ -213,6 +215,7 @@ function SupplyList({ site, onNew }: { site: string; onNew: () => void }) {
         request={
           supplies.data?.find((row) => row.request_id === openId) ?? null
         }
+        team={team}
         open={showing}
         onClose={() => setShowing(false)}
       />
@@ -220,64 +223,100 @@ function SupplyList({ site, onNew }: { site: string; onNew: () => void }) {
   )
 }
 
+/// One request as the uniform lead-figure card: the thing and its category, the
+/// day it is needed by as the one figure, and where it has got to.
+function SupplyCard({
+  row,
+  onOpen,
+}: {
+  row: GaSupplyRequestRow
+  onOpen: () => void
+}) {
+  return (
+    <LeadCard
+      title={row.item}
+      lines={[
+        supplyCategoryWords(row.category_code, row.category_name),
+        row.quantity,
+      ]}
+      lead={dateLead(row.needed_by, "needed by")}
+      foot={{
+        info: (
+          <Status tone={supplyStageTone(row.status)}>
+            {supplyStageWords(row.status)}
+          </Status>
+        ),
+        action: { label: "Open", onClick: onOpen },
+      }}
+      onOpen={onOpen}
+    />
+  )
+}
+
 function SupplySheet({
   request,
+  team,
   open,
   onClose,
 }: {
   request: GaSupplyRequestRow | null
+  team: GaContext["team"]
   open: boolean
   onClose: () => void
 }) {
   if (request === null) return null
   return (
-    <RecordSheet
+    <Sheet
       open={open}
       onOpenChange={(next) => {
         if (!next) onClose()
       }}
+      id={request.po_reference ?? undefined}
       title={request.item}
       badge={
         <Pill tone={supplyStageTone(request.status)}>
           {supplyStageWords(request.status)}
         </Pill>
       }
-      caption={`Asked by ${request.requested_by}`}
+      caption={`Asked by ${personByLogin(team, request.requested_by)}`}
     >
-      <SheetBlock title="Where it has got to">
+      <SheetSection title="Progress">
         <StageLadder
           flow={SUPPLY_FLOW}
           at={request.status}
           words={supplyStageWords}
           exit="REJECTED"
         />
-      </SheetBlock>
+      </SheetSection>
       {request.status === "REJECTED" && request.rejected_reason !== null && (
-        <Banner tone="bad" className="mt-4">
-          Turned down: {request.rejected_reason}
+        <Banner tone="bad" className="mb-6">
+          Rejected: {request.rejected_reason}
         </Banner>
       )}
-      <SheetBlock title="The request">
-        <Facts>
-          <Fact term="Category">
-            {supplyCategoryWords(request.category_code, request.category_name)}
-          </Fact>
-          <Fact term="How many">{request.quantity ?? "—"}</Fact>
-          <Fact term="Needed by">
-            {request.needed_by === null
-              ? "No date given"
-              : day(request.needed_by)}
-          </Fact>
-          <Fact term="Order number">
-            {request.po_reference === null ? (
-              "Not ordered yet"
-            ) : (
-              <span className="font-mono">{request.po_reference}</span>
-            )}
-          </Fact>
-        </Facts>
-      </SheetBlock>
-    </RecordSheet>
+      <SheetSection title="The request">
+        <Facts
+          rows={[
+            [
+              "Category",
+              supplyCategoryWords(request.category_code, request.category_name),
+            ],
+            ["Quantity", request.quantity ?? "—"],
+            [
+              "Needed by",
+              request.needed_by === null
+                ? "No date given"
+                : day(request.needed_by),
+            ],
+            [
+              "Order number",
+              request.po_reference === null
+                ? "Not ordered yet"
+                : request.po_reference,
+            ],
+          ]}
+        />
+      </SheetSection>
+    </Sheet>
   )
 }
 
@@ -354,35 +393,35 @@ function SupplyComposer({
   }
 
   return (
-    <RecordSheet
+    <Sheet
       open={open}
       onOpenChange={(next) => {
         if (!next) onClose()
       }}
       width="wide"
-      title="Ask head office for something"
+      title="New supply request"
       footer={
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button variant="primary" disabled={file.isPending} onClick={submit}>
-            {file.isPending ? "Sending…" : "Send the request"}
-          </Button>
-        </div>
+        <Submit
+          label="Create supply request"
+          pendingLabel="Creating…"
+          pending={file.isPending}
+          error={file.error}
+          onSubmit={submit}
+          onCancel={onClose}
+        />
       }
     >
-      <div className="flex flex-col gap-5">
-        {file.error !== null && (
-          <Banner tone="bad">{describeGa(file.error)}</Banner>
-        )}
-
-        <SheetBlock title="What kind of thing">
-          {categories.isPending ? (
-            <p className="text-meta text-mute">Loading…</p>
-          ) : categories.isError ? (
-            <p className="text-meta text-bad">{describeGa(categories.error)}</p>
-          ) : (
+      <SheetSection title="What kind of thing">
+        {categories.isPending ? (
+          <p className="text-meta text-mute">Reading the categories…</p>
+        ) : categories.isError ? (
+          <p className="text-meta text-bad">{describeGa(categories.error)}</p>
+        ) : (
+          <Question
+            label="Category"
+            required
+            problem={tried ? problems.category : null}
+          >
             <ChoiceTiles
               label="Category"
               value={category}
@@ -392,55 +431,56 @@ function SupplyComposer({
                 label: supplyCategoryWords(one.category_code, one.name),
               }))}
             />
-          )}
-          {tried && problems.category !== null && (
-            <p className="mt-1.5 text-meta text-bad">{problems.category}</p>
-          )}
-        </SheetBlock>
+          </Question>
+        )}
+      </SheetSection>
 
-        <SheetBlock title="What you need">
-          <div className="flex flex-col gap-3">
-            <Field label="Item" problem={tried ? problems.item : null}>
+      <SheetSection title="What you need">
+        <div className="flex flex-col gap-4">
+          <Field label="Item" required problem={tried ? problems.item : null}>
+            <Input
+              value={item}
+              onChange={(event) => setItem(event.target.value)}
+              placeholder="A4 paper for the office printer"
+              invalid={tried && problems.item !== null}
+            />
+          </Field>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Quantity">
               <Input
-                value={item}
-                onChange={(event) => setItem(event.target.value)}
-                placeholder="A4 paper for the office printer"
-                invalid={tried && problems.item !== null}
+                value={quantity}
+                onChange={(event) => setQuantity(event.target.value)}
+                placeholder="2 rim"
               />
             </Field>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="How many" hint="e.g. 2 rim">
-                <Input
-                  value={quantity}
-                  onChange={(event) => setQuantity(event.target.value)}
-                  placeholder="2 rim"
-                />
-              </Field>
-              <Field label="Needed by" hint="Optional.">
-                <Input
-                  type="date"
-                  value={neededBy}
-                  min={today()}
-                  onChange={(event) => setNeededBy(event.target.value)}
-                />
-              </Field>
-            </div>
-            <Field label="Notes" hint="Optional">
-              <TextArea
-                value={notes}
-                onChange={(event) => setNotes(event.target.value)}
-              />
-            </Field>
-            <Field label="Asked by" problem={tried ? problems.who : null}>
+            <Field label="Needed by">
               <Input
-                value={who}
-                onChange={(event) => setAskedBy(event.target.value)}
-                invalid={tried && problems.who !== null}
+                type="date"
+                value={neededBy}
+                min={today()}
+                onChange={(event) => setNeededBy(event.target.value)}
               />
             </Field>
           </div>
-        </SheetBlock>
-      </div>
-    </RecordSheet>
+          <Field label="Notes">
+            <Textarea
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+            />
+          </Field>
+          <Field
+            label="Asked by"
+            required
+            problem={tried ? problems.who : null}
+          >
+            <Input
+              value={who}
+              onChange={(event) => setAskedBy(event.target.value)}
+              invalid={tried && problems.who !== null}
+            />
+          </Field>
+        </div>
+      </SheetSection>
+    </Sheet>
   )
 }

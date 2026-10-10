@@ -7,11 +7,16 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { monthStamp, type ExportSheet } from "@/lib/export-xlsx"
 import { money } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { financeKeys, statement } from "@/lib/queries/finance"
 import { Code, Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
 import { asPresented, ladderLevel, periodResult } from "@/screens/finance/chart"
 import { useUnitName, useWindow } from "@/screens/finance/hooks"
 import { UnitName, UnitSelect, WindowControl } from "@/screens/finance/parts"
+import {
+  PhoneStatement,
+  type StatementLine,
+} from "@/screens/finance/phone-parts"
 import {
   PeriodicitySelect,
   ReportChart,
@@ -42,6 +47,7 @@ import type { Statement } from "@itulah/contract"
 /// it is not zero the page says so before anything else: a sheet that does
 /// not balance is a defect in the books, not a rounding.
 export function BalanceSheet() {
+  const phone = useLayout() === "phone"
   const range = useWindow()
   const [unit, setUnit] = useState("")
   const [periodicity, setPeriodicity] = useState<Periodicity>("Yearly")
@@ -90,7 +96,7 @@ export function BalanceSheet() {
       filename: `Balance-Sheet-${monthStamp(range.to)}`,
       sheet: "Balance Sheet",
       title: "Balance Sheet",
-      subtitle: `${range.chip} · ${unit === "" ? "every unit" : unitName(unit)} · ${periodicity}`,
+      subtitle: `${range.chip} · ${unit === "" ? "all units" : unitName(unit)} · ${periodicity}`,
       columns: [
         { header: "Code", kind: "text", width: 12 },
         { header: "Account", kind: "text", width: 48 },
@@ -145,11 +151,17 @@ export function BalanceSheet() {
       <PageHeader
         crumb="Finance · Financial Reports"
         title="Balance Sheet"
+        // On a phone Export is a row of the Filters sheet, not a button at the
+        // top of the page.
         actions={
-          <ExportButton
-            build={build}
-            disabled={readings.pending || readings.failed || last === undefined}
-          />
+          phone ? undefined : (
+            <ExportButton
+              build={build}
+              disabled={
+                readings.pending || readings.failed || last === undefined
+              }
+            />
+          )
         }
       />
 
@@ -158,7 +170,7 @@ export function BalanceSheet() {
           <>
             {range.chip}
             {unit === "" ? (
-              " · every unit"
+              " · all units"
             ) : (
               <>
                 {" · "}
@@ -176,6 +188,12 @@ export function BalanceSheet() {
         />
         <WindowControl range={range} />
         <PeriodicitySelect value={periodicity} onChange={setPeriodicity} />
+        {phone && (
+          <ExportButton
+            build={build}
+            disabled={readings.pending || readings.failed || last === undefined}
+          />
+        )}
       </ReportFilters>
 
       {readings.pending ? (
@@ -211,6 +229,7 @@ function Body({
   const last = figures[figures.length - 1]
   const lastSheet = sheets[sheets.length - 1]
   const rows = buildTree(sheets)
+  const phone = useLayout() === "phone"
   const out = lastSheet?.out_of_balance_minor ?? 0
   const silent =
     last.asset === 0 && last.liability === 0 && last.equity === 0 && out === 0
@@ -267,6 +286,8 @@ function Body({
           Nothing has been posted to the asset, liability or equity classes up
           to this date, so there is no position to draw.
         </EmptyState>
+      ) : phone ? (
+        <PhoneStatement lines={phoneLines(rows, figures, columns)} />
       ) : (
         <Grid>
           <thead>
@@ -368,6 +389,69 @@ function Body({
       )}
     </>
   )
+}
+
+/// The sheet as a phone reads it: the account and the last column's figure, and
+/// every other period in the sheet a tap opens.
+function phoneLines(
+  rows: readonly TreeRow[],
+  figures: readonly Figures[],
+  columns: readonly string[]
+): StatementLine[] {
+  const last = figures[figures.length - 1]
+  const manyColumns = columns.length > 1
+  const facts = (read: (figure: Figures) => number | null) =>
+    manyColumns
+      ? columns.map((label, index) => ({
+          label,
+          value: money(read(figures[index])),
+        }))
+      : undefined
+  const lines: StatementLine[] = rows.map((row) => {
+    const read = (figure: Figures) =>
+      figure.loaded
+        ? asPresented(
+            figure.byKey.get(
+              row.kind === "section" ? sectionKey(row.rootClass) : row.code
+            ) ?? 0,
+            row.rootClass
+          )
+        : null
+    const value = read(last)
+    return {
+      key: `${row.rootClass}:${row.code}`,
+      kind: row.kind,
+      code: row.code,
+      name: row.name,
+      level: row.level,
+      figure: money(value),
+      tone: value !== null && value < 0 ? "bad" : undefined,
+      facts: facts(read),
+    }
+  })
+  lines.push(
+    {
+      key: "provisional",
+      name: "Provisional Profit / Loss (Credit)",
+      figure: money(last.loaded ? last.provisional : null),
+      tone: last.provisional < 0 ? "bad" : undefined,
+      facts: facts((figure) => (figure.loaded ? figure.provisional : null)),
+    },
+    {
+      key: "total",
+      kind: "total",
+      name: "Total (Credit)",
+      figure: money(
+        last.loaded ? last.liability + last.equity + last.provisional : null
+      ),
+      facts: facts((figure) =>
+        figure.loaded
+          ? figure.liability + figure.equity + figure.provisional
+          : null
+      ),
+    }
+  )
+  return lines
 }
 
 interface Figures {

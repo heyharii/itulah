@@ -3,17 +3,16 @@ import {
   useQueries,
   useQuery,
   useQueryClient,
+  type UseQueryResult,
 } from "@tanstack/react-query"
-import { Plus } from "lucide-react"
 import { useState } from "react"
 
-import { Button } from "@/components/ui/button"
 import { Field, Input, Select } from "@/components/ui/field"
 import { PeopleSheet, SheetSection } from "@/components/ui/people-sheet"
 import { PeopleTable } from "@/components/ui/people-table"
 import { PeopleTabs } from "@/components/ui/people-tabs"
-import { Pill } from "@/components/ui/pill"
-import { Banner } from "@/components/ui/states"
+import { Pill, Status } from "@/components/ui/pill"
+import { Banner, LoadingState } from "@/components/ui/states"
 import { moment } from "@/lib/format"
 import {
   decideLeave,
@@ -30,17 +29,23 @@ import {
   type StoreScope,
 } from "@/lib/queries/hr"
 import { centreState } from "@/screens/hr/centre"
-import { RefusedBanner } from "@/screens/hr/refused"
 import {
-  Decision,
+  dateLead,
   Facts,
   Fenced,
-  Heading,
   Person,
+  personCard,
   PersonPicker,
   Submit,
+  useDecision,
 } from "@/screens/hr/parts"
-import { personName, requestState, useTeam } from "@/screens/hr/words"
+import { RefusedBanner } from "@/screens/hr/refused"
+import {
+  personByLogin,
+  personName,
+  requestState,
+  useTeam,
+} from "@/screens/hr/words"
 import { HrWorkspace } from "@/screens/hr/workspace"
 import type {
   EmployeeList,
@@ -66,16 +71,21 @@ import type {
 /// by the centre, and the days charged are the centre's count under the
 /// holiday calendar in force — a browser counting weekends itself would get
 /// *cuti bersama* wrong, and be wrong about somebody's balance.
+///
+/// # On a phone
+///
+/// The three slices are the dock's status chip (`PeopleTabs`), every request
+/// is a lead-figure card (days is the figure), and the balances — a column per
+/// leave type on a desk — are one card per person with their balances as a
+/// short list, so nothing scrolls sideways.
 export function HrLeave() {
   const [recording, setRecording] = useState(false)
   return (
     <HrWorkspace
-      actions={
-        <Button variant="primary" onClick={() => setRecording(true)}>
-          <Plus />
-          Record leave
-        </Button>
-      }
+      primary={{
+        label: "New leave request",
+        onClick: () => setRecording(true),
+      }}
     >
       {(scope) => (
         <Leave scope={scope} recording={recording} onRecording={setRecording} />
@@ -118,7 +128,7 @@ function Leave({
         ]}
       />
       {tab === "requests" && <Requests scope={scope} team={team.data} />}
-      {tab === "balances" && <Balances team={team.data} />}
+      {tab === "balances" && <Balances team={team} />}
       {tab === "calendar" && <Calendar scope={scope} />}
 
       {recording && (
@@ -130,6 +140,18 @@ function Leave({
       )}
     </>
   )
+}
+
+/// "06 Oct 2026", or "06 Oct 2026 – 08 Oct 2026" for a span of days.
+function span(request: LeaveRequestView): string {
+  return request.from_date === request.to_date
+    ? readDate(request.from_date)
+    : `${readDate(request.from_date)} – ${readDate(request.to_date)}`
+}
+
+/// "1 day", "2.5 days" — a count of days with its unit.
+function daysWord(days: number | string): string {
+  return `${days} ${Number(days) === 1 ? "day" : "days"}`
 }
 
 // ── requests ────────────────────────────────────────────────────────────────
@@ -180,8 +202,8 @@ function Requests({
   const [open, setOpen] = useState<LeaveRequestView | null>(null)
 
   return centreState(pending, {
-    loading: "Loading…",
-    what: "this shop's leave queue",
+    loading: "Reading the leave requests…",
+    what: "this shop's leave requests",
     render: (queue) => {
       const byId = new Map<string, LeaveRequestView>()
       for (const request of queue.rows) byId.set(request.id, request)
@@ -206,6 +228,25 @@ function Requests({
             rowKey={(request) => request.id}
             onRowClick={setOpen}
             empty="No leave requests."
+            card={(request) => {
+              const state = requestState(request.state)
+              return {
+                ...personCard(team, request.employee_id, [
+                  `${request.leave_type_name} · ${span(request)}`,
+                ]),
+                lead: {
+                  figure: String(request.chargeable_days),
+                  caption: request.chargeable_days === 1 ? "day" : "days",
+                },
+                foot: {
+                  info: <Status tone={state.tone}>{state.label}</Status>,
+                  action: {
+                    label: request.state === "PENDING" ? "Review" : "Open",
+                    onClick: () => setOpen(request),
+                  },
+                },
+              }
+            }}
             columns={[
               {
                 key: "who",
@@ -217,17 +258,12 @@ function Requests({
               {
                 key: "type",
                 header: "Type",
-                card: "meta",
                 cell: (request) => request.leave_type_name,
               },
               {
                 key: "dates",
                 header: "Dates",
-                card: "meta",
-                cell: (request) =>
-                  request.from_date === request.to_date
-                    ? readDate(request.from_date)
-                    : `${readDate(request.from_date)} – ${readDate(request.to_date)}`,
+                cell: (request) => span(request),
               },
               {
                 key: "days",
@@ -244,10 +280,9 @@ function Requests({
               {
                 key: "state",
                 header: "Status",
-                card: "status",
                 cell: (request) => {
                   const state = requestState(request.state)
-                  return <Pill tone={state.tone}>{state.label}</Pill>
+                  return <Status tone={state.tone}>{state.label}</Status>
                 },
               },
             ]}
@@ -301,6 +336,13 @@ function LeaveSheet({
     },
   })
   const state = requestState(request.state)
+  const waiting = request.state === "PENDING"
+  const decision = useDecision({
+    placeholder: "Cover is arranged with the afternoon shift",
+    pending: decide.isPending,
+    error: decide.error,
+    onDecide: (approve, reason) => decide.mutate({ approve, reason }),
+  })
 
   return (
     <PeopleSheet
@@ -308,59 +350,50 @@ function LeaveSheet({
       onOpenChange={(next) => {
         if (!next) onClose()
       }}
-      crumb={
-        <>
-          Leave · <span className="font-mono">{request.id}</span>
-        </>
-      }
+      id={request.id}
+      crumb="Leave"
       title={personName(team, request.employee_id)}
       sub={request.leave_type_name}
       status={<Pill tone={state.tone}>{state.label}</Pill>}
-      foot={
-        request.state === "PENDING" ? (
-          <Decision
-            placeholder="Cover is arranged with the afternoon shift"
-            pending={decide.isPending}
-            error={decide.error}
-            onDecide={(approve, reason) => decide.mutate({ approve, reason })}
-          />
-        ) : undefined
-      }
+      foot={waiting ? decision.footer : undefined}
     >
-      <SheetSection title="The request">
-        <Facts
-          rows={[
-            [
-              "Dates",
-              `${readDate(request.from_date, true)} – ${readDate(request.to_date, true)}`,
-            ],
-            // The centre's count, under the holiday calendar in force when it
-            // was filed — never a browser counting weekends.
-            ["Days charged", request.chargeable_days],
-            ["Because", request.reason],
-            request.evidence !== null && ["Evidence", request.evidence],
-            [
-              "Asked by",
-              `${request.requested_by} · ${moment(request.created_at)}`,
-            ],
-            request.decided_by !== null && [
-              "Decided",
-              `${request.decided_by} · ${moment(request.decided_at)}`,
-            ],
-            request.decision_reason !== null && [
-              "Why",
-              request.decision_reason,
-            ],
-          ]}
-        />
-      </SheetSection>
-      <SheetSection title="Balance">
+      <Facts
+        rows={[
+          [
+            "Dates",
+            `${readDate(request.from_date, true)} – ${readDate(request.to_date, true)}`,
+            true,
+          ],
+          // The centre's count, under the holiday calendar in force when it
+          // was filed — never a browser counting weekends.
+          ["Days charged", request.chargeable_days],
+          ["Asked by", personByLogin(team, request.requested_by)],
+          ["Asked on", moment(request.created_at)],
+          ["Because", request.reason, true],
+          request.evidence !== null && ["Evidence", request.evidence, true],
+          request.decided_by !== null && [
+            "Decided by",
+            personByLogin(team, request.decided_by),
+          ],
+          request.decided_by !== null && [
+            "Decided on",
+            moment(request.decided_at),
+          ],
+          request.decision_reason !== null && [
+            "Why",
+            request.decision_reason,
+            true,
+          ],
+        ]}
+      />
+      <SheetSection title="Balance" className="mt-6">
         {centreState(balances, {
-          loading: "Loading…",
+          loading: "Reading the leave balance…",
           what: "this person's leave balance",
           render: (rows) => <BalanceFacts rows={rows} />,
         })}
       </SheetSection>
+      {waiting && decision.field}
     </PeopleSheet>
   )
 }
@@ -375,7 +408,7 @@ function BalanceFacts({ rows }: { rows: readonly LeaveBalanceRow[] }) {
     <Facts
       rows={rows.map((row) => [
         row.name,
-        `${readCentidays(row.centidays)} days left${row.pending_centidays > 0 ? ` · ${readCentidays(row.pending_centidays)} asked for` : ""}`,
+        `${daysWord(readCentidays(row.centidays))} left${row.pending_centidays > 0 ? ` · ${readCentidays(row.pending_centidays)} requested` : ""}`,
       ])}
     />
   )
@@ -383,8 +416,13 @@ function BalanceFacts({ rows }: { rows: readonly LeaveBalanceRow[] }) {
 
 // ── balances ────────────────────────────────────────────────────────────────
 
-function Balances({ team }: { team: EmployeeList | undefined }) {
-  const people = (team?.rows ?? []).filter(
+/// What everybody has left, per kind of leave.
+///
+/// On a desk a column per kind. On a phone a column per kind would be a table
+/// that scrolls sideways, so each person is a card and their balances are a
+/// short list inside it.
+function Balances({ team }: { team: UseQueryResult<EmployeeList> }) {
+  const people = (team.data?.rows ?? []).filter(
     (person) => person.status === "ACTIVE",
   )
   const reads = useQueries({
@@ -408,49 +446,94 @@ function Balances({ team }: { team: EmployeeList | undefined }) {
     person,
     balances: reads[index]?.data ?? [],
   }))
+  // Nothing has come back yet: say so, rather than a table of dashes.
+  const reading = reads.length > 0 && reads.every((read) => read.isPending)
 
-  return (
-    <>
-      {refused !== undefined && (
-        <RefusedBanner error={refused.error} what="leave balances" />
-      )}
-      <PeopleTable
-        rows={rows}
-        rowKey={(row) => row.person.employee_id}
-        empty="Nobody is posted here."
-        columns={[
-          {
-            key: "who",
-            header: "Employee",
-            cell: (row) => <Person team={team} id={row.person.employee_id} />,
-          },
-          ...kinds.map(([code, name]) => ({
-            key: code,
-            header: name,
-            align: "right" as const,
-            cell: (row: (typeof rows)[number]) => {
-              const one = row.balances.find(
-                (balance) => balance.leave_type === code,
-              )
-              if (one === undefined)
-                return <span className="text-faint">—</span>
-              return (
-                <span>
-                  {readCentidays(one.centidays)}
-                  {one.pending_centidays > 0 && (
-                    <span className="text-warn-fg">
-                      {" "}
-                      (−{readCentidays(one.pending_centidays)})
+  return centreState(team, {
+    loading: "Reading the leave balances…",
+    what: "this shop's people",
+    render: (list) =>
+      reading ? (
+        <LoadingState>Reading the leave balances…</LoadingState>
+      ) : (
+        <>
+          {refused !== undefined && (
+            <RefusedBanner error={refused.error} what="leave balances" />
+          )}
+          <PeopleTable
+            rows={rows}
+            rowKey={(row) => row.person.employee_id}
+            empty="Nobody is posted here."
+            card={(row) => {
+              const one = personCard(list, row.person.employee_id)
+              return {
+                title: one.title,
+                lines: [
+                  ...one.lines,
+                  ...(row.balances.length === 0
+                    ? ["No balance is kept for them yet."]
+                    : row.balances.map((balance) => (
+                        <BalanceLine
+                          key={balance.leave_type}
+                          balance={balance}
+                        />
+                      ))),
+                ],
+              }
+            }}
+            columns={[
+              {
+                key: "who",
+                header: "Employee",
+                cell: (row) => (
+                  <Person team={list} id={row.person.employee_id} />
+                ),
+              },
+              ...kinds.map(([code, name]) => ({
+                key: code,
+                header: name,
+                align: "right" as const,
+                cell: (row: (typeof rows)[number]) => {
+                  const one = row.balances.find(
+                    (balance) => balance.leave_type === code,
+                  )
+                  if (one === undefined)
+                    return <span className="text-faint">—</span>
+                  return (
+                    <span className="inline-flex flex-col items-end">
+                      {readCentidays(one.centidays)}
+                      {one.pending_centidays > 0 && (
+                        <span className="text-meta text-warn-fg">
+                          {readCentidays(one.pending_centidays)} requested
+                        </span>
+                      )}
                     </span>
-                  )}
-                </span>
-              )
-            },
-          })),
-        ]}
-      />
-      <p className="mt-3 text-meta text-mute">(…) = requested, not decided</p>
-    </>
+                  )
+                },
+              })),
+            ]}
+          />
+        </>
+      ),
+  })
+}
+
+/// One balance, as a row of a person's card: the kind at the left, what is
+/// left at the right.
+function BalanceLine({ balance }: { balance: LeaveBalanceRow }) {
+  return (
+    <span className="flex items-baseline justify-between gap-3">
+      <span className="min-w-0 truncate">{balance.name}</span>
+      <span className="shrink-0 text-ink tabular-nums">
+        {daysWord(readCentidays(balance.centidays))}
+        {balance.pending_centidays > 0 && (
+          <span className="text-warn-fg">
+            {" "}
+            · {readCentidays(balance.pending_centidays)} requested
+          </span>
+        )}
+      </span>
+    </span>
   )
 }
 
@@ -463,64 +546,63 @@ function Calendar({ scope }: { scope: StoreScope }) {
     queryFn: ({ signal }) => holidays(year, signal),
   })
 
-  return (
-    <>
-      <Heading>Public holidays {year}</Heading>
-      {centreState(calendar, {
-        loading: "Loading…",
-        what: `the ${year} holiday calendar`,
-        render: (view) => {
-          // Regional days apply to some UNITS only (`HolidayView.units`); this
-          // shop's are the ones with no list at all (a nationwide day) or with
-          // the unit this session is posted to on it.
-          const days = view.holidays.filter(
-            (day) => day.units === null || day.units.includes(scope.unit_id),
-          )
-          return (
-            <PeopleTable
-              rows={days}
-              rowKey={(day) => day.date}
-              empty={`No holidays for ${year}.`}
-              columns={[
-                {
-                  key: "name",
-                  header: "Holiday",
-                  cell: (day) => (
-                    <span className="font-medium text-ink">{day.name}</span>
-                  ),
-                },
-                {
-                  key: "date",
-                  header: "Date",
-                  card: "meta",
-                  cell: (day) => readDate(day.date, true),
-                },
-                {
-                  key: "kind",
-                  header: "Kind",
-                  card: "status",
-                  cell: (day) =>
-                    day.consumes_annual_leave ? (
-                      <Pill tone="warn">Joint leave · from annual</Pill>
-                    ) : (
-                      <Pill tone="neutral">
-                        {day.units === null ? "National" : "Regional"}
-                      </Pill>
-                    ),
-                },
-              ]}
-            />
-          )
-        },
-      })}
-    </>
-  )
+  return centreState(calendar, {
+    loading: "Reading the holiday calendar…",
+    what: `the ${year} holiday calendar`,
+    render: (view) => {
+      // Regional days apply to some UNITS only (`HolidayView.units`); this
+      // shop's are the ones with no list at all (a nationwide day) or with
+      // the unit this session is posted to on it.
+      const days = view.holidays.filter(
+        (day) => day.units === null || day.units.includes(scope.unit_id),
+      )
+      const kindOf = (day: (typeof days)[number]) =>
+        day.consumes_annual_leave ? (
+          <Status tone="warn">Joint leave · from annual</Status>
+        ) : (
+          <Status tone="neutral">
+            {day.units === null ? "National" : "Regional"}
+          </Status>
+        )
+      return (
+        <PeopleTable
+          rows={days}
+          rowKey={(day) => day.date}
+          empty={`No holidays for ${year}.`}
+          card={(day) => ({
+            title: day.name,
+            lead: dateLead(day.date),
+            foot: { info: kindOf(day) },
+          })}
+          columns={[
+            {
+              key: "name",
+              header: "Holiday",
+              cell: (day) => (
+                <span className="font-medium text-ink">{day.name}</span>
+              ),
+            },
+            {
+              key: "date",
+              header: "Date",
+              cell: (day) => readDate(day.date, true),
+            },
+            {
+              key: "kind",
+              header: "Kind",
+              cell: kindOf,
+            },
+          ]}
+        />
+      )
+    },
+  })
 }
 
-// ── recording leave ─────────────────────────────────────────────────────────
+// ── a new leave request ─────────────────────────────────────────────────────
 
-/// Record leave on somebody's behalf. Filing is the shop's; deciding is still
-/// a separate act, and never by the person who filed it.
+/// File leave on somebody's behalf. Filing is the shop's; deciding is still a
+/// separate act, and never by the person who filed it.
 function RecordLeave({
   scope,
   team,
@@ -568,11 +650,11 @@ function RecordLeave({
       onOpenChange={(next) => {
         if (!next) onClose()
       }}
-      crumb="Leave"
-      title="Record leave"
+      title="New leave request"
       foot={
         <Submit
-          label="File the request"
+          label="Create leave request"
+          pendingLabel="Creating…"
           pending={file.isPending}
           disabled={
             employeeId === "" ||
@@ -585,6 +667,7 @@ function RecordLeave({
           }
           error={file.error}
           onSubmit={() => file.mutate()}
+          onCancel={onClose}
         />
       }
     >
@@ -594,8 +677,9 @@ function RecordLeave({
           value={employeeId}
           onChange={setEmployeeId}
           label="Employee"
+          required
         />
-        <Field label="Kind of leave">
+        <Field label="Kind of leave" required>
           <Select value={leaveType} onChange={setLeaveType}>
             <option value="">Choose…</option>
             {(types.data ?? []).map((type) => (
@@ -606,7 +690,7 @@ function RecordLeave({
           </Select>
         </Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="From">
+          <Field label="From" required>
             <Input
               type="date"
               value={from}
@@ -615,6 +699,7 @@ function RecordLeave({
           </Field>
           <Field
             label="To"
+            required
             problem={
               to !== "" && to < from ? "Ends before it starts." : undefined
             }
@@ -628,17 +713,14 @@ function RecordLeave({
           </Field>
         </div>
         {chosen?.requires_evidence === true && (
-          <Field
-            label="Evidence"
-            hint="Required for this kind"
-          >
+          <Field label="Evidence" required>
             <Input
               value={evidence}
               onChange={(event) => setEvidence(event.target.value)}
             />
           </Field>
         )}
-        <Field label="Reason">
+        <Field label="Reason" required>
           <Input
             value={reason}
             placeholder="Family wedding in Solo"
@@ -646,9 +728,7 @@ function RecordLeave({
           />
         </Field>
         {types.isError && (
-          <Banner tone="warn">
-            Couldn't load leave types.
-          </Banner>
+          <Banner tone="warn">The leave types could not be read.</Banner>
         )}
       </div>
     </PeopleSheet>

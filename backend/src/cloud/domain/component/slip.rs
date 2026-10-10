@@ -225,7 +225,14 @@ impl SlipComputation {
         catalogue: &[ComponentInForce],
         adjustments: &[PayrollAdjustment],
     ) -> Result<Self, ComponentError> {
-        Self::compute_with(statutory_base, facts, catalogue, adjustments, Vec::new(), Vec::new())
+        Self::compute_with(
+            statutory_base,
+            facts,
+            catalogue,
+            adjustments,
+            Vec::new(),
+            Vec::new(),
+        )
     }
 
     /// As [`Self::compute`], plus the lines the statutory kernel worked out and
@@ -352,10 +359,10 @@ impl SlipComputation {
 
         let deduction_total =
             if deductions_were_configured && !unratified_deduction && !statutory_unknown {
-            Some(deductions)
-        } else {
-            None
-        };
+                Some(deductions)
+            } else {
+                None
+            };
         // A net exists only when nothing at all was left unworked out: an
         // unratified earning leaves the deductions knowable and the net not.
         let net = match (deduction_total, reasons.is_empty()) {

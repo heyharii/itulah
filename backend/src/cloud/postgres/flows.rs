@@ -862,6 +862,15 @@ pub async fn authorise_source_tx(
     actor: &Actor,
 ) -> Result<FlowTemplateChoice, AppError> {
     let choice = choose_flow_template_tx(tx, route, template_code).await?;
+    check_start_permission(&choice, as_role, actor)?;
+    Ok(choice)
+}
+
+fn check_start_permission(
+    choice: &FlowTemplateChoice,
+    as_role: FlowRole,
+    actor: &Actor,
+) -> Result<(), AppError> {
     if !choice.template.starters.contains(&as_role) {
         let starters: Vec<&str> = choice
             .template
@@ -883,7 +892,7 @@ pub async fn authorise_source_tx(
             as_role.label()
         )));
     }
-    Ok(choice)
+    Ok(())
 }
 
 // --- documents: ends -----------------------------------------------------------
@@ -927,6 +936,25 @@ struct ResolvedEnd {
     party_id: Option<String>,
 }
 
+fn resolved_site_end(
+    site_id: &str,
+    kind: String,
+    unit_id: String,
+) -> Result<ResolvedEnd, AppError> {
+    let site_kind = SiteKind::from_code(&kind).ok_or_else(|| {
+        AppError::Conflict(format!(
+            "site {site_id} is of kind {kind}, which flows do not know yet"
+        ))
+    })?;
+    Ok(ResolvedEnd {
+        end: RouteEnd::Site(site_kind),
+        site_id: Some(site_id.to_owned()),
+        unit_id: Some(unit_id),
+        party: None,
+        party_id: None,
+    })
+}
+
 async fn resolve_end(
     connection: &mut PgConnection,
     input: &FlowEndInput,
@@ -944,19 +972,7 @@ async fn resolve_end(
                 .fetch_optional(&mut *connection)
                 .await?
                 .ok_or_else(|| AppError::NotFound(format!("site {site_id}")))?;
-            let kind: String = row.try_get("kind")?;
-            let site_kind = SiteKind::from_code(&kind).ok_or_else(|| {
-                AppError::Conflict(format!(
-                    "site {site_id} is of kind {kind}, which flows do not know yet"
-                ))
-            })?;
-            Ok(ResolvedEnd {
-                end: RouteEnd::Site(site_kind),
-                site_id: Some(site_id.to_owned()),
-                unit_id: Some(row.try_get("unit_id")?),
-                party: None,
-                party_id: None,
-            })
+            resolved_site_end(site_id, row.try_get("kind")?, row.try_get("unit_id")?)
         }
         (None, Some(party)) => {
             let party_id = input
@@ -1009,6 +1025,35 @@ pub struct StartFlowRequest {
     pub idempotency_key: String,
 }
 
+// Reuse fixed site and route definitions only within one allotment's transaction.
+// Each document still checks source, quantities, permissions and replay keys.
+#[derive(Default)]
+struct AllotmentFlowStartCache {
+    existing_documents: std::collections::HashMap<String, Uuid>,
+    sites: BTreeMap<String, ResolvedEnd>,
+    templates: std::collections::HashMap<FlowRoute, FlowTemplateChoice>,
+}
+
+async fn resolve_end_cached(
+    tx: &mut Transaction<'_, Postgres>,
+    input: &FlowEndInput,
+    which: &str,
+    cache: Option<&mut AllotmentFlowStartCache>,
+) -> Result<ResolvedEnd, AppError> {
+    let Some(cache) = cache else {
+        return resolve_end(&mut **tx, input, which).await;
+    };
+    if let (Some(site), None) = (input.site_id.as_deref().map(str::trim), input.party) {
+        if let Some(end) = cache.sites.get(site) {
+            return Ok(end.clone());
+        }
+        let end = resolve_end(&mut **tx, input, which).await?;
+        cache.sites.insert(site.to_owned(), end.clone());
+        return Ok(end);
+    }
+    resolve_end(&mut **tx, input, which).await
+}
+
 /// Start a document inside the caller's transaction. Starting twice with one
 /// idempotency key is one document.
 pub async fn start_flow_document_tx(
@@ -1017,33 +1062,114 @@ pub async fn start_flow_document_tx(
     actor: &Actor,
     at: DateTime<Utc>,
 ) -> Result<Uuid, AppError> {
+    start_flow_document_cached_tx(tx, request, actor, at, None).await
+}
+
+async fn start_flow_document_cached_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    request: &StartFlowRequest,
+    actor: &Actor,
+    at: DateTime<Utc>,
+    mut cache: Option<&mut AllotmentFlowStartCache>,
+) -> Result<Uuid, AppError> {
     let key = request.idempotency_key.trim();
     if key.is_empty() {
         return Err(AppError::Validation("idempotency_key is required".into()));
     }
-    if let Some(existing) =
-        sqlx::query_scalar::<_, Uuid>("SELECT id FROM flow_document WHERE idempotency_key = $1")
-            .bind(key)
-            .fetch_optional(&mut **tx)
-            .await?
-    {
+    let existing = match cache.as_ref() {
+        Some(cache) => cache.existing_documents.get(key).copied(),
+        None => {
+            sqlx::query_scalar::<_, Uuid>("SELECT id FROM flow_document WHERE idempotency_key = $1")
+                .bind(key)
+                .fetch_optional(&mut **tx)
+                .await?
+        }
+    };
+    if let Some(existing) = existing {
         return Ok(existing);
     }
 
-    let origin = resolve_end(&mut **tx, &request.origin, "origin").await?;
-    let destination = resolve_end(&mut **tx, &request.destination, "destination").await?;
+    let document = prepare_flow_document(tx, request, actor, at, cache.as_deref_mut()).await?;
+    let document_id = document.document_id;
+    write_flow_documents_tx(tx, vec![document]).await?;
+    if let Some(cache) = cache.as_mut() {
+        cache.existing_documents.insert(key.to_owned(), document_id);
+    }
+    Ok(document_id)
+}
+
+/// One flow document, computed and checked against its route, waiting to be
+/// written. An allotment prepares every destination's document and writes
+/// them all in one statement; a standalone start writes its single document
+/// the same way, so both spell the rows identically.
+struct PreparedFlowDocument {
+    document_id: Uuid,
+    template_id: Uuid,
+    version_id: Uuid,
+    origin: ResolvedEnd,
+    destination: ResolvedEnd,
+    source: FlowSource,
+    as_role: FlowRole,
+    status: FlowStatus,
+    confirmed: bool,
+    idempotency_key: String,
+    notes: Option<String>,
+    requested_by: String,
+    at: DateTime<Utc>,
+    planned: BTreeMap<Uuid, i64>,
+    stage_rows: Vec<Value>,
+    initial_status: Value,
+}
+
+async fn prepare_flow_document(
+    tx: &mut Transaction<'_, Postgres>,
+    request: &StartFlowRequest,
+    actor: &Actor,
+    at: DateTime<Utc>,
+    mut cache: Option<&mut AllotmentFlowStartCache>,
+) -> Result<PreparedFlowDocument, AppError> {
+    let origin = resolve_end_cached(tx, &request.origin, "origin", cache.as_deref_mut()).await?;
+    let destination = resolve_end_cached(
+        tx,
+        &request.destination,
+        "destination",
+        cache.as_deref_mut(),
+    )
+    .await?;
     let route = FlowRoute {
         origin: origin.end,
         destination: destination.end,
     };
-    let choice = authorise_source_tx(
-        tx,
-        route,
-        request.template_code.as_deref(),
-        request.as_role,
-        actor,
-    )
-    .await?;
+    let cached_choice = if request.template_code.is_none() {
+        cache
+            .as_ref()
+            .and_then(|cache| cache.templates.get(&route))
+            .cloned()
+    } else {
+        None
+    };
+    let choice = match cached_choice {
+        Some(choice) => {
+            check_start_permission(&choice, request.as_role, actor)?;
+            choice
+        }
+        None => {
+            let choice = authorise_source_tx(
+                tx,
+                route,
+                request.template_code.as_deref(),
+                request.as_role,
+                actor,
+            )
+            .await?;
+            if request.template_code.is_none() {
+                if let Some(cache) = cache.as_mut() {
+                    cache.templates.insert(route, choice.clone());
+                }
+            }
+            choice
+        }
+    };
 
     let source = FlowSource {
         kind: request.source.kind,
@@ -1102,103 +1228,169 @@ pub async fn start_flow_document_tx(
     );
     let confirmed = state.status == FlowStatus::Confirmed;
 
-    let sequence: i64 =
-        sqlx::query_scalar("SELECT nextval('flow_document_number_sequence')::bigint")
-            .fetch_one(&mut **tx)
-            .await?;
-    let number = format!("ALR-{sequence:08}");
+    let stage_rows: Vec<Value> = state
+        .stages
+        .iter()
+        .map(|stage| {
+            let first = stage.index == 0;
+            json!({
+                "stage_index": stage.index as i32,
+                "stage_kind": stage.kind().code(),
+                "performer_role": stage.stage.performer.code(),
+                "idempotency_key": stage_key(document_id, stage.kind()),
+                "activated_at": first.then_some(at),
+                "deadline_at": if first { deadline_from(at, &stage.stage) } else { None },
+            })
+        })
+        .collect();
+    let initial_status = serde_json::to_value(&Effect::Status {
+        from: FlowStatus::Requested,
+        to: state.status,
+        reason: None,
+    })?;
 
+    Ok(PreparedFlowDocument {
+        document_id,
+        template_id: choice.template_id,
+        version_id: choice.version_id,
+        origin,
+        destination,
+        source,
+        as_role: request.as_role,
+        status: state.status,
+        confirmed,
+        idempotency_key: request.idempotency_key.trim().to_owned(),
+        notes: request.notes.clone(),
+        requested_by: actor.id.clone(),
+        at,
+        planned: state.header.planned,
+        stage_rows,
+        initial_status,
+    })
+}
+
+/// The documents and all their children are one statement, whether the
+/// caller starts one flow or an allotment's thirteen. Child inserts depend
+/// on the returned document IDs; foreign keys and transaction rollback
+/// still cover every line, stage and the initial STATUS event. Each
+/// document draws its number from the sequence with the same
+/// minimum-eight-digit format.
+async fn write_flow_documents_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    documents: Vec<PreparedFlowDocument>,
+) -> Result<(), AppError> {
+    if documents.is_empty() {
+        return Ok(());
+    }
+    let rows = documents
+        .iter()
+        .enumerate()
+        .map(|(ordinal, document)| {
+            json!({
+                "ordinal": ordinal as i64,
+                "id": document.document_id,
+                "template_id": document.template_id,
+                "version_id": document.version_id,
+                "origin_site_id": document.origin.site_id,
+                "origin_party_kind": document.origin.party.map(PartyKind::code),
+                "origin_party_id": document.origin.party_id,
+                "destination_site_id": document.destination.site_id,
+                "destination_party_kind": document.destination.party.map(PartyKind::code),
+                "destination_party_id": document.destination.party_id,
+                "origin_unit_id": document.origin.unit_id,
+                "destination_unit_id": document.destination.unit_id,
+                "source_kind": document.source.kind.code(),
+                "source_id": document.source.id,
+                "initiator_role": document.as_role.code(),
+                "status": document.status.code(),
+                "confirmed": document.confirmed,
+                "idempotency_key": document.idempotency_key,
+                "notes": document
+                    .notes
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|notes| !notes.is_empty()),
+                "requested_by": document.requested_by,
+                "requested_at": document.at,
+                "lines": document
+                    .planned
+                    .iter()
+                    .map(|(sku_id, quantity)| json!({"sku_id": sku_id, "quantity": quantity}))
+                    .collect::<Vec<_>>(),
+                "stages": document.stage_rows,
+                "status_payload": document.initial_status,
+            })
+        })
+        .collect::<Vec<_>>();
     sqlx::query(
-        "INSERT INTO flow_document
-            (id, document_number, template_id, template_version_id,
-             origin_site_id, origin_party_kind, origin_party_id,
-             destination_site_id, destination_party_kind, destination_party_id,
-             origin_unit_id, destination_unit_id, source_kind, source_id,
-             initiator_role, status, requested_by, requested_at,
-             confirmed_by, confirmed_at, idempotency_key, notes, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
-                 $19, $20, $21, $22, $18)",
+        "WITH input AS MATERIALIZED (
+             SELECT * FROM jsonb_to_recordset($1::jsonb)
+               AS doc(ordinal bigint, id uuid, template_id uuid, version_id uuid,
+                    origin_site_id text, origin_party_kind text, origin_party_id text,
+                    destination_site_id text, destination_party_kind text, destination_party_id text,
+                    origin_unit_id text, destination_unit_id text, source_kind text, source_id text,
+                    initiator_role text, status text, confirmed bool, idempotency_key text,
+                    notes text, requested_by text, requested_at timestamptz,
+                    lines jsonb, stages jsonb, status_payload jsonb)
+         ), numbered AS MATERIALIZED (
+             SELECT input.*,
+                    nextval('flow_document_number_sequence')::text AS sequence_number
+               FROM input
+         ), document AS (
+             INSERT INTO flow_document
+                (id, document_number, template_id, template_version_id,
+                 origin_site_id, origin_party_kind, origin_party_id,
+                 destination_site_id, destination_party_kind, destination_party_id,
+                 origin_unit_id, destination_unit_id, source_kind, source_id,
+                 initiator_role, status, requested_by, requested_at,
+                 confirmed_by, confirmed_at, idempotency_key, notes, updated_at)
+             SELECT input.id,
+                    'ALR-' || lpad(input.sequence_number,
+                                   GREATEST(length(input.sequence_number), 8), '0'),
+                    input.template_id, input.version_id,
+                    input.origin_site_id, input.origin_party_kind, input.origin_party_id,
+                    input.destination_site_id, input.destination_party_kind, input.destination_party_id,
+                    input.origin_unit_id, input.destination_unit_id,
+                    input.source_kind, input.source_id,
+                    input.initiator_role, input.status,
+                    input.requested_by, input.requested_at,
+                    CASE WHEN input.confirmed THEN input.requested_by END,
+                    CASE WHEN input.confirmed THEN input.requested_at END,
+                    input.idempotency_key, input.notes, input.requested_at
+               FROM numbered input
+             RETURNING id, idempotency_key
+         ), lines AS (
+             INSERT INTO flow_document_line (document_id, sku_id, quantity)
+             SELECT document.id, line.sku_id, line.quantity
+               FROM input
+               CROSS JOIN LATERAL jsonb_to_recordset(input.lines)
+                 AS line(sku_id uuid, quantity bigint)
+               JOIN document ON document.idempotency_key = input.idempotency_key
+         ), stages AS (
+             INSERT INTO flow_stage_state
+                 (document_id, stage_index, stage_kind, performer_role, status,
+                  idempotency_key, activated_at, deadline_at, updated_at)
+             SELECT document.id, stage.stage_index, stage.stage_kind, stage.performer_role,
+                    'PENDING', stage.idempotency_key, stage.activated_at, stage.deadline_at,
+                    input.requested_at
+               FROM input
+               CROSS JOIN LATERAL jsonb_to_recordset(input.stages)
+                 AS stage(stage_index int, stage_kind text, performer_role text,
+                          idempotency_key text, activated_at timestamptz, deadline_at timestamptz)
+               JOIN document ON document.idempotency_key = input.idempotency_key
+               ORDER BY input.ordinal, stage.stage_index
+         )
+         INSERT INTO flow_event
+             (document_id, stage_index, event_type, executed_at, target_site_id, payload, created_at)
+         SELECT document.id, NULL, 'STATUS', 'HUB', NULL, input.status_payload,
+                input.requested_at
+           FROM input
+           JOIN document ON document.idempotency_key = input.idempotency_key",
     )
-    .bind(document_id)
-    .bind(&number)
-    .bind(choice.template_id)
-    .bind(choice.version_id)
-    .bind(origin.site_id.as_deref())
-    .bind(origin.party.map(PartyKind::code))
-    .bind(origin.party_id.as_deref())
-    .bind(destination.site_id.as_deref())
-    .bind(destination.party.map(PartyKind::code))
-    .bind(destination.party_id.as_deref())
-    .bind(origin.unit_id.as_deref())
-    .bind(destination.unit_id.as_deref())
-    .bind(source.kind.code())
-    .bind(&source.id)
-    .bind(request.as_role.code())
-    .bind(state.status.code())
-    .bind(&actor.id)
-    .bind(at)
-    .bind(confirmed.then(|| actor.id.clone()))
-    .bind(confirmed.then_some(at))
-    .bind(key)
-    .bind(
-        request
-            .notes
-            .as_deref()
-            .map(str::trim)
-            .filter(|notes| !notes.is_empty()),
-    )
+    .bind(Value::Array(rows))
     .execute(&mut **tx)
     .await?;
-
-    for (sku_id, quantity) in &state.header.planned {
-        sqlx::query(
-            "INSERT INTO flow_document_line (document_id, sku_id, quantity) VALUES ($1, $2, $3)",
-        )
-        .bind(document_id)
-        .bind(sku_id)
-        .bind(quantity)
-        .execute(&mut **tx)
-        .await?;
-    }
-
-    for stage in &state.stages {
-        let first = stage.index == 0;
-        let deadline = if first {
-            deadline_from(at, &stage.stage)
-        } else {
-            None
-        };
-        sqlx::query(
-            "INSERT INTO flow_stage_state
-                (document_id, stage_index, stage_kind, performer_role, status, idempotency_key,
-                 activated_at, deadline_at, updated_at)
-             VALUES ($1, $2, $3, $4, 'PENDING', $5, $6, $7, $8)",
-        )
-        .bind(document_id)
-        .bind(stage.index as i32)
-        .bind(stage.kind().code())
-        .bind(stage.stage.performer.code())
-        .bind(stage_key(document_id, stage.kind()))
-        .bind(first.then_some(at))
-        .bind(deadline)
-        .bind(at)
-        .execute(&mut **tx)
-        .await?;
-    }
-
-    let row = load_document(&mut **tx, document_id, false).await?;
-    write_event(
-        &mut **tx,
-        &row,
-        &Effect::Status {
-            from: FlowStatus::Requested,
-            to: state.status,
-            reason: None,
-        },
-        at,
-    )
-    .await?;
-    Ok(document_id)
+    Ok(())
 }
 
 pub async fn start_flow_document(
@@ -2174,6 +2366,25 @@ async fn write_event(
     effect: &Effect,
     at: DateTime<Utc>,
 ) -> Result<(), AppError> {
+    write_event_for_document(
+        connection,
+        row.id,
+        row.origin_site_id.as_deref(),
+        row.destination_site_id.as_deref(),
+        effect,
+        at,
+    )
+    .await
+}
+
+async fn write_event_for_document(
+    connection: &mut PgConnection,
+    document_id: Uuid,
+    origin_site_id: Option<&str>,
+    destination_site_id: Option<&str>,
+    effect: &Effect,
+    at: DateTime<Utc>,
+) -> Result<(), AppError> {
     let (event_type, stage) = match effect {
         Effect::StageDone { stage, .. } => ("STAGE_DONE", Some(*stage)),
         Effect::StageSkipped { stage, .. } => ("STAGE_SKIPPED", Some(*stage)),
@@ -2202,8 +2413,8 @@ async fn write_event(
                 flow::ExecutedAt::Hub => "HUB",
             };
             let site = match spec.side {
-                StageSide::Origin => row.origin_site_id.clone(),
-                StageSide::Destination => row.destination_site_id.clone(),
+                StageSide::Origin => origin_site_id,
+                StageSide::Destination => destination_site_id,
                 StageSide::HeadOffice => None,
             };
             (executed, site)
@@ -2214,7 +2425,7 @@ async fn write_event(
         "INSERT INTO flow_event (document_id, stage_index, event_type, executed_at, target_site_id, payload, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7)",
     )
-    .bind(row.id)
+    .bind(document_id)
     .bind(stage_index)
     .bind(event_type)
     .bind(executed_at)
@@ -2384,6 +2595,7 @@ pub async fn start_flow_for_allotment_tx(
     at: DateTime<Utc>,
 ) -> Result<Vec<Uuid>, AppError> {
     let head_office = super::sites::head_office_site_id(&mut **tx).await?;
+    let mut warehouse_destinations = std::collections::HashMap::<String, String>::new();
     let mut by_destination: BTreeMap<
         (String, String),
         (FlowEndInput, FlowEndInput, BTreeMap<Uuid, i64>),
@@ -2398,12 +2610,21 @@ pub async fn start_flow_for_allotment_tx(
             // (`dc-01`), or name nothing usable: the centre's spelling, else
             // head office's own site, read from data.
             DestinationType::Warehouse => {
-                let named = super::sync::canonical_site_id_tx(tx, destination_id).await?;
-                if named.is_empty() {
-                    FlowEndInput::site(head_office.clone())
-                } else {
-                    FlowEndInput::site(named)
-                }
+                let alias = destination_id.trim();
+                let canonical = match warehouse_destinations.get(alias) {
+                    Some(site_id) => site_id.clone(),
+                    None => {
+                        let named = super::sync::canonical_site_id_tx(tx, alias).await?;
+                        let site_id = if named.is_empty() {
+                            head_office.clone()
+                        } else {
+                            named
+                        };
+                        warehouse_destinations.insert(alias.to_owned(), site_id.clone());
+                        site_id
+                    }
+                };
+                FlowEndInput::site(canonical)
             }
             DestinationType::Supplier => {
                 FlowEndInput::party(PartyKind::Supplier, destination_id.clone())
@@ -2421,7 +2642,55 @@ pub async fn start_flow_for_allotment_tx(
         *entry.2.entry(*sku_id).or_insert(0) += *quantity;
     }
     let mut documents = Vec::with_capacity(by_destination.len());
+    let mut cache = AllotmentFlowStartCache::default();
+    let keys: Vec<String> = by_destination
+        .keys()
+        .map(|(_, destination_id)| format!("flow:allotment:{allotment_id}:{destination_id}"))
+        .collect();
+    let existing = sqlx::query(
+        "SELECT id, idempotency_key FROM flow_document WHERE idempotency_key = ANY($1)",
+    )
+    .bind(&keys)
+    .fetch_all(&mut **tx)
+    .await?;
+    for row in existing {
+        cache
+            .existing_documents
+            .insert(row.get("idempotency_key"), row.get("id"));
+    }
+    let site_ids: BTreeSet<String> = by_destination
+        .iter()
+        .filter(|((_, destination_id), _)| {
+            !cache
+                .existing_documents
+                .contains_key(&format!("flow:allotment:{allotment_id}:{destination_id}"))
+        })
+        .flat_map(|(_, (origin, destination, _))| [origin, destination])
+        .filter_map(|end| end.site_id.as_deref().map(str::trim))
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned)
+        .collect();
+    if !site_ids.is_empty() {
+        let sites = sqlx::query("SELECT id, kind, unit_id FROM site WHERE id = ANY($1)")
+            .bind(site_ids.into_iter().collect::<Vec<_>>())
+            .fetch_all(&mut **tx)
+            .await?;
+        for row in sites {
+            let id: String = row.try_get("id")?;
+            let end = resolved_site_end(&id, row.try_get("kind")?, row.try_get("unit_id")?)?;
+            cache.sites.insert(id, end);
+        }
+    }
+    // Every destination's document is computed here, then all of them are
+    // written in one statement: no per-store round trip. Documents whose
+    // replay key already exists keep their old id in the returned order.
+    let mut prepared = Vec::with_capacity(by_destination.len());
     for ((_, destination_id), (origin, destination, planned)) in by_destination {
+        let key = format!("flow:allotment:{allotment_id}:{destination_id}");
+        if let Some(existing) = cache.existing_documents.get(&key).copied() {
+            documents.push(existing);
+            continue;
+        }
         let request = StartFlowRequest {
             template_code: None,
             origin,
@@ -2436,10 +2705,13 @@ pub async fn start_flow_for_allotment_tx(
                 id: allotment_id.to_string(),
             },
             notes: None,
-            idempotency_key: format!("flow:allotment:{allotment_id}:{destination_id}"),
+            idempotency_key: key,
         };
-        documents.push(start_flow_document_tx(tx, &request, actor, at).await?);
+        let document = prepare_flow_document(tx, &request, actor, at, Some(&mut cache)).await?;
+        documents.push(document.document_id);
+        prepared.push(document);
     }
+    write_flow_documents_tx(tx, prepared).await?;
     Ok(documents)
 }
 

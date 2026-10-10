@@ -34,7 +34,7 @@ import { OrderSheet } from "@/screens/procurement/purchase-orders"
 ///
 /// Pool · On hand · Seen · Last count, in the order the goods travel: On order
 /// · Unidentified · Unallotted · Allotted (Unpicked · Picked · Packed ·
-/// Dispatch, each by store) · Return stock · To supplier · Missing. The Gudang
+/// Dispatch, each by store) · Return stock · To supplier · Missing. The warehouse
 /// total leaves out On order (not here yet) and Missing (not in a pool).
 ///
 /// Five rows fold their own detail behind a chevron at the far right — On

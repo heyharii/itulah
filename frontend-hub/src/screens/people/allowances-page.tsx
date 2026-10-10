@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
+import { Fab } from "@/components/ui/fab"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Day } from "@/components/ui/day"
@@ -28,6 +30,7 @@ import { useCanWrite } from "@/lib/session"
 /// one for the same kind supersedes it from its own date.
 export function ClaimAllowancesPage() {
   const canWrite = useCanWrite()
+  const phone = useLayout() === "phone"
   const [setting, setSetting] = useState(false)
   const rules = useQuery({
     queryKey: claimBenefitKeys.rules(),
@@ -37,11 +40,15 @@ export function ClaimAllowancesPage() {
 
   return (
     <PageContent>
+      {canWrite && (
+        <Fab label="Set allowance" onClick={() => setSetting(true)} />
+      )}
       <PageHeader
         crumb="People"
         title="Yearly Allowances"
         sub="How much one person may be reimbursed for each kind of claim in a year."
         actions={
+          !phone &&
           canWrite && (
             <Button variant="primary" onClick={() => setSetting(true)}>
               Set allowance

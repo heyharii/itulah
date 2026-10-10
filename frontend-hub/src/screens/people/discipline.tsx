@@ -23,14 +23,14 @@ import { usePeopleAudience } from "@/screens/people/scope"
 import type { WarningLetterView } from "@itulah/contract"
 
 const LEVELS = [
-  { value: "TEGURAN", label: "Teguran (on record)" },
+  { value: "TEGURAN", label: "Reprimand (on record)" },
   { value: "SP1", label: "SP 1" },
   { value: "SP2", label: "SP 2" },
   { value: "SP3", label: "SP 3" },
 ]
 
 const LEVEL_LABEL: Record<string, string> = {
-  TEGURAN: "Teguran",
+  TEGURAN: "Reprimand",
   SP1: "SP 1",
   SP2: "SP 2",
   SP3: "SP 3",

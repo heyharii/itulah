@@ -423,7 +423,10 @@ const GA_CONTRACT_RETURNING: &str = "RETURNING contract_id, contract_number, con
     starts_on, ends_on, contract_value_minor, is_signed, signed_by,
     customer_number, reminder_days, notes, status, archived, version";
 
-fn to_ga_contract(row: &sqlx::postgres::PgRow, today: NaiveDate) -> Result<GaContractRow, AppError> {
+fn to_ga_contract(
+    row: &sqlx::postgres::PgRow,
+    today: NaiveDate,
+) -> Result<GaContractRow, AppError> {
     let status: String = row.try_get("status")?;
     let starts_on: NaiveDate = row.try_get("starts_on")?;
     let ends_on: Option<NaiveDate> = row.try_get("ends_on")?;
@@ -540,13 +543,15 @@ async fn assert_contract_shape(
         (Some(_), Some(_)) => {
             return Err(AppError::Validation(
                 "a contract has one counterparty: name the supplier or name the free-text \
-                 party, not both".into(),
+                 party, not both"
+                    .into(),
             ));
         }
         (None, None) => {
             return Err(AppError::Validation(
                 "a contract needs one counterparty: a registered supplier, or the free-text \
-                 name of whoever signed on the other side".into(),
+                 name of whoever signed on the other side"
+                    .into(),
             ));
         }
         (Some(id), None) => {
@@ -558,7 +563,8 @@ async fn assert_contract_shape(
             if !exists {
                 return Err(AppError::Validation(
                     "the supplier named on this contract is not in the register; register \
-                     them first, then file the contract".into(),
+                     them first, then file the contract"
+                        .into(),
                 ));
             }
         }
@@ -578,7 +584,8 @@ async fn assert_contract_shape(
         (None, None) => {
             return Err(AppError::Validation(
                 "a contract needs one coverage: the site it is about, or ALL_STORES / \
-                 ALL_SITES for a deal that spans them".into(),
+                 ALL_SITES for a deal that spans them"
+                    .into(),
             ));
         }
         (Some(site), None) => {
@@ -630,7 +637,8 @@ async fn assert_contract_shape(
         ("JASA_MAINTENANCE", None) => {
             return Err(AppError::Validation(
                 "a maintenance contract says what it maintains: one of the eleven repair \
-                 objects, from AC to lift".into(),
+                 objects, from AC to lift"
+                    .into(),
             ));
         }
         (_, Some(code)) => {
@@ -652,7 +660,8 @@ async fn assert_contract_shape(
     if contract_value_minor.is_some_and(|value| value < 0) {
         return Err(AppError::Validation(
             "a contract's value is what the deal is worth; a negative one is a credit \
-             note, not a contract".into(),
+             note, not a contract"
+                .into(),
         ));
     }
     Ok(())
@@ -1174,7 +1183,8 @@ pub async fn ga_contract_record(
     if request.reminder_days < 0 {
         return Err(AppError::Validation(
             "reminder_days is how far ahead the contract wants itself remembered; it \
-             cannot be negative".into(),
+             cannot be negative"
+                .into(),
         ));
     }
 
@@ -1274,8 +1284,10 @@ pub async fn ga_contract_update(
     };
     let counterparty_name = match (&request.supplier_id, &request.counterparty_name) {
         (Some(_), _) => None,
-        (None, Some(_)) => nothing_if_blank(Some(request.counterparty_name.as_deref().unwrap_or("")))
-            .map(str::to_string),
+        (None, Some(_)) => {
+            nothing_if_blank(Some(request.counterparty_name.as_deref().unwrap_or("")))
+                .map(str::to_string)
+        }
         (None, None) => current.try_get("counterparty_name")?,
     };
 
@@ -1317,7 +1329,8 @@ pub async fn ga_contract_update(
     if reminder_days < 0 {
         return Err(AppError::Validation(
             "reminder_days is how far ahead the contract wants itself remembered; it \
-             cannot be negative".into(),
+             cannot be negative"
+                .into(),
         ));
     }
     let notes = text_or("notes", request.notes.as_deref())?;
@@ -1411,15 +1424,15 @@ pub async fn ga_contract_archive(
     if reason.is_empty() {
         return Err(AppError::Validation(
             "archiving says why: the reason is what somebody reads when they find the \
-             row gone from the list".into(),
+             row gone from the list"
+                .into(),
         ));
     }
-    let exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM ga_contract WHERE contract_id = $1)",
-    )
-    .bind(contract_id)
-    .fetch_one(pool)
-    .await?;
+    let exists: bool =
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM ga_contract WHERE contract_id = $1)")
+            .bind(contract_id)
+            .fetch_one(pool)
+            .await?;
     if !exists {
         return Err(AppError::NotFound("contract".into()));
     }
@@ -1499,12 +1512,11 @@ pub async fn ga_meter_reading_record(
     request: &RecordMeterReadingRequest,
     actor: &str,
 ) -> Result<GaMeterReading, AppError> {
-    let live: Option<bool> = sqlx::query_scalar(
-        "SELECT NOT archived FROM ga_contract WHERE contract_id = $1",
-    )
-    .bind(contract_id)
-    .fetch_optional(pool)
-    .await?;
+    let live: Option<bool> =
+        sqlx::query_scalar("SELECT NOT archived FROM ga_contract WHERE contract_id = $1")
+            .bind(contract_id)
+            .fetch_optional(pool)
+            .await?;
     match live {
         None => return Err(AppError::NotFound("contract".into())),
         Some(false) => {
@@ -1524,7 +1536,8 @@ pub async fn ga_meter_reading_record(
     if unit.is_empty() {
         return Err(AppError::Validation(
             "a reading carries the meter's own unit — kWh, m³ — because a number \
-             without a unit is a guess at what was measured".into(),
+             without a unit is a guess at what was measured"
+                .into(),
         ));
     }
     if request.closing < request.opening {

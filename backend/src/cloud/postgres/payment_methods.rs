@@ -106,9 +106,11 @@ fn to_method(row: &sqlx::postgres::PgRow) -> Result<PaymentMethod, AppError> {
 }
 
 pub async fn payment_methods(pool: &PgPool) -> Result<Vec<PaymentMethod>, AppError> {
-    let rows = sqlx::query(&format!("{ROWS} ORDER BY p.is_active DESC, p.tender_type, p.code"))
-        .fetch_all(pool)
-        .await?;
+    let rows = sqlx::query(&format!(
+        "{ROWS} ORDER BY p.is_active DESC, p.tender_type, p.code"
+    ))
+    .fetch_all(pool)
+    .await?;
     rows.iter().map(to_method).collect()
 }
 
@@ -123,7 +125,9 @@ pub async fn save_payment_method(
     let code = request.code.trim().to_ascii_uppercase();
     let tender = request.tender_type.trim().to_ascii_uppercase();
     if code.is_empty() || request.name.trim().is_empty() {
-        return Err(AppError::Validation("a payment method has a code and a name".into()));
+        return Err(AppError::Validation(
+            "a payment method has a code and a name".into(),
+        ));
     }
     let mode = match request
         .settlement_mode
@@ -139,7 +143,10 @@ pub async fn save_payment_method(
         },
     };
     let bank = request.bank_code.trim().to_ascii_uppercase();
-    let needs_bank = matches!(tender.as_str(), "DEBIT_CARD" | "CREDIT_CARD" | "QRIS" | "EWALLET");
+    let needs_bank = matches!(
+        tender.as_str(),
+        "DEBIT_CARD" | "CREDIT_CARD" | "QRIS" | "EWALLET"
+    );
     if needs_bank && bank.is_empty() {
         return Err(AppError::Validation(format!(
             "a {} method names the bank, scheme or provider that pays it",

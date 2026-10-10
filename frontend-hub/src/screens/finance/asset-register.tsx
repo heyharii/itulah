@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Banner, EmptyState } from "@/components/ui/states"
 import type { ExportSheet } from "@/lib/export-xlsx"
 import { count, day, money } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   assetSchedule,
   financeKeys,
@@ -23,6 +24,7 @@ import {
   monthOf,
   todayIso,
 } from "@/screens/finance/chart"
+import { PhoneCard, PhoneHeading, PhoneList } from "@/components/ui/phone-cards"
 import { SiteSelect } from "@/screens/finance/parts"
 import { ReportFilters, ReportSummary } from "@/screens/finance/report"
 
@@ -47,6 +49,7 @@ import type { AssetRow } from "@itulah/contract"
 /// wrong figure that looks right.
 
 export function AssetRegister() {
+  const phone = useLayout() === "phone"
   const [site, setSite] = useState("")
   const [category, setCategory] = useState("")
   const [needle, setNeedle] = useState("")
@@ -112,7 +115,7 @@ export function AssetRegister() {
       filename: `Fixed-Asset-Register-${todayIso()}`,
       sheet: "Asset Register",
       title: "Fixed Asset Register",
-      subtitle: `As at ${day(todayIso())} · ${site === "" ? "every site" : siteName(site)}${
+      subtitle: `As at ${day(todayIso())} · ${site === "" ? "all sites" : siteName(site)}${
         category === ""
           ? ""
           : ` · ${categories.find(([code]) => code === category)?.[1] ?? category}`
@@ -183,11 +186,15 @@ export function AssetRegister() {
       <PageHeader
         crumb="Finance · Financial Reports"
         title="Fixed Asset Register"
+        // On a phone Export is a row of the Filters sheet, not a button at the
+        // top of the page.
         actions={
-          <ExportButton
-            build={build}
-            disabled={register.data === undefined || groups.length === 0}
-          />
+          phone ? undefined : (
+            <ExportButton
+              build={build}
+              disabled={register.data === undefined || groups.length === 0}
+            />
+          )
         }
       />
 
@@ -213,7 +220,7 @@ export function AssetRegister() {
             className="h-control w-52"
             aria-label="Category"
           >
-            <option value="">Every category</option>
+            <option value="">All categories</option>
             {categories.map(([code, name]) => (
               <option key={code} value={code}>
                 {name}
@@ -221,6 +228,12 @@ export function AssetRegister() {
             ))}
           </Select>
         </span>
+        {phone && (
+          <ExportButton
+            build={build}
+            disabled={register.data === undefined || groups.length === 0}
+          />
+        )}
       </ReportFilters>
 
       {queryState(register, {
@@ -250,6 +263,41 @@ export function AssetRegister() {
                     ? " yet. An asset appears here once Finance has capitalised it and until it is disposed of."
                     : " for this narrowing."}
               </EmptyState>
+            ) : phone ? (
+              <PhoneList>
+                {groups.map((group) => (
+                  <Fragment key={group.code}>
+                    <PhoneHeading
+                      title={`${group.name} · ${count(group.rows.length)}`}
+                      total={money(group.book)}
+                    />
+                    {group.rows.map((row) => (
+                      <PhoneCard
+                        key={row.asset_id}
+                        title={row.name}
+                        line={
+                          <span className="font-mono">{row.asset_number}</span>
+                        }
+                        lead={money(row.book_value_minor)}
+                        caption="book value"
+                        foot={
+                          <>
+                            <div>
+                              In service {day(row.in_service_on)} ·{" "}
+                              {methodLabel(row.method)}
+                            </div>
+                            <div className="tabular-nums">
+                              Cost {money(row.capitalized_cost_minor)} ·
+                              Depreciated {money(row.accumulated_minor)}
+                            </div>
+                          </>
+                        }
+                        onOpen={() => setOpened(row)}
+                      />
+                    ))}
+                  </Fragment>
+                ))}
+              </PhoneList>
             ) : (
               <Grid>
                 <thead>
@@ -380,6 +428,7 @@ function ScheduleSheet({
   asset: AssetRow
   onClose: () => void
 }) {
+  const phone = useLayout() === "phone"
   const schedule = useQuery({
     queryKey: financeKeys.assetSchedule(asset.asset_id),
     queryFn: ({ signal }) => assetSchedule(asset.asset_id, signal),
@@ -419,7 +468,7 @@ function ScheduleSheet({
           )
           return (
             <div className="flex flex-col gap-4">
-              <dl className="grid grid-cols-[11rem_minmax(0,1fr)] gap-x-4 gap-y-2.5 text-[0.9375rem]">
+              <dl className="grid grid-cols-[11rem_minmax(0,1fr)] gap-x-4 gap-y-2.5 text-[0.9375rem] max-md:grid-cols-[8.5rem_minmax(0,1fr)]">
                 {facts.map(([term, value]) => (
                   <div key={term} className="contents">
                     <dt className="text-mute">{term}</dt>
@@ -432,6 +481,29 @@ function ScheduleSheet({
                   Nothing has been charged yet. Land never charges, and an asset
                   capitalised this month has not been reached by the run.
                 </p>
+              ) : phone ? (
+                <ul className="flex flex-col">
+                  {[...data.charged].reverse().map((row) => (
+                    <li
+                      key={row.period_month}
+                      className="flex items-baseline justify-between gap-3 border-b border-hairline py-3 last:border-b-0"
+                    >
+                      <span className="min-w-0 text-[0.9375rem] text-ink">
+                        {monthOf(row.period_month)}
+                        <AppLink
+                          to="/finance/accounting/journal-entries"
+                          sheet={{ key: "entry", value: row.entry_id }}
+                          className="block font-mono text-[0.875rem] text-accent hover:underline"
+                        >
+                          {row.entry_number}
+                        </AppLink>
+                      </span>
+                      <span className="shrink-0 text-[0.9375rem] font-medium text-ink tabular-nums">
+                        {money(row.amount_minor)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
               ) : (
                 <Grid>
                   <thead>

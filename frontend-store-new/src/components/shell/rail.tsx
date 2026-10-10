@@ -1,153 +1,171 @@
 import { Link, useRouterState } from "@tanstack/react-router"
-import { PanelLeft } from "lucide-react"
-import { useLayoutEffect, useRef, useState } from "react"
+import { ArrowUpRight, LogOut, PanelLeft } from "lucide-react"
 
+import { BrandMark } from "@/components/brand-mark"
+import { useGuardedSignOut, useSite } from "@/components/shell/sidebar"
+import { RailTip } from "@/components/ui/rail-tip"
+import { useIdentity } from "@/lib/session"
 import {
+  homePath,
   moduleForPath,
   modules,
   newsModule,
+  tillLink,
   type AppModule,
 } from "@/lib/navigation"
 import { cn } from "@/lib/utils"
 
-/// The dark column at the window's edge: *which part of the shop*.
+/// The dark rail: every module of the shop as an icon, the one you are in lit —
+/// the hub's `NavColumn` (`frontend-hub/src/components/shell/nav-column.tsx`),
+/// drawn for the shop's own menu.
 ///
-/// The hub's rail (`frontend-hub/src/components/shell/rail.tsx`), drawn the
-/// same way — a tile per module with its word under it, one lit tile, and a
-/// mark that glides between tiles rather than jumping — over the till's own
-/// six modules. The node's screens sit at the foot as a bare icon, the place
-/// the hub keeps System: opened when something is wrong, not every hour.
+/// Charcoal, in the rail's ramp (`--rail*`), so the sign-in door and the rail
+/// are one material. It answers *which part of the shop*; the light panel
+/// beside it (`SubSidebar`) answers which screen of it. A module with one
+/// screen is its icon alone and has no panel. The mark at its head is the way
+/// home; at the foot are the places that are not a module (the Cashier app,
+/// Discuss) and the person.
+///
+/// Docked only (from 64rem). Under that the same menu is the drawer
+/// (`DrawerNav`), with words.
 export function Rail({
-  sidebarOpen,
-  onToggleSidebar,
+  panelOpen,
+  onToggleNav,
 }: {
-  sidebarOpen?: boolean
-  onToggleSidebar?: () => void
+  /// Whether the screens panel is standing beside the rail. When it is away,
+  /// the rail offers it back.
+  panelOpen: boolean
+  onToggleNav: () => void
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const current = moduleForPath(pathname).id
-
-  // The tile lights the moment it is pressed rather than when the route
-  // resolves, so a slow screen does not leave the old tile lit under the
-  // finger. Keyed to the path it was pressed on, so arriving anywhere else —
-  // back button, a link inside a screen — hands the light back to the route.
-  const [pressed, setPressed] = useState<{ id: string; on: string } | null>(
-    null,
-  )
-  const lit = pressed?.on === pathname ? pressed.id : current
-
-  const list = useRef<HTMLDivElement>(null)
-  const [mark, setMark] = useState<{
-    top: number
-    height: number
-    glide: boolean
-  } | null>(null)
-
-  useLayoutEffect(() => {
-    const tile = list.current?.querySelector<HTMLElement>("[data-lit]")
-    setMark((prev) =>
-      tile
-        ? {
-            top: tile.offsetTop,
-            height: tile.offsetHeight,
-            glide: prev !== null,
-          }
-        : null,
-    )
-  }, [lit])
+  const current = moduleForPath(pathname)
+  const site = useSite()
 
   return (
     <nav
-      aria-label="Modules"
-      className="flex h-full w-[5rem] shrink-0 flex-col items-stretch bg-rail text-rail-text"
+      aria-label="Navigation"
+      className="flex h-full w-[4.25rem] shrink-0 flex-col bg-rail text-rail-text"
     >
-      <div
-        ref={list}
-        className="relative flex min-h-0 flex-1 [scrollbar-width:none] flex-col gap-0.5 overflow-y-auto px-1.5 pt-2 pb-2 [&::-webkit-scrollbar]:hidden"
-      >
-        {mark && (
-          <span
-            aria-hidden
-            data-motion="travel"
-            className={cn(
-              "pointer-events-none absolute inset-x-1.5 top-0 rounded-inner bg-rail-3",
-              mark.glide &&
-                "transition-[transform,height] duration-(--t-panel) ease-(--ease-out)",
-            )}
-            style={{
-              transform: `translateY(${mark.top}px)`,
-              height: mark.height,
-            }}
-          />
-        )}
-        {modules.map((module) => {
-          const Icon = module.icon
-          const on = lit === module.id
-          return (
-            <Link
-              key={module.id}
-              to={module.home as never}
-              aria-current={current === module.id ? "page" : undefined}
-              data-lit={on ? "" : undefined}
-              onClick={() => setPressed({ id: module.id, on: pathname })}
-              title={module.label}
-              className={cn(
-                "relative flex shrink-0 flex-col items-center gap-[0.3125rem] rounded-inner px-0.5 pt-[0.5625rem] pb-[0.4375rem] transition-colors",
-                on
-                  ? "text-rail-ink"
-                  : "text-rail-text hover:bg-rail-2 hover:text-rail-ink",
-              )}
-            >
-              <Icon
-                className={cn(
-                  "size-[1.125rem] shrink-0 stroke-[1.7]",
-                  on ? "text-rail-ink" : "text-rail-mute",
-                )}
-              />
-              <span className="w-full overflow-hidden text-center text-[0.65625rem] leading-none font-medium tracking-[-0.01em] whitespace-nowrap">
-                {module.label}
-              </span>
-            </Link>
-          )
-        })}
+      {/* The mark, at the desk bar's height so the three lower edges — rail,
+          panel, page — are one line across the window. It is the way home. */}
+      <div className="flex h-13 shrink-0 items-center justify-center border-b border-rail-hair px-2">
+        <RailTip label={`${site} — home`}>
+          <Link
+            to={homePath as never}
+            aria-label={`${site} — home`}
+            className="grid place-items-center rounded-inner p-1 transition-colors hover:bg-rail-2"
+          >
+            <BrandMark className="size-7" />
+          </Link>
+        </RailTip>
       </div>
 
-      <div className="flex shrink-0 flex-col items-center gap-1 border-t border-rail-hair px-1.5 pt-2 pb-3">
-        <AsideTile module={newsModule} active={current === newsModule.id} />
-        {onToggleSidebar && (
-          <button
-            type="button"
-            onClick={onToggleSidebar}
-            aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
-            aria-pressed={sidebarOpen}
-            title={`${sidebarOpen ? "Hide" : "Show"} sidebar  ⌘B`}
-            className="grid size-8 place-items-center rounded-inner text-rail-mute transition-colors hover:bg-rail-2 hover:text-rail-ink"
-          >
-            <PanelLeft className="size-[1.0625rem] stroke-[1.55]" />
-          </button>
+      <div className="flex min-h-0 flex-1 [scrollbar-width:none] flex-col items-center gap-0.5 overflow-y-auto px-2 pt-3 pb-3 [&::-webkit-scrollbar]:hidden">
+        {modules.map((module) => (
+          <RailLink
+            key={module.id}
+            module={module}
+            lit={module.id === current.id}
+          />
+        ))}
+      </div>
+
+      <div className="flex shrink-0 flex-col items-center gap-0.5 border-t border-rail-hair px-2 pt-2 pb-2.5">
+        {!panelOpen && (
+          <RailTip label="Show the screens  ⌘B">
+            <button
+              type="button"
+              onClick={onToggleNav}
+              aria-label="Show the screens"
+              className="grid size-10 place-items-center rounded-inner text-rail-mute transition-colors hover:bg-rail-2 hover:text-rail-ink"
+            >
+              <PanelLeft className="size-[1.125rem] stroke-[1.6]" />
+            </button>
+          </RailTip>
         )}
+        <CashierLink />
+        <RailLink module={newsModule} lit={current.id === newsModule.id} />
+        <Account />
       </div>
     </nav>
   )
 }
 
-function AsideTile({ module, active }: { module: AppModule; active: boolean }) {
+/// One module as an icon: its name on hover, instantly (`RailTip`).
+function RailLink({ module, lit }: { module: AppModule; lit: boolean }) {
   const Icon = module.icon
   return (
-    <Link
-      to={module.home as never}
-      title={module.label}
-      aria-label={module.label}
-      aria-current={active ? "page" : undefined}
-      className={cn(
-        "grid size-8 shrink-0 place-items-center rounded-inner transition-colors",
-        active
-          ? "bg-rail-3 text-rail-ink"
-          : "text-rail-mute hover:bg-rail-2 hover:text-rail-ink",
-        "pointer-coarse:size-tap",
-      )}
-    >
-      <Icon className="size-4 stroke-[1.55]" />
-    </Link>
+    <RailTip label={module.label}>
+      <Link
+        to={module.home as never}
+        aria-label={module.label}
+        aria-current={lit ? "page" : undefined}
+        className={cn(
+          "group relative flex size-10 shrink-0 items-center justify-center rounded-inner transition-colors",
+          lit
+            ? "bg-rail-3 font-medium text-rail-ink"
+            : "text-rail-text hover:bg-rail-2 hover:text-rail-ink",
+        )}
+      >
+        <Icon
+          className={cn(
+            "size-[1.125rem] shrink-0 stroke-[1.6] transition-colors",
+            lit ? "text-rail-ink" : "text-rail-mute group-hover:text-rail-text",
+          )}
+        />
+      </Link>
+    </RailTip>
+  )
+}
+
+/// The Cashier: another app, so it opens in its own tab and says so. No icon at
+/// all when there is nowhere to send anybody.
+function CashierLink() {
+  if (tillLink.url === null) return null
+  const Icon = tillLink.icon
+  return (
+    <RailTip label={`${tillLink.label} — opens in a new tab`}>
+      <a
+        href={tillLink.url}
+        target="_blank"
+        rel="noopener"
+        aria-label={`${tillLink.label} (opens in a new tab)`}
+        className="group relative flex size-10 shrink-0 items-center justify-center rounded-inner text-rail-text transition-colors hover:bg-rail-2 hover:text-rail-ink"
+      >
+        <Icon className="size-[1.125rem] shrink-0 stroke-[1.6] text-rail-mute transition-colors group-hover:text-rail-text" />
+        <ArrowUpRight className="absolute top-1 right-1 size-3 text-rail-mute" />
+      </a>
+    </RailTip>
+  )
+}
+
+/// The person, and the way out.
+function Account() {
+  const identity = useIdentity()
+  const signOut = useGuardedSignOut()
+  const name = identity.data?.display_name ?? identity.data?.username ?? "—"
+  const initial = name.trim().charAt(0).toUpperCase() || "?"
+  return (
+    <div className="mt-1 flex flex-col items-center gap-1">
+      <RailTip label={name}>
+        <span
+          aria-label={name}
+          className="grid size-7 shrink-0 place-items-center rounded-full bg-rail-3 text-[0.875rem] font-semibold text-rail-ink shadow-[inset_0_0_0_1px_var(--rail-hair)]"
+        >
+          {initial}
+        </span>
+      </RailTip>
+      <RailTip label="Sign out">
+        <button
+          type="button"
+          aria-label="Sign out"
+          onClick={signOut.run}
+          disabled={signOut.pending}
+          className="grid size-9 shrink-0 place-items-center rounded-inner text-rail-mute transition-colors hover:bg-rail-2 hover:text-rail-ink disabled:opacity-50"
+        >
+          <LogOut className="size-4 stroke-[1.7]" />
+        </button>
+      </RailTip>
+    </div>
   )
 }

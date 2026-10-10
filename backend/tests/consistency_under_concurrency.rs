@@ -532,9 +532,13 @@ async fn a_split_limit_is_never_over_granted(pool: PgPool) {
     gate.commit()
         .await
         .unwrap_or_else(|e| panic!("release: {e}"));
-    first.await.unwrap_or_else(|error| panic!("first worker: {error}"))
+    first
+        .await
+        .unwrap_or_else(|error| panic!("first worker: {error}"))
         .unwrap_or_else(|error| panic!("first rebalance: {error}"));
-    second.await.unwrap_or_else(|error| panic!("second worker: {error}"))
+    second
+        .await
+        .unwrap_or_else(|error| panic!("second worker: {error}"))
         .unwrap_or_else(|error| panic!("second rebalance: {error}"));
 
     let granted = scalar(
@@ -558,27 +562,46 @@ async fn a_retired_shops_grant_is_not_given_to_another_shop(pool: PgPool) {
     }
     publish_budget_campaign(&pool, 1_000_000).await;
     cloud::set_cap_allocation(
-        &pool, "CAMPAIGN", "LEBARAN",
-        cloud::CapAllocationRequest { enabled: true }, ACTOR,
-    ).await.unwrap_or_else(|error| panic!("split: {error}"));
-    sqlx::query("UPDATE commercial_cap_allocation SET granted = 750000
+        &pool,
+        "CAMPAIGN",
+        "LEBARAN",
+        cloud::CapAllocationRequest { enabled: true },
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("split: {error}"));
+    sqlx::query(
+        "UPDATE commercial_cap_allocation SET granted = 750000
                   WHERE origin_id = 'store-07' AND kind = 'CAMPAIGN'
-                    AND key = 'LEBARAN' AND measure = 'BUDGET'")
-        .execute(&pool).await.unwrap_or_else(|error| panic!("grant: {error}"));
+                    AND key = 'LEBARAN' AND measure = 'BUDGET'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("grant: {error}"));
     sqlx::query("DELETE FROM sync_origin_credential WHERE origin_id = 'store-07'")
-        .execute(&pool).await.unwrap_or_else(|error| panic!("retire: {error}"));
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("retire: {error}"));
     register(&pool, "store-09").await;
-    cloud::rebalance_allocations(&pool).await
+    cloud::rebalance_allocations(&pool)
+        .await
         .unwrap_or_else(|error| panic!("rebalance: {error}"));
-    let granted = scalar(&pool,
+    let granted = scalar(
+        &pool,
         "SELECT SUM(granted)::bigint FROM commercial_cap_allocation
           WHERE kind = 'CAMPAIGN' AND key = 'LEBARAN' AND measure = 'BUDGET'",
-    ).await;
-    assert_eq!(granted, 1_000_000, "a retired allowance stays out of the pool");
-    let new_grant = scalar(&pool,
+    )
+    .await;
+    assert_eq!(
+        granted, 1_000_000,
+        "a retired allowance stays out of the pool"
+    );
+    let new_grant = scalar(
+        &pool,
         "SELECT granted FROM commercial_cap_allocation WHERE origin_id = 'store-09'
           AND kind = 'CAMPAIGN' AND key = 'LEBARAN' AND measure = 'BUDGET'",
-    ).await;
+    )
+    .await;
     assert_eq!(new_grant, 0);
 }
 
@@ -589,23 +612,36 @@ async fn an_ungranted_shop_receives_zero_allowance(pool: PgPool) {
     register(&pool, "store-07").await;
     publish_budget_campaign(&pool, 1_000_000).await;
     cloud::set_cap_allocation(
-        &pool, "CAMPAIGN", "LEBARAN",
-        cloud::CapAllocationRequest { enabled: true }, ACTOR,
-    ).await.unwrap_or_else(|error| panic!("split: {error}"));
+        &pool,
+        "CAMPAIGN",
+        "LEBARAN",
+        cloud::CapAllocationRequest { enabled: true },
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("split: {error}"));
     register(&pool, "store-08").await;
-    let (command_id, _) = cloud::publish_commercial_usage(
-        &pool, ACTOR, &["store-08".into()],
-    ).await.unwrap_or_else(|error| panic!("usage: {error}"));
-    let payload: serde_json::Value = sqlx::query_scalar(
-        "SELECT payload FROM sync_command WHERE command_id = $1",
-    ).bind(command_id).fetch_one(&pool).await
-        .unwrap_or_else(|error| panic!("payload: {error}"));
-    let allowance = payload["allowances"].as_array()
-        .and_then(|rows| rows.iter().find(|row|
-            row["origin_id"] == "store-08" && row["key"] == "LEBARAN"))
+    let (command_id, _) = cloud::publish_commercial_usage(&pool, ACTOR, &["store-08".into()])
+        .await
+        .unwrap_or_else(|error| panic!("usage: {error}"));
+    let payload: serde_json::Value =
+        sqlx::query_scalar("SELECT payload FROM sync_command WHERE command_id = $1")
+            .bind(command_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("payload: {error}"));
+    let allowance = payload["allowances"]
+        .as_array()
+        .and_then(|rows| {
+            rows.iter()
+                .find(|row| row["origin_id"] == "store-08" && row["key"] == "LEBARAN")
+        })
         .unwrap_or_else(|| panic!("new shop has no allowance in {payload}"));
     assert_eq!(allowance["budget_minor"], json!(0));
-    assert!(allowance["max_uses"].is_null(), "an uncapped measure stays uncapped");
+    assert!(
+        allowance["max_uses"].is_null(),
+        "an uncapped measure stays uncapped"
+    );
 }
 
 /// Failure to read the split must not send an empty allowance list and erase
@@ -615,15 +651,28 @@ async fn a_failed_allowance_read_does_not_publish_a_weaker_usage_snapshot(pool: 
     register(&pool, "store-07").await;
     publish_budget_campaign(&pool, 1_000_000).await;
     cloud::set_cap_allocation(
-        &pool, "CAMPAIGN", "LEBARAN",
-        cloud::CapAllocationRequest { enabled: true }, ACTOR,
-    ).await.unwrap_or_else(|error| panic!("split: {error}"));
+        &pool,
+        "CAMPAIGN",
+        "LEBARAN",
+        cloud::CapAllocationRequest { enabled: true },
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("split: {error}"));
     let before = scalar(&pool, "SELECT COUNT(*)::bigint FROM sync_command").await;
     sqlx::query("ALTER TABLE commercial_cap_allocation RENAME TO unavailable_cap_allocation")
-        .execute(&pool).await.unwrap_or_else(|error| panic!("simulate failed read: {error}"));
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("simulate failed read: {error}"));
     let result = cloud::publish_commercial_usage(&pool, ACTOR, &["store-07".into()]).await;
-    assert!(result.is_err(), "a failed allowance read published {result:?}");
-    assert_eq!(scalar(&pool, "SELECT COUNT(*)::bigint FROM sync_command").await, before);
+    assert!(
+        result.is_err(),
+        "a failed allowance read published {result:?}"
+    );
+    assert_eq!(
+        scalar(&pool, "SELECT COUNT(*)::bigint FROM sync_command").await,
+        before
+    );
 }
 
 /// A promotion's historical spend cannot become a second fresh pool when
@@ -634,11 +683,25 @@ async fn a_split_cannot_ignore_sales_made_before_it_was_enabled(pool: PgPool) {
     publish_budget_campaign(&pool, 1_000_000).await;
     sell_at(&pool, "store-07", 1, 200_000).await;
     let result = cloud::set_cap_allocation(
-        &pool, "CAMPAIGN", "LEBARAN",
-        cloud::CapAllocationRequest { enabled: true }, ACTOR,
-    ).await;
-    assert!(result.is_err(), "historical spending was granted a new pool: {result:?}");
-    assert_eq!(scalar(&pool, "SELECT COUNT(*)::bigint FROM commercial_cap_allocation").await, 0);
+        &pool,
+        "CAMPAIGN",
+        "LEBARAN",
+        cloud::CapAllocationRequest { enabled: true },
+        ACTOR,
+    )
+    .await;
+    assert!(
+        result.is_err(),
+        "historical spending was granted a new pool: {result:?}"
+    );
+    assert_eq!(
+        scalar(
+            &pool,
+            "SELECT COUNT(*)::bigint FROM commercial_cap_allocation"
+        )
+        .await,
+        0
+    );
 }
 
 /// A direct redemption cannot spend money a checkout is holding.

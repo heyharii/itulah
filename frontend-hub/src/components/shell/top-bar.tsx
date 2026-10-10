@@ -61,7 +61,7 @@ export function TopBar({
           aria-label={navOpen ? "Fold the menu" : "Unfold the menu"}
           aria-pressed={!navOpen}
           title={`${navOpen ? "Fold" : "Unfold"} the menu  ⌘B`}
-          className="-ml-1.5 grid size-8 shrink-0 place-items-center rounded-inner text-line-ico transition-colors hover:bg-soft-2 hover:text-text"
+          className="-ml-1.5 grid size-8 shrink-0 place-items-center rounded-inner text-line-ico transition-colors hover:bg-soft-2 hover:text-text pointer-coarse:size-tap"
         >
           <PanelLeft className="size-[1.0625rem] stroke-[1.6]" />
         </button>
@@ -137,7 +137,7 @@ export function TopBar({
           onClick={() => assistant.setOpen(!assistant.open)}
           aria-pressed={assistant.open}
           title="Ask  ⌘J"
-          className="inline-flex h-8 items-center gap-1.5 rounded-inner px-2.5 text-[0.875rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink aria-pressed:bg-soft-2 aria-pressed:text-ink max-md:hidden"
+          className="inline-flex h-8 items-center gap-1.5 rounded-inner px-2.5 text-[0.875rem] font-medium text-body transition-colors hover:bg-soft-2 hover:text-ink aria-pressed:bg-soft-2 aria-pressed:text-ink max-md:hidden pointer-coarse:h-11"
         >
           <Sparkles className="size-[0.9375rem] stroke-[1.7] text-accent" />
           <span className="max-md:hidden">Ask</span>
@@ -196,7 +196,9 @@ function PhoneTitle({ pathname }: { pathname: string }) {
                 to={one.to as string}
                 aria-current={on ? "page" : undefined}
                 className={cn(
-                  "inline-flex h-9 items-center rounded-[calc(var(--r-inner)-2px)] px-3.5 text-[0.875rem] font-medium transition-colors",
+                  // 40 in the pill's 2px rim is 44; `after` makes the rim part of
+                  // the target (D1).
+                  "relative inline-flex h-10 items-center rounded-[calc(var(--r-inner)-2px)] px-3.5 text-[0.875rem] font-medium transition-colors after:absolute after:inset-x-0 after:-inset-y-0.5 after:content-['']",
                   on ? "bg-canvas text-ink shadow-soft" : "text-body"
                 )}
               >
@@ -302,7 +304,7 @@ function AsideLink({ aside, here }: { aside: AppModule; here: boolean }) {
     >
       <aside.icon className="size-[1.0625rem] stroke-[1.55]" />
       {typeof waiting === "number" && waiting > 0 && (
-        <span className="absolute -top-0.5 -right-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[0.6875rem] leading-none font-semibold text-white tabular-nums ring-2 ring-canvas">
+        <span className="absolute -top-1.5 -right-1.5 grid h-5 min-w-5 place-items-center rounded-full bg-accent px-1 text-[0.875rem] leading-none font-semibold text-white tabular-nums ring-2 ring-canvas">
           {waiting > 99 ? "99+" : waiting}
         </span>
       )}

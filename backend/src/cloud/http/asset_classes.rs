@@ -54,5 +54,8 @@ pub async fn save_class(
 }
 
 pub fn routes(router: Router<AppState>) -> Router<AppState> {
-    router.route("/api/v1/finance/asset-classes", get(classes).post(save_class))
+    router.route(
+        "/api/v1/finance/asset-classes",
+        get(classes).post(save_class),
+    )
 }

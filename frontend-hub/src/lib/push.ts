@@ -148,7 +148,7 @@ export async function enablePush(
   publicKey: string | null | undefined
 ): Promise<NotificationPermission> {
   if (publicKey === null || publicKey === undefined) {
-    throw new Error("Notifikasi push belum diaktifkan di server.")
+    throw new Error("Push notifications are not turned on for this server.")
   }
   const granted = await Notification.requestPermission()
   if (granted !== "granted") return granted

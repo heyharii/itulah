@@ -1660,7 +1660,11 @@ pub fn print_waiting_test_pages(
     for page in &pages {
         let now = Utc::now();
         let printed_at = FixedOffset::east_opt(offset * 60)
-            .map(|zone| now.with_timezone(&zone).format("%d/%m/%Y %H:%M").to_string())
+            .map(|zone| {
+                now.with_timezone(&zone)
+                    .format("%d/%m/%Y %H:%M")
+                    .to_string()
+            })
             .unwrap_or_else(|| now.format("%d/%m/%Y %H:%M UTC").to_string());
         let outcome = if page.status == STATUS_ACTIVE {
             crate::edge::printing::send_bytes(
@@ -1908,7 +1912,10 @@ fn till_health(peripherals: &Value) -> Option<wire::DeviceHealth> {
         Value::Null => return None,
         Value::String(model) => (Some(model.clone()), None),
         Value::Object(reader) => (
-            reader.get("model").and_then(Value::as_str).map(str::to_owned),
+            reader
+                .get("model")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
             reader.get("attached").and_then(Value::as_bool),
         ),
         Value::Bool(false) => return None,
@@ -2047,7 +2054,10 @@ fn reader_health(
         .query_row(
             "SELECT COALESCE(SUM(read_count), 0) FROM edge_observation_sighting
               WHERE device_id = ?1 AND last_seen_at >= ?2",
-            params![device_id, stamp(now - Duration::minutes(READS_WINDOW_MINUTES))],
+            params![
+                device_id,
+                stamp(now - Duration::minutes(READS_WINDOW_MINUTES))
+            ],
             |row| row.get(0),
         )
         .unwrap_or(0);

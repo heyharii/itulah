@@ -14,6 +14,7 @@ import { button } from "@/components/ui/button-style"
 import { Card } from "@/components/ui/card"
 import { Day } from "@/components/ui/day"
 import { Dialog, Panel, SavedDialog } from "@/components/ui/dialog"
+import { Fab } from "@/components/ui/fab"
 import { Field, Input, Money, Select, Textarea } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill, Status } from "@/components/ui/pill"
@@ -23,6 +24,7 @@ import { Fact, Facts } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { count, day, label, money } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   approveCashDocument,
   buildVoucherRequest,
@@ -58,8 +60,11 @@ import {
   useSupplierName,
 } from "@/screens/finance/hooks"
 import { withLegalForm } from "@/screens/procurement/supplier-format"
+import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
 import {
   AccountAndCategory,
+  PhoneChoice,
+  PhoneUnitChoice,
   SupplierPicker,
   UnitName,
   UnitSelect,
@@ -203,6 +208,7 @@ function Register({ kind }: { kind: ComposeKind }) {
   const supplierName = useSupplierName()
   const [unit, setUnit] = useState("")
   const [status, setStatus] = useState("")
+  const phone = useLayout() === "phone"
   const serverKind = kind === "BKK" ? "PAY" : "RECEIVE"
   const T = termsFor(kind)
 
@@ -240,6 +246,7 @@ function Register({ kind }: { kind: ComposeKind }) {
   return (
     <PageContent>
       <PageHeader
+        className="max-md:hidden"
         crumb="Finance · Payments"
         title={kind}
         actions={
@@ -248,31 +255,49 @@ function Register({ kind }: { kind: ComposeKind }) {
           </Button>
         }
       />
+      {/* A phone: status and unit are two chips in the dock, the new document
+          the round +. */}
+      <PhoneChoice
+        title="Status"
+        value={status}
+        onChange={setStatus}
+        options={[
+          { value: "", label: "All statuses" },
+          { value: "DRAFT", label: "Draft" },
+          { value: "APPROVED", label: "Approved" },
+          { value: "POSTED", label: "Posted" },
+          { value: "REVERSED", label: "Reversed" },
+        ]}
+      />
+      <PhoneUnitChoice value={unit} onChange={setUnit} />
+      <Fab label={`New ${kind}`} onClick={openNew} />
 
-      <Toolbar>
-        <Select
-          value={status}
-          onChange={setStatus}
-          className="h-control w-36"
-          aria-label="Status"
-        >
-          <option value="">All statuses</option>
-          <option value="DRAFT">Draft</option>
-          <option value="APPROVED">Approved</option>
-          <option value="POSTED">Posted</option>
-          <option value="REVERSED">Reversed</option>
-        </Select>
-        <UnitSelect
-          value={unit}
-          onChange={setUnit}
-          className="h-control w-44"
-          aria-label="Unit"
-        />
-        <Toolbar.Spacer />
-        <span className="text-[0.875rem] text-mute">
-          {count(rows.length)} {rows.length === 1 ? "document" : "documents"}
-        </span>
-      </Toolbar>
+      {!phone && (
+        <Toolbar>
+          <Select
+            value={status}
+            onChange={setStatus}
+            className="h-control w-36"
+            aria-label="Status"
+          >
+            <option value="">All statuses</option>
+            <option value="DRAFT">Draft</option>
+            <option value="APPROVED">Approved</option>
+            <option value="POSTED">Posted</option>
+            <option value="REVERSED">Reversed</option>
+          </Select>
+          <UnitSelect
+            value={unit}
+            onChange={setUnit}
+            className="h-control w-44"
+            aria-label="Unit"
+          />
+          <Toolbar.Spacer />
+          <span className="text-[0.875rem] text-mute">
+            {count(rows.length)} {rows.length === 1 ? "document" : "documents"}
+          </span>
+        </Toolbar>
+      )}
 
       {queryState(list, {
         loading: "Reading the register…",
@@ -281,6 +306,30 @@ function Register({ kind }: { kind: ComposeKind }) {
             <EmptyState>
               No {kind} is recorded{unit === "" ? "" : " for this unit"}.
             </EmptyState>
+          ) : phone ? (
+            <PhoneList
+              rows={docs.map((row) => ({
+                key: row.document_id,
+                title:
+                  row.party_type === "SUPPLIER"
+                    ? supplierName(row.supplier_id, row.party_name)
+                    : row.party_name,
+                code: row.number ?? undefined,
+                lead: <CardFigure value={money(row.amount_minor)} />,
+                foot: (
+                  <span className="flex flex-col">
+                    <span>{day(row.doc_date)}</span>
+                    <MoneySide row={row} />
+                  </span>
+                ),
+                action: (
+                  <Status tone={cashDocumentTone(row.status)}>
+                    {label(row.status)}
+                  </Status>
+                ),
+                onOpen: () => openDocument(row.document_id),
+              }))}
+            />
           ) : (
             <Card className="overflow-hidden">
               <Grid>
@@ -392,6 +441,7 @@ function ExistingDocument({ kind, id }: { kind: ComposeKind; id: string }) {
   const [postingDate, setPostingDate] = useState("")
   const [reverseReason, setReverseReason] = useState("")
   const [reversePostingDate, setReversePostingDate] = useState("")
+  const phone = useLayout() === "phone"
   const [printing, setPrinting] = useState(false)
   const [repeating, setRepeating] = useState<RepeatDraft | null>(null)
   /// The repeat the sheet saved, held in the receipt dialog until it is read.
@@ -441,13 +491,38 @@ function ExistingDocument({ kind, id }: { kind: ComposeKind; id: string }) {
       <PageHeader
         crumb="Finance · Payments"
         title={detail.data?.number ?? kind}
-        actions={<BackToList kind={kind} />}
+        // A phone has Back in its top bar.
+        actions={phone ? undefined : <BackToList kind={kind} />}
       />
 
       {queryState(detail, {
         loading: "Reading the document…",
         render: (doc) => {
           const moneyIsFrom = doc.kind === "PAY" || doc.kind === "TRANSFER"
+          const slipButtons = (
+            <>
+              {(doc.status === "APPROVED" || doc.status === "POSTED") && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setPrinting(true)}
+                >
+                  <Printer className="size-3.5" />
+                  Print slip
+                </Button>
+              )}
+              {repeatDraftOf(doc) !== null && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setRepeating(repeatDraftOf(doc))}
+                >
+                  <Repeat className="size-3.5" />
+                  Repeat…
+                </Button>
+              )}
+            </>
+          )
           return (
             <div className="flex max-w-3xl flex-col gap-5">
               {/* The prototype's posted banner (`postedBanner()`), with real
@@ -491,26 +566,9 @@ function ExistingDocument({ kind, id }: { kind: ComposeKind; id: string }) {
                 <Status tone={cashDocumentTone(doc.status)}>
                   {label(doc.status)}
                 </Status>
-                {(doc.status === "APPROVED" || doc.status === "POSTED") && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setPrinting(true)}
-                  >
-                    <Printer className="size-3.5" />
-                    Print slip
-                  </Button>
-                )}
-                {repeatDraftOf(doc) !== null && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setRepeating(repeatDraftOf(doc))}
-                  >
-                    <Repeat className="size-3.5" />
-                    Repeat…
-                  </Button>
-                )}
+                {/* On a phone these two stand at the foot of the page with the
+                    rest of what can be done to it. */}
+                {!phone && slipButtons}
               </div>
 
               <Facts>
@@ -643,7 +701,7 @@ function ExistingDocument({ kind, id }: { kind: ComposeKind; id: string }) {
                           </Td>
                           <Td align="right">
                             {line.kind === "OFFSET"
-                              ? `− ${money(line.amount_minor)}`
+                              ? money(-line.amount_minor)
                               : money(line.amount_minor)}
                           </Td>
                         </tr>
@@ -740,6 +798,12 @@ function ExistingDocument({ kind, id }: { kind: ComposeKind; id: string }) {
                   Reversed. It stays in the books up to the date its reversal
                   was posted.
                 </Note>
+              )}
+
+              {phone && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {slipButtons}
+                </div>
               )}
             </div>
           )
@@ -1106,6 +1170,7 @@ function RepeatingSection({ kind }: { kind: ComposeKind }) {
   })
 
   const rows = repeats.data ?? []
+  const phone = useLayout() === "phone"
   if (rows.length === 0) return null
 
   const openDocument = (id: string) =>
@@ -1133,111 +1198,154 @@ function RepeatingSection({ kind }: { kind: ComposeKind }) {
       >
         Repeating
       </SubHead>
-      <Card className="overflow-hidden">
-        <Grid>
-          <thead>
-            <tr>
-              <Th>Name</Th>
-              <Th>{termsFor(kind).party}</Th>
-              <Th align="right" width="9.5rem">
-                Amount
-              </Th>
-              <Th width="7rem">Every</Th>
-              <Th width="7rem">Next</Th>
-              <Th width="11rem">Last raised</Th>
-              <Th width="10rem" />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((repeat) => (
-              <tr key={repeat.repeat_id}>
-                <Td className="max-w-0">
-                  <span
-                    className={
-                      repeat.is_active
-                        ? "block truncate text-ink"
-                        : "block truncate text-mute"
-                    }
-                  >
-                    {repeat.name}
-                    {!repeat.is_active && " · paused"}
-                  </span>
-                  {repeat.last_error !== null && (
-                    <span
-                      className="block truncate text-[0.875rem] text-warn-fg"
-                      title={repeat.last_error}
-                    >
-                      {repeat.last_error}
-                    </span>
-                  )}
-                </Td>
-                <Td className="max-w-0">
-                  <span className="block truncate">
-                    {kind === "BKK"
-                      ? supplierName(null, repeat.party_name)
-                      : repeat.party_name}
-                  </span>
-                </Td>
-                <Td align="right">
-                  <span className="font-medium text-ink">
-                    {money(repeat.amount_minor)}
-                  </span>
-                </Td>
-                <Td className="text-mute">
-                  {frequencyLabel(repeat.frequency)}
-                </Td>
-                <Td>{day(repeat.next_date)}</Td>
-                <Td>
-                  {repeat.last_document_id !== null &&
-                  repeat.last_document_number !== null ? (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        openDocument(repeat.last_document_id ?? "")
-                      }
-                      className="font-mono text-[0.875rem] text-accent hover:underline"
-                    >
-                      {repeat.last_document_number}
-                    </button>
-                  ) : repeat.last_document_id !== null ? (
-                    // Raised and not yet approved: a draft has no number.
-                    <button
-                      type="button"
-                      onClick={() =>
-                        openDocument(repeat.last_document_id ?? "")
-                      }
-                      className="text-accent hover:underline"
-                    >
-                      Draft
-                    </button>
-                  ) : (
-                    <span className="text-mute">—</span>
-                  )}
-                </Td>
-                <Td align="right">
-                  <span className="inline-flex gap-1">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setEditing(repeatDraftFrom(repeat))}
-                    >
-                      Edit
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={toggle.isPending}
-                      onClick={() => toggle.mutate(repeat)}
-                    >
-                      {repeat.is_active ? "Pause" : "Resume"}
-                    </Button>
-                  </span>
-                </Td>
+      {phone ? (
+        <PhoneList
+          rows={rows.map((repeat) => ({
+            key: repeat.repeat_id,
+            title: (
+              <>
+                {repeat.name}
+                {!repeat.is_active && (
+                  <span className="font-normal text-mute"> · paused</span>
+                )}
+              </>
+            ),
+            line:
+              kind === "BKK"
+                ? supplierName(null, repeat.party_name)
+                : repeat.party_name,
+            lead: <CardFigure value={money(repeat.amount_minor)} />,
+            foot: (
+              <span className="flex flex-col">
+                <span>
+                  {frequencyLabel(repeat.frequency)} · next{" "}
+                  {day(repeat.next_date)}
+                </span>
+                {repeat.last_error !== null && (
+                  <span className="text-warn-fg">{repeat.last_error}</span>
+                )}
+              </span>
+            ),
+            action: (
+              <Button
+                size="card"
+                variant="tint"
+                disabled={toggle.isPending}
+                onClick={() => toggle.mutate(repeat)}
+              >
+                {repeat.is_active ? "Pause" : "Resume"}
+              </Button>
+            ),
+            onOpen: () => setEditing(repeatDraftFrom(repeat)),
+          }))}
+        />
+      ) : (
+        <Card className="overflow-hidden">
+          <Grid>
+            <thead>
+              <tr>
+                <Th>Name</Th>
+                <Th>{termsFor(kind).party}</Th>
+                <Th align="right" width="9.5rem">
+                  Amount
+                </Th>
+                <Th width="7rem">Every</Th>
+                <Th width="7rem">Next</Th>
+                <Th width="11rem">Last raised</Th>
+                <Th width="10rem" />
               </tr>
-            ))}
-          </tbody>
-        </Grid>
-      </Card>
+            </thead>
+            <tbody>
+              {rows.map((repeat) => (
+                <tr key={repeat.repeat_id}>
+                  <Td className="max-w-0">
+                    <span
+                      className={
+                        repeat.is_active
+                          ? "block truncate text-ink"
+                          : "block truncate text-mute"
+                      }
+                    >
+                      {repeat.name}
+                      {!repeat.is_active && " · paused"}
+                    </span>
+                    {repeat.last_error !== null && (
+                      <span
+                        className="block truncate text-[0.875rem] text-warn-fg"
+                        title={repeat.last_error}
+                      >
+                        {repeat.last_error}
+                      </span>
+                    )}
+                  </Td>
+                  <Td className="max-w-0">
+                    <span className="block truncate">
+                      {kind === "BKK"
+                        ? supplierName(null, repeat.party_name)
+                        : repeat.party_name}
+                    </span>
+                  </Td>
+                  <Td align="right">
+                    <span className="font-medium text-ink">
+                      {money(repeat.amount_minor)}
+                    </span>
+                  </Td>
+                  <Td className="text-mute">
+                    {frequencyLabel(repeat.frequency)}
+                  </Td>
+                  <Td>{day(repeat.next_date)}</Td>
+                  <Td>
+                    {repeat.last_document_id !== null &&
+                    repeat.last_document_number !== null ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openDocument(repeat.last_document_id ?? "")
+                        }
+                        className="font-mono text-[0.875rem] text-accent hover:underline"
+                      >
+                        {repeat.last_document_number}
+                      </button>
+                    ) : repeat.last_document_id !== null ? (
+                      // Raised and not yet approved: a draft has no number.
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openDocument(repeat.last_document_id ?? "")
+                        }
+                        className="text-accent hover:underline"
+                      >
+                        Draft
+                      </button>
+                    ) : (
+                      <span className="text-mute">—</span>
+                    )}
+                  </Td>
+                  <Td align="right">
+                    <span className="inline-flex gap-1">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setEditing(repeatDraftFrom(repeat))}
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={toggle.isPending}
+                        onClick={() => toggle.mutate(repeat)}
+                      >
+                        {repeat.is_active ? "Pause" : "Resume"}
+                      </Button>
+                    </span>
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </Grid>
+        </Card>
+      )}
       {editing !== null && (
         <RepeatSheet
           kind={kind}
@@ -1347,11 +1455,7 @@ function SlipDocument({ slip }: { slip: CashDocumentSlip }) {
   const supplierName = useSupplierName()
   const out = slip.title.includes("KELUAR")
   const into = slip.title.includes("MASUK")
-  const partyLabel = out
-    ? "Dibayarkan kepada"
-    : into
-      ? "Diterima dari"
-      : "Pihak"
+  const partyLabel = out ? "Paid to" : into ? "Received from" : "Party"
   return (
     <div className="cashdoc-print bg-canvas text-ink">
       <div className="flex items-start justify-between gap-6 border-b-2 border-ink pb-2">
@@ -1379,9 +1483,9 @@ function SlipDocument({ slip }: { slip: CashDocumentSlip }) {
         <SlipField label={partyLabel} wide>
           {out ? supplierName(null, slip.party_name) : slip.party_name}
         </SlipField>
-        <SlipField label="Jumlah">{money(slip.amount_minor)}</SlipField>
+        <SlipField label="Amount">{money(slip.amount_minor)}</SlipField>
         {slip.memo !== "" && (
-          <SlipField label="Untuk" wide>
+          <SlipField label="For" wide>
             {slip.memo}
           </SlipField>
         )}
@@ -1400,13 +1504,13 @@ function SlipDocument({ slip }: { slip: CashDocumentSlip }) {
         <thead>
           <tr className="border-y border-ink">
             <th className="py-1 text-left tracking-[0.06em] text-mute uppercase">
-              Perkiraan
+              Account
             </th>
             <th className="py-1 text-left tracking-[0.06em] text-mute uppercase">
-              Kode
+              Code
             </th>
             <th className="py-1 text-right tracking-[0.06em] text-mute uppercase">
-              Jumlah
+              Amount
             </th>
           </tr>
         </thead>
@@ -1444,15 +1548,15 @@ function SlipDocument({ slip }: { slip: CashDocumentSlip }) {
       <div className="mt-8 grid grid-cols-3 gap-6">
         {(
           [
-            ["Dibuat oleh", slip.prepared_by],
-            ["Diperiksa oleh", slip.checked_by],
-            ["Disetujui oleh", slip.approved_by],
+            ["Prepared by", slip.prepared_by],
+            ["Checked by", slip.checked_by],
+            ["Approved by", slip.approved_by],
           ] as const
         ).map(([role, name]) => (
           <div key={role} className="text-center">
             <div className="text-[0.875rem] text-body">{role}</div>
             <div className="mt-10 border-t border-ink pt-1 text-[0.875rem] text-mute">
-              {name ?? "nama & tanggal"}
+              {name ?? "name & date"}
             </div>
           </div>
         ))}
@@ -1515,6 +1619,7 @@ function dueTag(iso: string | null): { text: string; late: boolean } | null {
 function KlasikForm({ kind }: { kind: ComposeKind }) {
   const navigate = useNavigate()
   const client = useQueryClient()
+  const phone = useLayout() === "phone"
   const T = termsFor(kind)
 
   const [docDate, setDocDate] = useState(todayIso)
@@ -1768,7 +1873,10 @@ function KlasikForm({ kind }: { kind: ComposeKind }) {
 
   return (
     <PageContent>
+      {/* A phone has Back in its top bar, and "Save draft" is the last thing
+          on the page, under the lines it saves. */}
       <PageHeader
+        className="max-md:hidden"
         crumb="Finance · Payments"
         title={`New ${kind}`}
         actions={
@@ -1925,7 +2033,7 @@ function KlasikForm({ kind }: { kind: ComposeKind }) {
             )}
           </div>
 
-          <div className="flex flex-col border-t border-hairline p-5 lg:border-t-0 lg:border-l">
+          <div className="flex flex-col border-t border-hairline p-5 max-md:order-first max-md:border-t-0 max-md:border-b lg:border-t-0 lg:border-l">
             <span className="text-[0.875rem] text-mute">{T.amountLabel}</span>
             <span className="mt-1 text-[2rem] leading-tight font-semibold text-ink tabular-nums">
               {money(total)}
@@ -1942,7 +2050,7 @@ function KlasikForm({ kind }: { kind: ComposeKind }) {
                 <dt className="text-mute">Discount given</dt>
                 <dd className="text-ink tabular-nums">
                   {settleDiscountTotal > 0
-                    ? `− ${money(settleDiscountTotal)}`
+                    ? money(-settleDiscountTotal)
                     : money(0)}
                 </dd>
               </div>
@@ -1953,7 +2061,7 @@ function KlasikForm({ kind }: { kind: ComposeKind }) {
               <div className="flex justify-between gap-3">
                 <dt className="text-mute">{T.offset}</dt>
                 <dd className="text-ink tabular-nums">
-                  {offsetTotal > 0 ? `− ${money(offsetTotal)}` : money(0)}
+                  {offsetTotal > 0 ? money(-offsetTotal) : money(0)}
                 </dd>
               </div>
             </dl>
@@ -1969,14 +2077,17 @@ function KlasikForm({ kind }: { kind: ComposeKind }) {
               {
                 value: "settle",
                 label: tabLabel(T.settle, settlePicked.length),
+                short: T.settle,
               },
               {
                 value: "other",
                 label: tabLabel("Other lines", otherLineCount),
+                short: "Other lines",
               },
               {
                 value: "offset",
                 label: tabLabel(T.offset, offsetPicked.length),
+                short: T.offset,
               },
             ]}
           />
@@ -2024,151 +2135,269 @@ function KlasikForm({ kind }: { kind: ComposeKind }) {
               </EmptyState>
             </Card>
           ) : (
-            <Card className="overflow-hidden">
+            <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
               {browsingBills && (
-                <div className="border-b border-hairline p-3">
+                <div className="border-b border-hairline p-3 max-md:border-0 max-md:px-0">
                   <Input
                     value={billFilter}
                     onChange={(event) => setBillFilter(event.target.value)}
+                    aria-label={`Find a ${T.invWord}`}
+                    placeholder={`Find a ${T.invWord}`}
                     className="h-control max-w-xs"
                   />
                 </div>
               )}
-              <Grid>
-                <thead>
-                  <tr>
-                    <Th width="2.75rem" />
-                    <Th>Bill</Th>
-                    <Th width="10rem">Due</Th>
-                    <Th align="right" width="9rem">
-                      {T.open}
-                    </Th>
-                    <Th width="8rem">Ref</Th>
-                    <Th align="right" width="8.5rem">
-                      Discount
-                    </Th>
-                    <Th align="right" width="9.5rem">
-                      {T.col}
-                    </Th>
-                    <Th width="4.5rem">In full</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {shownBills.map((bill) => {
-                    const row = settleRow(bill.invoice_id)
-                    const typed =
-                      row.amount.trim() === "" ? null : parseMinor(row.amount)
-                    const over =
-                      typed !== null && typed > bill.outstanding_minor
-                    const due = dueTag(bill.next_due_date ?? bill.due_date)
-                    return (
-                      <tr
-                        key={bill.invoice_id}
-                        className={row.picked ? "" : "text-mute"}
-                      >
-                        <Td>
-                          <input
-                            type="checkbox"
-                            checked={row.picked}
-                            onChange={(event) =>
-                              toggleSettle(bill, event.target.checked)
-                            }
-                            aria-label={`Settle ${bill.invoice_number}`}
-                          />
-                        </Td>
-                        <Td>
-                          <span className="font-mono text-[0.875rem] text-ink">
-                            {bill.invoice_number}
-                          </span>
-                        </Td>
-                        <Td>
-                          {day(bill.next_due_date ?? bill.due_date)}
-                          {due !== null && (
-                            <span
-                              className={
-                                due.late
-                                  ? "ml-1.5 text-bad-fg"
-                                  : "ml-1.5 text-mute"
+              {phone ? (
+                <>
+                  <ul className="flex flex-col gap-2.5">
+                    {shownBills.map((bill) => {
+                      const row = settleRow(bill.invoice_id)
+                      const typed =
+                        row.amount.trim() === "" ? null : parseMinor(row.amount)
+                      const over =
+                        typed !== null && typed > bill.outstanding_minor
+                      const due = dueTag(bill.next_due_date ?? bill.due_date)
+                      return (
+                        <li
+                          key={bill.invoice_id}
+                          className="flex flex-col gap-3 rounded-card border border-hairline bg-canvas p-4 shadow-soft"
+                        >
+                          <label className="flex items-start gap-3">
+                            <input
+                              type="checkbox"
+                              className="mt-1 size-5 shrink-0"
+                              checked={row.picked}
+                              onChange={(event) =>
+                                toggleSettle(bill, event.target.checked)
                               }
-                            >
-                              {due.text}
+                              aria-label={`Settle ${bill.invoice_number}`}
+                            />
+                            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                              <span className="font-mono text-card-title font-semibold break-words text-ink">
+                                {bill.invoice_number}
+                              </span>
+                              <span className="text-[0.875rem] text-mute">
+                                Due {day(bill.next_due_date ?? bill.due_date)}
+                                {due !== null && (
+                                  <span
+                                    className={
+                                      due.late ? "text-bad-fg" : undefined
+                                    }
+                                  >
+                                    {" · "}
+                                    {due.text}
+                                  </span>
+                                )}
+                              </span>
+                              {bill.note !== null && bill.note !== "" && (
+                                <span className="text-[0.875rem] text-mute">
+                                  Ref {bill.note}
+                                </span>
+                              )}
                             </span>
-                          )}
-                        </Td>
-                        <Td align="right">{money(bill.outstanding_minor)}</Td>
-                        <Td>
-                          <span className="block truncate text-mute">
-                            {bill.note ?? "—"}
-                          </span>
-                        </Td>
-                        <Td align="right">
-                          <Money
-                            value={row.discount}
-                            onChange={(next) =>
-                              updateSettle(bill.invoice_id, { discount: next })
-                            }
-                            disabled={!row.picked}
-                            className="h-8"
-                            label={`Discount on ${bill.invoice_number}`}
-                          />
-                        </Td>
-                        <Td align="right">
-                          <Money
-                            value={row.amount}
-                            onChange={(next) =>
-                              updateSettle(bill.invoice_id, {
-                                amount: next,
-                                picked: true,
-                              })
-                            }
-                            invalid={over}
-                            className="h-8"
-                            label={`${T.col} on ${bill.invoice_number}`}
-                          />
-                        </Td>
-                        <Td>
-                          <input
-                            type="checkbox"
-                            checked={
-                              row.picked && typed === bill.outstanding_minor
-                            }
-                            onChange={(event) =>
-                              event.target.checked
-                                ? toggleSettle(bill, true)
-                                : updateSettle(bill.invoice_id, { amount: "" })
-                            }
-                            aria-label={`${bill.invoice_number} in full`}
-                          />
-                        </Td>
-                      </tr>
-                    )
-                  })}
-                  <TotalRow>
-                    <Td />
-                    <Td>
+                            <CardFigure
+                              value={money(bill.outstanding_minor)}
+                              caption={T.open}
+                            />
+                          </label>
+                          <div className="grid grid-cols-2 gap-3 border-t border-hairline pt-3">
+                            <Field label="Discount">
+                              <Money
+                                value={row.discount}
+                                onChange={(next) =>
+                                  updateSettle(bill.invoice_id, {
+                                    discount: next,
+                                  })
+                                }
+                                disabled={!row.picked}
+                                label={`Discount on ${bill.invoice_number}`}
+                              />
+                            </Field>
+                            <Field label={T.col}>
+                              <Money
+                                value={row.amount}
+                                onChange={(next) =>
+                                  updateSettle(bill.invoice_id, {
+                                    amount: next,
+                                    picked: true,
+                                  })
+                                }
+                                invalid={over}
+                                label={`${T.col} on ${bill.invoice_number}`}
+                              />
+                            </Field>
+                          </div>
+                          <label className="flex items-center gap-3 text-[0.9375rem] text-ink">
+                            <input
+                              type="checkbox"
+                              className="size-5 shrink-0"
+                              checked={
+                                row.picked && typed === bill.outstanding_minor
+                              }
+                              onChange={(event) =>
+                                event.target.checked
+                                  ? toggleSettle(bill, true)
+                                  : updateSettle(bill.invoice_id, {
+                                      amount: "",
+                                    })
+                              }
+                              aria-label={`${bill.invoice_number} in full`}
+                            />
+                            In full
+                          </label>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                  <p className="mt-3 flex flex-wrap items-baseline justify-between gap-x-3 px-1 text-[0.9375rem] font-medium text-ink tabular-nums">
+                    <span>
                       {count(settlePicked.length)} of {count(shownBills.length)}{" "}
                       selected
-                    </Td>
-                    <Td />
-                    <Td align="right">
-                      {money(
-                        settlePicked.reduce(
-                          (sum, [id]) =>
-                            sum +
-                            (supplierBills.find(
-                              (bill) => bill.invoice_id === id
-                            )?.outstanding_minor ?? 0),
-                          0
-                        )
-                      )}
-                    </Td>
-                    <Td />
-                    <Td align="right">{money(settleDiscountTotal)}</Td>
-                    <Td align="right">{money(settleTotal)}</Td>
-                    <Td />
-                  </TotalRow>
-                </tbody>
-              </Grid>
+                    </span>
+                    <span>{money(settleTotal)}</span>
+                  </p>
+                </>
+              ) : (
+                <Grid>
+                  <thead>
+                    <tr>
+                      <Th width="2.75rem" />
+                      <Th>Bill</Th>
+                      <Th width="10rem">Due</Th>
+                      <Th align="right" width="9rem">
+                        {T.open}
+                      </Th>
+                      <Th width="8rem">Ref</Th>
+                      <Th align="right" width="8.5rem">
+                        Discount
+                      </Th>
+                      <Th align="right" width="9.5rem">
+                        {T.col}
+                      </Th>
+                      <Th width="4.5rem">In full</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {shownBills.map((bill) => {
+                      const row = settleRow(bill.invoice_id)
+                      const typed =
+                        row.amount.trim() === "" ? null : parseMinor(row.amount)
+                      const over =
+                        typed !== null && typed > bill.outstanding_minor
+                      const due = dueTag(bill.next_due_date ?? bill.due_date)
+                      return (
+                        <tr
+                          key={bill.invoice_id}
+                          className={row.picked ? "" : "text-mute"}
+                        >
+                          <Td>
+                            <input
+                              type="checkbox"
+                              checked={row.picked}
+                              onChange={(event) =>
+                                toggleSettle(bill, event.target.checked)
+                              }
+                              aria-label={`Settle ${bill.invoice_number}`}
+                            />
+                          </Td>
+                          <Td>
+                            <span className="font-mono text-[0.875rem] text-ink">
+                              {bill.invoice_number}
+                            </span>
+                          </Td>
+                          <Td>
+                            {day(bill.next_due_date ?? bill.due_date)}
+                            {due !== null && (
+                              <span
+                                className={
+                                  due.late
+                                    ? "ml-1.5 text-bad-fg"
+                                    : "ml-1.5 text-mute"
+                                }
+                              >
+                                {due.text}
+                              </span>
+                            )}
+                          </Td>
+                          <Td align="right">{money(bill.outstanding_minor)}</Td>
+                          <Td>
+                            <span className="block truncate text-mute">
+                              {bill.note ?? "—"}
+                            </span>
+                          </Td>
+                          <Td align="right">
+                            <Money
+                              value={row.discount}
+                              onChange={(next) =>
+                                updateSettle(bill.invoice_id, {
+                                  discount: next,
+                                })
+                              }
+                              disabled={!row.picked}
+                              className="h-8"
+                              label={`Discount on ${bill.invoice_number}`}
+                            />
+                          </Td>
+                          <Td align="right">
+                            <Money
+                              value={row.amount}
+                              onChange={(next) =>
+                                updateSettle(bill.invoice_id, {
+                                  amount: next,
+                                  picked: true,
+                                })
+                              }
+                              invalid={over}
+                              className="h-8"
+                              label={`${T.col} on ${bill.invoice_number}`}
+                            />
+                          </Td>
+                          <Td>
+                            <input
+                              type="checkbox"
+                              checked={
+                                row.picked && typed === bill.outstanding_minor
+                              }
+                              onChange={(event) =>
+                                event.target.checked
+                                  ? toggleSettle(bill, true)
+                                  : updateSettle(bill.invoice_id, {
+                                      amount: "",
+                                    })
+                              }
+                              aria-label={`${bill.invoice_number} in full`}
+                            />
+                          </Td>
+                        </tr>
+                      )
+                    })}
+                    <TotalRow>
+                      <Td />
+                      <Td>
+                        {count(settlePicked.length)} of{" "}
+                        {count(shownBills.length)} selected
+                      </Td>
+                      <Td />
+                      <Td align="right">
+                        {money(
+                          settlePicked.reduce(
+                            (sum, [id]) =>
+                              sum +
+                              (supplierBills.find(
+                                (bill) => bill.invoice_id === id
+                              )?.outstanding_minor ?? 0),
+                            0
+                          )
+                        )}
+                      </Td>
+                      <Td />
+                      <Td align="right">{money(settleDiscountTotal)}</Td>
+                      <Td align="right">{money(settleTotal)}</Td>
+                      <Td />
+                    </TotalRow>
+                  </tbody>
+                </Grid>
+              )}
             </Card>
           ))}
 
@@ -2278,40 +2507,27 @@ function KlasikForm({ kind }: { kind: ComposeKind }) {
               </EmptyState>
             </Card>
           ) : (
-            <Card className="overflow-hidden">
-              <p className="border-b border-hairline px-4 py-3 text-[0.875rem] text-body">
+            <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+              <p className="border-b border-hairline px-4 py-3 text-[0.875rem] text-body max-md:border-0 max-md:px-1 max-md:pt-0">
                 Advances already paid to {supplier.name}. Tick one to net it
                 against the bills on this BKK — the payment shrinks by the same
                 amount.
               </p>
-              <Grid>
-                <thead>
-                  <tr>
-                    <Th width="2.75rem" />
-                    <Th>Advance</Th>
-                    <Th width="8rem">Date</Th>
-                    <Th align="right" width="9rem">
-                      Left
-                    </Th>
-                    <Th width="9rem">Order</Th>
-                    <Th align="right" width="10rem">
-                      Net off
-                    </Th>
-                  </tr>
-                </thead>
-                <tbody>
+              {phone ? (
+                <ul className="flex flex-col gap-2.5">
                   {(advances.data ?? []).map((advance) => {
                     const row = offsetRow(advance.advance_id)
                     const typed =
                       row.amount.trim() === "" ? null : parseMinor(row.amount)
                     return (
-                      <tr
+                      <li
                         key={advance.advance_id}
-                        className={row.picked ? "" : "text-mute"}
+                        className="flex flex-col gap-3 rounded-card border border-hairline bg-canvas p-4 shadow-soft"
                       >
-                        <Td>
+                        <label className="flex items-start gap-3">
                           <input
                             type="checkbox"
+                            className="mt-1 size-5 shrink-0"
                             checked={row.picked}
                             onChange={(event) =>
                               updateOffset(advance.advance_id, {
@@ -2333,45 +2549,150 @@ function KlasikForm({ kind }: { kind: ComposeKind }) {
                             }
                             aria-label={`Net off ${advance.advance_number}`}
                           />
-                        </Td>
-                        <Td>
-                          <span className="font-mono text-[0.875rem] text-ink">
-                            {advance.advance_number}
+                          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                            <span className="font-mono text-card-title font-semibold break-words text-ink">
+                              {advance.advance_number}
+                            </span>
+                            <span className="text-[0.875rem] text-mute">
+                              {day(advance.advance_date)}
+                              {advance.po_number !== null &&
+                                advance.po_number !== "" && (
+                                  <span className="font-mono">
+                                    {" · "}
+                                    {advance.po_number}
+                                  </span>
+                                )}
+                            </span>
                           </span>
-                        </Td>
-                        <Td>{day(advance.advance_date)}</Td>
-                        <Td align="right">
-                          {money(advance.outstanding_minor)}
-                        </Td>
-                        <Td>
-                          <span className="font-mono text-mute">
-                            {advance.po_number}
-                          </span>
-                        </Td>
-                        <Td align="right">
-                          <Money
-                            value={row.amount}
-                            onChange={(next) =>
-                              updateOffset(advance.advance_id, {
-                                amount: next,
-                                picked: true,
-                              })
-                            }
-                            invalid={
-                              typed !== null &&
-                              typed > advance.outstanding_minor
-                            }
-                            className="h-8"
-                            label={`Net off ${advance.advance_number}`}
+                          <CardFigure
+                            value={money(advance.outstanding_minor)}
+                            caption="Left"
                           />
-                        </Td>
-                      </tr>
+                        </label>
+                        <div className="border-t border-hairline pt-3">
+                          <Field label="Net off">
+                            <Money
+                              value={row.amount}
+                              onChange={(next) =>
+                                updateOffset(advance.advance_id, {
+                                  amount: next,
+                                  picked: true,
+                                })
+                              }
+                              invalid={
+                                typed !== null &&
+                                typed > advance.outstanding_minor
+                              }
+                              label={`Net off ${advance.advance_number}`}
+                            />
+                          </Field>
+                        </div>
+                      </li>
                     )
                   })}
-                </tbody>
-              </Grid>
+                </ul>
+              ) : (
+                <Grid>
+                  <thead>
+                    <tr>
+                      <Th width="2.75rem" />
+                      <Th>Advance</Th>
+                      <Th width="8rem">Date</Th>
+                      <Th align="right" width="9rem">
+                        Left
+                      </Th>
+                      <Th width="9rem">Order</Th>
+                      <Th align="right" width="10rem">
+                        Net off
+                      </Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(advances.data ?? []).map((advance) => {
+                      const row = offsetRow(advance.advance_id)
+                      const typed =
+                        row.amount.trim() === "" ? null : parseMinor(row.amount)
+                      return (
+                        <tr
+                          key={advance.advance_id}
+                          className={row.picked ? "" : "text-mute"}
+                        >
+                          <Td>
+                            <input
+                              type="checkbox"
+                              checked={row.picked}
+                              onChange={(event) =>
+                                updateOffset(advance.advance_id, {
+                                  picked: event.target.checked,
+                                  amount: event.target.checked
+                                    ? String(
+                                        Math.min(
+                                          advance.outstanding_minor,
+                                          Math.max(
+                                            settleTotal -
+                                              settleDiscountTotal -
+                                              offsetTotal,
+                                            0
+                                          )
+                                        ) || advance.outstanding_minor
+                                      )
+                                    : "",
+                                })
+                              }
+                              aria-label={`Net off ${advance.advance_number}`}
+                            />
+                          </Td>
+                          <Td>
+                            <span className="font-mono text-[0.875rem] text-ink">
+                              {advance.advance_number}
+                            </span>
+                          </Td>
+                          <Td>{day(advance.advance_date)}</Td>
+                          <Td align="right">
+                            {money(advance.outstanding_minor)}
+                          </Td>
+                          <Td>
+                            <span className="font-mono text-mute">
+                              {advance.po_number}
+                            </span>
+                          </Td>
+                          <Td align="right">
+                            <Money
+                              value={row.amount}
+                              onChange={(next) =>
+                                updateOffset(advance.advance_id, {
+                                  amount: next,
+                                  picked: true,
+                                })
+                              }
+                              invalid={
+                                typed !== null &&
+                                typed > advance.outstanding_minor
+                              }
+                              className="h-8"
+                              label={`Net off ${advance.advance_number}`}
+                            />
+                          </Td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </Grid>
+              )}
             </Card>
           ))}
+
+        {phone && (
+          <Button
+            variant="primary"
+            size="lg"
+            className="w-full"
+            pending={record.isPending}
+            onClick={trySave}
+          >
+            {record.isPending ? "Saving…" : "Save draft"}
+          </Button>
+        )}
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-hairline pt-3 text-[0.875rem] text-mute">
           <span>

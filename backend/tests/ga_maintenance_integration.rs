@@ -103,7 +103,11 @@ async fn a_task(
     .unwrap_or_else(|error| panic!("task: {error}"))
 }
 
-async fn a_repair(pool: &PgPool, asset_id: Option<Uuid>, objek: Option<&str>) -> cloud::GaRepairRow {
+async fn a_repair(
+    pool: &PgPool,
+    asset_id: Option<Uuid>,
+    objek: Option<&str>,
+) -> cloud::GaRepairRow {
     let supplier = a_supplier(pool).await;
     cloud::ga_repair_record(
         pool,
@@ -175,10 +179,11 @@ async fn the_migration_installs_the_five_tables_and_their_records(pool: PgPool) 
     .fetch_one(&pool)
     .await
     .unwrap_or_else(|error| panic!("inspection: {error}"));
-    let updated = sqlx::query("UPDATE ga_inspection SET findings = 'diubah' WHERE inspection_id = $1")
-        .bind(inspection_id)
-        .execute(&pool)
-        .await;
+    let updated =
+        sqlx::query("UPDATE ga_inspection SET findings = 'diubah' WHERE inspection_id = $1")
+            .bind(inspection_id)
+            .execute(&pool)
+            .await;
     assert!(updated.is_err(), "an inspection is appended, never edited");
     let deleted = sqlx::query("DELETE FROM ga_inspection WHERE inspection_id = $1")
         .bind(inspection_id)
@@ -256,7 +261,10 @@ fn the_repair_ladder_is_one_way_and_its_ends_are_ends() {
     }
     for to in states {
         assert!(!domain::repair_may_move("CLOSED", to), "CLOSED is an end");
-        assert!(!domain::repair_may_move("CANCELLED", to), "CANCELLED is an end");
+        assert!(
+            !domain::repair_may_move("CANCELLED", to),
+            "CANCELLED is an end"
+        );
     }
 }
 
@@ -494,7 +502,10 @@ async fn a_repair_without_an_asset_is_filed_by_hand(pool: PgPool) {
     )
     .await
     .expect_err("a repair is filed where the estate is");
-    assert!(refused.to_string().contains("toko-yang-tidak-ada"), "{refused}");
+    assert!(
+        refused.to_string().contains("toko-yang-tidak-ada"),
+        "{refused}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -511,12 +522,18 @@ fn the_object_is_derived_from_the_asset_class() {
         Some("AC")
     );
     assert_eq!(domain::repair_object_for_class("PPE", "LIFT"), Some("LIFT"));
-    assert_eq!(domain::repair_object_for_class("PPE", "ESKALATOR"), Some("LIFT"));
+    assert_eq!(
+        domain::repair_object_for_class("PPE", "ESKALATOR"),
+        Some("LIFT")
+    );
     assert_eq!(
         domain::repair_object_for_class("PPE", "GENSET"),
         Some("POWER_PLANT")
     );
-    assert_eq!(domain::repair_object_for_class("PPE", "MOBIL"), Some("KENDARAAN"));
+    assert_eq!(
+        domain::repair_object_for_class("PPE", "MOBIL"),
+        Some("KENDARAAN")
+    );
     assert_eq!(
         domain::repair_object_for_class("PPE", "SEPEDA_MOTOR"),
         Some("KENDARAAN")
@@ -534,7 +551,10 @@ fn the_object_is_derived_from_the_asset_class() {
         domain::repair_object_for_class("PPE", "BANGUNAN_STAFF_HOUSE_MESS"),
         Some("STAFF_HOUSE")
     );
-    assert_eq!(domain::repair_object_for_class("PPE", "FFE_OFFICE"), Some("FFE"));
+    assert_eq!(
+        domain::repair_object_for_class("PPE", "FFE_OFFICE"),
+        Some("FFE")
+    );
     assert_eq!(
         domain::repair_object_for_class("PPE", "INSTALASI_MEKANIKAL_ELEKTRIKAL"),
         Some("BANGUNAN")
@@ -544,14 +564,20 @@ fn the_object_is_derived_from_the_asset_class() {
         Some("SOFTWARE")
     );
     // All thirty-six operating-equipment classes share one object.
-    assert_eq!(domain::repair_object_for_class("OE", "OE_RAK_1"), Some("FFE"));
+    assert_eq!(
+        domain::repair_object_for_class("OE", "OE_RAK_1"),
+        Some("FFE")
+    );
     assert_eq!(
         domain::repair_object_for_class("OE", "OE_PATUNG_KEPALA_ANAK"),
         Some("FFE")
     );
     // Unknown: the caller decides, no guessing.
     assert_eq!(domain::repair_object_for_class("PPE", "POMPA"), None);
-    assert_eq!(domain::repair_object_for_class("DEFERRED", "PRE_OPENING"), None);
+    assert_eq!(
+        domain::repair_object_for_class("DEFERRED", "PRE_OPENING"),
+        None
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -599,18 +625,20 @@ async fn installing_a_replacement_makes_the_new_asset_and_retires_the_old(pool: 
     assert_eq!(installed.status, "INSTALLED");
     let new_asset_id = installed.new_asset_id.expect("a new asset from the old");
 
-    let old_status: String = sqlx::query_scalar("SELECT status FROM fixed_asset WHERE asset_id = $1")
-        .bind(old)
-        .fetch_one(&pool)
-        .await
-        .unwrap_or_else(|error| panic!("old status: {error}"));
+    let old_status: String =
+        sqlx::query_scalar("SELECT status FROM fixed_asset WHERE asset_id = $1")
+            .bind(old)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("old status: {error}"));
     assert_eq!(old_status, "REPLACED", "the old thing left service");
 
-    let new = sqlx::query("SELECT category_code, site_id, specs FROM fixed_asset WHERE asset_id = $1")
-        .bind(new_asset_id)
-        .fetch_one(&pool)
-        .await
-        .unwrap_or_else(|error| panic!("new asset: {error}"));
+    let new =
+        sqlx::query("SELECT category_code, site_id, specs FROM fixed_asset WHERE asset_id = $1")
+            .bind(new_asset_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("new asset: {error}"));
     assert_eq!(new.get::<String, _>("category_code"), "OE_RAK_1");
     assert_eq!(new.get::<String, _>("site_id"), "dc");
     assert_eq!(new.get::<serde_json::Value, _>("specs"), specs);
@@ -818,7 +846,15 @@ fn the_upkeep_routes_are_a_supervisors_surface() {
 async fn the_overview_lists_what_is_due_and_open(pool: PgPool) {
     let asset = an_asset(&pool, "AIR_CONDITIONER").await;
     let soon = a_task(&pool, Some(asset), None, "DAYS", 30, Some(day(2026, 9, 27))).await;
-    let far = a_task(&pool, Some(asset), None, "DAYS", 30, Some(day(2026, 10, 24))).await;
+    let far = a_task(
+        &pool,
+        Some(asset),
+        None,
+        "DAYS",
+        30,
+        Some(day(2026, 10, 24)),
+    )
+    .await;
 
     let open = a_repair(&pool, Some(asset), Some("AC")).await;
     let closed = a_repair(&pool, Some(asset), Some("AC")).await;

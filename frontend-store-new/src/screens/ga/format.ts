@@ -20,7 +20,7 @@ import {
   type LucideIcon,
 } from "lucide-react"
 
-import { count } from "@/lib/format"
+import { count, dateText } from "@/lib/format"
 import type { GaContractRow } from "@itulah/contract"
 
 /// The GA vocabulary a shop reads: what each class, group, stage and interval
@@ -35,19 +35,32 @@ import type { GaContractRow } from "@itulah/contract"
 
 // ── Dates ───────────────────────────────────────────────────────────────────
 
-const dayFormat = new Intl.DateTimeFormat("id-ID", {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-})
-
-/// `2026-09-25` → "25 Sep 2026". Dates on this wire are calendar days, so
-/// they are read at local midnight rather than as UTC instants — a UTC read
-/// prints yesterday for anybody west of Greenwich.
+/// `2026-09-25` → "25 Sep 2026", the house format. Dates on this wire are
+/// calendar days, so they are read at local midnight rather than as UTC
+/// instants — a UTC read prints yesterday for anybody west of Greenwich.
 export function day(iso: string | null | undefined): string {
   if (!iso) return "—"
   const parsed = new Date(`${iso.slice(0, 10)}T00:00:00`)
-  return Number.isNaN(parsed.getTime()) ? iso : dayFormat.format(parsed)
+  return Number.isNaN(parsed.getTime())
+    ? iso
+    : dateText(parsed, { day: "2-digit", month: "short", year: "numeric" })
+}
+
+/// A date as a card's one figure: the day and month large, the year under it —
+/// "06 Oct" over "2026". `caption` says what the date is, before the year:
+/// "ends 2026".
+export function dateLead(
+  iso: string | null | undefined,
+  caption?: string,
+): { figure: string; caption?: string; muted?: boolean } {
+  if (!iso) return { figure: "—", muted: true }
+  const parsed = new Date(`${iso.slice(0, 10)}T00:00:00`)
+  if (Number.isNaN(parsed.getTime())) return { figure: iso, muted: true }
+  const year = String(parsed.getFullYear())
+  return {
+    figure: dateText(parsed, { day: "2-digit", month: "short" }),
+    caption: caption === undefined ? year : `${caption} ${year}`,
+  }
 }
 
 /// Today as the wire spells a day, on this till's own calendar.
@@ -88,56 +101,48 @@ export function inDays(days: number): string {
 export const ASSET_CLASSES: readonly {
   readonly value: string
   readonly label: string
-  readonly note: string
   readonly builds: readonly string[]
   readonly icon: LucideIcon
 }[] = [
   {
     value: "property",
     label: "Property",
-    note: "The building and its installations. A rented shop or mess is a contract, not an asset.",
     builds: ["LAND", "BUILDING"],
     icon: Building2,
   },
   {
     value: "technical",
     label: "Technical equipment",
-    note: "AC, genset, lift, escalator and the mechanical–electrical installation.",
     builds: ["TECH"],
     icon: Cpu,
   },
   {
     value: "vehicles",
     label: "Vehicles",
-    note: "Cars and motorbikes. STNK, KIR and insurance are under Contracts.",
     builds: ["VEHICLE"],
     icon: Car,
   },
   {
     value: "ffe",
     label: "Furniture & fixtures",
-    note: "Office, shop & warehouse furniture, interior and exterior fit-out.",
     builds: ["FFE"],
     icon: Armchair,
   },
   {
     value: "it",
     label: "IT hardware",
-    note: "Computers, printers, the till's own hardware.",
     builds: ["IT"],
     icon: Monitor,
   },
   {
     value: "audio",
     label: "Audio / music",
-    note: "The shop's sound system.",
     builds: ["AUDIO"],
     icon: Speaker,
   },
   {
     value: "oe",
     label: "Operating equipment",
-    note: "Racks, display hangers, tables, mannequins, hangers, sensor pins, shopping bags and baskets.",
     builds: ["OE"],
     icon: Box,
   },
@@ -181,6 +186,34 @@ export function assetStatusOf(
     default:
       return null
   }
+}
+
+/// The ONE status an asset wears on a card and in a sheet's head: the most
+/// urgent thing true of it. Broken and needing service are what a shop acts
+/// on; "Not confirmed" is the question head office is waiting for the shop to
+/// answer; a disposal is head office's move and only informs. A thing with
+/// none of those is simply in good condition.
+export function assetStanding(row: { condition: string; status: string }): {
+  label: string
+  tone: "ok" | "warn" | "bad" | "info"
+} {
+  const condition = conditionOf(row.condition)
+  if (condition.tone === "bad") return condition
+  if (condition.tone === "warn") return condition
+  const lifecycle = assetStatusOf(row.status)
+  return lifecycle ?? condition
+}
+
+/// How badly an asset wants a look, for sorting: broken, needs service, not
+/// confirmed, anything else.
+export function assetUrgency(row: {
+  condition: string
+  status: string
+}): number {
+  if (row.condition === "RUSAK") return 0
+  if (row.condition === "PERLU_SERVIS") return 1
+  if (row.status === "DRAFT") return 2
+  return 3
 }
 
 // ── Contracts ───────────────────────────────────────────────────────────────
@@ -284,7 +317,7 @@ export function standingOf(row: GaContractRow): {
     case "BELUM_MULAI":
       return { label: "Not started", tone: "neutral" }
     case "DIHENTIKAN":
-      return { label: "Terminated", tone: "neutral" }
+      return { label: "Cancelled", tone: "neutral" }
     default:
       return { label: "Draft", tone: "neutral" }
   }
@@ -317,7 +350,7 @@ export const REPAIR_FLOW = [
 export function repairStageWords(status: string): string {
   switch (status) {
     case "OPEN":
-      return "Reported"
+      return "Pending"
     case "APPROVED":
       return "Approved"
     case "IN_PROGRESS":
@@ -333,7 +366,7 @@ export function repairStageWords(status: string): string {
 
 export function repairStageTone(
   status: string,
-): "warn" | "accent" | "info" | "ok" | "neutral" | "bad" {
+): "warn" | "accent" | "info" | "ok" | "done" | "bad" {
   switch (status) {
     case "OPEN":
       return "warn"
@@ -344,10 +377,16 @@ export function repairStageTone(
     case "COMPLETED":
       return "ok"
     case "CLOSED":
-      return "neutral"
+      return "done"
     default:
       return "bad"
   }
+}
+
+/// The ladder's own rung names: the first rung is what the shop did, and a
+/// rung somebody has passed is not "Pending".
+export function repairRungWords(status: string): string {
+  return status === "OPEN" ? "Reported" : repairStageWords(status)
 }
 
 /// Still somebody's work: not yet fixed, and not called off.
@@ -480,7 +519,7 @@ export function dueOf(nextDue: string | null): {
       days,
     }
   }
-  return { label: day(nextDue), tone: "neutral", days }
+  return { label: `Due ${inDays(days)}`, tone: "neutral", days }
 }
 
 /// What the servicing screen and the overview call "coming up".
@@ -501,7 +540,7 @@ export const SUPPLY_FLOW = [
 export function supplyStageWords(status: string): string {
   switch (status) {
     case "REQUESTED":
-      return "Asked"
+      return "Pending"
     case "APPROVED":
       return "Approved"
     case "ORDERED":
@@ -515,9 +554,13 @@ export function supplyStageWords(status: string): string {
   }
 }
 
+export function supplyRungWords(status: string): string {
+  return status === "REQUESTED" ? "Requested" : supplyStageWords(status)
+}
+
 export function supplyStageTone(
   status: string,
-): "warn" | "accent" | "info" | "ok" | "bad" {
+): "warn" | "accent" | "info" | "ok" | "done" | "bad" {
   switch (status) {
     case "REQUESTED":
       return "warn"
@@ -526,8 +569,9 @@ export function supplyStageTone(
     case "ORDERED":
       return "info"
     case "RECEIVED":
-    case "BILLED":
       return "ok"
+    case "BILLED":
+      return "done"
     default:
       return "bad"
   }

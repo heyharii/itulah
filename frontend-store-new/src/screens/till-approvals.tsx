@@ -2,17 +2,26 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
+import { CardList } from "@/components/ui/card-list"
 import { Field, Input } from "@/components/ui/field"
-import { ListTable, type ListColumn } from "@/components/ui/list-table"
+import { LeadCard } from "@/components/ui/lead-card"
+import { Pill } from "@/components/ui/pill"
 import { Screen } from "@/components/ui/screen"
-import { Banner, LoadingState } from "@/components/ui/states"
+import { Fact, Facts, Sheet } from "@/components/ui/sheet"
+import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
 import { node } from "@/lib/api"
 import { describe } from "@/lib/errors"
-import { moment } from "@/lib/format"
+import { count, moment } from "@/lib/format"
 
 /// **Till approvals** — the tills at this node's counter waiting for a
 /// supervisor to let them in.
+///
+/// Each pending till is a lead card: the machine's name over what it said about
+/// itself, the join code as the one figure (it is what the supervisor matches
+/// against the code on the till's own screen), and how long it has waited in the
+/// foot, with one tint button — Review. The card opens a sheet with the facts and
+/// the label to give the till, and the decision in its footer: Reject (danger)
+/// at the left, Approve (primary) at the right, on every width.
 ///
 /// `PendingJoin` and `ApproveJoinRequest` are declared here rather than
 /// imported: `backend/src/edge/devices.rs` marks neither `ts(export)`, so
@@ -26,7 +35,7 @@ import { moment } from "@/lib/format"
 /// shop's first till — which is this app's back office, not a second till
 /// standing at the counter with nothing but its own trust to offer. A join
 /// this session may not approve that way comes back as the node's own
-/// sentence, on the row, rather than a client-side guess at the rule.
+/// sentence, in the sheet, rather than a client-side guess at the rule.
 interface PendingJoin {
   readonly join_id: string
   readonly kind: string
@@ -61,36 +70,9 @@ function fetchPendingJoins(signal?: AbortSignal): Promise<PendingJoin[]> {
     .then((body) => body.items)
 }
 
-const columns: readonly ListColumn<PendingJoin>[] = [
-  {
-    id: "code",
-    header: "Code",
-    card: "title",
-    cell: (row) => (
-      <span className="text-ink font-mono font-medium">{row.code}</span>
-    ),
-  },
-  {
-    id: "machine",
-    header: "Machine",
-    cell: (row) =>
-      row.machine?.hostname ??
-      (row.machine?.os !== undefined ? row.machine.os : "—"),
-  },
-  {
-    id: "issued",
-    header: "Waiting since",
-    card: "meta",
-    cell: (row) => moment(row.issued_at),
-  },
-  {
-    id: "expires",
-    header: "Expires",
-    card: "hide",
-    className: "max-lg:hidden",
-    cell: (row) => moment(row.expires_at),
-  },
-]
+/// What the till calls itself, or what it runs on when it has no name.
+const nameOf = (join: PendingJoin): string =>
+  join.machine?.hostname ?? join.machine?.os ?? "New till"
 
 export function TillApprovals() {
   const joins = useQuery({
@@ -100,11 +82,16 @@ export function TillApprovals() {
     // list has to notice it without anybody pressing reload.
     refetchInterval: 10_000,
   })
+  const [openId, setOpenId] = useState<string | null>(null)
+  // Held apart from `openId` so the sheet can play its exit with its form still
+  // in it, rather than emptying the moment it starts to close.
+  const [showing, setShowing] = useState(false)
+  const [done, setDone] = useState<string | null>(null)
 
   if (joins.isPending) {
     return (
       <Screen>
-        <LoadingState>Loading…</LoadingState>
+        <LoadingState>Reading the waiting tills…</LoadingState>
       </Screen>
     )
   }
@@ -118,23 +105,96 @@ export function TillApprovals() {
   }
 
   const rows = joins.data ?? []
+  const open = rows.find((row) => row.join_id === openId)
 
   return (
     <Screen>
-      <Card>
-        <ListTable
-          rows={rows}
-          columns={columns}
-          rowKey={(row) => row.join_id}
-          detail={(row) => <JoinDetail join={row} />}
-          empty="No tills waiting."
+      {done !== null && (
+        <Banner tone="ok" className="mb-4" onDismiss={() => setDone(null)}>
+          {done}
+        </Banner>
+      )}
+
+      {rows.length === 0 ? (
+        <EmptyState>No tills waiting.</EmptyState>
+      ) : (
+        <>
+          <p className="mb-3 text-meta text-body">
+            <b className="font-medium text-ink tabular-nums">
+              {count(rows.length)}
+            </b>{" "}
+            waiting
+          </p>
+          <CardList grid>
+            {rows.map((row) => (
+              <JoinCard
+                key={row.join_id}
+                join={row}
+                onOpen={() => {
+                  setDone(null)
+                  setOpenId(row.join_id)
+                  setShowing(true)
+                }}
+              />
+            ))}
+          </CardList>
+        </>
+      )}
+
+      {open !== undefined && (
+        <JoinSheet
+          // A different till starts from an empty label.
+          key={open.join_id}
+          join={open}
+          open={showing}
+          onClose={() => setShowing(false)}
+          onDone={(said) => {
+            setShowing(false)
+            setDone(said)
+          }}
         />
-      </Card>
+      )}
     </Screen>
   )
 }
 
-function JoinDetail({ join }: { join: PendingJoin }) {
+/// One till waiting. The code it shows on its own screen is the figure; the card
+/// opens the decision.
+function JoinCard({ join, onOpen }: { join: PendingJoin; onOpen: () => void }) {
+  const machine = join.machine
+  return (
+    <LeadCard
+      onOpen={onOpen}
+      title={nameOf(join)}
+      lines={[
+        [machine?.os, machine?.version].filter(Boolean).join(" · "),
+        `Verification ${join.verification}`,
+      ]}
+      lead={{
+        figure: <span className="font-mono">{join.code}</span>,
+        caption: "join code",
+      }}
+      foot={{
+        info: `Waiting since ${moment(join.issued_at)}`,
+        action: { label: "Review", onClick: onOpen },
+      }}
+    />
+  )
+}
+
+/// The decision, as a record sheet: who is asking, the label it will carry, and
+/// Reject and Approve in the foot.
+function JoinSheet({
+  join,
+  open,
+  onClose,
+  onDone,
+}: {
+  join: PendingJoin
+  open: boolean
+  onClose: () => void
+  onDone: (said: string) => void
+}) {
   const client = useQueryClient()
   const [label, setLabel] = useState("")
 
@@ -144,8 +204,13 @@ function JoinDetail({ join }: { join: PendingJoin }) {
         `/api/v1/devices/joins/${encodeURIComponent(join.join_id)}/approve`,
         { label: label.trim() === "" ? null : label.trim() },
       ),
-    onSuccess: () => {
+    onSuccess: (till) => {
       void client.invalidateQueries({ queryKey: pendingJoinsKey() })
+      onDone(
+        `Joined as ${till.label}.${
+          till.replaced_terminal_id !== null ? " Replaces the old till." : ""
+        }`,
+      )
     },
   })
 
@@ -157,69 +222,72 @@ function JoinDetail({ join }: { join: PendingJoin }) {
       ),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: pendingJoinsKey() })
+      onDone("Till rejected.")
     },
   })
 
+  const busy = approve.isPending || refuse.isPending
+  const machine = join.machine
+
   return (
-    <div className="flex flex-col gap-3">
-      <dl className="text-meta grid grid-cols-2 gap-2">
-        <div>
-          <dt className="text-mute">Verification</dt>
-          <dd className="text-ink font-mono">{join.verification}</dd>
-        </div>
-        <div>
-          <dt className="text-mute">Kind</dt>
-          <dd className="text-ink">{join.kind}</dd>
-        </div>
-        {join.machine?.os !== undefined && (
-          <div>
-            <dt className="text-mute">OS</dt>
-            <dd className="text-ink">{join.machine.os}</dd>
+    <Sheet
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose()
+      }}
+      id={join.code}
+      title={nameOf(join)}
+      badge={<Pill tone="warn">Pending</Pill>}
+      caption={`Waiting since ${moment(join.issued_at)}`}
+      footer={
+        <div className="flex flex-col gap-3">
+          {(approve.isError || refuse.isError) && (
+            <Banner tone="bad">
+              {describe(approve.error ?? refuse.error)}
+            </Banner>
+          )}
+          <div className="flex gap-2 md:justify-end max-md:[&>button]:flex-1">
+            <Button
+              variant="danger"
+              disabled={busy}
+              pending={refuse.isPending}
+              onClick={() => refuse.mutate()}
+            >
+              {refuse.isPending ? "Rejecting…" : "Reject"}
+            </Button>
+            <Button
+              variant="primary"
+              disabled={busy}
+              pending={approve.isPending}
+              onClick={() => approve.mutate()}
+            >
+              {approve.isPending ? "Approving…" : "Approve"}
+            </Button>
           </div>
-        )}
-        {join.machine?.version !== undefined && (
-          <div>
-            <dt className="text-mute">Version</dt>
-            <dd className="text-ink">{join.machine.version}</dd>
-          </div>
-        )}
-      </dl>
+        </div>
+      }
+    >
+      <div className="flex flex-col gap-6">
+        <Facts>
+          <Fact term="Verification">
+            <span className="font-mono">{join.verification}</span>
+          </Fact>
+          <Fact term="Kind">{join.kind}</Fact>
+          {machine?.os !== undefined && <Fact term="OS">{machine.os}</Fact>}
+          {machine?.version !== undefined && (
+            <Fact term="Version">{machine.version}</Fact>
+          )}
+          <Fact term="Expires">{moment(join.expires_at)}</Fact>
+        </Facts>
 
-      {approve.isSuccess && approve.data && (
-        <Banner tone="ok">
-          Joined as {approve.data.label}.
-          {approve.data.replaced_terminal_id !== null &&
-            " Replaces the old till."}
-        </Banner>
-      )}
-      {(approve.isError || refuse.isError) && (
-        <Banner tone="bad">{describe(approve.error ?? refuse.error)}</Banner>
-      )}
-
-      <Field label="Label" hint="Optional">
-        <Input
-          value={label}
-          onChange={(event) => setLabel(event.target.value)}
-          placeholder="Kasir 2"
-        />
-      </Field>
-
-      <div className="flex gap-2.5">
-        <Button
-          variant="primary"
-          disabled={approve.isPending || refuse.isPending}
-          onClick={() => approve.mutate()}
-        >
-          Let it in
-        </Button>
-        <Button
-          variant="ghost"
-          disabled={approve.isPending || refuse.isPending}
-          onClick={() => refuse.mutate()}
-        >
-          Refuse
-        </Button>
+        <Field label="Label" hint="Optional">
+          <Input
+            value={label}
+            onChange={(event) => setLabel(event.target.value)}
+            placeholder="Till 2"
+          />
+        </Field>
       </div>
-    </div>
+    </Sheet>
   )
 }

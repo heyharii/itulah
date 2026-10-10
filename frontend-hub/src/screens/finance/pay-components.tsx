@@ -10,11 +10,14 @@ import { Pill } from "@/components/ui/pill"
 import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState, Problem } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
+import { DockTools } from "@/components/shell/dock-tools"
 import { count, label } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { financeKeys, setPayComponentPosting } from "@/lib/queries/finance"
 import { queryState } from "@/lib/query-state"
 import { Code, Grid, Td, Th } from "@/screens/finance-final/parts"
 import { usePayComponents } from "@/screens/finance/master-data"
+import { PhoneCard, PhoneList } from "@/components/ui/phone-cards"
 import {
   EditorCard,
   LinkAccountsButton,
@@ -35,6 +38,7 @@ import type { PayComponentPosting } from "@itulah/contract"
 /// for a deduction, source the component. A component with no link makes the
 /// payroll run that pays it refuse, by name.
 export function PayComponents() {
+  const phone = useLayout() === "phone"
   const list = usePayComponents()
   const [editing, setEditing] = useState<PayComponentPosting | null>(null)
   const [needle, setNeedle] = useState("")
@@ -61,32 +65,57 @@ export function PayComponents() {
         crumb="Finance · Setup"
         title="Pay Components"
         sub="How each component HR pays posts, and the account it lands on. The account is an account link with the component as its source."
+        // Search and the status are in the dock on a phone.
         actions={
-          <Input
-            value={needle}
-            onChange={(event) => setNeedle(event.target.value)}
-            className="h-8 w-48"
-          />
+          phone ? undefined : (
+            <Input
+              value={needle}
+              onChange={(event) => setNeedle(event.target.value)}
+              className="h-8 w-48"
+            />
+          )
         }
       />
 
-      <Toolbar>
-        <Checkbox
-          label="Show retired"
-          checked={retired}
-          onChange={setRetired}
+      {phone ? (
+        <DockTools
+          search={{
+            value: needle,
+            onChange: setNeedle,
+            label: "Search components",
+          }}
+          status={{
+            value: retired ? "all" : "active",
+            options: [
+              {
+                value: "active",
+                label: "Active",
+                count: (list.data ?? []).filter((row) => !row.retired).length,
+              },
+              { value: "all", label: "All", count: (list.data ?? []).length },
+            ],
+            onChange: (next) => setRetired(next === "all"),
+          }}
         />
-        <Toolbar.Spacer />
-        <span className="text-[0.875rem] text-mute">
-          {count(rows.length)} components
-          {unlinked > 0 &&
-            ` · ${count(unlinked)} with no account — a run that pays one is refused`}
-        </span>
-      </Toolbar>
+      ) : (
+        <Toolbar>
+          <Checkbox
+            label="Show retired"
+            checked={retired}
+            onChange={setRetired}
+          />
+          <Toolbar.Spacer />
+          <span className="text-[0.875rem] text-mute">
+            {count(rows.length)} components
+            {unlinked > 0 &&
+              ` · ${count(unlinked)} with no account — a run that pays one is refused`}
+          </span>
+        </Toolbar>
+      )}
 
       <MasterLayout
         list={
-          <Card className="overflow-hidden">
+          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
             {queryState(list, {
               loading: "Reading the pay components…",
               render: () =>
@@ -96,6 +125,34 @@ export function PayComponents() {
                       ? "HR has defined no pay component yet."
                       : "No component matches the search."}
                   </EmptyState>
+                ) : phone ? (
+                  <PhoneList>
+                    {rows.map((row) => (
+                      <PhoneCard
+                        key={row.code}
+                        title={row.label}
+                        muted={row.retired}
+                        line={[
+                          row.code,
+                          label(row.kind),
+                          row.employer_borne ? "Employer borne" : null,
+                          row.paid_from_accrual ? "From accrual" : null,
+                          row.retired ? "Retired" : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                        foot={<Reach units={row.linked_units} />}
+                        action={
+                          <LinkAccountsButton
+                            role={row.role}
+                            sourceType="PAY_COMPONENT"
+                            sourceId={row.code}
+                          />
+                        }
+                        onOpen={() => setEditing(row)}
+                      />
+                    ))}
+                  </PhoneList>
                 ) : (
                   <Grid>
                     <thead>

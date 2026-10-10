@@ -1,12 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowUpRight, Banknote, LogOut, Plus, Shuffle } from "lucide-react"
+import { ArrowUpRight, Banknote, LogOut, Shuffle } from "lucide-react"
 import { useState } from "react"
 
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Field, Input, Select } from "@/components/ui/field"
-import { PeopleSheet, SheetSection } from "@/components/ui/people-sheet"
+import {
+  PeopleSheet,
+  SheetFoot,
+  SheetSection,
+} from "@/components/ui/people-sheet"
 import { PeopleTable } from "@/components/ui/people-table"
-import { Pill } from "@/components/ui/pill"
+import { PeopleTabs } from "@/components/ui/people-tabs"
+import { Pill, Status } from "@/components/ui/pill"
 import { Segmented } from "@/components/ui/segmented"
 import { Banner } from "@/components/ui/states"
 import { moment } from "@/lib/format"
@@ -26,15 +32,21 @@ import {
   type ChangeKind,
   type StoreScope,
 } from "@/lib/queries/hr"
-import { centreState } from "@/screens/hr/centre"
+import { centreState, describeCentre } from "@/screens/hr/centre"
 import {
+  dateLead,
   Facts,
-  Heading,
   Person,
+  personCard,
   PersonPicker,
   Submit,
 } from "@/screens/hr/parts"
-import { personName, useTeam, type Tone } from "@/screens/hr/words"
+import {
+  personByLogin,
+  personName,
+  requestState,
+  useTeam,
+} from "@/screens/hr/words"
 import { HrWorkspace } from "@/screens/hr/workspace"
 import { money, parseMoneyToMinor } from "@itulah/contract/money"
 import type {
@@ -61,22 +73,21 @@ import type {
 ///    approval.
 ///
 /// Adding people is not here: it is a request under Recruitment.
+///
+/// # Two slices, one act each
+///
+/// The page's own act is "Propose a change" (the header button on a desk, the
+/// dock's "+" on a phone). The pay component is the second slice's act: a
+/// ghost button in its toolbar on a desk, a row of its gear sheet on a phone —
+/// together with the month it is filed for.
 export function HrChanges() {
   const [filing, setFiling] = useState<"change" | "component" | null>(null)
   return (
     <HrWorkspace
-      actions={
-        <>
-          <Button onClick={() => setFiling("component")}>
-            <Banknote />
-            Pay component ±
-          </Button>
-          <Button variant="primary" onClick={() => setFiling("change")}>
-            <Plus />
-            Propose to head office
-          </Button>
-        </>
-      }
+      primary={{
+        label: "Propose a change",
+        onClick: () => setFiling("change"),
+      }}
     >
       {(scope) => (
         <Changes scope={scope} filing={filing} onFiling={setFiling} />
@@ -96,21 +107,6 @@ function kindWord(kind: string): string {
   return KINDS[kind as ChangeKind]?.label ?? kind
 }
 
-function changeState(state: string): { label: string; tone: Tone } {
-  switch (state) {
-    case "PENDING":
-      return { label: "Waiting on head office", tone: "warn" }
-    case "APPROVED":
-      return { label: "Approved by head office", tone: "ok" }
-    case "REJECTED":
-      return { label: "Refused by head office", tone: "bad" }
-    case "WITHDRAWN":
-      return { label: "Withdrawn", tone: "neutral" }
-    default:
-      return { label: state, tone: "neutral" }
-  }
-}
-
 /// What a change row names, said the way a person would.
 function fieldWord(field: string): string {
   if (field === "base_minor") return "Base pay"
@@ -119,6 +115,8 @@ function fieldWord(field: string): string {
   if (field === "grade") return "Grade"
   return field
 }
+
+type Tab = "proposals" | "components"
 
 function Changes({
   scope,
@@ -129,6 +127,10 @@ function Changes({
   filing: "change" | "component" | null
   onFiling: (next: "change" | "component" | null) => void
 }) {
+  const [tab, setTab] = useState<Tab>("proposals")
+  /// The month a pay component is filed for and listed under — held here so
+  /// the form opens on the month the list is showing.
+  const [which, setWhich] = useState<MonthChoice>("this")
   const team = useTeam(scope)
   const changes = useQuery({
     queryKey: hrKeys.changes(scope.unit_id),
@@ -136,93 +138,127 @@ function Changes({
   })
   const [open, setOpen] = useState<ChangeProposalView | null>(null)
 
-  const columns = [
-    {
-      key: "who",
-      header: "Employee",
-      cell: (change: ChangeProposalView) => (
-        <Person team={team.data} id={change.employee_id} />
-      ),
-    },
-    {
-      key: "kind",
-      header: "Change",
-      card: "meta" as const,
-      cell: (change: ChangeProposalView) => (
-        <span className="inline-flex items-center gap-1.5 [&_svg]:size-3.5 [&_svg]:text-line-ico">
-          {KINDS[change.kind as ChangeKind]?.icon}
-          {kindWord(change.kind)}
-        </span>
-      ),
-    },
-    {
-      key: "props",
-      header: "Now → new",
-      card: "meta" as const,
-      className: "whitespace-normal",
-      cell: (change: ChangeProposalView) =>
-        change.props.length === 0 ? (
-          <span className="text-mute">last day of work</span>
-        ) : (
-          <span className="flex flex-col">
-            {change.props.map((prop) => (
-              <span key={prop.field}>
-                {fieldWord(prop.field)}: {prop.from || "—"} →{" "}
-                <b className="font-semibold text-ink">{prop.to}</b>
-              </span>
-            ))}
-          </span>
-        ),
-    },
-    {
-      key: "from",
-      header: "Effective",
-      card: "meta" as const,
-      cell: (change: ChangeProposalView) => readDate(change.effective_on),
-    },
-    {
-      key: "state",
-      header: "Status",
-      card: "status" as const,
-      cell: (change: ChangeProposalView) => {
-        const state = changeState(change.state)
-        return <Pill tone={state.tone}>{state.label}</Pill>
-      },
-    },
-  ]
-
   return (
     <>
-      {centreState(changes, {
-        loading: "Loading…",
-        what: "this shop's change proposals",
-        render: (rows) => {
-          const waiting = rows.filter((change) => change.state === "PENDING")
-          const decided = rows.filter((change) => change.state !== "PENDING")
-          return (
-            <>
-              <Heading count={waiting.length}>Waiting on head office</Heading>
-              <PeopleTable
-                rows={waiting}
-                rowKey={(change) => change.id}
-                onRowClick={setOpen}
-                columns={columns}
-                empty="Nothing waiting."
-              />
-              <Heading>Decided</Heading>
-              <PeopleTable
-                rows={decided}
-                rowKey={(change) => change.id}
-                onRowClick={setOpen}
-                columns={columns}
-                empty="Nothing has been decided yet."
-              />
-            </>
-          )
-        },
-      })}
+      <PeopleTabs
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          {
+            value: "proposals",
+            label: "Proposals",
+            count: changes.data?.filter((change) => change.state === "PENDING")
+              .length,
+          },
+          { value: "components", label: "Pay components" },
+        ]}
+      />
 
-      <Components scope={scope} team={team.data} />
+      {tab === "proposals" &&
+        centreState(changes, {
+          loading: "Reading the change proposals…",
+          what: "this shop's change proposals",
+          render: (rows) => {
+            // Waiting on head office first; the rest in the order sent.
+            const sorted = [...rows].sort(
+              (left, right) =>
+                Number(right.state === "PENDING") -
+                Number(left.state === "PENDING"),
+            )
+            return (
+              <PeopleTable
+                rows={sorted}
+                rowKey={(change) => change.id}
+                onRowClick={setOpen}
+                empty="No change proposals."
+                card={(change) => {
+                  const state = requestState(change.state)
+                  return {
+                    ...personCard(team.data, change.employee_id, [
+                      `${kindWord(change.kind)} · ${
+                        change.props.length === 0
+                          ? "last day of work"
+                          : change.props
+                              .map(
+                                (prop) =>
+                                  `${fieldWord(prop.field)} ${prop.from || "—"} → ${prop.to}`,
+                              )
+                              .join(", ")
+                      }`,
+                    ]),
+                    lead: dateLead(change.effective_on, "effective"),
+                    foot: {
+                      info: <Status tone={state.tone}>{state.label}</Status>,
+                      action: { label: "Open", onClick: () => setOpen(change) },
+                    },
+                  }
+                }}
+                columns={[
+                  {
+                    key: "who",
+                    header: "Employee",
+                    cell: (change) => (
+                      <Person team={team.data} id={change.employee_id} />
+                    ),
+                  },
+                  {
+                    key: "kind",
+                    header: "Change",
+                    cell: (change) => (
+                      <span className="inline-flex items-center gap-1.5 [&_svg]:size-3.5 [&_svg]:text-line-ico">
+                        {KINDS[change.kind as ChangeKind]?.icon}
+                        {kindWord(change.kind)}
+                      </span>
+                    ),
+                  },
+                  {
+                    key: "props",
+                    header: "Now → new",
+                    className: "whitespace-normal",
+                    cell: (change) =>
+                      change.props.length === 0 ? (
+                        <span className="text-mute">last day of work</span>
+                      ) : (
+                        <span className="flex flex-col">
+                          {change.props.map((prop) => (
+                            <span key={prop.field}>
+                              {fieldWord(prop.field)}: {prop.from || "—"} →{" "}
+                              <b className="font-semibold text-ink">
+                                {prop.to}
+                              </b>
+                            </span>
+                          ))}
+                        </span>
+                      ),
+                  },
+                  {
+                    key: "from",
+                    header: "Effective",
+                    cell: (change) => readDate(change.effective_on),
+                  },
+                  {
+                    key: "state",
+                    header: "Status",
+                    cell: (change) => {
+                      const state = requestState(change.state)
+                      return <Status tone={state.tone}>{state.label}</Status>
+                    },
+                  },
+                ]}
+              />
+            )
+          },
+        })}
+
+      {tab === "components" && (
+        <Components
+          scope={scope}
+          team={team.data}
+          which={which}
+          onWhich={setWhich}
+          onFile={() => onFiling("component")}
+        />
+      )}
 
       {open !== null && (
         <ChangeSheet
@@ -243,6 +279,8 @@ function Changes({
         <ProposeComponent
           scope={scope}
           team={team.data}
+          initial={which}
+          onFiled={setWhich}
           onClose={() => onFiling(null)}
         />
       )}
@@ -259,33 +297,38 @@ function ChangeSheet({
   team: EmployeeList | undefined
   onClose: () => void
 }) {
-  const state = changeState(change.state)
+  const state = requestState(change.state)
   return (
     <PeopleSheet
       open
       onOpenChange={(next) => {
         if (!next) onClose()
       }}
-      crumb={
-        <>
-          {kindWord(change.kind)} ·{" "}
-          <span className="font-mono">{change.id}</span>
-        </>
-      }
+      id={change.id}
+      crumb={kindWord(change.kind)}
       title={personName(team, change.employee_id)}
       sub={`Effective ${readDate(change.effective_on)}`}
       status={<Pill tone={state.tone}>{state.label}</Pill>}
     >
-      <SheetSection title="The proposal">
-        <Facts
-          rows={[
-            ["Because", change.reason],
-            ["Filed by", change.filed_by],
-            ["Effective", readDate(change.effective_on)],
-          ]}
-        />
-      </SheetSection>
-      <SheetSection title="What would change">
+      <Facts
+        rows={[
+          ["Filed by", personByLogin(team, change.filed_by)],
+          ["Effective", readDate(change.effective_on)],
+          ["Because", change.reason, true],
+          // Who is being waited on is a fact here, not part of the state's name.
+          change.state === "PENDING" && ["Waiting on", "Head office"],
+          change.decided_by !== null && [
+            "Decided by",
+            personByLogin(team, change.decided_by),
+          ],
+          change.applied_at !== null && [
+            "Written to the record",
+            moment(change.applied_at),
+          ],
+          change.decision_note !== null && ["Note", change.decision_note, true],
+        ]}
+      />
+      <SheetSection title="What would change" className="mt-6">
         {change.props.length === 0 ? (
           <p className="text-meta text-body">
             Employment ends {readDate(change.effective_on)}.
@@ -301,23 +344,6 @@ function ChangeSheet({
           />
         )}
       </SheetSection>
-      {change.decided_by !== null && (
-        <SheetSection title="Head office's decision">
-          <Facts
-            rows={[
-              ["By", change.decided_by],
-              change.decision_note !== null && ["Note", change.decision_note],
-              change.applied_at !== null && [
-                "Written to the record",
-                moment(change.applied_at),
-              ],
-            ]}
-          />
-        </SheetSection>
-      )}
-      {change.state === "PENDING" && (
-        <Banner tone="info">Waiting on head office.</Banner>
-      )}
     </PeopleSheet>
   )
 }
@@ -395,20 +421,21 @@ function ProposeChange({
       onOpenChange={(next) => {
         if (!next) onClose()
       }}
-      crumb="Employment changes"
-      title="Propose to head office"
+      title="Propose a change"
       foot={
         <Submit
-          label="Send to head office"
+          label="Submit proposal"
+          pendingLabel="Submitting…"
           pending={file.isPending}
           disabled={!ready}
           error={file.error}
           onSubmit={() => file.mutate()}
+          onCancel={onClose}
         />
       }
     >
       <div className="flex flex-col gap-3">
-        <Field label="Kind of change">
+        <Field label="Kind of change" required>
           <Select
             value={kind}
             onChange={(value) => setKind(value as ChangeKind)}
@@ -425,6 +452,7 @@ function ProposeChange({
           value={employeeId}
           onChange={setEmployeeId}
           label="Employee"
+          required
         />
         {person !== undefined && (
           <p className="-mt-1 text-meta text-mute">
@@ -433,7 +461,7 @@ function ProposeChange({
           </p>
         )}
         {kind === "PROMOTION" && (
-          <Field label="New position">
+          <Field label="New position" required>
             <Select value={position} onChange={setPosition}>
               <option value="">Choose…</option>
               {(roles.data ?? []).map((role) => (
@@ -451,6 +479,7 @@ function ProposeChange({
                 ? "New base pay (Rp)"
                 : "New base pay (Rp), if it changes"
             }
+            required={kind === "SALARY"}
             hint={
               baseMinor === null || baseMinor <= 0
                 ? undefined
@@ -470,6 +499,7 @@ function ProposeChange({
         {kind === "TRANSFER" && (
           <Field
             label="To shop"
+            required
             hint="Shop code"
             problem={
               toPlace.trim() === scope.unit_id
@@ -487,6 +517,7 @@ function ProposeChange({
         )}
         <Field
           label={kind === "SEPARATION" ? "Last day of work" : "Effective from"}
+          required
         >
           <Input
             type="date"
@@ -494,7 +525,7 @@ function ProposeChange({
             onChange={(event) => setEffectiveOn(event.target.value)}
           />
         </Field>
-        <Field label="Why">
+        <Field label="Why" required>
           <Input
             value={reason}
             placeholder={
@@ -505,9 +536,7 @@ function ProposeChange({
             onChange={(event) => setReason(event.target.value)}
           />
         </Field>
-        <Field
-          label="Store head"
-        >
+        <Field label="Store head" required>
           <Segmented
             options={[
               { value: "no", label: "Not yet agreed" },
@@ -529,7 +558,9 @@ const MONTHS = [
   { value: "next", label: "Next month" },
 ] as const
 
-function monthOf(which: (typeof MONTHS)[number]["value"]): string {
+type MonthChoice = (typeof MONTHS)[number]["value"]
+
+function monthOf(which: MonthChoice): string {
   const now = new Date()
   return which === "this"
     ? isoMonth(now)
@@ -537,129 +568,181 @@ function monthOf(which: (typeof MONTHS)[number]["value"]): string {
 }
 
 /// The one-off figures this shop has proposed for a month.
+///
+/// The month and the "Pay component" act sit in the toolbar on a desk and
+/// behind the dock's gear on a phone — never at the top of the page.
 function Components({
   scope,
   team,
+  which,
+  onWhich,
+  onFile,
 }: {
   scope: StoreScope
   team: EmployeeList | undefined
+  which: MonthChoice
+  onWhich: (next: MonthChoice) => void
+  onFile: () => void
 }) {
-  const [which, setWhich] = useState<(typeof MONTHS)[number]["value"]>("this")
   const period = monthOf(which)
   const adjustments = useQuery({
     queryKey: hrKeys.adjustments(scope.unit_id, period),
     queryFn: ({ signal }) => adjustmentsAt(scope.unit_id, period, signal),
   })
-  const [withdrawing, setWithdrawing] = useState<PayrollAdjustmentRow | null>(
-    null,
-  )
+  const [open, setOpen] = useState<PayrollAdjustmentRow | null>(null)
 
   return (
     <>
-      <Heading
-        count={adjustments.data?.length}
-        tone="neutral"
-        action={
-          <div className="w-[15rem]">
-            <Segmented options={MONTHS} value={which} onChange={setWhich} />
-          </div>
-        }
-      >
-        Pay components · {readMonth(period)}
-      </Heading>
+      {/* The phone's: the month as a row of the gear sheet, and the second act
+          beside it. Renders nothing on a desk. */}
+      <DockTools
+        views={[
+          {
+            title: "Month",
+            value: which,
+            options: MONTHS.map((month) => ({
+              value: month.value,
+              label: month.label,
+            })),
+            onChange: (next) => onWhich(next as MonthChoice),
+          },
+        ]}
+        actions={[{ label: "Pay component", onClick: onFile }]}
+      />
+      <div className="mb-3.5 flex flex-wrap items-center gap-2 max-md:hidden">
+        <Segmented options={MONTHS} value={which} onChange={onWhich} />
+        <span className="flex-1" />
+        <Button onClick={onFile}>
+          <Banknote />
+          Pay component
+        </Button>
+      </div>
+
       {centreState(adjustments, {
-        loading: "Loading…",
+        loading: "Reading the pay components…",
         what: "this shop's pay components",
         render: (rows) => (
-          <PeopleTable
-            rows={rows}
-            rowKey={(row) => row.id}
-            onRowClick={(row) =>
-              row.withdrawable ? setWithdrawing(row) : undefined
-            }
-            empty="None this month."
-            columns={[
-              {
-                key: "who",
-                header: "Employee",
-                cell: (row) => (
-                  <Person
-                    team={team}
-                    id={row.employee_id}
-                    sub={row.employee_code}
-                  />
-                ),
-              },
-              {
-                key: "component",
-                header: "Component",
-                card: "meta",
-                cell: (row) => (
-                  <span className="flex flex-col">
-                    <span className="text-ink">{row.label}</span>
-                    <span className="text-meta text-mute">
-                      {row.kind === "DEDUCTION" ? "deduction" : "earning"}
-                    </span>
-                  </span>
-                ),
-              },
-              {
-                key: "why",
-                header: "Reason",
-                card: "meta",
-                className: "whitespace-normal",
-                cell: (row) => row.reason,
-              },
-              {
-                key: "amount",
-                header: "Amount",
-                align: "right",
-                cell: (row) => (
-                  <span
-                    className={
-                      row.kind === "DEDUCTION" ? "text-bad-fg" : "text-ok-fg"
-                    }
-                  >
-                    {row.kind === "DEDUCTION" ? "−" : "+"}
-                    {money(row.amount_minor)}
-                  </span>
-                ),
-              },
-              {
-                key: "state",
-                header: "Status",
-                card: "status",
-                cell: (row) =>
-                  row.withdrawable ? (
-                    <Pill tone="warn">With the month's batch</Pill>
-                  ) : (
-                    <Pill tone="neutral">Submitted · frozen</Pill>
+          <>
+            {rows.length > 0 && (
+              <p className="mb-3 text-meta text-body">
+                <b className="font-medium text-ink">{rows.length}</b>{" "}
+                {rows.length === 1 ? "pay component" : "pay components"} for{" "}
+                {readMonth(period)}
+              </p>
+            )}
+            <PeopleTable
+              rows={rows}
+              rowKey={(row) => row.id}
+              onRowClick={setOpen}
+              empty={`No pay components for ${readMonth(period)}.`}
+              card={(row) => {
+                const state = adjustmentState(row)
+                return {
+                  ...personCard(team, row.employee_id, [row.label]),
+                  lead: {
+                    figure: `${row.kind === "DEDUCTION" ? "−" : "+"}${money(row.amount_minor)}`,
+                    caption: row.kind === "DEDUCTION" ? "deduction" : "earning",
+                  },
+                  foot: {
+                    info: <Status tone={state.tone}>{state.label}</Status>,
+                    action: { label: "Open", onClick: () => setOpen(row) },
+                  },
+                }
+              }}
+              columns={[
+                {
+                  key: "who",
+                  header: "Employee",
+                  cell: (row) => (
+                    <Person
+                      team={team}
+                      id={row.employee_id}
+                      sub={row.employee_code}
+                    />
                   ),
-              },
-            ]}
-          />
+                },
+                {
+                  key: "component",
+                  header: "Component",
+                  cell: (row) => (
+                    <span className="flex flex-col">
+                      <span className="text-ink">{row.label}</span>
+                      <span className="text-meta text-mute">
+                        {row.kind === "DEDUCTION" ? "deduction" : "earning"}
+                      </span>
+                    </span>
+                  ),
+                },
+                {
+                  key: "why",
+                  header: "Reason",
+                  className: "whitespace-normal",
+                  cell: (row) => row.reason,
+                },
+                {
+                  key: "amount",
+                  header: "Amount",
+                  align: "right",
+                  cell: (row) => (
+                    <span
+                      className={
+                        row.kind === "DEDUCTION" ? "text-bad-fg" : "text-ok-fg"
+                      }
+                    >
+                      {row.kind === "DEDUCTION" ? "−" : "+"}
+                      {money(row.amount_minor)}
+                    </span>
+                  ),
+                },
+                {
+                  key: "state",
+                  header: "Status",
+                  cell: (row) => {
+                    const state = adjustmentState(row)
+                    return <Status tone={state.tone}>{state.label}</Status>
+                  },
+                },
+              ]}
+            />
+          </>
         ),
       })}
-      {withdrawing !== null && (
-        <WithdrawComponent
-          key={withdrawing.id}
-          row={withdrawing}
+      {open !== null && (
+        <ComponentSheet
+          key={open.id}
+          row={open}
+          team={team}
           scope={scope}
           period={period}
-          onClose={() => setWithdrawing(null)}
+          onClose={() => setOpen(null)}
         />
       )}
     </>
   )
 }
 
-function WithdrawComponent({
+/// Where a figure stands: still with the month's batch (the shop may withdraw
+/// it) or submitted with the batch and frozen.
+function adjustmentState(row: PayrollAdjustmentRow): {
+  label: string
+  tone: "warn" | "info"
+} {
+  return row.withdrawable
+    ? { label: "Pending", tone: "warn" }
+    : { label: "Submitted", tone: "info" }
+}
+
+/// One proposed figure. While it is still with the month's batch the shop may
+/// withdraw it; once the batch is submitted it is read-only.
+function ComponentSheet({
   row,
+  team,
   scope,
   period,
   onClose,
 }: {
   row: PayrollAdjustmentRow
+  team: EmployeeList | undefined
   scope: StoreScope
   period: string
   onClose: () => void
@@ -675,6 +758,7 @@ function WithdrawComponent({
       onClose()
     },
   })
+  const state = adjustmentState(row)
   return (
     <PeopleSheet
       open
@@ -682,26 +766,22 @@ function WithdrawComponent({
         if (!next) onClose()
       }}
       crumb="Pay component"
-      title={row.full_name ?? row.employee_code}
+      title={row.full_name ?? personName(team, row.employee_id)}
       sub={`${row.label} · ${readMonth(period)}`}
+      status={<Pill tone={state.tone}>{state.label}</Pill>}
       foot={
-        <div className="flex flex-col gap-3">
-          <Field
-            label="Reason"
-          >
-            <Input
-              value={reason}
-              onChange={(event) => setReason(event.target.value)}
-            />
-          </Field>
-          <Submit
-            label="Withdraw the figure"
-            pending={withdraw.isPending}
-            disabled={reason.trim() === ""}
-            error={withdraw.error}
-            onSubmit={() => withdraw.mutate()}
-          />
-        </div>
+        row.withdrawable ? (
+          <SheetFoot>
+            <Button
+              variant="danger"
+              disabled={reason.trim() === ""}
+              pending={withdraw.isPending}
+              onClick={() => withdraw.mutate()}
+            >
+              {withdraw.isPending ? "Withdrawing…" : "Withdraw pay component"}
+            </Button>
+          </SheetFoot>
+        ) : undefined
       }
     >
       <Facts
@@ -710,22 +790,44 @@ function WithdrawComponent({
             "Amount",
             `${row.kind === "DEDUCTION" ? "−" : "+"}${money(row.amount_minor)}`,
           ],
-          ["Because", row.reason],
-          ["Filed", `${row.filed_by} · ${moment(row.filed_at)}`],
+          ["Kind", row.kind === "DEDUCTION" ? "Deduction" : "Earning"],
+          ["Filed by", personByLogin(team, row.filed_by)],
+          ["Filed on", moment(row.filed_at)],
+          ["Because", row.reason, true],
         ]}
       />
+      {row.withdrawable && (
+        <div className="mt-6 flex flex-col gap-3">
+          <Field label="Reason" required>
+            <Input
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+            />
+          </Field>
+          {withdraw.error !== null && (
+            <Banner tone="bad">{describeCentre(withdraw.error)}</Banner>
+          )}
+        </div>
+      )}
     </PeopleSheet>
   )
 }
 
-/// Propose one component, + or −, for one person for one month.
+/// A new pay component, + or −, for one person for one month.
 function ProposeComponent({
   scope,
   team,
+  initial,
+  onFiled,
   onClose,
 }: {
   scope: StoreScope
   team: EmployeeList | undefined
+  /// The month the list behind the sheet is showing: where the form opens.
+  initial: MonthChoice
+  /// Told the month the figure was filed for, so the list shows where it
+  /// landed.
+  onFiled: (which: MonthChoice) => void
   onClose: () => void
 }) {
   const client = useQueryClient()
@@ -738,7 +840,7 @@ function ProposeComponent({
   const usable = (catalogue.data ?? []).filter(
     (component) => component.basis === "PER_OCCASION" && !component.retired,
   )
-  const [which, setWhich] = useState<(typeof MONTHS)[number]["value"]>("this")
+  const [which, setWhich] = useState<MonthChoice>(initial)
   const [employeeId, setEmployeeId] = useState("")
   const [code, setCode] = useState("")
   const [amount, setAmount] = useState("")
@@ -761,6 +863,7 @@ function ProposeComponent({
       client.invalidateQueries({
         queryKey: hrKeys.adjustments(scope.unit_id, period),
       })
+      onFiled(which)
       onClose()
     },
   })
@@ -771,11 +874,11 @@ function ProposeComponent({
       onOpenChange={(next) => {
         if (!next) onClose()
       }}
-      crumb="Employment changes"
-      title="Propose a pay component"
+      title="New pay component"
       foot={
         <Submit
-          label="Propose it"
+          label="Create pay component"
+          pendingLabel="Creating…"
           pending={file.isPending}
           disabled={
             employeeId === "" ||
@@ -786,6 +889,7 @@ function ProposeComponent({
           }
           error={file.error}
           onSubmit={() => file.mutate()}
+          onCancel={onClose}
         />
       }
     >
@@ -795,9 +899,11 @@ function ProposeComponent({
           value={employeeId}
           onChange={setEmployeeId}
           label="Employee"
+          required
         />
         <Field
           label="Component"
+          required
           hint={
             catalogue.isSuccess && usable.length === 0
               ? "None set up yet."
@@ -815,9 +921,7 @@ function ProposeComponent({
           </Select>
         </Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field
-            label="Amount (Rp)"
-          >
+          <Field label="Amount (Rp)" required>
             <Input
               inputMode="numeric"
               value={amount}
@@ -826,10 +930,10 @@ function ProposeComponent({
               }
             />
           </Field>
-          <Field label="Payroll month">
+          <Field label="Payroll month" required>
             <Select
               value={which}
-              onChange={(value) => setWhich(value as typeof which)}
+              onChange={(value) => setWhich(value as MonthChoice)}
             >
               {MONTHS.map((month) => (
                 <option key={month.value} value={month.value}>
@@ -839,7 +943,7 @@ function ProposeComponent({
             </Select>
           </Field>
         </div>
-        <Field label="Why, and on what basis">
+        <Field label="Why, and on what basis" required>
           <Input
             value={reason}
             placeholder="Sales incentive, September target met"

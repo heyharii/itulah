@@ -2,6 +2,9 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
+import { Fab } from "@/components/ui/fab"
+import { DockChoice } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Field } from "@/components/ui/field"
@@ -23,6 +26,12 @@ import { openChecklist } from "@/lib/queries/people"
 import { useCanWrite } from "@/lib/session"
 import { ChecklistPanel } from "@/screens/people/checklist"
 import { EmployeePick } from "@/screens/people/employee-pick"
+import {
+  CardButton,
+  CardFigure,
+  CardName,
+  PhoneCards,
+} from "@/components/ui/phone-cards"
 
 type Slice = "OPEN" | "DONE"
 
@@ -57,6 +66,7 @@ export function ChecklistBoard({
 }) {
   const copy = COPY[kind]
   const canWrite = useCanWrite()
+  const phone = useLayout() === "phone"
   const tasks = useLifecycleTasks(kind)
   const people = useEveryEmployee()
   const [slice, setSlice] = useState<Slice>("OPEN")
@@ -82,6 +92,7 @@ export function ChecklistBoard({
         title={copy.title}
         sub={copy.sub}
         actions={
+          !phone &&
           canWrite && (
             <Button variant="primary" onClick={() => setStarting(true)}>
               {copy.start}
@@ -90,22 +101,40 @@ export function ChecklistBoard({
         }
       />
 
-      <Toolbar>
-        <Segmented<Slice>
-          options={[
-            { value: "OPEN", label: "In progress" },
-            { value: "DONE", label: "Completed" },
-          ]}
-          value={slice}
-          onChange={setSlice}
-        />
-        <Toolbar.Spacer />
-        <span className="text-[0.875rem] text-mute tabular-nums">
-          {count(rows.length)} {rows.length === 1 ? "person" : "people"}
-        </span>
-      </Toolbar>
+      {/* On a phone the slice is the chip over the bottom bar and starting
+          one is the round +. */}
+      {phone ? (
+        <>
+          <DockChoice
+            value={slice}
+            onChange={(next) => setSlice(next as Slice)}
+            options={[
+              { value: "OPEN", label: "In progress", short: "In progress" },
+              { value: "DONE", label: "Completed", short: "Completed" },
+            ]}
+          />
+          {canWrite && (
+            <Fab label={copy.start} onClick={() => setStarting(true)} />
+          )}
+        </>
+      ) : (
+        <Toolbar>
+          <Segmented<Slice>
+            options={[
+              { value: "OPEN", label: "In progress" },
+              { value: "DONE", label: "Completed" },
+            ]}
+            value={slice}
+            onChange={setSlice}
+          />
+          <Toolbar.Spacer />
+          <span className="text-[0.875rem] text-mute tabular-nums">
+            {count(rows.length)} {rows.length === 1 ? "person" : "people"}
+          </span>
+        </Toolbar>
+      )}
 
-      <Card className="overflow-hidden px-4 py-3">
+      <Card className="overflow-hidden px-4 py-3 max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:p-0 max-md:shadow-none">
         {tasks.isPending ? (
           <LoadingState>Loading checklists…</LoadingState>
         ) : tasks.isError ? (
@@ -116,6 +145,36 @@ export function ChecklistBoard({
               ? `Nobody has an ${copy.noun} checklist in progress. “${copy.start}” in the header opens one.`
               : `No ${copy.noun} checklist has been completed yet.`}
           </EmptyState>
+        ) : phone ? (
+          <PhoneCards
+            rows={rows}
+            onOpen={(row) => setOpenId(row.employeeId)}
+            rowId={(row) => row.employeeId}
+            spec={{
+              title: (row) => (
+                <CardName name={nameOf(people.data, row.employeeId)} />
+              ),
+              lead: (row) => (
+                <CardFigure
+                  value={`${row.done}/${row.total}`}
+                  caption="tasks done"
+                  tone={row.done === row.total ? "quiet" : undefined}
+                />
+              ),
+              foot: (row) => (
+                <Pill tone={row.done === row.total ? "ok" : "warn"}>
+                  {row.done === row.total ? "Completed" : "In progress"}
+                </Pill>
+              ),
+              action: (row) => (
+                <CardButton
+                  label="Open"
+                  ariaLabel={`Open ${nameOf(people.data, row.employeeId)}'s checklist`}
+                  onClick={() => setOpenId(row.employeeId)}
+                />
+              ),
+            }}
+          />
         ) : (
           <MiniTable head={["Who", "Progress", "Done", ""]}>
             {rows.map((row) => (

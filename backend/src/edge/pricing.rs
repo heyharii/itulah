@@ -351,15 +351,23 @@ pub(crate) fn record_local_usage(
         }
         let spent = promotion.benefit_minor.max(0);
         for (kind, key) in keys {
-            tx.execute(
+            tx.prepare_cached(
                 "INSERT INTO commercial_usage_local
                      (event_id, kind, key, uses, spent_minor, reported, recorded_at)
                  VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6)
                  ON CONFLICT (event_id, kind, key) DO UPDATE SET
                      uses = commercial_usage_local.uses + 1,
                      spent_minor = commercial_usage_local.spent_minor + excluded.spent_minor",
-                params![event_id, kind, key, spent, i64::from(reported), recorded_at],
             )
+            .map_err(db)?
+            .execute(params![
+                event_id,
+                kind,
+                key,
+                spent,
+                i64::from(reported),
+                recorded_at
+            ])
             .map_err(db)?;
         }
     }
@@ -1395,11 +1403,9 @@ pub fn store_offers(
     upcoming.sort_by_key(|offer| open_ended_last(offer.starts_at));
 
     let publication_version: Option<i64> = connection
-        .query_row(
-            "SELECT MAX(version) FROM commercial_publication",
-            [],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT MAX(version) FROM commercial_publication")
+        .map_err(db)?
+        .query_row([], |row| row.get(0))
         .optional()
         .map_err(db)?
         .flatten();
@@ -1668,6 +1674,11 @@ pub struct PromotionOutcome {
     /// applied — a code typed and refused has not been redeemed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub coupon_code: Option<String>,
+    /// Head office's hold on that code, when the code is a limited one and the
+    /// till brought a hold for it. Travels on the sale fact so head office can
+    /// turn exactly this hold into the redemption — see `quote_with_coupon_holds`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coupon_authorization_id: Option<String>,
     pub name: String,
     pub applied: bool,
     /// What it took off. Zero when it did not apply.
@@ -1725,6 +1736,16 @@ pub struct Quote {
     /// because nobody asked.
     pub amount_due_minor: i64,
     pub points_earned: i64,
+    /// Codes the shopper typed that would have opened a promotion here but are
+    /// limited across the estate, and came without a hold from head office.
+    ///
+    /// The till's cue to ask (`/store/coupons/{code}/authorize`) and quote
+    /// again with the hold. Said as a list of codes rather than left for the
+    /// till to read out of `promotions[].reason`: a refused promotion does not
+    /// name its code (it redeemed nothing), and a sentence is not a thing a
+    /// till should branch on.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub coupons_to_authorize: Vec<String>,
 }
 
 /// One fee on the bill, priced and taxed.
@@ -1765,6 +1786,40 @@ pub fn quote(
     customer_id: Option<&str>,
     charges: &[pricing_engine::Charge],
 ) -> Result<Option<Quote>, EdgeError> {
+    quote_with_coupon_holds(
+        connection,
+        site_id,
+        channel,
+        at,
+        sku_codes,
+        coupon_codes,
+        customer_id,
+        charges,
+        &[],
+    )
+}
+
+/// [`quote`], with the holds head office granted for this basket's limited
+/// coupons.
+///
+/// The caller vouches for the holds — `coupon_authorizations` must already be
+/// filtered to ones this node relayed and still holds (`coupon_hold`). The
+/// engine admits a limited coupon on any hold it is handed and refuses it
+/// without one (`CouponNeedsOnlineAuthorization`); the codes refused for that
+/// reason come back in `coupons_to_authorize`, and the hold behind each code
+/// that did apply comes back on its promotion so the sale fact can carry it.
+#[allow(clippy::too_many_arguments)]
+pub fn quote_with_coupon_holds(
+    connection: &Connection,
+    site_id: &str,
+    channel: &str,
+    at: DateTime<Utc>,
+    sku_codes: &[String],
+    coupon_codes: &[String],
+    customer_id: Option<&str>,
+    charges: &[pricing_engine::Charge],
+    coupon_authorizations: &[pricing_engine::CouponAuthorization],
+) -> Result<Option<Quote>, EdgeError> {
     reject_unknown_coupon_codes(connection, coupon_codes)?;
     let snapshot = load_snapshot_for(connection, site_id, channel, Some(sku_codes))?;
     if snapshot.entries.is_empty() {
@@ -1773,13 +1828,13 @@ pub fn quote(
         // answers, so the cheap whole-book existence check settles it — and it
         // only runs on the path that is already about to fail.
         let holds_any: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT EXISTS(SELECT 1 FROM commercial_price_rule
                                 WHERE sku_code IS NOT NULL AND channel = ?1
                                   AND (site_id IS NULL OR site_id = ?2))",
-                params![channel, site_id],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row(params![channel, site_id], |row| row.get(0))
             .map_err(db)?;
         if holds_any == 0 {
             return Ok(None);
@@ -1792,6 +1847,7 @@ pub fn quote(
         crate::edge::site_profile::utc_offset_minutes(connection),
     );
     context.coupon_codes = coupon_codes.to_vec();
+    context.coupon_authorizations = coupon_authorizations.to_vec();
     context.customer_id = customer_id.map(str::to_string);
     // Handed to the engine rather than added on afterwards, because the engine
     // is what refuses to let a promotion, a threshold or an earn rule reach
@@ -1807,6 +1863,41 @@ pub fn quote(
         .collect();
     let result = price_cart(&snapshot, &context, &cart).map_err(translate)?;
 
+    // The hold behind a code, but only for a code that is actually LIMITED. An
+    // uncapped coupon needs no hold and must not carry one onto the sale fact,
+    // where head office would try to commit something nothing reserved for it.
+    let held_for = |code: Option<&str>| -> Option<String> {
+        let code = code?;
+        let limited = snapshot
+            .coupons
+            .iter()
+            .any(|coupon| coupon.code == code && coupon.max_uses.is_some());
+        if !limited {
+            return None;
+        }
+        context
+            .coupon_authorization(code)
+            .map(|held| held.authorization_id.clone())
+    };
+    // The limited codes the engine refused for want of a hold. Read from the
+    // rule's own code, because the refusal (rightly) names none.
+    let mut coupons_to_authorize: Vec<String> = Vec::new();
+    for rejected in &result.rejected_rules {
+        if rejected.reason != pricing_engine::RejectionReason::CouponNeedsOnlineAuthorization {
+            continue;
+        }
+        if let Some(code) = snapshot
+            .rules
+            .iter()
+            .find(|rule| rule.rule_id == rejected.rule_id)
+            .and_then(|rule| rule.coupon_code.clone())
+        {
+            if !coupons_to_authorize.contains(&code) {
+                coupons_to_authorize.push(code);
+            }
+        }
+    }
+
     let mut promotions: Vec<PromotionOutcome> = result
         .applied_rules
         .iter()
@@ -1814,6 +1905,7 @@ pub fn quote(
             rule_id: applied.rule_id.clone(),
             campaign_id: applied.campaign_id.clone(),
             coupon_code: applied.coupon_code.clone(),
+            coupon_authorization_id: held_for(applied.coupon_code.as_deref()),
             name: applied.name.clone(),
             applied: true,
             benefit_minor: applied.benefit.minor,
@@ -1845,6 +1937,7 @@ pub fn quote(
             rule_id: award.rule_id.clone(),
             campaign_id: rule.campaign_id.clone(),
             coupon_code: rule.coupon_code.clone(),
+            coupon_authorization_id: held_for(rule.coupon_code.as_deref()),
             name: award.name.clone(),
             applied: true,
             benefit_minor: 0,
@@ -1862,6 +1955,7 @@ pub fn quote(
                 // its campaign nor its code is named here.
                 campaign_id: None,
                 coupon_code: None,
+                coupon_authorization_id: None,
                 name: rejected.name.clone(),
                 applied: false,
                 benefit_minor: 0,
@@ -1924,6 +2018,7 @@ pub fn quote(
         charge_total_minor: result.charge_total.minor,
         amount_due_minor: result.amount_due.minor,
         points_earned: result.points_earned,
+        coupons_to_authorize,
     }))
 }
 
@@ -1950,11 +2045,9 @@ fn reject_unknown_coupon_codes(
             continue;
         }
         let known: i64 = connection
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM commercial_coupon WHERE code = ?1)",
-                params![code],
-                |row| row.get(0),
-            )
+            .prepare_cached("SELECT EXISTS(SELECT 1 FROM commercial_coupon WHERE code = ?1)")
+            .map_err(db)?
+            .query_row(params![code], |row| row.get(0))
             .map_err(db)?;
         if known == 0 {
             return Err(EdgeError::Validation(format!(
@@ -2031,12 +2124,20 @@ mod tests {
 
     fn publish(connection: &Connection, version: i64, from: DateTime<Utc>) -> String {
         let id = format!("pub-{version}");
-        if let Err(error) = connection.execute(
-            "INSERT INTO commercial_publication
+        if let Err(error) = connection
+            .prepare_cached(
+                "INSERT INTO commercial_publication
                  (id, version, name, effective_from, effective_to, activated_at)
              VALUES (?1, ?2, ?3, ?4, NULL, ?4)",
-            params![id, version, format!("v{version}"), from.to_rfc3339()],
-        ) {
+            )
+            .map_err(db)?
+            .execute(params![
+                id,
+                version,
+                format!("v{version}"),
+                from.to_rfc3339()
+            ])
+        {
             panic!("fixture publication: {error}");
         }
         id
@@ -2049,31 +2150,37 @@ mod tests {
         site_id: Option<&str>,
         minor: i64,
     ) {
-        if let Err(error) = connection.execute(
-            "INSERT INTO commercial_price_rule
+        if let Err(error) = connection
+            .prepare_cached(
+                "INSERT INTO commercial_price_rule
                  (publication_id, sku_id, sku_code, site_id, channel, sellable,
                   currency, unit_price_minor, tax_category)
              VALUES (?1, ?5, ?2, ?3, 'STORE',
                      1, 'IDR', ?4, 'STANDARD')",
-            params![
+            )
+            .map_err(db)?
+            .execute(params![
                 publication_id,
                 sku_code,
                 site_id,
                 minor,
                 format!("fixture-{sku_code:?}")
-            ],
-        ) {
+            ])
+        {
             panic!("fixture price: {error}");
         }
     }
 
     fn stock(connection: &Connection, sku_code: &str, name: &str) {
-        if let Err(error) = connection.execute(
-            "INSERT INTO catalog_item
+        if let Err(error) = connection
+            .prepare_cached(
+                "INSERT INTO catalog_item
                  (sku_code, name, uom, barcode, tax_category, active, generation, updated_at)
              VALUES (?1, ?2, 'PCS', NULL, 'STANDARD', 1, 1, '2026-09-01T00:00:00Z')",
-            params![sku_code, name],
-        ) {
+            )
+            .map_err(db)?
+            .execute(params![sku_code, name])
+        {
             panic!("fixture catalogue: {error}");
         }
     }
@@ -2086,20 +2193,23 @@ mod tests {
         from: Option<DateTime<Utc>>,
         to: Option<DateTime<Utc>>,
     ) {
-        if let Err(error) = connection.execute(
-            "INSERT INTO commercial_campaign
+        if let Err(error) = connection
+            .prepare_cached(
+                "INSERT INTO commercial_campaign
                  (campaign_id, publication_id, name, status, valid_from, valid_to,
                   budget_minor, max_uses)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, NULL)",
-            params![
+            )
+            .map_err(db)?
+            .execute(params![
                 campaign_id,
                 publication_id,
                 format!("Kampanye {campaign_id}"),
                 status,
                 from.map(|when| when.to_rfc3339()),
                 to.map(|when| when.to_rfc3339()),
-            ],
-        ) {
+            ])
+        {
             panic!("fixture campaign: {error}");
         }
     }
@@ -2124,17 +2234,20 @@ mod tests {
             },
             "effect": { "kind": "PERCENT", "bps": 2000 },
         });
-        if let Err(error) = connection.execute(
-            "INSERT INTO commercial_rule
+        if let Err(error) = connection
+            .prepare_cached(
+                "INSERT INTO commercial_rule
                  (rule_id, publication_id, name, definition_json, status, priority)
              VALUES (?1, ?2, ?3, ?4, 'ACTIVE', 0)",
-            params![
+            )
+            .map_err(db)?
+            .execute(params![
                 rule_id,
                 publication_id,
                 format!("Promo {rule_id}"),
                 document.to_string()
-            ],
-        ) {
+            ])
+        {
             panic!("fixture promotion: {error}");
         }
     }

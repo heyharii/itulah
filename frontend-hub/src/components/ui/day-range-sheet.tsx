@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import { dateOf, monthGrid, today, WEEKDAYS } from "@/lib/calendar"
 import { dayRangeOf, setDayRange } from "@/lib/day-window"
 import type { FilterField, FilterState } from "@/lib/filters"
+import { day, monthYear } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 /// A window of days as a page of a sheet: a month to tap, the first day and
@@ -59,12 +60,7 @@ export function DayRangePage({
 
   const lo = days.from
   const hi = days.to !== "" ? days.to : days.from
-  const long = (iso: string) =>
-    dateOf(iso).toLocaleDateString("en-GB", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    })
+  const long = day
 
   return (
     <div className="px-2 pb-1">
@@ -78,10 +74,7 @@ export function DayRangePage({
           <ChevronLeft className="size-5" />
         </button>
         <span className="text-[0.9375rem] font-semibold text-ink">
-          {month.toLocaleDateString("en-GB", {
-            month: "long",
-            year: "numeric",
-          })}
+          {monthYear(month, true)}
         </span>
         <button
           type="button"

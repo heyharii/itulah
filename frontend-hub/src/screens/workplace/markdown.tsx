@@ -95,7 +95,7 @@ function inline(
         out.push(
           <code
             key={next()}
-            className="rounded-[0.25rem] bg-soft-2 px-1 py-px font-mono text-[0.8125rem] text-ink"
+            className="rounded-[0.25rem] bg-soft-2 px-1 py-px font-mono text-[0.875rem] text-ink"
           >
             {text.slice(i + 1, close)}
           </code>
@@ -388,7 +388,7 @@ function render(
         return (
           <pre
             key={key}
-            className="overflow-x-auto rounded-inner bg-soft-2 px-3 py-2 font-mono text-[0.8125rem] leading-relaxed text-ink"
+            className="overflow-x-auto rounded-inner bg-soft-2 px-3 py-2 font-mono text-[0.875rem] leading-relaxed text-ink"
           >
             <code>{block.text}</code>
           </pre>

@@ -6,7 +6,7 @@ import { createPortal } from "react-dom"
 import { Button } from "@/components/ui/button"
 import { dc } from "@/lib/api"
 import { useEdgeNodeIdentity } from "@/lib/edge-session"
-import { clock, count } from "@/lib/format"
+import { clock, count, dayIndonesian, quantity } from "@/lib/format"
 import { useCatalogueIdentity } from "@/lib/operations/catalogue"
 import { keys } from "@/lib/operations/keys"
 import { tripDocumentNumber } from "@/lib/operations/trip-number"
@@ -48,12 +48,7 @@ export function useShopName(): (id: string) => string {
   }
 }
 
-const today = () =>
-  new Date().toLocaleDateString("id-ID", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  })
+const today = () => dayIndonesian(new Date())
 
 const PRINT_CSS = (size: "A4" | "A5") => `
 @page { size: ${size}; margin: 0; }
@@ -225,7 +220,7 @@ export function PackingListPaper({
             <td className="px-1.5 py-1.5" colSpan={4}>
               Total
             </td>
-            <td className="px-1.5 py-1.5 text-right">{count(total)} pcs</td>
+            <td className="px-1.5 py-1.5 text-right">{quantity(total)}</td>
           </tr>
         </tfoot>
       </table>
@@ -307,7 +302,7 @@ export function SuratJalanPaper({
                 {manifest.koli.koli_number}
               </td>
               <td className="px-1.5 py-1.5 text-right">
-                {count(manifest.koli.unit_count)} pcs
+                {quantity(manifest.koli.unit_count)}
               </td>
             </tr>
           ))}
@@ -316,7 +311,7 @@ export function SuratJalanPaper({
           <tr className="border-t-[1.5px] border-[#111] font-bold">
             <td className="px-1.5 py-1.5" />
             <td className="px-1.5 py-1.5">{count(detail.koli.length)} koli</td>
-            <td className="px-1.5 py-1.5 text-right">{count(pieces)} pcs</td>
+            <td className="px-1.5 py-1.5 text-right">{quantity(pieces)}</td>
           </tr>
         </tfoot>
       </table>
@@ -449,7 +444,7 @@ export function SuratJalanPrint({
       onClose={onClose}
       size="A4"
       ready={ready}
-      title="Surat jalan"
+      title="Delivery note"
       note={`A4 · one per shop${shipmentIds.length > 1 ? ` · ${shipmentIds.length} pages` : ""}`}
     >
       {details.map((one, index) => {
@@ -554,7 +549,7 @@ export function TripSuratJalanPaper({
         <span>
           Total {count(stores.length)} toko · {count(totalKoli)} koli
         </span>
-        <span>{count(totalPieces)} pcs</span>
+        <span>{quantity(totalPieces)}</span>
       </div>
       <p className="mt-4 text-[#444]">
         Rincian isi setiap koli ada pada packing list di dalam koli. Mohon
@@ -611,7 +606,7 @@ function TripStoreSection({
                 {manifest.koli.koli_number}
               </td>
               <td className="px-1.5 py-1.5 text-right">
-                {count(manifest.koli.unit_count)} pcs
+                {quantity(manifest.koli.unit_count)}
               </td>
             </tr>
           ))}
@@ -622,7 +617,7 @@ function TripStoreSection({
             <td className="px-1.5 py-1.5">
               Subtotal {count(detail.koli.length)} koli
             </td>
-            <td className="px-1.5 py-1.5 text-right">{count(pieces)} pcs</td>
+            <td className="px-1.5 py-1.5 text-right">{quantity(pieces)}</td>
           </tr>
         </tfoot>
       </table>
@@ -668,7 +663,7 @@ export function TripSuratJalanPrint({
       onClose={onClose}
       size="A4"
       ready={ready}
-      title="Surat jalan"
+      title="Delivery note"
       note={`A4 · one per trip${shipments.length > 1 ? ` · ${shipments.length} stores` : ""}`}
     >
       {ready ? (

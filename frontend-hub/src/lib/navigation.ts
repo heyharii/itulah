@@ -430,7 +430,7 @@ const allDomains: readonly AppDomain[] = [
   },
   // The departments in the owner's order of 2026-09-28 — the order goods and
   // money move through the company: bought, described, handled at the
-  // Gudang, held, priced, sold, paid for; then the people and the places.
+  // warehouse, held, priced, sold, paid for; then the people and the places.
   {
     id: "buying",
     label: "Procurement",

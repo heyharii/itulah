@@ -19,10 +19,18 @@ import {
 } from "react"
 
 import { Select } from "@/components/ui/field"
+import { RefreshStrip, type Refreshable } from "@/components/ui/refresh-stamp"
 import { LoadMore, type Pageable } from "@/components/ui/states"
 import { POP_MOTION } from "@/lib/filter-chrome"
 import { useCoarsePointer, useLayout } from "@/lib/layout"
 import { columnName } from "@/components/ui/column-name"
+import { PhoneCard, STICKY_HEADING } from "@/components/ui/phone-cards"
+import { FOCUSED, openable } from "@/lib/openable"
+import {
+  RowIntentContext,
+  useRowIntent,
+  useRowIntentProps,
+} from "@/lib/row-intent"
 import { cn } from "@/lib/utils"
 import type { DockSortChoices } from "@/components/shell/dock-tools"
 import type { TableSetup } from "@/lib/table"
@@ -80,6 +88,11 @@ export interface DataTableProps<TRow> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly table: any
   readonly onRowClick?: (row: TRow) => void
+  /// A row is about to be opened: the pointer rested on it, the keyboard
+  /// reached it, a finger touched it. Start the request for its sheet here
+  /// (`prefetchQuery` of the detail) so the sheet opens with its facts in hand.
+  /// Asking again costs nothing for a row already fresh (`lib/row-intent.tsx`).
+  readonly onRowIntent?: (row: TRow) => void
   /// Which row reads as selected. Selection is a tint — never a left bar.
   readonly isSelected?: (row: TRow) => boolean
   /// A row that has just landed — an order that was raised a moment ago. It
@@ -171,6 +184,11 @@ export interface DataTableProps<TRow> {
   /// to `onEndReached`, which only says when a page is due and leaves the
   /// states to the screen.
   readonly more?: Pageable
+  /// The queries behind the rows. With it the table is headed by when they
+  /// were read and a reload (`RefreshStamp`): pass the results as they stand,
+  /// `refresh={[orders, suppliers]}`. A table drawn from the cache first may
+  /// be minutes or hours old, and says so (owner, 2026-10-09).
+  readonly refresh?: readonly Refreshable[]
   /// A summary row pinned under the rows — a count, a sum — keyed by column
   /// id. It floats at the foot of the table's own scroll box, so the totals
   /// stay in view however far down the list somebody has scrolled. Columns
@@ -219,7 +237,19 @@ export interface DataTableProps<TRow> {
 const TOUCH_ROW = 44
 const DENSE_ROW = 38
 
-export function DataTable<TRow>({
+export function DataTable<TRow>(props: DataTableProps<TRow>) {
+  const intent = useRowIntent(props.onRowIntent)
+  return (
+    <RowIntentContext.Provider value={intent}>
+      {props.refresh !== undefined && props.refresh.length > 0 && (
+        <RefreshStrip queries={props.refresh} />
+      )}
+      <DataTableBody {...props} />
+    </RowIntentContext.Provider>
+  )
+}
+
+function DataTableBody<TRow>({
   table,
   onRowClick,
   isSelected,
@@ -814,52 +844,6 @@ export function DataTable<TRow>({
   )
 }
 
-/// A row that opens something, reachable without a mouse.
-///
-/// It was a click handler on a `<tr>` and nothing else, so the only way to
-/// open a record from the keyboard was not to have one. Now each openable row
-/// is a tab stop: Enter or Space opens it, and the arrow keys walk to the row
-/// above or below — forty tabs to reach the fortieth supplier is not a way to
-/// read a list. A key pressed on a control INSIDE the row (the verb in the
-/// status cell, a checkbox) is that control's, and is left alone.
-function openable(open: () => void) {
-  return {
-    tabIndex: 0,
-    onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => {
-      if (event.target !== event.currentTarget) return
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault()
-        open()
-      } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-        // Past an expanded row's extra block, which is not a tab stop.
-        let next =
-          event.key === "ArrowDown"
-            ? event.currentTarget.nextElementSibling
-            : event.currentTarget.previousElementSibling
-        while (
-          next instanceof HTMLElement &&
-          next.tabIndex !== 0 &&
-          next.hasAttribute("data-sub")
-        ) {
-          next =
-            event.key === "ArrowDown"
-              ? next.nextElementSibling
-              : next.previousElementSibling
-        }
-        if (next instanceof HTMLElement && next.tabIndex === 0) {
-          event.preventDefault()
-          next.focus()
-        }
-      }
-    },
-  }
-}
-
-/// The ring an openable row wears under the keyboard — inset, because a row
-/// is flush with its neighbours and an outset ring is cut off by them.
-const FOCUSED =
-  "outline-none focus-visible:bg-accent-bg/60 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
-
 function Row({
   row,
   onRowClick,
@@ -898,6 +882,7 @@ function Row({
   hidden?: boolean
 }) {
   const verb = rowAction?.(row.original) ?? null
+  const intent = useRowIntentProps(row.original)
   return (
     <>
       {before !== null && before !== undefined && (
@@ -910,6 +895,9 @@ function Row({
       {hidden ? null : (
         <tr
           style={style}
+          {...intent}
+          // What `pullIn` (lib/pull-in.ts) lands on after a save.
+          data-row-id={row.id}
           onClick={onRowClick ? () => onRowClick(row.original) : undefined}
           {...(onRowClick ? openable(() => onRowClick(row.original)) : {})}
           data-selected={selected || undefined}
@@ -1212,19 +1200,10 @@ function RowCard<TRow>({
   // A section heading, stuck to the top of the page while its section passes
   // under it: the `li` itself is what sticks, because a child of it could
   // never leave the box of the one line it is in.
+  const intent = useRowIntentProps(row.original)
   const beforeLi =
     before !== null && before !== undefined ? (
-      <li
-        data-sub
-        className={
-          stickyBefore
-            ? // The air above a section is the heading's margin, not its
-              // padding, so a heading stuck to the top takes no more room than
-              // its own line.
-              "sticky top-0 z-10 -mx-1 bg-soft-3 px-1 not-first:mt-3"
-            : undefined
-        }
-      >
+      <li data-sub className={stickyBefore ? STICKY_HEADING : undefined}>
         {before}
       </li>
     ) : null
@@ -1296,26 +1275,16 @@ function RowCard<TRow>({
     return (
       <>
         {beforeLi}
-        <li
-          onClick={
+        <PhoneCard
+          onOpen={
             onRowClick ? () => onRowClick(row.original as TRow) : undefined
           }
-          {...(onRowClick
-            ? openable(() => onRowClick(row.original as TRow))
-            : {})}
-          data-selected={selected || undefined}
-          data-fresh={fresh || undefined}
-          aria-current={selected || undefined}
-          className={cn(
-            "relative flex flex-col rounded-card border border-hairline bg-canvas shadow-soft",
-            fresh && "row-fresh",
-            onRowClick && "cursor-pointer",
-            onRowClick && FOCUSED,
-            selected ? "bg-accent-bg" : "active:bg-soft"
-          )}
-        >
-          <div className="flex items-start gap-3 p-4">
-            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          intent={intent}
+          selected={selected}
+          fresh={fresh}
+          alert={tone === "alert"}
+          head={
+            <>
               {parts.id.map((cell) => (
                 <div key={cell.id} className="truncate">
                   {render(cell)}
@@ -1334,31 +1303,36 @@ function RowCard<TRow>({
                   {render(cell)}
                 </div>
               ))}
-            </div>
-            <div className="min-w-0 shrink-0">
+            </>
+          }
+          lead={
+            <>
               {parts.lead.map((cell) => (
                 <div key={cell.id}>{render(cell)}</div>
               ))}
-            </div>
-          </div>
-          <div
-            className={cn(
-              "flex items-center justify-between gap-3 rounded-b-card border-t px-4 py-3",
-              tone === "alert" ? "border-bad/10 bg-bad-bg/50" : "border-hairline"
-            )}
-          >
-            <div className="min-w-0 text-[0.875rem] text-mute">
-              {parts.foot.map((cell) => (
-                <div key={cell.id}>{render(cell)}</div>
-              ))}
-            </div>
-            <div className="flex shrink-0 items-center">
-              {parts.status.map((cell) => (
-                <span key={cell.id}>{render(cell)}</span>
-              ))}
-            </div>
-          </div>
-        </li>
+            </>
+          }
+          // A card whose columns declare no foot and no status is its head
+          // alone: a list of terms has nothing to say under them.
+          foot={
+            parts.foot.length === 0 && parts.status.length === 0 ? undefined : (
+              <>
+                {parts.foot.map((cell) => (
+                  <div key={cell.id}>{render(cell)}</div>
+                ))}
+              </>
+            )
+          }
+          action={
+            parts.foot.length === 0 && parts.status.length === 0 ? undefined : (
+              <>
+                {parts.status.map((cell) => (
+                  <span key={cell.id}>{render(cell)}</span>
+                ))}
+              </>
+            )
+          }
+        />
         {sub !== null && sub !== undefined && (
           <li data-sub className="border-b border-hairline">
             {sub}
@@ -1372,6 +1346,8 @@ function RowCard<TRow>({
     <>
       {beforeLi}
       <li
+        {...intent}
+        data-row-id={row.id}
         onClick={
           onRowClick ? () => onRowClick(row.original as TRow) : undefined
         }
@@ -1459,14 +1435,7 @@ function RowCard<TRow>({
 /// `lib/react-table.d.ts` by hand — a `ColumnMeta` lookup type would have to
 /// name the table's feature set, and this list is read here.
 type CardRole =
-  | "id"
-  | "title"
-  | "status"
-  | "metric"
-  | "meta"
-  | "lead"
-  | "foot"
-  | "hide"
+  "id" | "title" | "status" | "metric" | "meta" | "lead" | "foot" | "hide"
 
 /// Where a column goes in a card.
 ///

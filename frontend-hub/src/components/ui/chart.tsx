@@ -12,6 +12,7 @@ import {
   YAxis,
 } from "recharts"
 
+import { compactFormat } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 /// The bar chart, in this app's grammar.
@@ -64,10 +65,7 @@ export interface ChartRow {
 
 /// Axis ticks only. Full precision belongs in the tooltip and in the table
 /// underneath; an axis exists to say roughly how tall a bar is.
-const compact = new Intl.NumberFormat("id-ID", {
-  notation: "compact",
-  maximumFractionDigits: 1,
-})
+const compact = compactFormat()
 
 export function BarSeries({
   rows,

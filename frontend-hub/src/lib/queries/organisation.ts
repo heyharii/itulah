@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { queryOptions, useQuery } from "@tanstack/react-query"
 import type { UnitPic, UnitSite, UnitView } from "@itulah/contract"
 import { useCallback, useMemo } from "react"
 
@@ -27,12 +27,15 @@ export function listUnits(signal?: AbortSignal): Promise<UnitView[]> {
 
 /// The units, for a screen that shows or picks one. Small and slow-moving —
 /// fourteen rows that change when a store opens.
-export function useUnits() {
-  return useQuery({
+export const unitsQuery = () =>
+  queryOptions({
     queryKey: organisationKeys.units(),
     queryFn: ({ signal }) => listUnits(signal),
     staleTime: 5 * 60_000,
   })
+
+export function useUnits() {
+  return useQuery(unitsQuery())
 }
 
 /// Everybody who has been in charge of one unit, newest first.
@@ -74,7 +77,7 @@ export function unitLabel(unit: {
 
 /// What a person reads for a site: the unit's label when the unit keeps one
 /// site (a store and its shop), and the site's own name after it when the unit
-/// keeps several (head office's office and the Gudang).
+/// keeps several (head office's office and the warehouse).
 export function siteLabel(unit: UnitView, site: UnitSite): string {
   return unit.sites.length === 1
     ? unitLabel(unit)

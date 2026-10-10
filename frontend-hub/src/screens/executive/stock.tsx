@@ -4,7 +4,7 @@ import { useMemo } from "react"
 import { Card } from "@/components/ui/card"
 import { MiniCell, MiniRow, MiniTable } from "@/components/ui/rows"
 import { EmptyState } from "@/components/ui/states"
-import { count, day, money } from "@/lib/format"
+import { count, day, money, quantity } from "@/lib/format"
 import { fleetPools, inventoryKeys } from "@/lib/queries/inventory"
 import { listPurchaseOrders, procurementKeys } from "@/lib/queries/procurement"
 import { queryState } from "@/lib/query-state"
@@ -16,8 +16,8 @@ import { useTrade } from "@/screens/executive/sales"
 import { SupplierName } from "@/screens/procurement/supplier-name"
 import { spanDays } from "@itulah/contract/reporting"
 
-/// Barang & pembelian — how much the shops hold, how long it lasts, and what
-/// is still coming from suppliers and the Gudang.
+/// Stock & Purchasing — how much the shops hold, how long it lasts, and what
+/// is still coming from suppliers and the warehouse.
 
 /// The outbound stages after the goods have left the pick face: a pallet on
 /// the dock is already the store's, it just is not on its shelf.
@@ -128,48 +128,48 @@ export function ExecutiveStock() {
   )
 
   return (
-    <ReportPage title="Barang & pembelian" scope={scope}>
+    <ReportPage title="Stock & Purchasing" scope={scope}>
       <Figures>
         <Figure
-          label="Stok toko"
-          value={fleet.data ? `${count(held)} unit` : "…"}
-          note={`Posisi ${fleet.data ? day(fleet.data.as_of) : "—"}`}
+          label="Store stock"
+          value={fleet.data ? `${quantity(held)}` : "…"}
+          note={`As of ${fleet.data ? day(fleet.data.as_of) : "—"}`}
         />
         <Figure
-          label="Cakupan stok"
+          label="Stock cover"
           value={
             fleet.data && trade.query.data
               ? sold === 0
                 ? "—"
-                : `${count(Math.round(held / (sold / days)))} hari`
+                : `${count(Math.round(held / (sold / days)))} days`
               : "…"
           }
-          note={`${count(sold)} unit terjual periode ini`}
+          note={`${quantity(sold)} sold this period`}
         />
         <Figure
-          label="Dalam perjalanan ke toko"
-          value={fleet.data ? `${count(coming)} unit` : "…"}
-          note="Sudah keluar dari Gudang"
+          label="On the way to the stores"
+          value={fleet.data ? `${quantity(coming)}` : "…"}
+          note="Already left the warehouse"
         />
         <Figure
-          label="PO belum diterima"
-          value={orders.data ? `${count(owed)} unit` : "…"}
-          note={`${count(open.length)} PO terbuka`}
+          label="POs not yet received"
+          value={orders.data ? `${quantity(owed)}` : "…"}
+          note={`${count(open.length)} open ${open.length === 1 ? "PO" : "POs"}`}
         />
       </Figures>
 
       <div className="grid gap-3 xl:grid-cols-2">
         <Card className="overflow-hidden">
-          <Head title="Stok per toko" />
+          <Head title="Stock by store" />
           <div className="overflow-x-auto px-[1.125rem] pb-3">
             {queryState(fleet, {
-              loading: "Menghitung stok…",
+              loading: "Reading the stock…",
               render: () =>
                 mine.length === 0 ? (
-                  <EmptyState>Belum ada stok toko yang tercatat.</EmptyState>
+                  <EmptyState>No store stock has been recorded yet.</EmptyState>
                 ) : (
                   <MiniTable
-                    head={["Toko", "Stok", "Terjual", "Cakupan", "Dikirim"]}
+                    head={["Store", "Stock", "Sold", "Cover", "On the Way"]}
                     style={{ minWidth: "28rem" }}
                   >
                     {mine.map((shelf) => (
@@ -182,7 +182,7 @@ export function ExecutiveStock() {
                         <MiniCell align="right">
                           {shelf.cover === null
                             ? "—"
-                            : `${count(Math.round(shelf.cover))} hari`}
+                            : `${count(Math.round(shelf.cover))} days`}
                         </MiniCell>
                         <MiniCell align="right">
                           {shelf.coming === 0 ? (
@@ -201,26 +201,24 @@ export function ExecutiveStock() {
 
         <Card className="overflow-hidden">
           <Head
-            title="PO terbuka"
+            title="Open POs"
             to="/procurement/outstanding"
-            link="Buka Procurement"
+            link="Open Procurement"
           />
           <div className="overflow-x-auto px-[1.125rem] pb-3">
             {queryState(orders, {
-              loading: "Membaca PO…",
+              loading: "Reading the POs…",
               render: () =>
                 open.length === 0 ? (
-                  <EmptyState>
-                    Tidak ada PO yang masih menunggu barang.
-                  </EmptyState>
+                  <EmptyState>No PO is still waiting for goods.</EmptyState>
                 ) : (
                   <MiniTable
                     head={[
                       "PO",
-                      "Tujuan",
-                      "Belum Diterima",
-                      "Nilai PO",
-                      "Tiba",
+                      "Destination",
+                      "Not Received",
+                      "PO Value",
+                      "Arrival",
                     ]}
                     style={{ minWidth: "30rem" }}
                   >

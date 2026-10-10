@@ -271,7 +271,7 @@ export function SalesReconciliation() {
         <SiteSelect
           value={site}
           onChange={setSite}
-          emptyLabel="Choose a shop"
+          emptyLabel="Choose a store"
           className="h-8 w-44"
         />
         <WindowControl range={range} />
@@ -281,9 +281,9 @@ export function SalesReconciliation() {
 
       {!scoped ? (
         <EmptyState>
-          A reconciliation is one shop&rsquo;s. The drawer belongs to a counter,
-          the bank statement to that shop&rsquo;s own account, and a fleet-wide
-          total would hide the one branch that is short. Choose a shop above.
+          A reconciliation is one store&rsquo;s. The drawer belongs to a counter,
+          the bank statement to that store&rsquo;s own account, and a fleet-wide
+          total would hide the one branch that is short. Choose a store.
         </EmptyState>
       ) : failure !== null ? (
         <ErrorState error={failure} />

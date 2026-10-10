@@ -18,7 +18,7 @@ import { Banner } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
 import { Lifecycle } from "@/components/ui/timeline"
-import { count, label, money, moment, toneFor } from "@/lib/format"
+import { count, label, money, moment, percentBps, toneFor } from "@/lib/format"
 import { ApiError } from "@itulah/contract/client"
 import {
   addSaleLine,
@@ -472,7 +472,7 @@ function ReceiptPanel({ saleId }: { saleId: string }) {
                     )}
                   </td>
                   <td className="py-2 text-right tabular-nums">
-                    {(band.rate_bps / 100).toFixed(2)}%
+                    {percentBps(band.rate_bps)}
                   </td>
                   <td className="py-2 text-right tabular-nums">
                     {money(band.net_minor)}

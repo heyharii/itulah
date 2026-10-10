@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Goods flow · how far back</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#20242c;--text:#394150;--mute:#737c89;--faint:#b9c0c9;
+  --canvas:#fff;--soft:#f8f8f9;--soft-2:#f0f0f2;--line:#e6e6e9;--line-2:#c6c6cc;
+  --accent:#2563eb;--accent-bg:#eff5ff;
+  --ok:#36b827;--ok-fg:#15803d;--ok-bg:#e8f6e6;--warn:#c9892e;--warn-bg:#faeacd;--warn-fg:#b45309;--bad:#d05151;--bad-bg:#fbeaea;--bad-fg:#be123c;
+  --r-card:10px;--r-inner:7px;--ease:cubic-bezier(.23,1,.32,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font:14px/1.45 Inter,system-ui,sans-serif;color:var(--text);background:var(--soft);-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+button{background:none;border:0;cursor:pointer}
+.num{font-variant-numeric:tabular-nums}
+
+/* prototype bar: not part of the app */
+.proto{min-height:44px;background:#101012;color:#d9dbe0;display:flex;align-items:center;gap:14px;padding:0 16px;position:sticky;top:0;z-index:40;flex-wrap:wrap}
+.proto b{color:#fff;font-weight:600;white-space:nowrap}
+.proto .grp{display:flex;gap:2px;align-items:center;flex-wrap:wrap}
+.proto button{height:30px;padding:0 12px;border-radius:7px;color:#a9adb6;white-space:nowrap;transition:transform .12s var(--ease)}
+.proto button:hover{color:#fff}
+.proto button:active{transform:scale(.97)}
+.proto button[aria-pressed=true]{background:#2c2d31;color:#fff;font-weight:500}
+.proto .sim button{background:#2c2d31;color:#e4e6ea}
+.proto label{display:flex;align-items:center;gap:6px;white-space:nowrap;cursor:pointer}
+
+.page{max-width:1180px;margin:0 auto;padding:26px 32px 56px}
+.ph{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+.ph h1{font-size:22px;line-height:30px;font-weight:600;color:var(--ink);letter-spacing:-.02em}
+.card{background:#fff;border:1px solid var(--line);border-radius:var(--r-card);overflow:hidden}
+.btn{height:36px;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:0 14px;border-radius:var(--r-inner);border:1px solid var(--line);background:#fff;color:var(--ink);font-weight:500;white-space:nowrap;transition:transform .12s var(--ease),background .12s}
+.btn:hover{background:var(--soft)}
+.btn:active{transform:scale(.97)}
+.btn[disabled]{opacity:.45;pointer-events:none}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff;box-shadow:inset 0 1px 0 rgba(255,255,255,.18)}
+.btn.pri:hover{background:#1f57d6}
+.btn.sm{height:32px;padding:0 12px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:var(--r-inner);overflow:hidden;background:#fff}
+.seg button{height:36px;padding:0 14px;color:var(--text);font-weight:500;border-left:1px solid var(--line);transition:background .12s,color .12s;white-space:nowrap}
+.seg button:first-child{border-left:0}
+.seg button:hover{background:var(--soft)}
+.seg button:active{transform:scale(.97)}
+.seg button.on{background:var(--ink);color:#fff}
+.view{display:none;animation:in .18s var(--ease)}
+.view.on{display:block}
+@keyframes in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+.dot{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.dot::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--faint);flex-shrink:0}
+.d-in::before{background:var(--ok)}.d-built::before{background:var(--accent)}.d-new::before{background:var(--warn)}.d-design::before{background:var(--line-2)}
+.d-yes::before{background:var(--ok)}.d-part::before{background:var(--warn)}.d-no::before{background:var(--bad)}
+.bad{color:var(--bad-fg)}.mute{color:var(--mute)}.ok{color:var(--ok-fg)}.warn{color:var(--warn-fg)}
+
+/* document header and figures */
+.doc{padding:18px 22px;margin-bottom:14px}
+.doc .top{display:flex;gap:14px;align-items:baseline;flex-wrap:wrap}
+.doc h2{font-size:18px;font-weight:600;color:var(--ink);letter-spacing:-.01em}
+.doc .st{margin-left:auto;font-weight:500;color:var(--ink)}
+.figs{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;margin-top:14px}
+.figs b{display:block;font-size:24px;line-height:1.2;font-weight:600;letter-spacing:-.02em;color:var(--ink);font-variant-numeric:tabular-nums}
+.figs span{color:var(--mute)}
+.opt{display:flex;gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap}
+
+/* stage rail */
+.rail{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);margin-bottom:14px}
+.stg{position:relative;padding:14px 12px 14px;text-align:left;border-left:1px solid var(--line);transition:background .12s;display:flex;flex-direction:column;gap:6px;min-width:0}
+.stg:first-child{border-left:0}
+.stg:hover{background:var(--soft)}
+.stg .n{width:22px;height:22px;border-radius:50%;background:var(--soft-2);color:var(--mute);display:grid;place-items:center;font-weight:600;font-size:14px}
+.stg .l{color:var(--text);font-weight:500;overflow-wrap:anywhere}
+.stg.past .n{background:var(--ink);color:#fff}
+.stg.past .l{color:var(--mute)}
+.stg.cur{background:var(--accent-bg);box-shadow:inset 0 3px 0 var(--accent)}
+.stg.cur .n{background:var(--accent);color:#fff}
+.stg.cur .l{color:var(--ink)}
+.stg .b{font-size:14px}
+.stg.bnd{border-left:3px solid var(--bad)}
+.stg.bnd::before{content:"Point of no return";position:absolute;left:12px;top:-1px;transform:translateY(-100%);color:var(--bad-fg);font-weight:500;font-size:14px;white-space:nowrap;padding-bottom:2px}
+.rail-wrap{padding-top:22px}
+.rail.card{overflow:visible;margin-top:30px}
+
+.cols{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:14px;align-items:start}
+.at .hd{padding:18px 22px 14px;border-bottom:1px solid var(--line)}
+.at .hd .k{display:flex;gap:12px;align-items:center;flex-wrap:wrap;color:var(--mute)}
+.at .hd h3{font-size:18px;font-weight:600;color:var(--ink);margin-top:2px}
+.at .stays{padding:12px 22px;border-bottom:1px solid var(--line);background:var(--soft);color:var(--text)}
+.at .stays b{color:var(--ink);font-weight:500}
+.act{display:grid;grid-template-columns:96px minmax(0,1fr) auto;gap:4px 14px;align-items:center;padding:14px 22px;border-bottom:1px solid var(--line)}
+.act:last-child{border-bottom:0}
+.act .v{font-weight:500;color:var(--ink)}
+.act .m .a{color:var(--ink);font-weight:500;overflow-wrap:anywhere}
+.act .m .o{color:var(--mute);display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.act .m .why{grid-column:1/-1;color:var(--text);margin-top:4px}
+.act.off .a{color:var(--mute)}
+.act.off .v{color:var(--mute)}
+.act .why{grid-column:2/-1;color:var(--text);padding:8px 12px;background:var(--soft);border-radius:var(--r-inner);margin-top:2px}
+.act .why b{color:var(--ink);font-weight:500}
+.nextbar{display:flex;gap:10px;justify-content:flex-end;align-items:center;padding:14px 22px;border-top:1px solid var(--line);background:#fff;flex-wrap:wrap;position:sticky;bottom:0}
+.nextbar .l{margin-right:auto;color:var(--mute)}
+.log{padding:6px 0;max-height:520px;overflow:auto}
+.log h3{padding:14px 22px 6px;font-size:14px;font-weight:600;color:var(--ink)}
+.log .e{display:grid;grid-template-columns:48px 1fr;gap:10px;padding:8px 22px;align-items:start}
+.log .e .t{color:var(--mute);font-variant-numeric:tabular-nums}
+.log .e .x{color:var(--ink);overflow-wrap:anywhere}
+.log .e .x span{display:block;color:var(--mute)}
+.log .e.last{background:var(--accent-bg)}
+.empty{padding:28px 22px;color:var(--mute)}
+
+/* tables (verbs, cannot go back) */
+table{width:100%;border-collapse:collapse}
+th{height:42px;text-align:left;font-weight:500;color:var(--mute);padding:0 16px;border-bottom:1px solid var(--line);white-space:nowrap;background:#fff}
+td{padding:12px 16px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+td.w{color:var(--ink);font-weight:500;white-space:nowrap}
+.note{margin-top:14px;color:var(--text);padding:14px 18px;background:#fff;border:1px solid var(--line);border-radius:var(--r-card)}
+.note b{color:var(--ink);font-weight:500}
+
+/* edge cases */
+.ec{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.ec .card{padding:18px 20px;display:flex;flex-direction:column;gap:10px}
+.ec h3{font-size:16px;font-weight:600;color:var(--ink)}
+.ec .rule{color:var(--text)}
+.ec .tag{color:var(--mute)}
+.ec .try{border-top:1px solid var(--line);padding-top:12px;display:flex;flex-direction:column;gap:10px}
+.ec .out{padding:10px 12px;border-radius:var(--r-inner);background:var(--soft);color:var(--ink)}
+.ec .out.good{background:var(--ok-bg);color:var(--ok-fg)}
+.ec .out.stop{background:var(--bad-bg);color:var(--bad-fg)}
+.ec .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.ec .row label{color:var(--mute);min-width:112px}
+.step{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:var(--r-inner);overflow:hidden;background:#fff}
+.step button{width:36px;height:36px;color:var(--text);font-size:18px}
+.step button:hover{background:var(--soft)}
+.step button:active{transform:scale(.97)}
+.step span{min-width:48px;text-align:center;color:var(--ink);font-weight:500;font-variant-numeric:tabular-nums}
+#toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,16px);background:#101012;color:#fff;padding:12px 16px;border-radius:10px;opacity:0;pointer-events:none;transition:opacity .2s var(--ease),transform .2s var(--ease);z-index:60;max-width:min(520px,calc(100% - 32px))}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+
+@media (max-width:1100px){.cols{grid-template-columns:1fr}.ec{grid-template-columns:1fr}.figs{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:900px){
+  .page{padding:16px 16px 40px}
+  .rail{grid-auto-flow:row;grid-auto-columns:auto}
+  .rail-wrap{padding-top:0}
+  .stg{flex-direction:row;align-items:center;gap:12px;padding:12px 16px;border-left:0;border-top:1px solid var(--line);min-height:48px}
+  .stg:first-child{border-top:0}
+  .stg.cur{box-shadow:inset 3px 0 0 var(--accent)}
+  .stg.bnd{border-left:0;border-top:2px solid var(--bad)}
+  .stg.bnd::before{position:static;transform:none;padding:0;margin-right:auto;order:3;font-size:14px}
+  .stg .l{flex:1}
+  .doc,.at .hd,.at .stays,.act,.nextbar,.log h3,.log .e{padding-left:16px;padding-right:16px}
+  .act{grid-template-columns:1fr;gap:6px}
+  .act .btn{width:100%;height:44px}
+  .act .why{grid-column:1}
+  .nextbar .btn{flex:1;height:44px}
+  .nextbar .l{flex-basis:100%}
+  .seg{display:flex;width:100%}.seg button{flex:1;padding:0 6px;height:44px}
+  .ph .seg{order:3}
+  th,td{padding:10px 12px}
+  td.w{white-space:normal}
+  table.stack thead{display:none}
+  table.stack,table.stack tbody,table.stack tr,table.stack td{display:block;width:100%}
+  table.stack tr{padding:12px 14px;border-bottom:1px solid var(--line)}
+  table.stack td{border:0;padding:2px 0}
+  .ec .row label{min-width:0;flex-basis:100%}
+  .btn.sm{height:44px}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition-duration:.01ms!important}}
+</style>
+</head>
+<body>
+<div class="proto">
+  <b>Goods flow · how far back</b>
+  <div class="grp" id="views"><button aria-pressed="true" data-v="flows">Flows</button><button aria-pressed="false" data-v="verbs">Four verbs</button><button aria-pressed="false" data-v="locked">Cannot go back</button><button aria-pressed="false" data-v="edge">Edge cases</button></div>
+  <div class="grp sim"><button id="reset">Reset</button></div>
+  <label><input type="checkbox" id="worst"> Worst case names</label>
+</div>
+
+<main class="page">
+  <section class="view on" id="v-flows">
+    <div class="ph"><h1>How far back</h1><div class="seg" id="flowseg"></div></div>
+    <div class="card doc" id="doc"></div>
+    <div class="card rail-wrap rail" id="rail" style="padding-top:0"></div>
+    <div class="cols">
+      <div class="card at" id="at"></div>
+      <div class="card log" id="log"></div>
+    </div>
+  </section>
+  <section class="view" id="v-verbs"></section>
+  <section class="view" id="v-locked"></section>
+  <section class="view" id="v-edge"></section>
+</main>
+<div id="toast" role="status"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const fmt = n => new Intl.NumberFormat('en-US').format(n);
+const pcs = n => `${fmt(n)} ${n === 1 ? 'pc' : 'pcs'}`;
+const APP = {in:['d-in', 'In the app'], built:['d-built', 'Built, not tested'], new:['d-new', 'Not in the app'], design:['d-design', 'To design']};
+const BACKTXT = {yes:['d-yes', 'Back: yes'], part:['d-part', 'Back: part only'], no:['d-no', 'Back: no']};
+let S, worst = false, clock = 9 * 60;
+
+function fresh() {
+  clock = 9 * 60;
+  S = {flow:'po', reason:'defect', at:{po:'form', dc:'form', ret:'form', sup:'form'}, log:{po:[], dc:[], ret:[], sup:[]},
+    n:{po:{ordered:600, counted:0, accepted:0, nao:0},
+       dc:{allotted:100, picked:0, packed:0, sent:0, received:0, short:0},
+       ret:{asked:20, sent:0, received:0},
+       sup:{asked:20, out:0, settled:0}}};
+}
+fresh();
+
+/* ---------- action helpers ---------- */
+const A = (verb, label, owner, o = {}) => ({verb, label, owner, on:true, app:'in', ...o});
+const L = (verb, label, owner, why, alt, o = {}) => ({verb, label, owner, on:false, why, alt, app:'in', ...o});
+const go = (to, msg) => ({to, log:msg});
+const f = () => S.n[S.flow];
+
+/* ---------- the four flows ---------- */
+const FLOWS = {
+  po: {
+    label:'PO → DC', doc:()=>'PO-041026-010', party:()=> worst ? 'Garmen Anugerah Abadi Sejahtera Makmur Jaya, UD' : 'Garmen AA, UD', bnd:'accepted',
+    figs:()=>{const n = f(); return [['Ordered', n.ordered], ['Counted', n.counted], ['Accepted', n.accepted], ['Not as Ordered', n.nao], ['Open on the PO', Math.max(0, n.ordered - n.accepted)]]},
+    stages:[
+      {id:'form', label:'PO form', back:'yes', stays:'Nothing is saved yet. There is no PO, and no Draft status is made for it.',
+        next:[{label:'Submit PO', to:'issued', log:'Buying submitted the PO'}],
+        acts:()=>[A('Back', 'Leave the form', 'Buying', {log:'Left the form. Nothing was saved'}), A('Edit', 'Change the form', 'Buying', {log:'Edited the form'})]},
+      {id:'issued', label:'PO issued', back:'part', stays:'A cancelled PO stays in history, and the DC is told.',
+        next:[{label:'Goods arrive', to:'counting', log:'Goods arrived at the DC'}],
+        acts:()=>[A('Edit', 'Edit the PO', 'Buying', {log:'PO revised. The revision is logged', note:'Only while eligible: no receipt, bill or advance yet'}),
+          A('Cancel', 'Cancel the PO', 'Buying', {...go('cancelled', 'PO cancelled. The DC was told. It stays in history'), note:'Only when no count is waiting'})]},
+      {id:'counting', label:'Count in progress', back:'yes', stays:'The arrival already made stays a fact, however the count form changes.',
+        next:[{label:'Submit count', to:'submitted', log:'Operations submitted the count', fx:()=>{const n = f(); n.counted = 585; n.nao = 15}}],
+        acts:()=>[A('Edit', 'Change what is typed', 'Operations', {log:'Count input changed'}), A('Back', 'Leave the form', 'Operations', {log:'Left the form. The arrival stays'})]},
+      {id:'submitted', label:'Count submitted', back:'yes', stays:'The old count stays in history. A recall changes no stock.',
+        next:[],
+        acts:()=>[
+          A('Recall', 'Recall the count', 'Counter', {app:'new', ...go('counting', 'Count recalled by the counter. It stays in history as Recalled. Stock did not change. The new count is for the same arrival'), fx:()=>{const n = f(); n.counted = 0; n.nao = 0}}),
+          A('Recount', 'Ask for a recount', 'Reviewer', {...go('counting', 'Recount asked for the same arrival. The old count stays'), fx:()=>{const n = f(); n.counted = 0; n.nao = 0}}),
+          A('Accept', 'Accept some lines', 'Reviewer', {...go('partly', 'Lines 1 and 2 accepted. The rest wait'), fx:()=>{f().accepted = 300}}),
+          A('Accept', 'Partial receive', 'Reviewer', {...go('accepted', 'Receipt and stock recorded for 585. The rest of the PO stays open'), fx:()=>{f().accepted = 585}}),
+          A('Close', 'Close short', 'Reviewer', {...go('closed', 'Receipt and stock recorded for 585. The rest of the PO is closed'), fx:()=>{f().accepted = 585}})]},
+      {id:'partly', label:'Some lines accepted', back:'part', stays:'Accepted lines are never pulled back. Only the pending lines move.',
+        next:[],
+        acts:()=>[
+          A('Recall', 'Recall the pending lines', 'Counter', {app:'new', ...go('counting', 'Pending lines recalled. The accepted lines stay accepted'), fx:()=>{f().counted = 285}}),
+          A('Recount', 'Recount the pending lines', 'Reviewer', {...go('counting', 'Recount asked for the pending lines only'), fx:()=>{f().counted = 285}}),
+          A('Accept', 'Accept the rest', 'Reviewer', {...go('accepted', 'The rest accepted. Receipt and stock recorded'), fx:()=>{f().accepted = 585}}),
+          L('Recall', 'Recall everything', 'Counter', 'Accepted lines are not pulled back.', 'Recall the pending lines only.')]},
+      {id:'accepted', label:'Accepted · stock recorded', back:'no', stays:'The original count and receipt stay. No movement is deleted.',
+        next:[{label:'Rest of the order arrives', to:'counting', log:'A new arrival. The first receipt stays as it is', fx:()=>{f().counted = 0}}],
+        acts:()=>[
+          L('Recall', 'Recall the count', 'Counter', 'The count was accepted and stock was recorded.', 'Add new evidence, or ask Inventory to check.'),
+          A('Correct', 'Add a new count as evidence', 'Operations', {log:'New evidence count linked. The original receipt stays'}),
+          A('Correct', 'Ask Inventory to check', 'Inventory', {log:'Inventory check opened for stock that differs after acceptance'}),
+          A('Correct', 'Return PO for wrong or extra', 'Buying', {log:'Return PO raised for 15 pcs. Nothing is reopened'}),
+          A('Close', 'Close short the rest of the PO', 'Buying', {...go('closed', 'The rest of the PO closed. Accepted receipts stay'), note:'Only the part still open'})]},
+      {id:'closed', label:'PO closed', back:'no', stays:'The PO is not reopened and no receipt is overwritten.',
+        next:[],
+        acts:()=>[L('Recall', 'Reopen the PO', 'Buying', 'A closed PO is never opened again.', 'A new order, a return or a correction document.'),
+          A('Correct', 'New order or correction document', 'Buying', {log:'New document made and linked to the closed PO'})]},
+      {id:'cancelled', label:'PO cancelled', back:'no', stays:'The PO stays in history.',
+        next:[],
+        acts:()=>[L('Recall', 'Reopen the PO', 'Buying', 'A cancelled PO is never opened again.', 'A new PO.'), A('Correct', 'New PO', 'Buying', {log:'New PO started, linked to the cancelled one'})]}
+    ]
+  },
+  dc: {
+    label:'DC → store', doc:()=>'ALT-00000004', party:()=> worst ? 'C001 · Cikupa Raya Jaya Makmur Sentosa' : 'C001 · Cikupa', bnd:'transit',
+    figs:()=>{const n = f(); return [['Allotted', n.allotted], ['Picked', n.picked], ['Packed', n.packed], ['Sent', n.sent], ['Received', n.received], ['Can still change', n.allotted - n.sent]]},
+    stages:[
+      {id:'form', label:'Allotment form', back:'yes', stays:'No request is saved yet.',
+        next:[{label:'Submit allotment', to:'issued', log:'MD submitted the allotment'}],
+        acts:()=>[A('Back', 'Leave the form', 'MD', {log:'Left the form'}), A('Edit', 'Change the form', 'MD', {log:'Edited the form'})]},
+      {id:'issued', label:'Issued · not picked', back:'yes', stays:'Revisions are logged. A cancelled demand is never revived.',
+        next:[{label:'Pick', to:'picked', log:'Operations picked 100', fx:()=>{const n = f(); n.picked = 100}}],
+        acts:()=>[A('Edit', 'Edit the allotment', 'MD', {app:'built', log:'Quantities edited in place. Never below what is sent'}),
+          A('Cancel', 'Cancel the allotment', 'MD', {app:'built', ...go('cancelled', 'Allotment cancelled. MD sees it at once')}),
+          A('Close', 'Close remaining', 'MD', {app:'built', log:'Remaining closed. The store gets what was sent'})]},
+      {id:'picked', label:'Picked', back:'yes', stays:'The other part can go on. Pieces MD took out go back first and are not asked for again.',
+        next:[{label:'Pack', to:'packed', log:'Operations packed 100', fx:()=>{const n = f(); n.packed = n.picked}}],
+        acts:()=>[A('Move back', 'Move back to the racks', 'Operations', {app:'built', ...go('issued', 'Pieces back on the racks, to be picked again'), fx:()=>{f().picked = 0}}),
+          A('Edit', 'MD reduces by 30', 'MD', {app:'built', log:'MD took out 30 pcs. Operations moves back 30, no new To pick', fx:()=>{const n = f(); n.allotted = 70; n.picked = 70}}),
+          A('Report', 'Cannot continue: 5 pcs', 'Operations', {app:'built', log:'95 continue. 5 stay on the picklist with a Short pick flag. Nothing is undone', fx:()=>{const n = f(); n.picked = 95; n.short = 5}})]},
+      {id:'packed', label:'Packed · not in transit', back:'yes', stays:'A numbered surat jalan is voided and reissued with history, never overwritten.',
+        next:[{label:'Dispatch all', to:'transit', log:'Trip left with all cartons', fx:()=>{const n = f(); n.sent = n.packed}},
+              {label:'Dispatch part (40)', to:'partsent', log:'Trip left with 40 pcs. The rest waits', fx:()=>{const n = f(); n.sent = 40}}],
+        acts:()=>[A('Move back', 'Unpack to Picked', 'Operations', {app:'built', ...go('picked', 'Cartons opened, labels reprinted. Pieces join the picked pile'), fx:()=>{f().packed = 0}}),
+          A('Edit', 'MD cancels the allotment', 'MD', {app:'built', ...go('cancelled', 'MD cancelled. Operations unpacks 100, the cartons are voided'), fx:()=>{const n = f(); n.allotted = 0; n.packed = 0; n.picked = 100}}),
+          A('Correct', 'Void or reissue the surat jalan', 'Operations', {app:'design', log:'Surat jalan voided and reissued. The old number stays in history'})]},
+      {id:'partsent', label:'Part sent', back:'part', stays:'Sent stays sent. Only the unsent part can change.',
+        next:[{label:'Dispatch the rest', to:'transit', log:'The rest left on a second trip', fx:()=>{const n = f(); n.sent = n.packed}}],
+        acts:()=>[A('Move back', 'Move back the unsent 60', 'Operations', {app:'built', log:'Unsent 60 moved back to Picked. The 40 sent are untouched', fx:()=>{const n = f(); n.packed = n.sent}}),
+          A('Close', 'Close remaining 60', 'MD', {app:'built', log:'Remaining 60 closed. The 40 sent stay', fx:()=>{f().allotted = f().sent}}),
+          L('Cancel', 'Cancel the sent 40', 'MD', 'Sent stays sent.', 'Count at the store, then a Return or a correction.')]},
+      {id:'transit', label:'In transit', back:'no', stays:'Sent stays sent. MD can only close or change the part that is not sent.',
+        next:[{label:'Store starts counting', to:'receiving', log:'The store opened the count'}],
+        acts:()=>[L('Move back', 'Move back', 'Operations', 'Nothing moves back from In transit.', 'The store counts it, then a Return or a correction document.'),
+          L('Recall', 'Recall the shipment', 'Operations', 'A shipment is not a count. There is nothing to recall.', 'Count at the destination.')]},
+      {id:'receiving', label:'Store counting', back:'yes', stays:'No receipt exists yet from what is typed.',
+        next:[{label:'Submit count', to:'completed', log:'Store counted 98 of 100 and submitted', fx:()=>{f().received = 98}}],
+        acts:()=>[A('Edit', 'Change what is typed', 'Store counter', {log:'Count input changed'}), A('Back', 'Leave the form', 'Store counter', {log:'Left the form'})]},
+      {id:'completed', label:'Received · Completed', back:'no', stays:'The delivery is Completed. The first count and the actual quantity both stay.',
+        next:[{label:'Close the allotment', to:'done', log:'Allotment closed'}],
+        acts:()=>[L('Recall', 'Recall the receipt', 'Store counter', 'Store receiving records the receipt at once. There is no review step to recall from.', 'Recount, or a new correction. Inventory checks the difference.'),
+          A('Recount', 'Recount (asked by Inventory)', 'Store counter', {log:'Recount asked. The first count stays'}),
+          A('Correct', 'Inventory checks the 2 pcs', 'Inventory', {log:'Issue case opened for 2 pcs. The delivery stays Completed'}),
+          A('Correct', 'Return to HO', 'MD', {log:'Return to HO raised as a new document'}),
+          A('Correct', 'New allotment', 'MD', {log:'New allotment made. Not a top-up of the old one'})]},
+      {id:'done', label:'Allotment closed', back:'no', stays:'Nothing is reopened or topped up.',
+        next:[],
+        acts:()=>[L('Recall', 'Reopen the allotment', 'MD', 'A finished allotment is not reopened.', 'Return to HO or a new allotment, if MD decides.'),
+          A('Correct', 'Return to HO', 'MD', {log:'Return to HO raised'}), A('Correct', 'New allotment', 'MD', {log:'New allotment made'})]},
+      {id:'cancelled', label:'Allotment cancelled', back:'no', stays:'Demand that was cancelled is never revived.',
+        next:[],
+        acts:()=>[L('Recall', 'Undo the cancel', 'MD', 'Cancelled demand is not revived.', 'A new allotment.'), A('Correct', 'New allotment', 'MD', {log:'New allotment made'})]}
+    ]
+  },
+  ret: {
+    label:'Store return', doc:()=>'RHO-000012', party:()=> worst ? 'C004 · Bumiayu Raya Jaya Makmur Sentosa' : 'C004 · Bumiayu', bnd:'transit',
+    figs:()=>{const n = f(); return [['Asked', n.asked], ['Sent', n.sent], ['Received', n.received], ['Still open', n.asked - n.sent], ['Receiving shortage', n.received < n.sent ? n.sent - n.received : 0]]},
+    stages:[
+      {id:'form', label:'New return', back:'yes', stays:'The store does not make returns by itself. MD asks.',
+        next:[{label:'Submit return', to:'requested', log:'MD asked the store to return 20'}],
+        acts:()=>[A('Back', 'Leave the form', 'MD', {log:'Left the form'}), A('Edit', 'Change the form', 'MD', {log:'Edited the form'})]},
+      {id:'requested', label:'Requested · not sent', back:'part', stays:'The request and every revision stay in history.',
+        next:[{label:'Store prepares', to:'prepare', log:'The store started preparing'}],
+        acts:()=>[A('Edit', 'Edit the unsent part', 'MD', {app:'new', log:'Request revised. Support for this is to be confirmed'}),
+          A('Cancel', 'Cancel the unsent part', 'MD', {app:'new', ...go('cancelled', 'Request cancelled before anything was sent')})]},
+      {id:'prepare', label:'Store prepares', back:'yes', stays:'The store needs no picking board.',
+        next:[{label:'Pack and send 15', to:'transit', log:'Pack and send done: 15 of 20. The other 5 stay explicitly open', fx:()=>{f().sent = 15}}],
+        acts:()=>[A('Edit', 'Set the actual quantity: 15', 'Store', {app:'new', log:'Actual 15 of 20. The reason for the other 5 is reported', fx:()=>{f().sent = 15}}),
+          A('Back', 'Leave without sending', 'Store', {log:'Left. Nothing was sent'})]},
+      {id:'transit', label:'In transit to DC', back:'no', stays:'Back or Refresh must not cancel a dispatch.',
+        next:[{label:'DC starts counting', to:'dccount', log:'The DC opened the count'}],
+        acts:()=>[L('Move back', 'Cancel the dispatch', 'Store', 'Pack and send already succeeded.', 'The DC counts it. A correction or a new return if it was wrong.')]},
+      {id:'dccount', label:'DC counting', back:'yes', stays:'The arrival is a fact.',
+        next:[{label:'Submit count', to:'received', log:'DC counted 15 and submitted', fx:()=>{f().received = 15}}],
+        acts:()=>[A('Edit', 'Change what is typed', 'Operations', {log:'Count input changed'}), A('Back', 'Leave the form', 'Operations', {log:'Left the form'})]},
+      {id:'received', label:'DC receipt · return stock', back:'no', stays:'The count and what was received stay. Asked 20, sent 15, received 15: the receipt is complete, the open 5 is not a receiving shortage.',
+        next:[],
+        acts:()=>[L('Recall', 'Recall the receipt', 'Operations', 'The receipt is recorded as return stock.', 'Inventory check, recount or a new correction.'),
+          A('Correct', 'Inventory check or recount', 'Inventory', {log:'Check opened. The first count stays'}),
+          A('Close', 'Close the open 5', 'MD', {app:'new', ...go('done', 'Open 5 closed. The 15 received stay'), fx:()=>{}}),
+          A('Correct', 'New allotment from the return stock', 'MD', {log:'New allotment. The old Return to HO is not reversed'})]},
+      {id:'done', label:'Return closed', back:'no', stays:'Nothing is reopened.',
+        next:[],
+        acts:()=>[L('Recall', 'Reopen the return', 'MD', 'A closed return is not reopened.', 'A new return, or a new allotment of the return stock.'), A('Correct', 'New allotment from the return stock', 'MD', {log:'New allotment made'})]},
+      {id:'cancelled', label:'Return cancelled', back:'no', stays:'The request stays in history.',
+        next:[], acts:()=>[A('Correct', 'New return', 'MD', {log:'New return started'})]}
+    ]
+  },
+  sup: {
+    label:'DC → supplier', doc:()=>'RS-00000007', party:()=> worst ? 'Garmen Anugerah Abadi Sejahtera Makmur Jaya, UD' : 'Garmen AA, UD', bnd:'handed',
+    figs:()=>{const n = f(); return [['Asked', n.asked], ['Handed over', n.out], ['Settled', n.settled], ['Settlement open', S.reason === 'defect' ? Math.max(0, n.out - n.settled) : 0]]},
+    stages:[
+      {id:'form', label:'Return form', back:'yes', stays:'No return document is issued yet.',
+        next:[{label:'Confirm return', to:'issued', log:'Return confirmed and issued'}],
+        acts:()=>[A('Back', 'Leave the form', 'PO owner', {log:'Left the form'}), A('Edit', 'Change the form', 'PO owner', {log:'Edited the form'})]},
+      {id:'issued', label:'Issued · not picked', back:'yes', stays:'Never show a Cancel that only changes a status without freeing the stock and the reservation.',
+        next:[{label:'Pick and pack', to:'packed', log:'Operations picked and packed 20'}],
+        acts:()=>[A('Cancel', 'Cancel the return', 'PO owner', {app:'design', ...go('cancelled', 'Return cancelled. Letter voided if there is one, the work released, stock and reservation freed')})]},
+      {id:'packed', label:'Picked · packed', back:'yes', stays:'The history of the surat jalan stays.',
+        next:[{label:'Hand over to the supplier', to:'handed', log:'Handed over to the supplier', fx:()=>{f().out = 20}}],
+        acts:()=>[A('Move back', 'Move back the physical work', 'Operations', {app:'design', ...go('issued', 'Pieces back, with the return document handled consistently')}),
+          A('Cancel', 'Cancel the unsent part', 'PO owner', {app:'design', ...go('cancelled', 'Unsent part closed or voided. The letter history stays')})]},
+      {id:'handed', label:'Handed over', back:'no', stays:'Do not claim the goods are still at the DC.',
+        next:[{label:'__over', to:'closed', log:'Over-delivery: closed at hand-over, nothing comes back'}, {label:'__defect', to:'settle', log:'Settlement opened: the supplier owes replacement, refund or a credit note'}],
+        acts:()=>[L('Move back', 'Move back', 'Operations', 'The supplier already has the goods.', 'Supplier evidence, a claim, or a new linked correction.'),
+          A('Correct', 'Add supplier evidence or a claim', 'Buying', {log:'Evidence linked to the return'})]},
+      {id:'settle', label:'Settlement open', back:'no', stays:'The physical return is not reopened. Settlement corrections go in new reversal notes.',
+        next:[],
+        acts:()=>[A('Correct', 'Replacement', 'Buying', {log:'Replacement agreed for 20', fx:()=>{f().settled = 20}}),
+          A('Correct', 'Refund', 'Buying', {log:'Refund agreed for 20', fx:()=>{f().settled = 20}}),
+          A('Correct', 'Credit note', 'Buying', {log:'Credit note agreed for 20', fx:()=>{f().settled = 20}}),
+          A('Close', 'Close short the rest owed', 'Buying', {...go('closed', 'The rest owed is closed. The original return stays')}),
+          A('Correct', 'Replacement arrives', 'Operations', {log:'A new receipt: Count, then Review. Recall only while it waits for acceptance'})]},
+      {id:'closed', label:'Settled or closed', back:'no', stays:'The evidence, the value and the closing decision stay.',
+        next:[],
+        acts:()=>[L('Recall', 'Reopen the return', 'Buying', 'A settled or closed return is not reopened.', 'A new correction or reversal note, linked to this return.'),
+          A('Correct', 'New correction note', 'Buying', {log:'Reversal note made and linked'})]},
+      {id:'cancelled', label:'Return cancelled', back:'no', stays:'The cancelled return stays in history.',
+        next:[], acts:()=>[A('Correct', 'New return', 'PO owner', {log:'New return started'})]}
+    ]
+  }
+};
+const MAIN = {po:['form', 'issued', 'counting', 'submitted', 'partly', 'accepted', 'closed'],
+  dc:['form', 'issued', 'picked', 'packed', 'partsent', 'transit', 'receiving', 'completed', 'done'],
+  ret:['form', 'requested', 'prepare', 'transit', 'dccount', 'received', 'done'],
+  sup:['form', 'issued', 'packed', 'handed', 'settle', 'closed']};
+
+const stageOf = (flow, id) => FLOWS[flow].stages.find(s => s.id === id);
+function say(flow, who, verb, text) {
+  clock += 4 + Math.floor(Math.random() * 6);
+  const h = String(Math.floor(clock / 60)).padStart(2, '0'), m = String(clock % 60).padStart(2, '0');
+  S.log[flow].push({t:`${h}:${m}`, who, verb, text});
+}
+function toast(t) { const el = $('#toast'); el.textContent = t; el.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove('on'), 2400); }
+
+/* ---------- Flows view ---------- */
+function renderFlows() {
+  const fl = S.flow, F = FLOWS[fl], at = S.at[fl], st = stageOf(fl, at);
+  $('#flowseg').innerHTML = Object.keys(FLOWS).map(k => `<button class="${k === fl ? 'on' : ''}" data-flow="${k}">${FLOWS[k].label}</button>`).join('');
+  const bk = BACKTXT[st.back];
+  $('#doc').innerHTML = `<div class="top"><h2>${F.doc()}</h2><span class="mute">${F.party()}</span><span class="st dot ${bk[0]}">${st.label}</span></div>
+    <div class="figs">${F.figs().map(([k, v]) => `<div><b>${fmt(v)}</b><span>${k}</span></div>`).join('')}</div>
+    ${fl === 'sup' ? `<div class="opt"><span class="mute">Reason</span><div class="seg" id="reasonseg"><button class="${S.reason === 'over' ? 'on' : ''}" data-reason="over">Over-delivery</button><button class="${S.reason === 'defect' ? 'on' : ''}" data-reason="defect">Defect or wrong item</button></div></div>` : ''}`;
+  const ids = MAIN[fl].slice();
+  if (!ids.includes(at)) ids.push(at);
+  const idx = ids.indexOf(at);
+  $('#rail').innerHTML = ids.map((id, i) => {
+    const s = stageOf(fl, id);
+    return `<button class="stg ${i < idx ? 'past' : ''} ${i === idx ? 'cur' : ''} ${F.bnd === id ? 'bnd' : ''}" data-stage="${id}"><span class="n">${i < idx ? '✓' : i + 1}</span><span class="l">${s.label}</span></button>`;
+  }).join('');
+  const acts = st.acts();
+  const next = st.next.map(n => ({...n, label: n.label === '__over' ? 'Close: nothing comes back' : n.label === '__defect' ? 'Open the settlement' : n.label}))
+    .filter(n => !(fl === 'sup' && at === 'handed' && ((n.to === 'closed' && S.reason !== 'over') || (n.to === 'settle' && S.reason !== 'defect'))));
+  $('#at').innerHTML = `<div class="hd"><div class="k"><span class="dot ${bk[0]}">${bk[1]}</span></div><h3>${st.label}</h3></div>
+    <div class="stays"><b>What stays.</b> ${st.stays}</div>
+    ${acts.map((a, i) => {
+      const ap = APP[a.app];
+      return `<div class="act ${a.on ? '' : 'off'}"><span class="v">${a.verb}</span>
+        <div class="m"><div class="a">${a.label}</div><div class="o"><span>${a.owner}</span><span class="dot ${ap[0]}">${ap[1]}</span>${a.note ? `<span>${a.note}</span>` : ''}</div></div>
+        ${a.on ? `<button class="btn sm" data-act="${i}">Do it</button>` : `<button class="btn sm" disabled>Locked</button>`}
+        ${a.on ? '' : `<div class="why"><b>Why not.</b> ${a.why} <b>Instead.</b> ${a.alt}</div>`}</div>`;
+    }).join('')}
+    <div class="nextbar"><span class="l">${next.length ? 'Move the document forward' : 'Nothing further in this flow'}</span>${next.map((n, i) => `<button class="btn pri" data-next="${i}">${n.label}</button>`).join('')}</div>`;
+  const lg = S.log[fl];
+  $('#log').innerHTML = `<h3>Activity</h3>${lg.length ? lg.slice().reverse().map((e, i) => `<div class="e ${i === 0 ? 'last' : ''}"><span class="t">${e.t}</span><span class="x">${e.text}<span>${e.who} · ${e.verb}</span></span></div>`).join('') : '<div class="empty">Nothing yet. Pick an action or move the document forward.</div>'}`;
+}
+function run(o, who, verb) {
+  if (o.fx) o.fx();
+  if (o.log) say(S.flow, who, verb, o.log);
+  if (o.to) S.at[S.flow] = o.to;
+  renderFlows();
+}
+document.addEventListener('click', e => {
+  const fb = e.target.closest('[data-flow]'); if (fb) { S.flow = fb.dataset.flow; renderFlows(); return; }
+  const rb = e.target.closest('[data-reason]'); if (rb) { S.reason = rb.dataset.reason; renderFlows(); return; }
+  const sb = e.target.closest('[data-stage]'); if (sb) { S.at[S.flow] = sb.dataset.stage; renderFlows(); return; }
+  const ab = e.target.closest('[data-act]');
+  if (ab) { const a = stageOf(S.flow, S.at[S.flow]).acts()[+ab.dataset.act]; run(a, a.owner, a.verb); return; }
+  const nb = e.target.closest('[data-next]');
+  if (nb) { const st = stageOf(S.flow, S.at[S.flow]); const list = st.next.filter(n => !(S.flow === 'sup' && S.at.sup === 'handed' && ((n.to === 'closed' && S.reason !== 'over') || (n.to === 'settle' && S.reason !== 'defect')))); const n = list[+nb.dataset.next]; run(n, 'System', 'Next'); return; }
+});
+
+/* ---------- Four verbs ---------- */
+function renderVerbs() {
+  const rows = [
+    ['Back', 'Leaves a screen or a form that is not submitted', 'You can always leave. It does not cancel a document that was saved.'],
+    ['Edit', 'A plan or document that still allows it, as a logged revision', 'Never changes receipt evidence or a quantity that was sent.'],
+    ['Recall count', 'Pulls back a submission that waits for review', 'Only the part not yet accepted, resolved or posted. The old count stays as Recalled and the new one is linked to the same arrival.'],
+    ['Recount', 'Asks for the count to be checked again', 'A new count. The old one stays. It is not an overwrite and it cancels no movement.'],
+    ['Cancel · Close remaining', 'Ends a request that has not happened yet', 'Does not undo what was sent, or receive what is not there.'],
+    ['Move back', 'Operations reverses physical work before departure', 'Picked to To pick, Packed to Picked or To pick. Never from In transit.'],
+    ['Correction · Return', 'A new fact or document that repairs what already happened', 'Links to the source. Does not reopen a finished document.']];
+  $('#v-verbs').innerHTML = `<div class="ph"><h1>Four verbs, and one rule</h1></div>
+    <div class="card"><table class="stack"><thead><tr><th>Action</th><th>Changes what</th><th>Limit</th></tr></thead><tbody>${rows.map(r => `<tr><td class="w">${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join('')}</tbody></table></div>
+    <div class="note"><b>The rule.</b> Recall pulls back a count that nobody accepted yet. Once a receipt, stock or a dispatch is recorded, the fix is a new record or a new document. A recalled count stays in history, and a retry after a dropped connection is not a recall and not a second delivery.</div>`;
+}
+/* ---------- Cannot go back ---------- */
+function renderLocked() {
+  const rows = [
+    ['A count the reviewer accepted', 'Stock was recorded from it.', 'A new count or evidence. Inventory checks what differs.'],
+    ['A receipt that is recorded and moved stock', 'The original receipt is evidence.', 'A recount or a new correction.'],
+    ['A shipment In transit', 'It left. Sent stays sent.', 'Count at the destination, then a Return or a correction.'],
+    ['A store or DC receipt after Submit', 'It became a receipt at once. There is no review step to recall from.', 'A recount or a new correction. The first receipt stays.'],
+    ['A PO, allotment or return that is finished, closed or cancelled', 'It is not opened again.', 'A new document.'],
+    ['A loss or stock adjustment that is posted', 'It is not deleted.', 'A linked correction.'],
+    ['Goods already handed to the supplier', 'They are not at the DC any more.', 'Evidence, a claim, a linked correction. An open settlement can still be worked.'],
+    ['A supplier settlement that is done or closed short', 'The closing decision stays.', 'A new note that links to it.']];
+  $('#v-locked').innerHTML = `<div class="ph"><h1>What cannot go back</h1></div>
+    <div class="card"><table class="stack"><thead><tr><th>What</th><th>Why it is locked</th><th>Use instead</th></tr></thead><tbody>${rows.map(r => `<tr><td class="w">${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join('')}</tbody></table></div>
+    <div class="note"><b>Partly processed.</b> The limit applies to the part that was processed. The part that is still pending or unsent can still be recalled, changed or closed, depending on its stage.</div>`;
+}
+/* ---------- Edge cases ---------- */
+const E = {race:null, zero:0, found:3, lost:2, damaged:false, book:20, sold:3, counted:15, cancelRet:12, retry:0};
+const stepper = (id, key, min, max) => `<span class="step"><button data-step="${key}" data-d="-1" data-min="${min}" data-max="${max}" aria-label="Less">−</button><span id="${id}">${E[key]}</span><button data-step="${key}" data-d="1" data-min="${min}" data-max="${max}" aria-label="More">+</button></span>`;
+function renderEdge() {
+  const race = E.race === null ? '<div class="out">Press one.</div>' : E.race === 'recall'
+    ? '<div class="out good">Recall won. The count is Recalled. The reviewer\'s Accept is refused: "This count was recalled by the counter". The reviewer can ask for the new count.</div>'
+    : '<div class="out good">Accept won. Stock is recorded. The counter\'s Recall is refused: "This count was already accepted". New evidence is the way now.</div>';
+  const zeroOut = E.zero === 0 ? '<div class="out">A zero is a count. It says nothing came, and puts the shortage in front of the reviewer. An empty carton cannot be sealed, and a carton that is emptied by a Move back is voided.</div>' : `<div class="out">${pcs(E.zero)} counted. Normal count.</div>`;
+  const rest = 5 - E.found - E.lost;
+  const pl = `<div class="out ${rest === 0 ? 'good' : 'stop'}">${rest === 0 ? `${pcs(E.found)} located: counted as received, nothing else moves.<br>${pcs(E.lost)} Lost: written off, MD told, the old demand is not revived.` : rest > 0 ? `${pcs(rest)} not decided yet. The case stays open.` : 'More than the shortage. Not allowed.'}</div>`;
+  const dm = E.damaged ? '<div class="out good">Damaged and still here: not a Loss. It stays on hand as Damaged. Inventory decides what happens to it.</div>' : '<div class="out">Not found anywhere: Inventory can confirm a Loss.</div>';
+  const exp = E.book - E.sold, vv = E.counted - exp, naive = E.counted - E.book;
+  const sl = `<div class="out ${vv === 0 ? 'good' : ''}">Expected at the count: ${fmt(exp)}. Variance: ${vv > 0 ? '+' : vv < 0 ? '−' : ''}${fmt(Math.abs(vv))}. Without the cut-off it would read ${naive > 0 ? '+' : naive < 0 ? '−' : ''}${fmt(Math.abs(naive))} and a sale would be taken as a loss.</div>`;
+  const cr = E.cancelRet;
+  const cc = `<div class="out">Cancel with ${pcs(cr)} picked of 20: Move back ${cr}, void the surat jalan, release the work and the reservation. ${cr === 20 ? 'The whole return is closed.' : `The unsent ${20 - cr} are closed as well.`}</div>`;
+  const rt = E.retry === 0 ? '<div class="out">Submit the count.</div>' : E.retry === 1 ? '<div class="out good">Count submitted. Stock booked once.</div>' : `<div class="out good">Submitted ${E.retry} times with the same key. The same result came back. Not a recall, not a second delivery, no second booking.</div>`;
+  const card = (t, tag, rule, body) => `<div class="card"><h3>${t}</h3><span class="tag dot ${tag === 'Rule proposed' ? 'd-built' : 'd-new'}">${tag}</span><div class="rule">${rule}</div><div class="try">${body}</div></div>`;
+  $('#v-edge').innerHTML = `<div class="ph"><h1>Edge cases</h1></div><div class="ec">
+    ${card('Recall at the same time as Accept', 'Rule proposed', 'Only one action may win. The other is refused with the reason.', `<div class="row"><button class="btn sm" data-race="recall">Counter recalls first</button><button class="btn sm" data-race="accept">Reviewer accepts first</button></div>${race}`)}
+    ${card('A count of zero, an empty carton', 'Needs a rule', 'A zero is valid. An empty carton is never sealed or sent.', `<div class="row"><label>Counted</label>${stepper('zv', 'zero', 0, 20)}</div>${zeroOut}`)}
+    ${card('Part located, part lost', 'Rule proposed', 'Each part gets its own result. The old demand stays closed.', `<div class="row"><label>Located</label>${stepper('fv', 'found', 0, 5)}</div><div class="row"><label>Lost</label>${stepper('lv', 'lost', 0, 5)}</div>${pl}`)}
+    ${card('Damaged but still here', 'Needs a rule', 'Not an automatic Loss.', `<div class="row"><button class="btn sm" data-dmg="1">Piece is damaged, on hand</button><button class="btn sm" data-dmg="0">Piece is gone</button></div>${dm}`)}
+    ${card('Found after the Loss was posted', 'Rule proposed', 'A stock correction that links to the adjustment. The old demand is not revived and MD is told.', `<div class="row"><button class="btn sm" data-found="1">Piece turns up</button></div><div class="out" id="fa">Press to see it.</div>`)}
+    ${card('Sales during a stock count', 'Needs a rule', 'Movements after the count started are netted, not read as loss.', `<div class="row"><label>On the book</label>${stepper('bv', 'book', 0, 40)}</div><div class="row"><label>Sold during</label>${stepper('sv', 'sold', 0, 10)}</div><div class="row"><label>Counted</label>${stepper('cv', 'counted', 0, 40)}</div>${sl}`)}
+    ${card('Cancel a return before it leaves, partly', 'Needs a rule', 'Cancel frees the stock and the reservation, and voids the letter. It is never only a status.', `<div class="row"><label>Picked of 20</label>${stepper('rv', 'cancelRet', 0, 20)}</div>${cc}`)}
+    ${card('Retry after a dropped connection', 'Rule proposed', 'The same idempotency key returns the same result.', `<div class="row"><button class="btn sm" data-retry="1">Submit again</button></div>${rt}`)}
+  </div>`;
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-race]'); if (b) { E.race = b.dataset.race; renderEdge(); return; }
+  const s = e.target.closest('[data-step]');
+  if (s) { const k = s.dataset.step, v = E[k] + (+s.dataset.d); if (v >= +s.dataset.min && v <= +s.dataset.max) { E[k] = v; renderEdge(); } return; }
+  const d = e.target.closest('[data-dmg]'); if (d) { E.damaged = d.dataset.dmg === '1'; renderEdge(); return; }
+  const fo = e.target.closest('[data-found]'); if (fo) { $('#fa').className = 'out good'; $('#fa').textContent = 'A correction is posted, linked to the Loss. The piece is back in stock. The old demand stays closed, and MD is told.'; return; }
+  const r = e.target.closest('[data-retry]'); if (r) { E.retry += 1; renderEdge(); return; }
+});
+
+/* ---------- shell ---------- */
+$('#views').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return; S.view = b.dataset.v;
+  [...document.querySelectorAll('#views button')].forEach(x => x.setAttribute('aria-pressed', x === b));
+  ['flows', 'verbs', 'locked', 'edge'].forEach(v => $('#v-' + v).classList.toggle('on', v === S.view));
+  if (S.view === 'verbs') renderVerbs(); if (S.view === 'locked') renderLocked(); if (S.view === 'edge') renderEdge(); if (S.view === 'flows') renderFlows();
+});
+$('#reset').onclick = () => { const v = S.view; fresh(); Object.assign(E, {race:null, zero:0, found:3, lost:2, damaged:false, book:20, sold:3, counted:15, cancelRet:12, retry:0}); renderFlows(); renderEdge(); toast('Reset'); };
+$('#worst').onchange = e => { worst = e.target.checked; renderFlows(); };
+renderFlows();
+</script>
+</body>
+</html>

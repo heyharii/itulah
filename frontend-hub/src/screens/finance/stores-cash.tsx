@@ -3,12 +3,13 @@ import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/field"
+import { Input, Select } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
 import { count, dateText, day, money } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { accountLedger, financeKeys } from "@/lib/queries/finance"
 import { useUnits } from "@/lib/queries/organisation"
 import { useDebounced } from "@/lib/use-debounced"
@@ -22,6 +23,8 @@ import {
 } from "@/screens/finance-final/parts"
 import { isoDay, todayIso } from "@/screens/finance/chart"
 import { ExpenseCodes } from "@/screens/finance/expense-codes"
+import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
+import { PhoneFigures } from "@/screens/finance/parts"
 import { ExpensesByWeek } from "@/screens/finance/stores"
 import {
   StoreFrame,
@@ -57,7 +60,7 @@ const ROLE_TEXT: Record<Role, { title: string; sub: string; empty: string }> = {
   },
   cashier_float: {
     title: "Cashier float",
-    sub: "The modal kasir left in each till for change.",
+    sub: "The float left in each till for change.",
     empty: "Nothing moved in the Cashier float this month.",
   },
 }
@@ -71,6 +74,7 @@ export function StoresOverview() {
   const open = useOpenStore()
   const today = todayIso()
   const roles: Role[] = ["cash", "petty_cash", "cashier_float"]
+  const phone = useLayout() === "phone"
   const balances = useQueries({
     queries: stores.flatMap((store) =>
       roles.map((role) => ({
@@ -102,6 +106,7 @@ export function StoresOverview() {
   return (
     <PageContent>
       <PageHeader
+        className="max-md:hidden"
         crumb="Finance"
         title="Stores"
         sub="The cash each shop holds today: on hand, in petty cash and in the cashier float."
@@ -114,60 +119,96 @@ export function StoresOverview() {
         <EmptyState>No shop is open yet.</EmptyState>
       ) : (
         <>
-          <Grid>
-            <thead>
-              <tr>
-                <Th>Shop</Th>
-                <Th align="right" width="12rem">
-                  Cash on hand
-                </Th>
-                <Th align="right" width="12rem">
-                  Petty cash
-                </Th>
-                <Th align="right" width="12rem">
-                  Cashier float
-                </Th>
-              </tr>
-            </thead>
-            <tbody>
-              {stores.map((store, i) => (
-                <tr
-                  key={store.id}
-                  className="cursor-pointer"
-                  onClick={() => open("/finance/stores/cash-on-hand", store.id)}
-                >
-                  <Td className="max-w-0">
-                    <span className="block truncate text-ink">
-                      {store.name}
-                    </span>
-                    <span className="block font-mono text-[0.875rem] text-mute">
-                      {store.code}
-                    </span>
-                  </Td>
-                  {roles.map((role, r) => {
-                    const one = at(i, r)
-                    return (
-                      <Td key={role} align="right">
-                        {one?.isPending
-                          ? "…"
-                          : one?.data === undefined
-                            ? "—"
-                            : money(one.data.closing_minor)}
-                      </Td>
-                    )
-                  })}
+          {phone ? (
+            <>
+              <PhoneFigures
+                items={roles.map((role, r) => ({
+                  label: ROLE_TEXT[role].title,
+                  value: total(r),
+                }))}
+              />
+              <PhoneList
+                rows={stores.map((store, i) => {
+                  const box = (r: number) =>
+                    at(i, r)?.isPending
+                      ? "…"
+                      : at(i, r)?.data === undefined
+                        ? "—"
+                        : money(at(i, r)?.data?.closing_minor ?? 0)
+                  return {
+                    key: store.id,
+                    title: store.name,
+                    code: store.code,
+                    lead: <CardFigure value={box(0)} caption="cash on hand" />,
+                    foot: (
+                      <span className="tabular-nums">
+                        Petty cash {box(1)} · Float {box(2)}
+                      </span>
+                    ),
+                    onOpen: () =>
+                      open("/finance/stores/cash-on-hand", store.id),
+                  }
+                })}
+              />
+            </>
+          ) : (
+            <Grid>
+              <thead>
+                <tr>
+                  <Th>Shop</Th>
+                  <Th align="right" width="12rem">
+                    Cash on hand
+                  </Th>
+                  <Th align="right" width="12rem">
+                    Petty cash
+                  </Th>
+                  <Th align="right" width="12rem">
+                    Cashier float
+                  </Th>
                 </tr>
-              ))}
-              <TotalRow>
-                <Td>All shops · {count(stores.length)}</Td>
-                {roles.map((role, r) => (
-                  <Td key={role} align="right">
-                    {money(total(r))}
-                  </Td>
+              </thead>
+              <tbody>
+                {stores.map((store, i) => (
+                  <tr
+                    key={store.id}
+                    className="cursor-pointer"
+                    onClick={() =>
+                      open("/finance/stores/cash-on-hand", store.id)
+                    }
+                  >
+                    <Td className="max-w-0">
+                      <span className="block truncate text-ink">
+                        {store.name}
+                      </span>
+                      <span className="block font-mono text-[0.875rem] text-mute">
+                        {store.code}
+                      </span>
+                    </Td>
+                    {roles.map((role, r) => {
+                      const one = at(i, r)
+                      return (
+                        <Td key={role} align="right">
+                          {one?.isPending
+                            ? "…"
+                            : one?.data === undefined
+                              ? "—"
+                              : money(one.data.closing_minor)}
+                        </Td>
+                      )
+                    })}
+                  </tr>
                 ))}
-              </TotalRow>
-            </tbody>
-          </Grid>
+                <TotalRow>
+                  <Td>All shops · {count(stores.length)}</Td>
+                  {roles.map((role, r) => (
+                    <Td key={role} align="right">
+                      {money(total(r))}
+                    </Td>
+                  ))}
+                </TotalRow>
+              </tbody>
+            </Grid>
+          )}
           <p className="mt-3 text-[0.875rem] text-mute">
             Balances as of today. Cash takings go to the shop's Cash on hand;
             card and QRIS takings go to the bank.
@@ -226,6 +267,7 @@ function CashLedger({ role, unitId }: { role: Role; unitId: string }) {
   const q = useDebounced(needle.trim(), 250)
   const range =
     months.find((one) => one.value === month) ?? months[months.length - 1]
+  const phone = useLayout() === "phone"
 
   // The balance now is its own question: the window may be an old month.
   const now = useQueries({
@@ -303,7 +345,20 @@ function CashLedger({ role, unitId }: { role: Role; unitId: string }) {
         <WeeklySpending unitId={unitId} />
       ) : (
         <>
-          <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <PhoneFigures
+            items={[
+              { label: "Balance now", value: now.data?.closing_minor ?? null },
+              {
+                label: "In this month",
+                value: first?.window_debit_minor ?? null,
+              },
+              {
+                label: "Out this month",
+                value: first?.window_credit_minor ?? null,
+              },
+            ]}
+          />
+          <div className="mb-4 grid grid-cols-1 gap-3 max-md:hidden sm:grid-cols-3">
             <NumberCard
               label="Balance now"
               value={now.data?.closing_minor ?? null}
@@ -321,16 +376,32 @@ function CashLedger({ role, unitId }: { role: Role; unitId: string }) {
             />
           </div>
 
+          {/* On a phone the month is one of the Filters, not a second chip in
+              the dock beside the shop's. */}
           <SubTabs
+            className="max-md:hidden"
             tabs={months.map((one) => ({ value: one.value, label: one.label }))}
             value={month}
             onChange={setMonth}
           />
           <Toolbar className="mt-4">
+            <Select
+              value={month}
+              onChange={setMonth}
+              aria-label="Month"
+              className="md:hidden"
+            >
+              {months.map((one) => (
+                <option key={one.value} value={one.value}>
+                  {one.label}
+                </option>
+              ))}
+            </Select>
             <Input
               value={needle}
               onChange={(event) => setNeedle(event.target.value)}
               aria-label="Search the ledger"
+              placeholder="Search the ledger"
               className="w-72"
             />
           </Toolbar>
@@ -345,67 +416,103 @@ function CashLedger({ role, unitId }: { role: Role; unitId: string }) {
             </EmptyState>
           ) : (
             <>
-              <Grid>
-                <thead>
-                  <tr>
-                    <Th width="8rem">Date</Th>
-                    <Th width="9rem">Entry</Th>
-                    <Th>Description</Th>
-                    <Th align="right" width="10rem">
-                      In
-                    </Th>
-                    <Th align="right" width="10rem">
-                      Out
-                    </Th>
-                    <Th align="right" width="11rem">
-                      Balance
-                    </Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr data-total className="h-12">
-                    <Td colSpan={5} className="text-mute">
-                      Balance at the start of {range.label}
-                    </Td>
-                    <Td align="right" className="text-mute">
-                      {first ? money(first.opening_minor) : "—"}
-                    </Td>
-                  </tr>
-                  {rows.map((row) => (
-                    <tr key={row.line_id}>
-                      <Td className="text-body">{day(row.posting_date)}</Td>
-                      <Td className="font-mono text-[0.875rem] text-mute">
-                        {row.entry_number}
+              {phone ? (
+                <>
+                  <p className="mb-2.5 text-[0.875rem] text-mute tabular-nums">
+                    Balance at the start of {range.label}:{" "}
+                    {first ? money(first.opening_minor) : "—"}
+                  </p>
+                  <PhoneList
+                    rows={rows.map((row) => {
+                      const incoming = row.debit_minor !== 0
+                      return {
+                        key: row.line_id,
+                        title: row.memo ?? row.account_name,
+                        code: row.entry_number,
+                        lead: (
+                          <CardFigure
+                            value={money(
+                              incoming ? row.debit_minor : row.credit_minor
+                            )}
+                            caption={incoming ? "in" : "out"}
+                          />
+                        ),
+                        foot: (
+                          <span className="tabular-nums">
+                            {day(row.posting_date)} · Balance{" "}
+                            {money(row.running_minor)}
+                          </span>
+                        ),
+                      }
+                    })}
+                  />
+                </>
+              ) : (
+                <Grid>
+                  <thead>
+                    <tr>
+                      <Th width="8rem">Date</Th>
+                      <Th width="9rem">Entry</Th>
+                      <Th>Description</Th>
+                      <Th align="right" width="10rem">
+                        In
+                      </Th>
+                      <Th align="right" width="10rem">
+                        Out
+                      </Th>
+                      <Th align="right" width="11rem">
+                        Balance
+                      </Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr data-total className="h-12">
+                      <Td colSpan={5} className="text-mute">
+                        Balance at the start of {range.label}
                       </Td>
-                      <Td className="max-w-0">
-                        <span
-                          className="block truncate text-ink"
-                          title={row.memo ?? row.account_name}
-                        >
-                          {row.memo ?? row.account_name}
-                        </span>
-                      </Td>
-                      <Td align="right">
-                        {row.debit_minor === 0 ? (
-                          <span className="text-mute">·</span>
-                        ) : (
-                          money(row.debit_minor)
-                        )}
-                      </Td>
-                      <Td align="right">
-                        {row.credit_minor === 0 ? (
-                          <span className="text-mute">·</span>
-                        ) : (
-                          money(row.credit_minor)
-                        )}
-                      </Td>
-                      <Td align="right" className={cn(q === "" && "text-ink")}>
-                        {money(row.running_minor)}
+                      <Td align="right" className="text-mute">
+                        {first ? money(first.opening_minor) : "—"}
                       </Td>
                     </tr>
-                  ))}
-                </tbody>
-              </Grid>
+                    {rows.map((row) => (
+                      <tr key={row.line_id}>
+                        <Td className="text-body">{day(row.posting_date)}</Td>
+                        <Td className="font-mono text-[0.875rem] text-mute">
+                          {row.entry_number}
+                        </Td>
+                        <Td className="max-w-0">
+                          <span
+                            className="block truncate text-ink"
+                            title={row.memo ?? row.account_name}
+                          >
+                            {row.memo ?? row.account_name}
+                          </span>
+                        </Td>
+                        <Td align="right">
+                          {row.debit_minor === 0 ? (
+                            <span className="text-mute">·</span>
+                          ) : (
+                            money(row.debit_minor)
+                          )}
+                        </Td>
+                        <Td align="right">
+                          {row.credit_minor === 0 ? (
+                            <span className="text-mute">·</span>
+                          ) : (
+                            money(row.credit_minor)
+                          )}
+                        </Td>
+                        <Td
+                          align="right"
+                          className={cn(q === "" && "text-ink")}
+                        >
+                          {money(row.running_minor)}
+                        </Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Grid>
+              )}
               {pages.hasNextPage && (
                 <div className="mt-3">
                   <Button

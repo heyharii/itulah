@@ -5,7 +5,7 @@ import { AppLink } from "@/components/ui/app-link"
 import { Input, Select } from "@/components/ui/field"
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
 import { SHOW_MISSING } from "@/lib/features"
-import { count, dateText } from "@/lib/format"
+import { count, time, weekday } from "@/lib/format"
 import {
   articleHistory,
   fleetPools,
@@ -166,17 +166,12 @@ function docOf(ev: ArticleHistoryEvent): Doc | null {
   return null
 }
 
-const hhmm = (iso: string) =>
-  new Date(iso).toLocaleTimeString("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-  })
+const hhmm = time
 const dayKey = (iso: string) => {
   const d = new Date(iso)
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
 }
-const dayHead = (iso: string) =>
-  dateText(new Date(iso), { weekday: "short", day: "numeric", month: "short" })
+const dayHead = (iso: string) => weekday(iso)
 
 export function History({ row }: { row: ArticleRow }) {
   const [store, setStore] = useState("")

@@ -22,15 +22,15 @@ use super::employment::{current_unit, reach_of, resolve};
 use crate::cloud::{
     application::{AppError, AppState},
     domain::{
-        AssignmentSpan, AssignmentTimeline, Authorization, Contract, ContractKind,
-        ContractTimeline, Employee, EmployeeId, Grade, Position, UnitId, actions, people::*,
-        required_role_for_action, role_allows,
+        actions, people::*, required_role_for_action, role_allows, AssignmentSpan,
+        AssignmentTimeline, Authorization, Contract, ContractKind, ContractTimeline, Employee,
+        EmployeeId, Grade, Position, UnitId,
     },
     postgres::{self as infrastructure, EmployeeRecord},
 };
 use axum::{
-    Extension, Json,
     extract::{Path, Query, State},
+    Extension, Json,
 };
 use chrono::{DateTime, NaiveDate, Utc};
 use pricing_engine::Money;

@@ -67,7 +67,9 @@ pub async fn accounting_dimensions(pool: &PgPool) -> Result<Vec<AccountingDimens
             let code: String = row.try_get("code")?;
             let own = values
                 .iter()
-                .filter(|value| value.try_get::<String, _>("dimension_code").ok().as_deref() == Some(&code))
+                .filter(|value| {
+                    value.try_get::<String, _>("dimension_code").ok().as_deref() == Some(&code)
+                })
                 .map(|value| {
                     Ok(DimensionValue {
                         value_code: value.try_get("value_code")?,
@@ -95,7 +97,9 @@ pub async fn save_accounting_dimension(
 ) -> Result<Vec<AccountingDimension>, AppError> {
     let code = request.code.trim().to_ascii_uppercase();
     if code.is_empty() || request.name.trim().is_empty() {
-        return Err(AppError::Validation("a dimension has a code and a name".into()));
+        return Err(AppError::Validation(
+            "a dimension has a code and a name".into(),
+        ));
     }
     sqlx::query(
         "INSERT INTO accounting_dimension
@@ -123,7 +127,9 @@ pub async fn save_dimension_value(
 ) -> Result<Vec<AccountingDimension>, AppError> {
     let code = value.value_code.trim();
     if code.is_empty() || value.name.trim().is_empty() {
-        return Err(AppError::Validation("a dimension value has a code and a name".into()));
+        return Err(AppError::Validation(
+            "a dimension value has a code and a name".into(),
+        ));
     }
     sqlx::query(
         "INSERT INTO accounting_dimension_value (dimension_code, value_code, name, is_active)

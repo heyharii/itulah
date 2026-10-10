@@ -4,13 +4,15 @@ import { useMemo, useState } from "react"
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
+import { Fab } from "@/components/ui/fab"
 import { Panel, ConfirmButton } from "@/components/ui/dialog"
 import { Checkbox, Field, Input, Money } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Status } from "@/components/ui/pill"
 import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState, Problem } from "@/components/ui/states"
-import { count, money } from "@/lib/format"
+import { count, money, percentBps } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   accountDetail,
   financeKeys,
@@ -23,10 +25,12 @@ import { queryState } from "@/lib/query-state"
 import { Code, Grid, Td, Th } from "@/screens/finance-final/parts"
 import { EXPENSE_LINE_CLASSES } from "@/screens/finance/chart"
 import { useCategoryName, useSupplierName } from "@/screens/finance/hooks"
+import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
 import {
   AccountAndCategory,
   accountChoiceProblem,
   accountChoiceReady,
+  PhoneChoice,
   SiteName,
   SiteSelect,
   SupplierName,
@@ -57,6 +61,7 @@ export function RecurringBills() {
   const [retired, setRetired] = useState(false)
   const [opened, setOpened] = useState<string | "new" | null>(null)
   const [needle, setNeedle] = useState("")
+  const phone = useLayout() === "phone"
   const supplierName = useSupplierName()
 
   const rows = useMemo(() => {
@@ -82,6 +87,7 @@ export function RecurringBills() {
   return (
     <PageContent>
       <PageHeader
+        className="max-md:hidden"
         crumb="Finance · Payables"
         title="Recurring Bills"
         actions={
@@ -90,12 +96,25 @@ export function RecurringBills() {
           </Button>
         }
       />
+      {/* A phone: "Show retired" is a chip in the dock, the new bill the
+          round +. */}
+      <PhoneChoice
+        title="Show"
+        value={retired ? "all" : "active"}
+        onChange={(next) => setRetired(next === "all")}
+        options={[
+          { value: "active", label: "Active" },
+          { value: "all", label: "Active and retired", short: "All" },
+        ]}
+      />
+      <Fab label="New recurring bill" onClick={() => setOpened("new")} />
 
       <Toolbar>
         <Input
           value={needle}
           onChange={(event) => setNeedle(event.target.value)}
-          aria-label="Search"
+          aria-label="Search recurring bills"
+          placeholder="Search recurring bills"
           className="h-control w-64"
         />
         <Toolbar.Spacer />
@@ -105,8 +124,8 @@ export function RecurringBills() {
         </span>
       </Toolbar>
 
-      <Card className="overflow-hidden">
-        <CardHeader>
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+        <CardHeader className="max-md:hidden">
           <CardTitle>Recurring bills</CardTitle>
           <Checkbox
             label="Show retired"
@@ -125,6 +144,41 @@ export function RecurringBills() {
                     ? "No recurring bill yet. Add the charges a supplier sends every month — rent, internet, freight — and a draft bill is raised for each one."
                     : "Nothing is active. Tick Show retired to see the ones that were stopped."}
               </EmptyState>
+            ) : phone ? (
+              <PhoneList
+                rows={rows.map((row) => ({
+                  key: row.template_id,
+                  title: row.label,
+                  line: (
+                    <SupplierName
+                      id={row.supplier_id}
+                      name={row.supplier_name}
+                    />
+                  ),
+                  lead: (
+                    <CardFigure
+                      value={money(
+                        row.expected_subtotal_minor + row.expected_tax_minor
+                      )}
+                      caption={`on day ${count(row.due_day)}`}
+                    />
+                  ),
+                  foot: (
+                    <span className="flex flex-col">
+                      <SiteName id={row.site_id} />
+                      <span className="truncate">
+                        <AccountLabel code={row.expense_account_code} />
+                      </span>
+                    </span>
+                  ),
+                  action: (
+                    <Status tone={row.active ? "ok" : "done"}>
+                      {row.active ? "Active" : "Retired"}
+                    </Status>
+                  ),
+                  onOpen: () => setOpened(row.template_id),
+                }))}
+              />
             ) : (
               <Grid>
                 <thead>
@@ -260,7 +314,7 @@ function RecurringBillDetail({
     ],
     [
       "Tolerance",
-      `${count(template.tolerance_bps / 100)}% either way before a draft is flagged`,
+      `${percentBps(template.tolerance_bps)} either way before a draft is flagged`,
     ],
     ["Note", template.note ?? "—"],
     ["Recorded by", template.created_by],

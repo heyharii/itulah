@@ -5,10 +5,12 @@ import { FileWarning, LayoutGrid, Rows3, Upload } from "lucide-react"
 import { useMemo, useRef, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
+import { Fab } from "@/components/ui/fab"
 import { ExceptionQueue, type Exception } from "@/components/ui/exception-queue"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import {
@@ -21,7 +23,7 @@ import { Pill } from "@/components/ui/pill"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
-import { usePanelDock } from "@/lib/layout"
+import { useLayout, usePanelDock } from "@/lib/layout"
 import { queryState } from "@/lib/query-state"
 import {
   listFiles,
@@ -31,6 +33,12 @@ import {
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { cn } from "@/lib/utils"
+import {
+  CardFigure,
+  CardName,
+  type CardSpec,
+  PhoneCards,
+} from "@/components/ui/phone-cards"
 import { ago, bytes, fileKind } from "@/screens/workplace/lib"
 import { FileTile } from "@/screens/workplace/parts"
 import {
@@ -275,6 +283,7 @@ export function Library() {
 
   const filters = useFilters(columns)
   const docked = useDockedFilters()
+  const phone = useLayout() === "phone"
 
   const table = useTable(
     useMemo(
@@ -377,7 +386,7 @@ export function Library() {
             the owner asked for this screen's filters to stand where that
             screen's do, and half an answer would have been the panel in the
             right place under a search box still stranded in the page header. */}
-        <div className="group/bar mb-3 flex flex-wrap items-center gap-1.5">
+        <div className="group/bar mb-3 flex flex-wrap items-center gap-1.5 max-md:hidden">
           <ExpandingSearch
             value={query}
             onChange={setQuery}
@@ -388,6 +397,22 @@ export function Library() {
           <ViewSwitch grid={grid} onChange={view.open} />
           <PickButton onFiles={setPicked} />
         </div>
+
+        {/* On a phone the search, the filters and the order are the dock's, and
+            adding a file is its round button. The files are cards. */}
+        <PickFab onFiles={setPicked} />
+        <DockTools
+          search={{
+            value: query,
+            onChange: setQuery,
+            label: "Search the library",
+          }}
+          filter={{
+            count: filters.filters.length,
+            panel: { model: filters, table },
+          }}
+          sort={dockSortOf(table)}
+        />
 
         {problem !== null && (
           <Banner tone="bad" className="mb-4">
@@ -431,6 +456,20 @@ export function Library() {
                       </button>
                     </EmptyState>
                   </Card>
+                ) : phone ? (
+                  <PhoneCards
+                    rows={shown}
+                    rowId={(row) => row.key}
+                    spec={FILE_CARD}
+                    onOpen={(row) =>
+                      row.source === "FILED"
+                        ? filed.open(row.id)
+                        : attached.open(row.id)
+                    }
+                    selected={(row) =>
+                      row.id === filed.value || row.id === attached.value
+                    }
+                  />
                 ) : grid ? (
                   <div className={GRID}>
                     {shown.map((row) => (
@@ -481,6 +520,61 @@ export function Library() {
         <PlaceSheet files={picked} onClose={() => setPicked([])} />
       </PageContent>
     </UploadZone>
+  )
+}
+
+/// A file as a phone's card: its name over the file it is, where it is kept,
+/// how big it is, who put it there and when, and — only when something is
+/// wrong with it — the state it is in.
+const FILE_CARD: CardSpec<VaultRow> = {
+  title: (row) => (
+    <CardName
+      name={row.title}
+      code={
+        row.source === "FILED" && row.folder.length > 0
+          ? folderOf(row)
+          : row.name
+      }
+    />
+  ),
+  meta: [
+    (row) =>
+      row.room === null
+        ? `Filed · ${folderOf(row)}`
+        : `${row.room.kind === "DISCUSSION" ? "Thread" : "Chat"} · ${row.room.title}`,
+    (row) => (row.tags.length === 0 ? null : row.tags.join(" · ")),
+  ],
+  lead: (row) => (
+    <CardFigure value={bytes(row.byteSize)} caption={fileKind(row.name)} />
+  ),
+  foot: (row) => `${row.by} · ${ago(row.at)}`,
+  action: (row) => {
+    const state = stateOf(row)
+    return state === "There" ? null : (
+      <Pill tone={state === "Gone" ? "bad" : "warn"}>{state}</Pill>
+    )
+  },
+}
+
+/// Adding a file, on a phone: the round button over the bottom bar, which opens
+/// the same picker the desk's button does.
+function PickFab({ onFiles }: { onFiles: (files: readonly File[]) => void }) {
+  const input = useRef<HTMLInputElement>(null)
+  return (
+    <>
+      <input
+        ref={input}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={(event) => {
+          onFiles(Array.from(event.target.files ?? []))
+          // Cleared so picking the same file twice in a row still fires.
+          event.target.value = ""
+        }}
+      />
+      <Fab label="Add a file" onClick={() => input.current?.click()} />
+    </>
   )
 }
 

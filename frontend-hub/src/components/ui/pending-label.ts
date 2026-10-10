@@ -1,0 +1,92 @@
+/// What a button says while its write is on the way: the same verb as a
+/// present participle — "Save changes" becomes "Saving changes…", "Void sale"
+/// becomes "Voiding sale…" (the 6 Oct 2026 audit found "Submitting…",
+/// "Sending…", "Posting…" and "Cancelling…" all in use for "Save").
+///
+/// Only a label that opens with a verb this list knows is turned over. "Yes,
+/// retire it" or a node with an icon in it comes back as it was: a wrong
+/// participle ("Yes,ing") is worse than a button that keeps its label while it
+/// is disabled, which is what every button did before this existed.
+const PARTICIPLE: Readonly<Record<string, string>> = {
+  accept: "Accepting",
+  activate: "Activating",
+  add: "Adding",
+  agree: "Agreeing",
+  apply: "Applying",
+  approve: "Approving",
+  archive: "Archiving",
+  assign: "Assigning",
+  block: "Blocking",
+  cancel: "Cancelling",
+  close: "Closing",
+  complete: "Completing",
+  confirm: "Confirming",
+  copy: "Copying",
+  create: "Creating",
+  deactivate: "Deactivating",
+  delete: "Deleting",
+  discard: "Discarding",
+  dispatch: "Dispatching",
+  download: "Downloading",
+  edit: "Editing",
+  end: "Ending",
+  export: "Exporting",
+  file: "Filing",
+  finish: "Finishing",
+  generate: "Generating",
+  give: "Giving",
+  grant: "Granting",
+  hold: "Holding",
+  import: "Importing",
+  invite: "Inviting",
+  issue: "Issuing",
+  mark: "Marking",
+  move: "Moving",
+  open: "Opening",
+  order: "Ordering",
+  pack: "Packing",
+  pause: "Pausing",
+  pay: "Paying",
+  post: "Posting",
+  print: "Printing",
+  publish: "Publishing",
+  put: "Putting",
+  reactivate: "Reactivating",
+  receive: "Receiving",
+  recount: "Recounting",
+  record: "Recording",
+  register: "Registering",
+  reject: "Rejecting",
+  release: "Releasing",
+  remove: "Removing",
+  renew: "Renewing",
+  reopen: "Reopening",
+  reset: "Resetting",
+  restore: "Restoring",
+  resume: "Resuming",
+  retire: "Retiring",
+  reverse: "Reversing",
+  revoke: "Revoking",
+  save: "Saving",
+  seal: "Sealing",
+  send: "Sending",
+  set: "Setting",
+  settle: "Settling",
+  start: "Starting",
+  stop: "Stopping",
+  submit: "Submitting",
+  take: "Taking",
+  unblock: "Unblocking",
+  update: "Updating",
+  upload: "Uploading",
+  void: "Voiding",
+  withdraw: "Withdrawing",
+}
+
+export function pendingLabel(label: React.ReactNode): React.ReactNode {
+  if (typeof label !== "string") return label
+  const found = /^([A-Za-z]+)([\s\S]*?)[…?.]*$/.exec(label.trim())
+  if (found === null) return label
+  const verb = PARTICIPLE[found[1].toLowerCase()]
+  return verb === undefined ? label : `${verb}${found[2]}…`
+}

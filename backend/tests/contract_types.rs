@@ -222,6 +222,8 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("PurchaseWorkLine: {e}"));
     inventory_backend::edge::PurchaseCountRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("PurchaseCountRequest: {e}"));
+    inventory_backend::edge::PurchaseCountBatchRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("PurchaseCountBatchRequest: {e}"));
     inventory_backend::edge::PurchaseVerifyRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("PurchaseVerifyRequest: {e}"));
     inventory_backend::edge::GoodsReceiptView::export_all(&config)
@@ -270,6 +272,13 @@ fn the_wire_types_are_written_for_the_browser() {
     // delivery.
     inventory_backend::edge::PurchaseCountResult::export_all(&config)
         .unwrap_or_else(|e| panic!("PurchaseCountResult: {e}"));
+    inventory_backend::edge::PurchaseCountBatchResult::export_all(&config)
+        .unwrap_or_else(|e| panic!("PurchaseCountBatchResult: {e}"));
+    // The bay taking its count back before review (0950).
+    inventory_backend::edge::PurchaseCountRecallRequest::export_all(&config)
+        .unwrap_or_else(|e| panic!("PurchaseCountRecallRequest: {e}"));
+    inventory_backend::edge::PurchaseCountRecallResult::export_all(&config)
+        .unwrap_or_else(|e| panic!("PurchaseCountRecallResult: {e}"));
     inventory_backend::edge::PurchaseVerifyResult::export_all(&config)
         .unwrap_or_else(|e| panic!("PurchaseVerifyResult: {e}"));
     inventory_backend::edge::PurchaseCountAwaitingVerification::export_all(&config)
@@ -391,6 +400,10 @@ fn the_wire_types_are_written_for_the_browser() {
         .unwrap_or_else(|e| panic!("CreateSupplierContactRequest: {e}"));
     inventory_backend::cloud::postgres::UpdateSupplierContactRequest::export_all(&config)
         .unwrap_or_else(|e| panic!("UpdateSupplierContactRequest: {e}"));
+    inventory_backend::cloud::postgres::SupplierContactsPatch::export_all(&config)
+        .unwrap_or_else(|e| panic!("SupplierContactsPatch: {e}"));
+    inventory_backend::cloud::postgres::SupplierContactUpdate::export_all(&config)
+        .unwrap_or_else(|e| panic!("SupplierContactUpdate: {e}"));
     // Units of measure and their conversions: what a buyer may order in, and
     // how many pieces each is.
     for_contract!(

@@ -40,12 +40,36 @@ pub(crate) fn apply_schema(connection: &Connection) -> Result<(), EdgeError> {
              );",
         )
         .map_err(db)?;
-    widen_check(connection, "sale_tender", "'VOUCHER')", "'VOUCHER','EWALLET')", "EWALLET")?;
-    widen_check(connection, "sale_return", "'QRIS','OTHER')", "'QRIS','OTHER','EWALLET')", "EWALLET")?;
+    widen_check(
+        connection,
+        "sale_tender",
+        "'VOUCHER')",
+        "'VOUCHER','EWALLET')",
+        "EWALLET",
+    )?;
+    widen_check(
+        connection,
+        "sale_return",
+        "'QRIS','OTHER')",
+        "'QRIS','OTHER','EWALLET')",
+        "EWALLET",
+    )?;
     // The employee benefit balance (cloud 0818): taken at the till, and given
     // back on a return.
-    widen_check(connection, "sale_tender", "'EWALLET')", "'EWALLET','BENEFIT')", "BENEFIT")?;
-    widen_check(connection, "sale_return", "'EWALLET')", "'EWALLET','BENEFIT')", "BENEFIT")?;
+    widen_check(
+        connection,
+        "sale_tender",
+        "'EWALLET')",
+        "'EWALLET','BENEFIT')",
+        "BENEFIT",
+    )?;
+    widen_check(
+        connection,
+        "sale_return",
+        "'EWALLET')",
+        "'EWALLET','BENEFIT')",
+        "BENEFIT",
+    )?;
     Ok(())
 }
 
@@ -74,7 +98,9 @@ fn widen_check(
         return Ok(());
     }
     let rebuilt = format!("{table}_widened");
-    let widened = definition.replacen(from, to, 1).replacen(table, &rebuilt, 1);
+    let widened = definition
+        .replacen(from, to, 1)
+        .replacen(table, &rebuilt, 1);
     let columns: Vec<String> = {
         let mut statement = connection
             .prepare("SELECT name FROM pragma_table_info(?1) ORDER BY cid")
@@ -120,9 +146,13 @@ fn widen_check(
 }
 
 /// Replace the shop's list with the one head office sent.
-pub(crate) fn replace_book(tx: &Transaction<'_>, book: &PaymentMethodBook) -> Result<(), EdgeError> {
+pub(crate) fn replace_book(
+    tx: &Transaction<'_>,
+    book: &PaymentMethodBook,
+) -> Result<(), EdgeError> {
     let now = chrono::Utc::now().to_rfc3339();
-    tx.execute("DELETE FROM till_payment_method", []).map_err(db)?;
+    tx.execute("DELETE FROM till_payment_method", [])
+        .map_err(db)?;
     for (position, method) in book.methods.iter().enumerate() {
         tx.execute(
             "INSERT INTO till_payment_method
@@ -167,7 +197,10 @@ pub(crate) fn list(connection: &Connection) -> Result<Vec<TillPaymentMethod>, Ed
 
 /// Refuse a tender the shop was not set up to take. Nothing is refused while
 /// the shop has no list yet.
-pub(crate) fn assert_accepted(connection: &Connection, tenders: &[SaleTender]) -> Result<(), EdgeError> {
+pub(crate) fn assert_accepted(
+    connection: &Connection,
+    tenders: &[SaleTender],
+) -> Result<(), EdgeError> {
     let methods = list(connection)?;
     if methods.is_empty() {
         return Ok(());

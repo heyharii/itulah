@@ -1,15 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Check, Clock } from "lucide-react"
+import { Check, ChevronRight, Clock } from "lucide-react"
 import { useState } from "react"
 
-import { Button } from "@/components/ui/button"
 import { Field, Input } from "@/components/ui/field"
-import { Meter } from "@/components/ui/meter"
 import { PeopleSheet, SheetSection } from "@/components/ui/people-sheet"
 import { PeopleTable } from "@/components/ui/people-table"
 import { PeopleTabs } from "@/components/ui/people-tabs"
-import { Pill } from "@/components/ui/pill"
-import { Banner } from "@/components/ui/states"
+import { Pill, Status } from "@/components/ui/pill"
 import {
   completeTask,
   hrKeys,
@@ -17,9 +14,14 @@ import {
   type StoreScope,
 } from "@/lib/queries/hr"
 import { cn } from "@/lib/utils"
-import { centreState, describeCentre } from "@/screens/hr/centre"
-import { Person } from "@/screens/hr/parts"
-import { personName, useTeam, type Tone } from "@/screens/hr/words"
+import { centreState } from "@/screens/hr/centre"
+import { Person, personCard, Submit } from "@/screens/hr/parts"
+import {
+  personByLogin,
+  personName,
+  useTeam,
+  type Tone,
+} from "@/screens/hr/words"
 import { HrWorkspace } from "@/screens/hr/workspace"
 import type { EmployeeList, LifecycleTaskView } from "@itulah/contract"
 
@@ -36,25 +38,22 @@ import type { EmployeeList, LifecycleTaskView } from "@itulah/contract"
 /// Full-and-final settlement is head office's and is not on this screen, as
 /// the prototype keeps it off the store's.
 export function HrTasks() {
-  return (
-    <HrWorkspace>
-      {(scope) => <Tasks scope={scope} />}
-    </HrWorkspace>
-  )
+  return <HrWorkspace>{(scope) => <Tasks scope={scope} />}</HrWorkspace>
 }
 
-function ownerWord(owner: string): { label: string; tone: Tone } {
+/// Who a task is waiting on, said of an open one.
+function withWord(owner: string): string {
   switch (owner) {
     case "STORE":
-      return { label: "This shop", tone: "accent" }
+      return "This shop"
     case "HEAD_OFFICE":
-      return { label: "Head office", tone: "neutral" }
+      return "With head office"
     case "IT":
-      return { label: "IT", tone: "neutral" }
+      return "With IT"
     case "EMPLOYEE":
-      return { label: "Employee", tone: "neutral" }
+      return "With the employee"
     default:
-      return { label: owner, tone: "neutral" }
+      return owner
   }
 }
 
@@ -68,6 +67,30 @@ interface Checklist {
 
 type Tab = "ONBOARDING" | "SEPARATION"
 
+const KIND_WORD: Record<Tab, string> = {
+  ONBOARDING: "Onboarding",
+  SEPARATION: "Exit",
+}
+
+function kindWord(kind: string): string {
+  return KIND_WORD[kind as Tab] ?? kind
+}
+
+/// The rows this shop still has to close on a checklist.
+function ownRows(list: Checklist): LifecycleTaskView[] {
+  return list.tasks.filter(
+    (task) => task.owner === "STORE" && task.state === "PENDING",
+  )
+}
+
+/// What a checklist is, in a word — the one that says whose move it is.
+function checklistState(list: Checklist): { label: string; tone: Tone } {
+  const done = list.tasks.filter((task) => task.state === "DONE").length
+  if (done === list.tasks.length) return { label: "Done", tone: "ok" }
+  if (ownRows(list).length > 0) return { label: "To do here", tone: "warn" }
+  return { label: "With others", tone: "info" }
+}
+
 function Tasks({ scope }: { scope: StoreScope }) {
   const team = useTeam(scope)
   const tasks = useQuery({
@@ -76,6 +99,9 @@ function Tasks({ scope }: { scope: StoreScope }) {
   })
   const [tab, setTab] = useState<Tab>("ONBOARDING")
   const [open, setOpen] = useState<string | null>(null)
+  /// The row being closed. While it is set its form stands in for the
+  /// checklist's sheet; closing it returns to the checklist.
+  const [marking, setMarking] = useState<LifecycleTaskView | null>(null)
 
   const lists: Checklist[] = []
   for (const task of tasks.data ?? []) {
@@ -97,7 +123,8 @@ function Tasks({ scope }: { scope: StoreScope }) {
       (left, right) => left.position - right.position,
     )
   }
-  const count = (kind: Tab) => lists.filter((list) => list.kind === kind).length
+  const countOf = (kind: Tab) =>
+    lists.filter((list) => list.kind === kind).length
   const shown = lists.filter((list) => list.kind === tab)
   const current = lists.find((list) => list.key === open)
 
@@ -110,24 +137,34 @@ function Tasks({ scope }: { scope: StoreScope }) {
           {
             value: "ONBOARDING",
             label: "Onboarding",
-            count: count("ONBOARDING"),
+            count: countOf("ONBOARDING"),
           },
-          { value: "SEPARATION", label: "Exit", count: count("SEPARATION") },
+          { value: "SEPARATION", label: "Exit", count: countOf("SEPARATION") },
         ]}
       />
       {centreState(tasks, {
-        loading: "Loading…",
+        loading: "Reading the checklists…",
         what: "this shop's checklists",
         render: () => (
           <PeopleTable
             rows={shown}
             rowKey={(list) => list.key}
             onRowClick={(list) => setOpen(list.key)}
-            empty={
-              tab === "ONBOARDING"
-                ? "Nobody joining."
-                : "Nobody leaving."
-            }
+            empty={tab === "ONBOARDING" ? "Nobody joining." : "Nobody leaving."}
+            card={(list) => {
+              const done = list.tasks.filter(
+                (task) => task.state === "DONE",
+              ).length
+              const state = checklistState(list)
+              return {
+                ...personCard(team.data, list.employeeId),
+                lead: { figure: `${done}/${list.tasks.length}`, caption: "done" },
+                foot: {
+                  info: <Status tone={state.tone}>{state.label}</Status>,
+                  action: { label: "Open", onClick: () => setOpen(list.key) },
+                },
+              }
+            }}
             columns={[
               {
                 key: "who",
@@ -138,35 +175,16 @@ function Tasks({ scope }: { scope: StoreScope }) {
               },
               {
                 key: "progress",
-                header: "Progress",
-                card: "meta",
-                cell: (list) => {
-                  const done = list.tasks.filter(
-                    (task) => task.state === "DONE",
-                  ).length
-                  return (
-                    <span className="flex min-w-[8rem] items-center gap-2">
-                      <Meter
-                        value={done / Math.max(1, list.tasks.length)}
-                        tone="accent"
-                      />
-                      <span className="text-meta text-mute tabular-nums">
-                        {done}/{list.tasks.length}
-                      </span>
-                    </span>
-                  )
-                },
+                header: "Done",
+                cell: (list) =>
+                  `${list.tasks.filter((task) => task.state === "DONE").length} of ${list.tasks.length}`,
               },
               {
                 key: "mine",
-                header: "Open, owned by this shop",
-                card: "meta",
+                header: "To do here",
                 className: "whitespace-normal",
                 cell: (list) => {
-                  const mine = list.tasks.filter(
-                    (task) =>
-                      task.owner === "STORE" && task.state === "PENDING",
-                  )
+                  const mine = ownRows(list)
                   return mine.length === 0 ? (
                     <span className="text-mute">—</span>
                   ) : (
@@ -176,7 +194,7 @@ function Tasks({ scope }: { scope: StoreScope }) {
               },
               {
                 key: "others",
-                header: "Waiting on others",
+                header: "With others",
                 align: "right",
                 cell: (list) =>
                   list.tasks.filter(
@@ -184,16 +202,34 @@ function Tasks({ scope }: { scope: StoreScope }) {
                       task.owner !== "STORE" && task.state === "PENDING",
                   ).length,
               },
+              {
+                key: "state",
+                header: "Status",
+                cell: (list) => {
+                  const state = checklistState(list)
+                  return <Status tone={state.tone}>{state.label}</Status>
+                },
+              },
             ]}
           />
         ),
       })}
 
-      {current !== undefined && (
+      {current !== undefined && marking === null && (
         <ChecklistSheet
           list={current}
           team={team.data}
+          onMark={setMarking}
           onClose={() => setOpen(null)}
+        />
+      )}
+      {current !== undefined && marking !== null && (
+        <MarkDoneSheet
+          key={marking.id}
+          list={current}
+          task={marking}
+          team={team.data}
+          onClose={() => setMarking(null)}
         />
       )}
     </>
@@ -203,27 +239,33 @@ function Tasks({ scope }: { scope: StoreScope }) {
 function ChecklistSheet({
   list,
   team,
+  onMark,
   onClose,
 }: {
   list: Checklist
   team: EmployeeList | undefined
+  onMark: (task: LifecycleTaskView) => void
   onClose: () => void
 }) {
   const done = list.tasks.filter((task) => task.state === "DONE").length
+  const state = checklistState(list)
   return (
     <PeopleSheet
       open
       onOpenChange={(next) => {
         if (!next) onClose()
       }}
-      crumb={list.kind === "ONBOARDING" ? "Onboarding" : "Exit"}
+      crumb={kindWord(list.kind)}
       title={personName(team, list.employeeId)}
       sub={`${done} of ${list.tasks.length} done`}
+      status={<Pill tone={state.tone}>{state.label}</Pill>}
     >
-      <SheetSection title="Tasks">
-        <ul className="flex flex-col gap-2">
+      <SheetSection title="Tasks" aside={list.tasks.length}>
+        <ul className="flex flex-col divide-y divide-hairline">
           {list.tasks.map((task) => (
-            <TaskRow key={task.id} task={task} />
+            <li key={task.id}>
+              <TaskLine task={task} team={team} onMark={onMark} />
+            </li>
           ))}
         </ul>
       </SheetSection>
@@ -231,79 +273,123 @@ function ChecklistSheet({
   )
 }
 
-/// One row of a checklist, and — when it is this shop's and still open — the
-/// act of closing it. The centre refuses a completion with no reason.
-function TaskRow({ task }: { task: LifecycleTaskView }) {
+/// One row of a checklist. A row this shop owns and has not closed opens the
+/// form that closes it; every other row is only read.
+function TaskLine({
+  task,
+  team,
+  onMark,
+}: {
+  task: LifecycleTaskView
+  team: EmployeeList | undefined
+  onMark: (task: LifecycleTaskView) => void
+}) {
+  const finished = task.state === "DONE"
+  const mine = task.owner === "STORE" && !finished
+  const caption = finished
+    ? task.done_by === null
+      ? "Done"
+      : `Done by ${personByLogin(team, task.done_by)}`
+    : mine
+      ? "To do here"
+      : withWord(task.owner)
+
+  const inner = (
+    <>
+      <span
+        className={cn(
+          "grid size-6 shrink-0 place-items-center rounded-full [&_svg]:size-3.5",
+          finished ? "bg-ok-bg text-ok-fg" : "bg-soft-2 text-mute",
+        )}
+      >
+        {finished ? <Check /> : <Clock />}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span
+          className={cn(
+            "block text-cell",
+            finished ? "text-mute line-through" : "text-ink",
+          )}
+        >
+          {task.label}
+        </span>
+        <span
+          className={cn(
+            "block text-meta",
+            mine ? "font-medium text-warn-fg" : "text-mute",
+          )}
+        >
+          {caption}
+        </span>
+      </span>
+      {mine && <ChevronRight className="size-4 shrink-0 text-line-ico" />}
+    </>
+  )
+
+  return mine ? (
+    <button
+      type="button"
+      onClick={() => onMark(task)}
+      className="flex min-h-11 w-full items-center gap-2.5 py-2.5 text-left transition-colors active:bg-soft"
+    >
+      {inner}
+    </button>
+  ) : (
+    <div className="flex min-h-11 items-center gap-2.5 py-2.5">{inner}</div>
+  )
+}
+
+/// Closing one of this shop's rows. The centre refuses a completion with no
+/// reason, so the note is the one thing asked.
+function MarkDoneSheet({
+  list,
+  task,
+  team,
+  onClose,
+}: {
+  list: Checklist
+  task: LifecycleTaskView
+  team: EmployeeList | undefined
+  onClose: () => void
+}) {
   const client = useQueryClient()
-  const [closing, setClosing] = useState(false)
   const [reason, setReason] = useState("")
   const complete = useMutation({
     mutationFn: () => completeTask({ id: task.id, reason }),
     onSuccess: () => {
       client.invalidateQueries({ queryKey: hrKeys.lifecycle() })
       client.invalidateQueries({ queryKey: hrKeys.tasks() })
+      onClose()
     },
   })
-  const owner = ownerWord(task.owner)
-  const finished = task.state === "DONE"
-  const mine = task.owner === "STORE" && !finished
 
   return (
-    <li className="rounded-inner border border-hairline px-3 py-2.5">
-      <div className="flex items-center gap-2.5">
-        <span
-          className={cn(
-            "grid size-6 shrink-0 place-items-center rounded-full [&_svg]:size-3.5",
-            finished ? "bg-ok-bg text-ok-fg" : "bg-soft-2 text-mute",
-          )}
-        >
-          {finished ? <Check /> : <Clock />}
-        </span>
-        <span className="min-w-0 flex-1 text-cell">
-          <span className={finished ? "text-mute line-through" : "text-ink"}>
-            {task.label}
-          </span>
-          {finished && task.done_by !== null && (
-            <span className="block text-meta text-mute">
-              by {task.done_by}
-            </span>
-          )}
-        </span>
-        <Pill tone={owner.tone}>{owner.label}</Pill>
-      </div>
-      {mine &&
-        (closing ? (
-          <div className="mt-2.5 flex flex-col gap-2">
-            <Field
-              label="Note"
-            >
-              <Input
-                value={reason}
-                placeholder="Two sets handed over"
-                onChange={(event) => setReason(event.target.value)}
-              />
-            </Field>
-            {complete.error !== null && (
-              <Banner tone="bad">{describeCentre(complete.error)}</Banner>
-            )}
-            <div className="flex gap-2 [&>button]:min-w-0 [&>button]:flex-1 [&>button]:shrink">
-              <Button variant="quiet" onClick={() => setClosing(false)}>
-                Not now
-              </Button>
-              <Button
-                variant="primary"
-                disabled={reason.trim() === "" || complete.isPending}
-                onClick={() => complete.mutate()}
-              >
-                Mark done
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <Button className="mt-2.5" block onClick={() => setClosing(true)}>
-            Mark done
-          </Button>
-        ))}
-    </li>
+    <PeopleSheet
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose()
+      }}
+      crumb={`${kindWord(list.kind)} · ${personName(team, list.employeeId)}`}
+      title={task.label}
+      foot={
+        <Submit
+          label="Mark done"
+          pendingLabel="Saving…"
+          pending={complete.isPending}
+          disabled={reason.trim() === ""}
+          error={complete.error}
+          onSubmit={() => complete.mutate()}
+          onCancel={onClose}
+        />
+      }
+    >
+      <Field label="Note" required>
+        <Input
+          value={reason}
+          placeholder="Two sets handed over"
+          onChange={(event) => setReason(event.target.value)}
+        />
+      </Field>
+    </PeopleSheet>
   )
 }

@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
+import { Fab } from "@/components/ui/fab"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { Day } from "@/components/ui/day"
@@ -31,7 +33,12 @@ import {
 } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
-import { ListCard, RowOpen, SheetFooter } from "@/screens/people/settings-kit"
+import {
+  CardFoot,
+  ListCard,
+  RowOpen,
+  SheetFooter,
+} from "@/screens/people/settings-kit"
 import { useOpener } from "@/screens/people/settings-lib"
 import type { LeaveBlackoutView, LeavePolicyView } from "@itulah/contract"
 
@@ -45,6 +52,7 @@ import type { LeaveBlackoutView, LeavePolicyView } from "@itulah/contract"
 /// against it meant.
 export function LeaveTypeSettings() {
   const canWrite = useCanWrite()
+  const phone = useLayout() === "phone"
   const kinds = useQuery({
     queryKey: leaveKeys.types(),
     queryFn: ({ signal }) => listLeaveTypes(signal),
@@ -70,11 +78,13 @@ export function LeaveTypeSettings() {
 
   return (
     <PageContent>
+      {canWrite && <Fab label="New type" onClick={() => newType.show()} />}
       <PageHeader
         crumb="People"
         title="Leave Types"
         sub="What kinds of leave exist, what each draws on, and the dates closed to leave."
         actions={
+          !phone &&
           canWrite && (
             <>
               <Button onClick={() => newPolicy.show()}>Leave policy</Button>
@@ -94,6 +104,13 @@ export function LeaveTypeSettings() {
           No leave policy has been ratified. Until one is, a balance has no
           rules to fold under and balance-backed leave cannot be approved.
         </Banner>
+      )}
+      {canWrite && policy.isSuccess && generations.length === 0 && (
+        <div className="mb-4 flex md:hidden">
+          <Button variant="tint" size="card" onClick={() => newPolicy.show()}>
+            Leave policy
+          </Button>
+        </div>
       )}
 
       <ListCard title="Kinds of leave">
@@ -182,17 +199,27 @@ export function LeaveTypeSettings() {
                 : "accrual is suspended"}
             </KeyValue>
           </div>
+          {canWrite && (
+            <CardFoot label="Leave policy" onClick={() => newPolicy.show()} />
+          )}
         </Card>
       )}
 
-      <ListCard title="Dates closed to leave">
+      <ListCard
+        title="Dates closed to leave"
+        foot={
+          canWrite ? (
+            <CardFoot label="Close dates" onClick={() => closing.show()} />
+          ) : undefined
+        }
+      >
         {queryState(blocks, {
           loading: "Reading the closed dates…",
           render: (rows) =>
             rows.length === 0 ? (
               <EmptyState>
-                No date is closed. Close the Lebaran rush or stock-take week
-                with Close dates so nobody can take leave on them.
+                No date is closed. Close the Eid rush or stock-take week with
+                Close dates so nobody can take leave on them.
               </EmptyState>
             ) : (
               <MiniTable head={["Dates", "Where", "Why", "State"]}>

@@ -2447,10 +2447,7 @@ fn warning(code: &str, message: String, detail: Option<String>) -> BillWarning {
 /// All six run and all six come back; there is no early return, because a bill
 /// with a duplicate number AND an over-budget line is exactly the bill somebody
 /// most needs the whole list for. Nothing here writes and nothing here refuses.
-pub async fn bill_warnings(
-    pool: &PgPool,
-    invoice_id: Uuid,
-) -> Result<Vec<BillWarning>, AppError> {
+pub async fn bill_warnings(pool: &PgPool, invoice_id: Uuid) -> Result<Vec<BillWarning>, AppError> {
     let header = sqlx::query(
         "SELECT invoice_number, supplier_id, supplier_name FROM supplier_invoice
           WHERE invoice_id = $1",
@@ -2635,13 +2632,15 @@ pub async fn bill_warnings(
         let contract_number: Option<String> = row.try_get("contract_number")?;
         out.push(warning(
             "PERIOD_OUTSIDE_CONTRACT",
-            format!(
-                "line {line_number}'s service period falls outside the contract's own window"
-            ),
-            Some(
-                contract_number
-                    .unwrap_or_else(|| format!("contract {}", row.try_get::<Uuid, _>("contract_id").map(|id| id.to_string()).unwrap_or_default())),
-            ),
+            format!("line {line_number}'s service period falls outside the contract's own window"),
+            Some(contract_number.unwrap_or_else(|| {
+                format!(
+                    "contract {}",
+                    row.try_get::<Uuid, _>("contract_id")
+                        .map(|id| id.to_string())
+                        .unwrap_or_default()
+                )
+            })),
         ));
     }
 

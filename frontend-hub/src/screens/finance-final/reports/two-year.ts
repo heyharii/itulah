@@ -1,5 +1,5 @@
 import { asPresented, isoDay, ladderLevel } from "@/screens/finance/chart"
-import { money } from "@/lib/format"
+import { EMPTY, money, percent as sharePercent } from "@/lib/format"
 import type { Statement } from "@itulah/contract"
 
 /// What the two 7Soft "2 Tahunan" reports share: a year, a month, and the
@@ -164,7 +164,7 @@ export function share(line: number | null, base: number | null): number | null {
 }
 
 export function percent(fraction: number | null): string {
-  if (fraction === null) return "—"
-  const text = `${Math.abs(fraction * 100).toFixed(1)}%`
+  if (fraction === null) return EMPTY
+  const text = sharePercent(Math.abs(fraction * 100), { digits: 1, pad: true })
   return fraction < 0 ? `(${text})` : text
 }

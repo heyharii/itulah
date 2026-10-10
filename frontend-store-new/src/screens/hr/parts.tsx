@@ -2,7 +2,10 @@ import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Field, Input, Select } from "@/components/ui/field"
+import { SheetFoot } from "@/components/ui/people-sheet"
+import { Fact, Facts as KitFacts } from "@/components/ui/sheet"
 import { Banner } from "@/components/ui/states"
+import { dateText } from "@/lib/format"
 import { describeCentre } from "@/screens/hr/centre"
 import { teamRows, type Tone } from "@/screens/hr/words"
 import type { EmployeeList } from "@itulah/contract"
@@ -50,7 +53,7 @@ export function Person({
       : [row.position, row.employee_code].filter(Boolean).join(" · "))
   return (
     <span className="flex min-w-0 items-center gap-2.5">
-      <span className="grid size-7 shrink-0 place-items-center rounded-full bg-soft-2 text-[0.6875rem] font-semibold text-body">
+      <span className="grid size-8 shrink-0 place-items-center rounded-full bg-soft-2 text-[0.875rem] font-semibold text-body">
         {initials(name)}
       </span>
       <span className="flex min-w-0 flex-col">
@@ -61,6 +64,42 @@ export function Person({
   )
 }
 
+/// A person as the head of a lead-figure card: their FULL name over their role
+/// — never a login, never a code on its own. Spread it into a `PeopleCard`:
+///
+///     card={(row) => ({ ...personCard(team, row.employee_id), lead: …, foot: … })}
+///
+/// Somebody not on the list is still drawn, under their id (see `Person`).
+export function personCard(
+  team: EmployeeList | undefined,
+  id: string,
+  /// More lines under the role, 14px grey: "Swap with Dewi Lestari".
+  extra: readonly React.ReactNode[] = [],
+): { title: string; lines: readonly React.ReactNode[] } {
+  const row = team?.rows.find((person) => person.employee_id === id)
+  const name = row?.full_name ?? row?.employee_code ?? id
+  const role = row === undefined ? undefined : (row.position ?? undefined)
+  return { title: name, lines: [role, ...extra] }
+}
+
+/// A date as a card's lead figure: the day and month large, the year under it
+/// ("06 Oct" over "2026") — the hub's `CardDate`.
+export function dateLead(
+  iso: string | null | undefined,
+  /// What the date is, said before the year: "until".
+  caption?: string,
+): { figure: string; caption?: string; muted?: boolean } {
+  if (iso === null || iso === undefined || iso === "")
+    return { figure: "—", muted: true }
+  const parsed = new Date(`${iso.slice(0, 10)}T00:00:00`)
+  if (Number.isNaN(parsed.getTime())) return { figure: iso, muted: true }
+  const year = String(parsed.getFullYear())
+  return {
+    figure: dateText(parsed, { day: "2-digit", month: "short" }),
+    caption: caption === undefined ? year : `${caption} ${year}`,
+  }
+}
+
 /// Choose one of this shop's people. Only the active ones: a form that offered
 /// somebody who has left would be a form whose every submission is refused.
 export function PersonPicker({
@@ -69,6 +108,7 @@ export function PersonPicker({
   onChange,
   label = "Who",
   exclude,
+  required,
 }: {
   team: EmployeeList | undefined
   value: string
@@ -77,6 +117,8 @@ export function PersonPicker({
   /// People already chosen elsewhere — the other half of a swap, somebody
   /// already on a programme.
   exclude?: readonly string[]
+  /// Marks the question as one the form cannot be sent without.
+  required?: boolean
 }) {
   const rows = teamRows(team).filter(
     (person) =>
@@ -84,7 +126,7 @@ export function PersonPicker({
       !(exclude ?? []).includes(person.employee_id),
   )
   return (
-    <Field label={label}>
+    <Field label={label} required={required}>
       <Select value={value} onChange={onChange} aria-label={label}>
         <option value="">Choose a person…</option>
         {rows.map((person) => (
@@ -113,17 +155,31 @@ export function Fenced({ dropped, place }: { dropped: number; place: string }) {
   )
 }
 
-/// The decision at the foot of a sheet: why, then yes or no.
+/// A decision on a request: the one grammar of every approval sheet (audit D5).
 ///
-/// The reason is a field and not an afterthought because the centre refuses a
-/// decision without one — a record that says what changed and not why is the
-/// half of an audit trail that never helps anybody. Both buttons stay grey
-/// until there is one.
-export function Decision({
+///   body    a required **Reason** field (the centre refuses a decision with no
+///           reason on it — a record that says what changed and not why is the
+///           half of an audit trail that never helps anybody), then the error
+///           banner when the write was refused
+///   footer  `[ Reject ]  [ Approve ]` — Reject (danger) on the left, Approve
+///           (primary) on the right, on EVERY width; both stay grey until there
+///           is a reason
+///
+/// A hook rather than a component because its two halves live in two places of
+/// the sheet:
+///
+///     const decision = useDecision({ pending, error, onDecide })
+///     <PeopleSheet foot={waiting ? decision.footer : undefined}>
+///       …the facts…
+///       {waiting && decision.field}
+///     </PeopleSheet>
+///
+/// The words are canonical — Pending / Approved / Rejected / Withdrawn; never
+/// "Refuse", "Decline" or "Take back".
+export function useDecision({
   approveLabel = "Approve",
-  rejectLabel = "Refuse",
+  rejectLabel = "Reject",
   placeholder,
-  hint = "Head office refuses a decision with no reason on it.",
   pending,
   error,
   onDecide,
@@ -132,33 +188,36 @@ export function Decision({
   approveLabel?: string
   rejectLabel?: string
   placeholder?: string
-  hint?: string
   pending: boolean
   error: unknown
   onDecide: (approve: boolean, reason: string) => void
-  /// A third way out, beside the two — a claim's "Send back".
+  /// A third way out, between the two — a claim's "Send back".
   extra?: (reason: string) => React.ReactNode
-}) {
+}): { reason: string; field: React.ReactNode; footer: React.ReactNode } {
   const [reason, setReason] = useState("")
   const blank = reason.trim() === ""
-  return (
-    <div className="flex flex-col gap-3">
-      <Field label="Why" hint={hint}>
-        <Input
-          value={reason}
-          placeholder={placeholder}
-          onChange={(event) => setReason(event.target.value)}
-        />
-      </Field>
-      {error !== null && error !== undefined && (
-        <Banner tone="bad">{describeCentre(error)}</Banner>
-      )}
-      {/* `shrink` undoes the button's own `shrink-0`: two or three buttons
-          share the row rather than each claiming all of it. */}
-      <div className="flex gap-2 [&>button]:min-w-0 [&>button]:flex-1 [&>button]:shrink">
+  return {
+    reason,
+    field: (
+      <div className="mt-6 flex flex-col gap-3">
+        <Field label="Reason" required>
+          <Input
+            value={reason}
+            placeholder={placeholder}
+            onChange={(event) => setReason(event.target.value)}
+          />
+        </Field>
+        {error !== null && error !== undefined && (
+          <Banner tone="bad">{describeCentre(error)}</Banner>
+        )}
+      </div>
+    ),
+    footer: (
+      <SheetFoot>
         <Button
           variant="danger"
-          disabled={blank || pending}
+          disabled={blank}
+          pending={pending}
           onClick={() => onDecide(false, reason)}
         >
           {rejectLabel}
@@ -166,64 +225,95 @@ export function Decision({
         {extra?.(reason)}
         <Button
           variant="primary"
-          disabled={blank || pending}
+          disabled={blank}
+          pending={pending}
           onClick={() => onDecide(true, reason)}
         >
           {approveLabel}
         </Button>
-      </div>
-    </div>
-  )
+      </SheetFoot>
+    ),
+  }
 }
 
-/// A form's closing row: what went wrong, then the one button.
+/// A form's foot: what went wrong, then `[ Cancel ] [ Create … ]` — the one
+/// filled button on the right. Goes in a `PeopleSheet`'s `foot`.
+///
+/// The words are the audit's D4: a new record is **Create {thing}**, an edit
+/// **Save changes**; **Submit** is only for sending something for approval.
+/// While the write is on its way the label is the present participle
+/// ("Creating…").
 export function Submit({
   label,
+  pendingLabel,
   pending,
   disabled,
   error,
   onSubmit,
+  onCancel,
 }: {
   label: string
+  /// What the button says while the write is on its way: "Creating…".
+  pendingLabel?: string
   pending: boolean
   disabled: boolean
   error: unknown
   onSubmit: () => void
+  /// Shows a quiet Cancel to the left of the button.
+  onCancel?: () => void
 }) {
   return (
     <div className="flex flex-col gap-3">
       {error !== null && error !== undefined && (
         <Banner tone="bad">{describeCentre(error)}</Banner>
       )}
-      <Button
-        variant="primary"
-        block
-        disabled={disabled || pending}
-        onClick={onSubmit}
-      >
-        {pending ? "Sending…" : label}
-      </Button>
+      <SheetFoot>
+        {onCancel !== undefined && (
+          <Button variant="quiet" onClick={onCancel}>
+            Cancel
+          </Button>
+        )}
+        <Button
+          variant="primary"
+          pending={pending}
+          disabled={disabled}
+          onClick={onSubmit}
+        >
+          {pending ? (pendingLabel ?? "Saving…") : label}
+        </Button>
+      </SheetFoot>
     </div>
   )
 }
 
-/// A key/value list inside a sheet — the prototype's `kv()`.
+/// A record's facts, label over value, two to a row — the kit's `Facts`
+/// (`components/ui/sheet.tsx`) behind the `[term, value]` pairs these screens
+/// were written with. A pair that is `false`/`null` is left out; a long value
+/// (or a third `true`) takes the whole row. Never a disabled input.
 export function Facts({
   rows,
 }: {
-  rows: readonly (readonly [React.ReactNode, React.ReactNode] | null | false)[]
+  rows: readonly (
+    readonly [React.ReactNode, React.ReactNode, boolean?] | null | false
+  )[]
 }) {
   return (
-    <dl className="grid grid-cols-[minmax(7rem,auto)_1fr] gap-x-4 gap-y-2 text-cell">
+    <KitFacts>
       {rows.map((row, index) =>
         row === null || row === false ? null : (
-          <div key={index} className="contents">
-            <dt className="text-mute">{row[0]}</dt>
-            <dd className="min-w-0 text-ink tabular-nums">{row[1]}</dd>
-          </div>
+          <Fact
+            key={index}
+            term={row[0]}
+            wide={
+              row[2] === true ||
+              (typeof row[1] === "string" && row[1].length > 28)
+            }
+          >
+            {row[1]}
+          </Fact>
         ),
       )}
-    </dl>
+    </KitFacts>
   )
 }
 

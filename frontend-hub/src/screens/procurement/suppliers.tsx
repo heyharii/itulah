@@ -7,54 +7,80 @@ import {
 import { useNavigate } from "@tanstack/react-router"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { useTable } from "@tanstack/react-table"
-import { ChevronRight, Plus, Printer, Search, Trash2 } from "lucide-react"
+import { ChevronRight, Plus, Search, Trash2 } from "lucide-react"
 import { createContext, use, useEffect, useMemo, useRef, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable, dockSortOf } from "@/components/ui/data-table"
-import { Dialog, SavedDialog } from "@/components/ui/dialog"
+import { Dialog } from "@/components/ui/dialog"
 import { DockTools } from "@/components/shell/dock-tools"
 import { Fab } from "@/components/ui/fab"
 import { Field, Input, Select, Textarea } from "@/components/ui/field"
 import { Switch, Toggle } from "@/components/ui/form"
-import { RecordPanel } from "@/components/ui/record-panel"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { SupplierBand } from "@/screens/procurement/supplier-band"
-import { ColumnsMenu, ExportCsv } from "@/components/ui/list-chrome"
+import {
+  ColumnsMenu,
+  ExportCsv,
+  SHEET_ROW,
+  SheetSortRows,
+} from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
+import { BottomSheet } from "@/components/ui/picker-sheet"
 import { Pill } from "@/components/ui/pill"
-import { MiniCell, MiniRow, MiniTable, Section } from "@/components/ui/rows"
+import {
+  MiniCell,
+  MiniRow,
+  MiniTable,
+  Section,
+  SheetSection,
+} from "@/components/ui/rows"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
+import { SheetFooter } from "@/components/ui/sheet-footer"
+import {
+  SheetEmpty,
+  SheetError,
+  SheetLoading,
+} from "@/components/ui/sheet-states"
 import { SubTabs } from "@/components/ui/sub-tabs"
-import { Banner, EmptyState } from "@/components/ui/states"
+import { EmptyState } from "@/components/ui/states"
 import type { CsvColumn } from "@/lib/csv"
+import { useNameOfLogin } from "@/lib/queries/hr-employees"
 import { recordKeys } from "@/lib/queries/records"
 import { useLayout } from "@/lib/layout"
-import { count, day, dayMonth, money, realItemCode } from "@/lib/format"
+import {
+  count,
+  day,
+  money,
+  moneyCompact,
+  quantity,
+  realItemCode,
+} from "@/lib/format"
 import {
   allSupplierContacts,
   catalogueVocabulary,
   createSupplier,
-  createSupplierContact,
   listPurchaseOrders,
   procurementKeys,
   setSupplierStatus,
   supplierCatalogue,
-  supplierContacts,
-  supplierDetail,
+  supplierBookQuery,
+  supplierDetailQuery,
   supplierPage,
+  supplierPeopleQuery,
   updateSupplier,
-  updateSupplierContact,
   type PurchaseOrderRow,
   type SupplierPage,
   type SupplierScope,
   type SupplierSort,
 } from "@/lib/queries/procurement"
 import { queryState } from "@/lib/query-state"
+import { prefetchSupplier } from "@/screens/procurement/prefetch"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { pullIn, useSaid } from "@/lib/pull-in"
 import { toast } from "@/lib/toast"
 import { cn } from "@/lib/utils"
 import { useDebounced } from "@/lib/use-debounced"
@@ -86,6 +112,7 @@ import {
 import type {
   Supplier,
   SupplierContact,
+  SupplierContactsPatch,
   SupplierItem,
   SupplierStatus,
 } from "@itulah/contract"
@@ -133,9 +160,6 @@ const SORTS: Record<string, SupplierSort> = {
 
 /// Which columns are showing, by id.
 type VisibilityState = Record<string, boolean>
-
-/// How many suppliers each page of the book carries — the owner's number.
-const PAGE = 200
 
 function statusLabel(status: SupplierStatus): string {
   return status === "ACTIVE" ? "Active" : "Non-active"
@@ -308,7 +332,7 @@ const columns: ColumnDef<TableSetup, SupplierRow>[] = [
 function LastPurchased({ at }: { at: string | null }) {
   return (
     <span className={cn("tabular-nums", at === null && "text-mute")}>
-      {dayMonth(at)}
+      {day(at)}
     </span>
   )
 }
@@ -409,6 +433,7 @@ const EXPORT_COLUMNS: readonly CsvColumn<ExportRow>[] = [
 type StatusTab = "ALL" | SupplierStatus
 
 export function Suppliers() {
+  const client = useQueryClient()
   // Which supplier is open lives in the URL, like every other sheet in the app.
   const supplier = useSheet("supplier")
   /// What was typed into the omnibox, also in the URL.
@@ -426,6 +451,9 @@ export function Suppliers() {
   /// still open, as a switch. The filter panel, views and chips are gone.
   const [tab, setTab] = useState<StatusTab>("ACTIVE")
   const [activeOnly, setActiveOnly] = useState(false)
+  /// A phone's "Filter and sort" sheet: the switch, the sort and the export,
+  /// which have no room at the top of the list.
+  const [options, setOptions] = useState(false)
   /// Which suppliers are opened out to show their active orders, by id.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
   const toggleExpanded = (id: string) =>
@@ -465,38 +493,16 @@ export function Suppliers() {
   /// into view. Its own key under the book's prefix: an invalidation of
   /// `suppliers()` still reaches it, and no plain `useQuery` of the same
   /// scope can read a paged answer as a single page.
-  const book = useInfiniteQuery({
-    queryKey: [...procurementKeys.suppliers(scope), "pages"] as const,
-    queryFn: ({ signal, pageParam }) =>
-      supplierPage(
-        {
-          ...scope,
-          limit: PAGE,
-          ...(pageParam === undefined ? {} : { cursor: pageParam }),
-        },
-        signal
-      ),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-    placeholderData: (previous) => previous,
-  })
-
-  /// The five figures over the cards, asked on their own: they describe the
-  /// whole book, so no search, tab or switch may move them. One row is the
-  /// smallest page there is; the figures ride beside it.
-  const whole = useQuery({
-    queryKey: [
-      ...procurementKeys.suppliers({ category: "MERCHANDISE" }),
-      "kpis",
-    ] as const,
-    queryFn: ({ signal }) =>
-      supplierPage({ category: "MERCHANDISE", limit: 1 }, signal),
-  })
+  const book = useInfiniteQuery(supplierBookQuery(scope))
 
   const rows = useMemo<SupplierRow[]>(
     () => (book.data?.pages ?? []).flatMap(rowsOf),
     [book.data]
   )
+  /// Page one carries the facets and the book summary — the book figures are
+  /// counted over the category, not the page — so the five figures over the
+  /// cards and the tab counts read it, and the one-row probe that used to ask
+  /// for them a second time is gone.
   const first = book.data?.pages[0]
   /// The status counts for the tabs: over what the search leaves, whatever
   /// tab is showing.
@@ -535,19 +541,23 @@ export function Suppliers() {
     )
   )
 
-  /// Everything the list shows, every page of it, with its people.
+  /// Everything the list shows, every page of it, with its people. The heavy
+  /// read stays — the export's columns include the order tallies, which the
+  /// light picker route does not carry — but the walk is capped like the
+  /// pickers': a thousand a page, ten pages at most.
   const exportRows = async (): Promise<ExportRow[]> => {
     const all: SupplierRow[] = []
     let cursor: string | undefined
-    do {
+    for (let walked = 0; walked < 10; walked++) {
       const page = await supplierPage({
         ...scope,
         limit: 1000,
         ...(cursor === undefined ? {} : { cursor }),
       })
       all.push(...rowsOf(page))
-      cursor = page.next_cursor ?? undefined
-    } while (cursor !== undefined)
+      if (page.next_cursor === null) break
+      cursor = page.next_cursor
+    }
     const people = await allSupplierContacts()
     const bySupplier = new Map<string, SupplierContact[]>()
     for (const one of people) {
@@ -564,6 +574,7 @@ export function Suppliers() {
     })
   }
 
+  const sortChoices = dockSortOf(table)?.choices
   const everyLoaded = !book.hasNextPage
   const sum = (key: "active" | "completed" | "cancelled") =>
     count(rows.reduce((total, row) => total + row[key], 0))
@@ -574,17 +585,19 @@ export function Suppliers() {
 
       {/* The owner's five figures, as cards over the list. */}
       <SupplierBand
-        active={whole.data ? bandOf(whole.data, "ACTIVE") : undefined}
-        inactive={whole.data ? bandOf(whole.data, "INACTIVE") : undefined}
-        orders={whole.data?.book.open_orders}
-        pieces={whole.data?.book.open_units}
+        active={first !== undefined ? bandOf(first, "ACTIVE") : undefined}
+        inactive={first !== undefined ? bandOf(first, "INACTIVE") : undefined}
+        orders={first?.book.open_orders}
+        pieces={first?.book.open_units}
         value={
-          whole.data ? brief(whole.data.book.open_value_minor) : undefined
+          first !== undefined
+            ? moneyCompact(first.book.open_value_minor)
+            : undefined
         }
         className="md:hidden"
       />
       <KpiStrip className="max-md:hidden md:grid-cols-5 xl:grid-cols-5">
-        {bookKpis(whole.data)?.map((kpi) => (
+        {bookKpis(first)?.map((kpi) => (
           <div key={kpi.label} title={kpi.note}>
             <Kpi label={kpi.label} value={kpi.value} />
           </div>
@@ -627,9 +640,9 @@ export function Suppliers() {
 
       {/* One line from a tablet up: the search gives up width before any
           button drops to a line of its own. */}
-      <div className="mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2 md:flex-nowrap">
+      <div className="mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden md:flex-nowrap">
         <>
-          <span className="relative min-w-[11rem] flex-1 max-md:hidden lg:max-w-64">
+          <span className="relative min-w-[11rem] flex-1 lg:max-w-64">
             <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-line-ico" />
             <input
               value={search.value ?? ""}
@@ -654,19 +667,15 @@ export function Suppliers() {
             Active order
           </label>
           <span className="flex-1 max-lg:hidden" />
-          {/* The same controls on a phone and on a desk. Only New supplier
-              changes its dress: a button here, the round "+" in the dock there. */}
+          {/* A desk's toolbar: on a phone the switch, the sort and the export
+              are the dock's ⚙ sheet, and New supplier is its round "+". */}
           <ColumnsMenu table={table} />
           <ExportCsv
             title="Suppliers"
             columns={EXPORT_COLUMNS}
             rows={exportRows}
           />
-          <Button
-            variant="primary"
-            className="max-md:hidden"
-            onClick={() => supplier.open("new")}
-          >
+          <Button variant="primary" onClick={() => supplier.open("new")}>
             New supplier
           </Button>
         </>
@@ -680,7 +689,7 @@ export function Suppliers() {
           onChange: (next) => (next ? search.open(next) : search.close()),
           label: "Search Suppliers",
         }}
-        sort={dockSortOf(table)}
+        filter={{ count: activeOnly ? 1 : 0, onOpen: () => setOptions(true) }}
         status={{
           value: tab,
           options: [
@@ -703,6 +712,40 @@ export function Suppliers() {
           onChange: (next) => setTab(next as StatusTab),
         }}
       />
+      <BottomSheet
+        open={options}
+        onOpenChange={setOptions}
+        title="Filter and sort"
+      >
+        <div className="min-h-0 overflow-y-auto overscroll-contain px-2 pb-3">
+          <label className={cn(SHEET_ROW, "cursor-pointer select-none")}>
+            <span className="flex-1">Active order</span>
+            <Switch
+              on={activeOnly}
+              label="Only suppliers with an active order"
+              onToggle={() => setActiveOnly(!activeOnly)}
+            />
+          </label>
+          {sortChoices !== undefined && (
+            <>
+              <span className="block px-3 pt-2 pb-1 text-[0.875rem] font-medium text-mute">
+                Sort by
+              </span>
+              <SheetSortRows
+                choices={sortChoices}
+                withDefault
+                onDone={() => setOptions(false)}
+              />
+            </>
+          )}
+          <ExportCsv
+            title="Suppliers"
+            columns={EXPORT_COLUMNS}
+            rows={exportRows}
+            className={cn(SHEET_ROW, "h-auto text-ink hover:bg-transparent")}
+          />
+        </div>
+      </BottomSheet>
 
       {/* `overflow-clip`, not `overflow-hidden`: hidden makes the card a
           scroll box, and the table's heading would stick to the card instead
@@ -721,11 +764,15 @@ export function Suppliers() {
               ) : (
                 <ExpandContext value={expanding}>
                   <DataTable<SupplierRow>
+                    refresh={[book]}
                     table={table}
                     cardSort={false}
                     cardsApart
                     cardLead
                     onRowClick={(row) => supplier.open(row.supplier_id)}
+                    onRowIntent={(row) =>
+                      void prefetchSupplier(client, row.supplier_id)
+                    }
                     isSelected={(row) => row.supplier_id === supplier.value}
                     isExpanded={(row) => expanded.has(row.supplier_id)}
                     renderSub={(row) => (
@@ -901,23 +948,6 @@ function TabLabel({ text, n }: { text: string; n: number }) {
   )
 }
 
-/// `49.923.900.000` → `Rp 49,9 billion`. Words, not the Indonesian jt/rb.
-function brief(minor: number): string {
-  const abs = Math.abs(minor)
-  const [scale, suffix] =
-    abs >= 1_000_000_000
-      ? [1_000_000_000, " billion"]
-      : abs >= 1_000_000
-        ? [1_000_000, " million"]
-        : abs >= 1_000
-          ? [1_000, " thousand"]
-          : [1, ""]
-  const scaled = minor / scale
-  const shown =
-    scale === 1 ? String(minor) : scaled.toFixed(scaled < 10 ? 1 : 0)
-  return `Rp ${shown.replace(".", ",")}${suffix}`
-}
-
 /// How many suppliers hold a status, the server's own facet.
 function bandOf(page: SupplierPage, status: string): number {
   return (
@@ -950,12 +980,12 @@ function bookKpis(page: SupplierPage | undefined) {
     },
     {
       label: "Active PO qty",
-      value: `${count(page.book.open_units)} pcs`,
+      value: `${quantity(page.book.open_units)}`,
       note: "Pieces the active purchase orders still expect.",
     },
     {
       label: "Active PO value",
-      value: brief(page.book.open_value_minor),
+      value: moneyCompact(page.book.open_value_minor),
       note: money(page.book.open_value_minor),
     },
   ]
@@ -1040,6 +1070,27 @@ function newContact(): ContactDraft {
     phone: "",
     email: "",
     address: "",
+  }
+}
+
+/// What Edit starts from: every box open on what is on file. Also what the
+/// sheet compares the draft against to know whether anything was typed.
+function editDraftOf(
+  id: string,
+  supplier: Supplier,
+  people: readonly SupplierContact[]
+) {
+  return {
+    id,
+    name: supplier.name,
+    legalForm: supplier.legal_form ?? "",
+    address: supplier.address ?? "",
+    email: supplier.email ?? "",
+    phone: shownPhone(supplier.phone) ?? "",
+    npwp: formatNpwp(supplier.npwp ?? ""),
+    isPkp: supplier.is_pkp ?? false,
+    notes: supplier.notes ?? "",
+    contacts: people.map(contactDraftOf),
   }
 }
 
@@ -1259,7 +1310,7 @@ function CompanyFields({
             disabled={locked("isPkp")}
             note={
               draft.isPkp
-                ? "Their bills carry PPN and a faktur pajak number."
+                ? "Their bills carry PPN and a tax invoice number."
                 : "Their bills carry no PPN."
             }
           />
@@ -1289,11 +1340,12 @@ function ContactsFields({
 
   if (readOnly) {
     return (
-      <Section title="Contact Person" rule={false} quiet>
+      <SheetSection
+        title="Contact person"
+        aside={contacts.length > 0 ? count(contacts.length) : undefined}
+      >
         {contacts.length === 0 ? (
-          <p className="text-[0.875rem] text-body">
-            Nobody is on file at this supplier yet.
-          </p>
+          <SheetEmpty>No contact person on file.</SheetEmpty>
         ) : (
           <MiniTable
             // Words, not figures: every column reads from the left, so each
@@ -1319,7 +1371,7 @@ function ContactsFields({
             ))}
           </MiniTable>
         )}
-      </Section>
+      </SheetSection>
     )
   }
 
@@ -1445,27 +1497,27 @@ function CompanyFacts({
   address?: React.ReactNode
 }) {
   return (
-    <Section title="Company" flush quiet>
-      <Facts className="gap-x-10 gap-y-5 [&_dd]:mt-1">
-        <div className="col-span-2">
-          {address === undefined ? (
-            <Fact term="Address">
-              <span className="whitespace-pre-line">
-                {supplier.address?.trim() || "—"}
-              </span>
-            </Fact>
-          ) : (
+    <SheetSection title="Company">
+      <Facts>
+        {address === undefined ? (
+          <Fact term="Address" wide>
+            <span className="whitespace-pre-line">
+              {supplier.address?.trim() || "—"}
+            </span>
+          </Fact>
+        ) : (
+          <div className="col-span-2">
             <Field label="Address" required>
               {address}
             </Field>
-          )}
-        </div>
-        <Fact term="Phone Number">{shownPhone(supplier.phone) ?? "—"}</Fact>
+          </div>
+        )}
+        <Fact term="Phone number">{shownPhone(supplier.phone) ?? "—"}</Fact>
         <Fact term="Email">{supplier.email ?? "—"}</Fact>
         <Fact term="NPWP">{shownNpwp(supplier.npwp) ?? "—"}</Fact>
         <Fact term="PKP">{supplier.is_pkp ? "Yes" : "No"}</Fact>
       </Facts>
-    </Section>
+    </SheetSection>
   )
 }
 
@@ -1557,9 +1609,13 @@ export function SupplierComposer({
     setDraft((was) => ({ ...was, ...patch }))
   const people = contacts.filter((one) => !contactEmpty(one))
 
+  const said = useSaid()
   const create = useMutation({
     mutationFn: async () => {
-      const supplier = await createSupplier(
+      // One command: the party and its people commit in the same server
+      // transaction, and the FIRST person in the list becomes the primary —
+      // the ordering that used to force one POST per contact.
+      return createSupplier(
         {
           // The server numbers it.
           supplier_code: null,
@@ -1576,45 +1632,36 @@ export function SupplierComposer({
           npwp: blank(npwpDigits(draft.npwp)),
           is_pkp: draft.isPkp,
           notes: blank(draft.notes),
-        },
-        idempotency.key
-      )
-      // In order and one at a time, because the FIRST one becomes the
-      // primary and a parallel send makes "first" a race.
-      for (const contact of people) {
-        await createSupplierContact(
-          supplier.supplier_id,
-          {
+          contacts: people.map((contact) => ({
             name: contact.name.trim(),
             role: blank(contact.role),
             phone: blank(contact.phone),
             email: blank(contact.email),
             address: blank(contact.address),
-          },
-          crypto.randomUUID()
-        )
-      }
-      return supplier
+          })),
+        },
+        idempotency.key
+      )
     },
     onSuccess: (supplier) => {
       void client.invalidateQueries({ queryKey: procurementKeys.suppliers() })
       idempotency.rotate()
       onCreated?.(supplier)
-      // The number is the receipt; it stays in the middle of the screen until
-      // it is read (the owner, 2026-10-04), and the sheet hands over only
-      // once it is dismissed — "save, see the number, close".
-      setSaved(supplier)
+      // The button says it, the sheet closes, the supplier's row takes it in
+      // (owner, 2026-10-10: pull in + toast).
+      void said.say("Created").then(() => {
+        close()
+        said.reset()
+        void pullIn({
+          from: said.start(),
+          rowId: supplier.supplier_id,
+          pill: supplier.supplier_code,
+          title: `${supplier.name} created`,
+          description: savedNote ?? supplier.supplier_code,
+        })
+      })
     },
   })
-  /// The supplier the save minted, held in the receipt dialog until it is
-  /// read. `close()` waits for the button because the composer unmounts the
-  /// moment the record sheet behind it lets go of `?supplier=new` — state
-  /// released there would die with it.
-  const [saved, setSaved] = useState<Supplier | null>(null)
-  const readSaved = () => {
-    setSaved(null)
-    close()
-  }
 
   const reset = () => {
     setDraft(EMPTY)
@@ -1630,37 +1677,46 @@ export function SupplierComposer({
   }
 
   const ready = saveable(draft) && contactsSaveable(contacts)
+  /// Typed into and not yet saved: × / Esc / a swipe ask before they throw it
+  /// away. Once the number is minted nothing is left to lose.
+  const dirty =
+    !create.isSuccess &&
+    (JSON.stringify(draft) !== JSON.stringify(EMPTY) || people.length > 0)
 
   return (
     <>
       <Sheet
         open={open}
         onOpenChange={(next) => !next && close()}
-        title="New Supplier"
-        width="wide"
+        title="New supplier"
+        size="wide"
+        dirty={dirty}
         footer={
-          <div className="flex items-center justify-end gap-2">
-            <Button variant="ghost" onClick={close}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              pending={create.isPending}
-              onClick={() =>
-                ready ? create.mutate() : setAsked((was) => was + 1)
-              }
-            >
-              {create.isPending ? "Submitting…" : "Submit"}
-            </Button>
-          </div>
+          // Save is never disabled (the owner, 2026-09-28): a greyed button
+          // says something is missing and not what. Pressed unready, it says
+          // every problem under its box.
+          <SheetFooter
+            onCancel={() => close()}
+            primary={{
+              label: "Create supplier",
+              pending: create.isPending,
+              said: said.said,
+              onClick: (event) => {
+                if (!ready) {
+                  setAsked((was) => was + 1)
+                  return
+                }
+                said.mark(event.currentTarget)
+                create.mutate()
+              },
+            }}
+            error={create.error}
+          />
         }
       >
         {/* Pulled up 12px: the sheet's own 32px above the first heading read as
             a gap, not as air (the owner, 2026-10-05). */}
         <div ref={form} className="-mt-2 flex flex-col gap-4 md:-mt-3">
-          {create.isError && (
-            <Banner tone="bad">{(create.error as Error).message}</Banner>
-          )}
           <CompanyFields
             draft={draft}
             set={set}
@@ -1675,15 +1731,6 @@ export function SupplierComposer({
           />
         </div>
       </Sheet>
-      <SavedDialog
-        open={saved !== null}
-        onOpenChange={(next) => {
-          if (!next) readSaved()
-        }}
-        title={<>{saved?.supplier_code} saved</>}
-      >
-        {savedNote}
-      </SavedDialog>
     </>
   )
 }
@@ -1719,16 +1766,16 @@ function SupplierSheet({
   const editing = edit !== null && edit.id === id ? edit : null
 
   const detail = useQuery({
-    queryKey: procurementKeys.supplier(id ?? ""),
-    queryFn: ({ signal }) => supplierDetail(id!, signal),
+    ...supplierDetailQuery(id ?? ""),
     enabled: id !== null && !creating,
   })
   const people = useQuery({
-    queryKey: procurementKeys.supplierContacts(id ?? ""),
-    queryFn: ({ signal }) => supplierContacts(id!, false, signal),
+    ...supplierPeopleQuery(id ?? ""),
     enabled: id !== null && !creating,
   })
+  const nameOf = useNameOfLogin()
 
+  const editSaid = useSaid()
   const save = useMutation({
     mutationFn: async () => {
       const supplier = detail.data!
@@ -1742,28 +1789,15 @@ function SupplierSheet({
         (supplier.npwp ?? "") !== npwpDigits(draft.npwp) ||
         (supplier.is_pkp ?? false) !== draft.isPkp ||
         (supplier.notes ?? "") !== draft.notes.trim()
-      if (changed) {
-        await updateSupplier(
-          supplier.supplier_id,
-          {
-            supplier_code: null,
-            name: draft.name.trim(),
-            legal_form: blank(draft.legalForm),
-            address: blank(draft.address),
-            email: blank(draft.email),
-            phone: blank(formatPhones(draft.phone)),
-            npwp: blank(npwpDigits(draft.npwp)),
-            is_pkp: draft.isPkp,
-            notes: blank(draft.notes),
-          },
-          supplier.version,
-          idempotency.key
-        )
-      }
+      // The contact sheet is built against what is on file, then sent with
+      // the party in ONE command: new people in `create`, corrections —
+      // including the retirement of whoever came off the list, which the
+      // server spells exactly as the per-contact PATCH did — in `update`.
       const before = new Map(
         (people.data ?? []).map((one) => [one.contact_id, one])
       )
       const kept = new Set<string>()
+      const contactPatch: SupplierContactsPatch = { create: [], update: [] }
       for (const contact of draft.contacts) {
         if (contactEmpty(contact)) continue
         const was =
@@ -1771,17 +1805,13 @@ function SupplierSheet({
             ? undefined
             : before.get(contact.contactId)
         if (was === undefined) {
-          await createSupplierContact(
-            supplier.supplier_id,
-            {
-              name: contact.name.trim(),
-              role: blank(contact.role),
-              phone: blank(contact.phone),
-              email: blank(contact.email),
-              address: blank(contact.address),
-            },
-            crypto.randomUUID()
-          )
+          contactPatch.create.push({
+            name: contact.name.trim(),
+            role: blank(contact.role),
+            phone: blank(contact.phone),
+            email: blank(contact.email),
+            address: blank(contact.address),
+          })
           continue
         }
         kept.add(was.contact_id)
@@ -1794,33 +1824,59 @@ function SupplierSheet({
           (was.email ?? "") !== contact.email.trim() ||
           (was.address ?? "") !== contact.address.trim()
         ) {
-          await updateSupplierContact(
-            supplier.supplier_id,
-            was.contact_id,
-            {
+          contactPatch.update.push({
+            contact_id: was.contact_id,
+            expected_version: was.version,
+            change: {
               name: contact.name.trim(),
               role: blank(contact.role),
               phone: blank(contact.phone),
               email: blank(contact.email),
               address: blank(contact.address),
             },
-            was.version,
-            crypto.randomUUID()
-          )
+          })
         }
       }
       // Somebody taken off the list is retired, not deleted: the orders they
       // were the contact on still name them.
       for (const was of before.values()) {
         if (kept.has(was.contact_id)) continue
-        await updateSupplierContact(
-          supplier.supplier_id,
-          was.contact_id,
-          { retired: true },
-          was.version,
-          crypto.randomUUID()
-        )
+        contactPatch.update.push({
+          contact_id: was.contact_id,
+          expected_version: was.version,
+          change: { retired: true },
+        })
       }
+      if (
+        !changed &&
+        contactPatch.create.length === 0 &&
+        contactPatch.update.length === 0
+      ) {
+        return
+      }
+      await updateSupplier(
+        supplier.supplier_id,
+        changed
+          ? {
+              supplier_code: null,
+              name: draft.name.trim(),
+              legal_form: blank(draft.legalForm),
+              address: blank(draft.address),
+              email: blank(draft.email),
+              phone: blank(formatPhones(draft.phone)),
+              npwp: blank(npwpDigits(draft.npwp)),
+              is_pkp: draft.isPkp,
+              notes: blank(draft.notes),
+              contacts: contactPatch,
+            }
+          : // Only the people changed: the party's own row stays untouched,
+            // and its version stays as the next If-Match quote. The wire
+            // type names supplier_code and name; null on both is the PATCH's
+            // own way to say "left alone".
+            { supplier_code: null, name: null, contacts: contactPatch },
+        supplier.version,
+        idempotency.key
+      )
     },
     onSuccess: () => {
       void client.invalidateQueries({
@@ -1828,8 +1884,20 @@ function SupplierSheet({
       })
       void client.invalidateQueries({ queryKey: procurementKeys.suppliers() })
       idempotency.rotate()
-      setEdit(null)
-      setSavedEdit(true)
+      // The button says it, the record goes back to read mode, the supplier's
+      // row takes it in (owner, 2026-10-10: pull in + toast).
+      const saved = detail.data!
+      void editSaid.say("Saved").then(() => {
+        setEdit(null)
+        editSaid.reset()
+        void pullIn({
+          from: editSaid.start(),
+          rowId: saved.supplier_id,
+          pill: saved.supplier_code,
+          title: `${saved.name} saved`,
+          description: saved.supplier_code,
+        })
+      })
     },
     onError: () => {
       // Whatever part went through is on the server now; read it back so the
@@ -1839,10 +1907,6 @@ function SupplierSheet({
       })
     },
   })
-  /// A save that went through, held in the receipt dialog until it is read —
-  /// the sheet underneath already reads the record again.
-  const [savedEdit, setSavedEdit] = useState(false)
-
   if (creating) {
     // Back to the book once the number has been read: the owner's "save,
     // see the number, close" (2026-09-28). The row is in the list, refetched.
@@ -1850,172 +1914,177 @@ function SupplierSheet({
   }
 
   const supplier = detail.data
-  const contacts = editing
-    ? editing.contacts
-    : (people.data ?? []).map(contactDraftOf)
+
+  /// Typed into since Edit was pressed: × / Esc / a swipe ask before they
+  /// throw it away.
+  const dirty =
+    editing !== null &&
+    supplier !== undefined &&
+    people.data !== undefined &&
+    JSON.stringify(editing) !==
+      JSON.stringify(editDraftOf(id!, supplier, people.data))
+
+  /// Why Save is off — said in the foot, never left to a tooltip.
+  const why =
+    editing === null
+      ? undefined
+      : !saveable(editing)
+        ? "A name, legal form, address and phone number are needed."
+        : !contactsSaveable(editing.contacts)
+          ? "A contact needs a name and a phone number or an email."
+          : undefined
+
+  const startEdit = () => {
+    if (supplier === undefined) return
+    save.reset()
+    setTab("details")
+    setEdit(editDraftOf(id!, supplier, people.data ?? []))
+  }
+
+  // The record, as the read sheet's own tabs. Activity is appended by the
+  // sheet (`subject`), open on the trail.
+  const readTabs =
+    supplier !== undefined && !editing
+      ? [
+          {
+            value: "details",
+            label: "Details",
+            content: (
+              <>
+                <CompanyFacts supplier={supplier} />
+                <ContactsFields
+                  contacts={(people.data ?? []).map(contactDraftOf)}
+                  readOnly
+                  onChange={() => undefined}
+                />
+                <SheetSection title="Notes">
+                  <p className="text-[0.875rem] leading-[1.375rem] whitespace-pre-wrap text-ink">
+                    {supplier.notes?.trim() || (
+                      <span className="text-body">—</span>
+                    )}
+                  </p>
+                </SheetSection>
+              </>
+            ),
+          },
+          {
+            value: "orders",
+            label: "Orders",
+            content: <SupplierOrders supplier={supplier} />,
+          },
+          {
+            value: "catalogue",
+            label: "Catalogue",
+            content: <SupplierCatalogue supplierId={supplier.supplier_id} />,
+          },
+        ]
+      : undefined
 
   return (
-    <>
-      <Sheet
-        open={id !== null}
-        onOpenChange={(open) => !open && onClose()}
-        id={supplier?.supplier_code}
-        title={
-          supplier === undefined ? "Supplier" : supplierDisplayName(supplier)
+    <Sheet
+      open={id !== null}
+      onOpenChange={(open, reason) => {
+        if (open) return
+        // Esc while editing cancels the edit and stays on the record; ×, a
+        // swipe and the veil leave the sheet.
+        if (editing && reason === "escape") {
+          setEdit(null)
+          return
         }
-        badge={
-          supplier && (
-            <Pill tone={supplier.status === "ACTIVE" ? "ok" : "neutral"}>
-              {statusLabel(supplier.status)}
-            </Pill>
-          )
-        }
-        width="wide"
-        footer={
-          editing ? (
-            <div className="flex items-center justify-end gap-2">
-              <Button variant="ghost" onClick={() => setEdit(null)}>
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                pending={save.isPending}
-                disabled={
-                  !saveable(editing) || !contactsSaveable(editing.contacts)
-                }
-                onClick={() => save.mutate()}
-              >
-                {save.isPending ? "Submitting…" : "Submit"}
-              </Button>
-            </div>
-          ) : (
-            supplier && (
-              // Along the foot on every screen, the same on a desk and a
-              // phone (owner, 2026-10-05): Print the icon at the left, Edit the
-              // main action at the right.
-              <div className="flex items-center gap-2 [&_button]:h-9">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  aria-label="Print"
-                  title="Print"
-                  className="w-9 px-0!"
-                  onClick={() =>
-                    printSuppliers([
-                      {
-                        supplier,
-                        contacts: (people.data ?? []).map(contactDraftOf),
-                      },
-                    ])
-                  }
-                >
-                  <Printer />
-                </Button>
-                <Button
-                  size="sm"
-                  variant="primary"
-                  className="ml-auto px-4"
-                  onClick={() => {
-                    save.reset()
-                    setTab("details")
-                    setEdit({
-                      id: id!,
-                      name: supplier.name,
-                      legalForm: supplier.legal_form ?? "",
-                      address: supplier.address ?? "",
-                      email: supplier.email ?? "",
-                      phone: shownPhone(supplier.phone) ?? "",
-                      npwp: formatNpwp(supplier.npwp ?? ""),
-                      isPkp: supplier.is_pkp ?? false,
-                      notes: supplier.notes ?? "",
-                      contacts: [...(people.data ?? []).map(contactDraftOf)],
-                    })
-                  }}
-                >
-                  Edit
-                </Button>
-              </div>
-            )
-          )
-        }
-      >
-        {queryState(detail, {
-          loading: "Loading the supplier…",
-          render: (record) => (
-            // The tabs keep their own air under them; each tab's body sets
-            // its own rhythm below that.
-            <div className="flex flex-col">
-              {!editing && (
-                <SubTabs
-                  tabs={[
-                    { value: "details", label: "Details" },
-                    { value: "orders", label: "Orders" },
-                    { value: "catalogue", label: "Catalogue" },
-                  ]}
-                  value={tab}
-                  onChange={setTab}
-                />
-              )}
-              {(editing || tab === "details") && (
-                // Room between the parts of the record (2026-09-28: "kurang
-                // spacing"): each section's rule sits in 24px of air, not 16.
-                <div className="flex flex-col gap-7 pt-2">
-                  {save.isError && (
-                    <Banner tone="bad">{(save.error as Error).message}</Banner>
-                  )}
-                  {editing && <StatusSwitch supplier={record} />}
-                  {editing ? (
-                    // The same form the supplier was created with, every box
-                    // open (the owner, 2026-10-04).
-                    <CompanyFields
-                      draft={editing}
-                      set={(patch) => setEdit({ ...editing, ...patch })}
-                      locked={() => false}
-                      tried
-                    />
-                  ) : (
-                    <CompanyFacts supplier={record} />
-                  )}
-                  <ContactsFields
-                    contacts={contacts}
-                    readOnly={!editing}
-                    onChange={(next) =>
-                      editing && setEdit({ ...editing, contacts: next })
-                    }
-                  />
-                  {/* Notes are read as a fact here; they are not part of the edit. */}
-                  <Section title="Notes" rule={false} quiet>
-                    <p className="text-[0.875rem] leading-[1.375rem] whitespace-pre-wrap text-ink">
-                      {record.notes?.trim() || (
-                        <span className="text-body">—</span>
-                      )}
-                    </p>
-                  </Section>
-                  {!editing && (
-                    <RecordPanel
-                      subject={{ kind: "supplier", id: record.supplier_id }}
-                    />
-                  )}
-                </div>
-              )}
-              {!editing && tab === "orders" && (
-                <SupplierOrders supplier={record} />
-              )}
-              {!editing && tab === "catalogue" && (
-                <SupplierCatalogue supplierId={record.supplier_id} />
-              )}
-            </div>
-          ),
-        })}
-      </Sheet>
-      <SavedDialog
-        open={savedEdit}
-        onOpenChange={(next) => {
-          if (!next) setSavedEdit(false)
-        }}
-        title="Supplier Saved"
-      />
-    </>
+        setEdit(null)
+        onClose()
+      }}
+      id={supplier?.supplier_code}
+      title={
+        supplier === undefined ? "Supplier" : supplierDisplayName(supplier)
+      }
+      badge={
+        supplier && (
+          <Pill tone={supplier.status === "ACTIVE" ? "ok" : "neutral"}>
+            {statusLabel(supplier.status)}
+          </Pill>
+        )
+      }
+      caption={
+        supplier &&
+        `Created by ${nameOf(supplier.created_by)} · ${day(supplier.created_at)}`
+      }
+      size="wide"
+      stack
+      dirty={dirty}
+      subject={
+        supplier !== undefined && !editing
+          ? { kind: "supplier", id: supplier.supplier_id }
+          : undefined
+      }
+      tabs={readTabs}
+      tab={tab}
+      onTabChange={setTab}
+      footer={
+        editing ? (
+          <SheetFooter
+            onCancel={() => setEdit(null)}
+            primary={{
+              label: "Save changes",
+              pending: save.isPending,
+              said: editSaid.said,
+              disabled: why !== undefined,
+              onClick: (event) => {
+                editSaid.mark(event.currentTarget)
+                save.mutate()
+              },
+            }}
+            note={why}
+            error={save.error}
+          />
+        ) : supplier ? (
+          // Read mode: Print the icon at the left, Edit the main act at the
+          // right — along the foot on every width.
+          <SheetFooter
+            onPrint={() =>
+              printSuppliers([
+                {
+                  supplier,
+                  contacts: (people.data ?? []).map(contactDraftOf),
+                },
+              ])
+            }
+            primary={{ label: "Edit", onClick: startEdit }}
+          />
+        ) : undefined
+      }
+    >
+      {detail.isPending ? (
+        <SheetLoading what="supplier" />
+      ) : supplier === undefined ? (
+        <SheetError
+          error={detail.error}
+          onRetry={() => void detail.refetch()}
+        />
+      ) : editing ? (
+        <>
+          <StatusSwitch supplier={supplier} />
+          {/* The same form the supplier was created with, every box open (the
+              owner, 2026-10-04). */}
+          <CompanyFields
+            draft={editing}
+            set={(patch) => setEdit({ ...editing, ...patch })}
+            locked={() => false}
+            tried
+          />
+          <ContactsFields
+            contacts={editing.contacts}
+            onChange={(next) => setEdit({ ...editing, contacts: next })}
+          />
+          {/* Notes are read as a fact here; they are not part of the edit. */}
+          <SheetSection title="Notes">
+            <p className="text-[0.875rem] leading-[1.375rem] whitespace-pre-wrap text-ink">
+              {supplier.notes?.trim() || <span className="text-body">—</span>}
+            </p>
+          </SheetSection>
+        </>
+      ) : null}
+    </Sheet>
   )
 }
 
@@ -2168,7 +2237,7 @@ function SupplierOrders({ supplier }: { supplier: Supplier }) {
   return queryState(orders, {
     loading: "Reading the order book…",
     render: () => (
-      <div className="flex flex-col gap-10 pt-6">
+      <div className="flex flex-col gap-10">
         {/* The owner's model (2026-09-26): each kind of order as a heading
             with its orders listed under it — the five newest, and View all
             for the rest. */}
@@ -2525,7 +2594,7 @@ function SupplierCatalogue({ supplierId }: { supplierId: string }) {
   })
 
   return (
-    <div className="flex flex-col gap-3.5 pt-6">
+    <div className="flex flex-col gap-3.5">
       {queryState(items, {
         loading: "Reading the catalogue…",
         render: (page) =>

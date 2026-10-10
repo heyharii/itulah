@@ -1,3 +1,5 @@
+import { Check } from "lucide-react"
+
 import { button, type ButtonStyle } from "@/components/ui/button-style"
 import { cn } from "@/lib/utils"
 
@@ -12,6 +14,10 @@ export interface ButtonProps
   /// looking identical. No spinner (PATTERN.md): the label says it, and the
   /// caller still owns the words — "Saving…", "Posting…".
   pending?: boolean
+  /// The write landed: the button says so in its own place, green, with a
+  /// tick ("Sent to count"), for the moment before its sheet closes
+  /// (`useSaid` in `lib/pull-in.ts`).
+  said?: string | null
 }
 
 /// Pills for everything interactive. There is no radius between a pill and a
@@ -24,17 +30,25 @@ export function Button({
   variant,
   size,
   pending,
+  said,
   disabled,
   onMouseDown,
   onClick,
+  children,
   ...props
 }: ButtonProps) {
+  const done = said !== undefined && said !== null
   return (
     <button
       type="button"
-      disabled={pending === true || disabled}
+      disabled={pending === true || disabled || done}
       aria-busy={pending === true ? true : undefined}
-      className={cn(button({ variant, size }), className)}
+      className={cn(
+        button({ variant, size }),
+        done &&
+          "border-transparent bg-ok-bg text-ok-fg shadow-none disabled:opacity-100 [&_svg]:text-ok-fg",
+        className
+      )}
       // On a phone a press on a button while a field has the keyboard used to
       // take the focus first: the keyboard went down, a sheet's footer moved
       // down with it, and the tap landed on nothing — the button had to be
@@ -53,7 +67,16 @@ export function Button({
         onClick?.(event)
       }}
       {...props}
-    />
+    >
+      {done ? (
+        <>
+          <Check />
+          {said}
+        </>
+      ) : (
+        children
+      )}
+    </button>
   )
 }
 

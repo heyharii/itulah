@@ -172,7 +172,9 @@ struct Hub {
 
 impl Hub {
     async fn open(pool: &PgPool) -> Self {
-        let _ = tracing_subscriber::fmt().with_env_filter("error").try_init();
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter("error")
+            .try_init();
         cloud::bootstrap_admin(pool, Some(ADMIN_PASSWORD), true)
             .await
             .unwrap_or_else(|error| panic!("bootstrap: {error}"));
@@ -193,18 +195,32 @@ impl Hub {
     }
 
     async fn get(&self, path: &str) -> Response {
-        send(self.app.clone(), "GET", path, read_headers(&self.cookies), None).await
+        send(
+            self.app.clone(),
+            "GET",
+            path,
+            read_headers(&self.cookies),
+            None,
+        )
+        .await
     }
 
     async fn ok(&self, path: &str, body: Value) -> Value {
         let response = self.post(path, body).await;
-        assert_eq!(response.status, StatusCode::OK, "POST {path}: {:?}", response.body);
+        assert_eq!(
+            response.status,
+            StatusCode::OK,
+            "POST {path}: {:?}",
+            response.body
+        );
         response.body
     }
 
     /// Register somebody, hire them and post them to `unit` from `from`.
     async fn staff(&self, code: &str, unit: &str, from: &str) -> String {
-        let registered = self.ok("/api/v1/employees", json!({ "employee_code": code })).await;
+        let registered = self
+            .ok("/api/v1/employees", json!({ "employee_code": code }))
+            .await;
         let id = registered["employee_id"]
             .as_str()
             .unwrap_or_else(|| panic!("employee_id: {registered:?}"))
@@ -262,7 +278,9 @@ impl Hub {
             )
             .await;
         let run_id = opened["id"].as_str().unwrap_or_default().to_owned();
-        let slips = self.get(&format!("/api/v1/payroll/runs/{run_id}/slips")).await;
+        let slips = self
+            .get(&format!("/api/v1/payroll/runs/{run_id}/slips"))
+            .await;
         assert_eq!(slips.status, StatusCode::OK, "{:?}", slips.body);
         let list = slips.body.as_array().cloned().unwrap_or_default();
         (run_id, list)
@@ -315,7 +333,9 @@ async fn allocate(hub: &Hub, employee: &str, days: i32) {
 
 async fn annual_balance(hub: &Hub, employee: &str) -> i64 {
     let rows = hub
-        .get(&format!("/api/v1/employees/{employee}/leave-balances?on=2026-06-30"))
+        .get(&format!(
+            "/api/v1/employees/{employee}/leave-balances?on=2026-06-30"
+        ))
         .await;
     rows.body
         .as_array()
@@ -347,14 +367,27 @@ async fn blocked_dates_refuse_leave_and_a_roster_rest_day_is_free(pool: PgPool) 
         .await;
     let block = blocks[0]["id"].as_str().unwrap_or_default().to_owned();
     let refused = hub
-        .post(&format!("/api/v1/employees/{siti}/leave-requests"), leave("LV-B1", "2026-04-14", "2026-04-15"))
+        .post(
+            &format!("/api/v1/employees/{siti}/leave-requests"),
+            leave("LV-B1", "2026-04-14", "2026-04-15"),
+        )
         .await;
     assert_eq!(refused.status, StatusCode::CONFLICT, "{:?}", refused.body);
-    assert!(refused.body["error"].as_str().unwrap_or_default().contains("stock opname"));
+    assert!(refused.body["error"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("stock opname"));
 
-    hub.ok(&format!("/api/v1/leave-blackouts/{block}/lift"), json!({ "reason": "selesai" })).await;
+    hub.ok(
+        &format!("/api/v1/leave-blackouts/{block}/lift"),
+        json!({ "reason": "selesai" }),
+    )
+    .await;
     let filed = hub
-        .post(&format!("/api/v1/employees/{siti}/leave-requests"), leave("LV-B2", "2026-04-14", "2026-04-15"))
+        .post(
+            &format!("/api/v1/employees/{siti}/leave-requests"),
+            leave("LV-B2", "2026-04-14", "2026-04-15"),
+        )
         .await;
     assert_eq!(filed.status, StatusCode::OK, "{:?}", filed.body);
 
@@ -364,15 +397,23 @@ async fn blocked_dates_refuse_leave_and_a_roster_rest_day_is_free(pool: PgPool) 
         json!({ "id": "PAGI", "name": "Pagi", "starts_at": "07:00", "ends_at": "15:00", "unpaid_break_minutes": 60 }),
     )
     .await;
-    for (day, plan) in [("2026-04-20", "SCHEDULED"), ("2026-04-21", "REST_DAY"), ("2026-04-22", "SCHEDULED")] {
+    for (day, plan) in [
+        ("2026-04-20", "SCHEDULED"),
+        ("2026-04-21", "REST_DAY"),
+        ("2026-04-22", "SCHEDULED"),
+    ] {
         let mut body = json!({ "on_date": day, "plan": plan, "reason": "jadwal" });
         if plan == "SCHEDULED" {
             body["shift_id"] = json!("PAGI");
         }
-        hub.ok(&format!("/api/v1/employees/{siti}/roster"), body).await;
+        hub.ok(&format!("/api/v1/employees/{siti}/roster"), body)
+            .await;
     }
     let rostered = hub
-        .ok(&format!("/api/v1/employees/{siti}/leave-requests"), leave("LV-R1", "2026-04-20", "2026-04-22"))
+        .ok(
+            &format!("/api/v1/employees/{siti}/leave-requests"),
+            leave("LV-R1", "2026-04-20", "2026-04-22"),
+        )
         .await;
     assert_eq!(rostered["chargeable_days"], 2, "{rostered:?}");
 }
@@ -398,7 +439,9 @@ async fn leave_paid_out_leaves_the_balance_and_joins_the_payroll(pool: PgPool) {
     assert_eq!(paid[0]["amount_minor"], 400_000);
     assert_eq!(annual_balance(&hub, &siti).await, 1_000);
 
-    let slips = hub.get(&format!("/api/v1/payroll/runs/{april}/slips")).await;
+    let slips = hub
+        .get(&format!("/api/v1/payroll/runs/{april}/slips"))
+        .await;
     let slips = slips.body.as_array().cloned().unwrap_or_default();
     let line = slip_of(&slips, &siti)["earnings"]
         .as_array()
@@ -447,7 +490,12 @@ async fn a_holiday_worked_earns_a_day_back(pool: PgPool) {
             json!({ "on_date": "2026-05-04", "leave_type": "CUTI_TAHUNAN", "reason": "salah" }),
         )
         .await;
-    assert_eq!(ordinary.status, StatusCode::BAD_REQUEST, "{:?}", ordinary.body);
+    assert_eq!(
+        ordinary.status,
+        StatusCode::BAD_REQUEST,
+        "{:?}",
+        ordinary.body
+    );
     // Before they joined (hired 5 January), a holiday earned them nothing.
     let before = hub
         .post(
@@ -457,12 +505,17 @@ async fn a_holiday_worked_earns_a_day_back(pool: PgPool) {
         .await;
     assert_eq!(before.status, StatusCode::BAD_REQUEST, "{:?}", before.body);
     assert!(
-        before.body["error"].as_str().unwrap_or_default().contains("outside their employment"),
+        before.body["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("outside their employment"),
         "{:?}",
         before.body
     );
 
-    let report = hub.get("/api/v1/holiday-work?from=2026-05-01&to=2026-05-31").await;
+    let report = hub
+        .get("/api/v1/holiday-work?from=2026-05-01&to=2026-05-31")
+        .await;
     assert_eq!(report.status, StatusCode::OK, "{:?}", report.body);
     assert_eq!(report.body.as_array().map(Vec::len), Some(1));
 }
@@ -474,26 +527,44 @@ async fn the_team_calendar_shows_who_is_away(pool: PgPool) {
     leave_setup(&hub, None).await;
     let siti = hub.staff("K0954", "store-07", "2026-01-05").await;
     allocate(&hub, &siti, 12).await;
-    hub.ok(&format!("/api/v1/employees/{siti}/leave-requests"), leave("LV-T1", "2026-04-20", "2026-04-21"))
-        .await;
+    hub.ok(
+        &format!("/api/v1/employees/{siti}/leave-requests"),
+        leave("LV-T1", "2026-04-20", "2026-04-21"),
+    )
+    .await;
     hub.ok(
         "/api/v1/leave-blackouts",
         json!({ "from_date": "2026-04-27", "to_date": "2026-04-30", "reason": "akhir bulan" }),
     )
     .await;
 
-    let calendar = hub.get("/api/v1/team-calendar?from=2026-04-01&to=2026-04-30").await;
+    let calendar = hub
+        .get("/api/v1/team-calendar?from=2026-04-01&to=2026-04-30")
+        .await;
     assert_eq!(calendar.status, StatusCode::OK, "{:?}", calendar.body);
     assert_eq!(calendar.body["leave"][0]["employee_id"], siti);
     assert_eq!(calendar.body["leave"][0]["state"], "PENDING");
     assert_eq!(calendar.body["holidays"][0][0], "2026-04-07");
     assert_eq!(calendar.body["blocked"][0]["reason"], "akhir bulan");
 
-    let too_long = hub.get("/api/v1/team-calendar?from=2026-01-01&to=2026-12-31").await;
-    assert_eq!(too_long.status, StatusCode::BAD_REQUEST, "{:?}", too_long.body);
+    let too_long = hub
+        .get("/api/v1/team-calendar?from=2026-01-01&to=2026-12-31")
+        .await;
+    assert_eq!(
+        too_long.status,
+        StatusCode::BAD_REQUEST,
+        "{:?}",
+        too_long.body
+    );
 }
 
-async fn approve_as(hub: &Hub, cookies: &str, csrf: &str, employee: &str, request: &str) -> Response {
+async fn approve_as(
+    hub: &Hub,
+    cookies: &str,
+    csrf: &str,
+    employee: &str,
+    request: &str,
+) -> Response {
     send(
         hub.app.clone(),
         "POST",
@@ -531,8 +602,11 @@ async fn a_delegation_lends_approvals_and_nothing_else(pool: PgPool) {
     allocate(&hub, &dewi, 12).await;
     let (manager, manager_csrf) = login_for(&hub, &budi, "budi.spv", "SUPERVISOR").await;
     let (stand_in, stand_in_csrf) = login_for(&hub, &siti, "siti.kasir", "CASHIER").await;
-    hub.ok(&format!("/api/v1/employees/{dewi}/leave-requests"), leave("LV-D1", "2026-06-15", "2026-06-16"))
-        .await;
+    hub.ok(
+        &format!("/api/v1/employees/{dewi}/leave-requests"),
+        leave("LV-D1", "2026-06-15", "2026-06-16"),
+    )
+    .await;
 
     let before = approve_as(&hub, &stand_in, &stand_in_csrf, &dewi, "LV-D1").await;
     assert_eq!(before.status, StatusCode::FORBIDDEN, "{:?}", before.body);
@@ -543,14 +617,19 @@ async fn a_delegation_lends_approvals_and_nothing_else(pool: PgPool) {
         "POST",
         "/api/v1/approval-delegations",
         write_headers(&manager, &manager_csrf),
-        Some(json!({ "delegate": "siti.kasir", "from_date": today.to_string(),
+        Some(
+            json!({ "delegate": "siti.kasir", "from_date": today.to_string(),
                      "to_date": (today + chrono::Duration::days(7)).to_string(),
-                     "reason": "cuti tahunan" })),
+                     "reason": "cuti tahunan" }),
+        ),
     )
     .await;
     assert_eq!(delegated.status, StatusCode::OK, "{:?}", delegated.body);
     assert_eq!(delegated.body[0]["active"], true);
-    let id = delegated.body[0]["id"].as_str().unwrap_or_default().to_owned();
+    let id = delegated.body[0]["id"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
 
     // Not the manager's other powers: rostering stays out of reach.
     let roster = send(
@@ -576,8 +655,11 @@ async fn a_delegation_lends_approvals_and_nothing_else(pool: PgPool) {
     )
     .await;
     assert_eq!(revoked.status, StatusCode::OK, "{:?}", revoked.body);
-    hub.ok(&format!("/api/v1/employees/{dewi}/leave-requests"), leave("LV-D2", "2026-07-15", "2026-07-15"))
-        .await;
+    hub.ok(
+        &format!("/api/v1/employees/{dewi}/leave-requests"),
+        leave("LV-D2", "2026-07-15", "2026-07-15"),
+    )
+    .await;
     let after = send(
         hub.app.clone(),
         "POST",
@@ -628,9 +710,16 @@ async fn annual_leave_waits_for_eligibility_and_prorates_a_late_starter(pool: Pg
         }
     };
 
-    hub.ok("/api/v1/hr-scheduler/run-now", json!({ "as_of": "2026-10-15", "reason": "uji" }))
-        .await;
-    assert_eq!(accrued(dewi.clone(), 2026).await, 300, "three months of twelve days");
+    hub.ok(
+        "/api/v1/hr-scheduler/run-now",
+        json!({ "as_of": "2026-10-15", "reason": "uji" }),
+    )
+    .await;
+    assert_eq!(
+        accrued(dewi.clone(), 2026).await,
+        300,
+        "three months of twelve days"
+    );
     assert_eq!(accrued(budi.clone(), 2026).await, 1_200, "the whole year");
 
     // From 2027 the company follows UU 13/2003: a year's service first.
@@ -641,11 +730,25 @@ async fn annual_leave_waits_for_eligibility_and_prorates_a_late_starter(pool: Pg
                 "eligibility_months": 12, "joiner": "PRORATE" }),
     )
     .await;
-    hub.ok("/api/v1/hr-scheduler/run-now", json!({ "as_of": "2027-01-15", "reason": "uji" }))
-        .await;
-    assert_eq!(accrued(dewi.clone(), 2027).await, 0, "not a year's service yet");
+    hub.ok(
+        "/api/v1/hr-scheduler/run-now",
+        json!({ "as_of": "2027-01-15", "reason": "uji" }),
+    )
+    .await;
+    assert_eq!(
+        accrued(dewi.clone(), 2027).await,
+        0,
+        "not a year's service yet"
+    );
     assert_eq!(accrued(budi.clone(), 2027).await, 1_200);
-    hub.ok("/api/v1/hr-scheduler/run-now", json!({ "as_of": "2027-10-02", "reason": "uji" }))
-        .await;
-    assert_eq!(accrued(dewi, 2027).await, 300, "eligible in October: the three months left");
+    hub.ok(
+        "/api/v1/hr-scheduler/run-now",
+        json!({ "as_of": "2027-10-02", "reason": "uji" }),
+    )
+    .await;
+    assert_eq!(
+        accrued(dewi, 2027).await,
+        300,
+        "eligible in October: the three months left"
+    );
 }

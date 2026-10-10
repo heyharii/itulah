@@ -163,7 +163,7 @@ users=$(curl -sS -m10 ${auth[@]+"${auth[@]}"} "$api/api/v1/auth/users")
 # hub). A bare SUPERVISOR rung defaults to STORE_MANAGER, which has no Ops
 # menu, so Nina could not count a delivery from the hub.
 for who in nina yusuf; do
-    uid=$(printf '%s' "$users" | python3 -c "import json,sys;d=json.load(sys.stdin);rows=d if isinstance(d,list) else d.get('items',d.get('users',[]));print(next(u.get('id') or u.get('user_id') for u in rows if u['username']=='$who'))")
+    uid=$(printf '%s' "$users" | python3 -c "import json,sys;d=json.load(sys.stdin);rows=d if isinstance(d,list) else d.get('items',d.get('rows',d.get('users',[])));print(next(u.get('id') or u.get('user_id') for u in rows if u['username']=='$who'))")
     post "/api/v1/auth/users/$uid/role" '{"role_code":"OPERATIONS"}' >/dev/null
 done
 pairs="maya:store-01:SUPERVISOR dian:store-01:CASHIER yusuf:dc:SUPERVISOR nina:dc:SUPERVISOR"

@@ -17,6 +17,7 @@ import {
   type LegalForm,
   type SetupStatus,
 } from "@/lib/queries/setup"
+import { monthYear } from "@/lib/format"
 import { storesKeys } from "@/lib/queries/stores"
 import { useTenancy } from "@/lib/tenancy"
 import { cn } from "@/lib/utils"
@@ -265,11 +266,11 @@ export function Onboarding({
                   <Toggle
                     on={hasWarehouse}
                     onToggle={() => setHasWarehouse((on) => !on)}
-                    label="Gudang"
+                    label="Warehouse"
                     note={
                       hasWarehouse
-                        ? "Suppliers deliver to the Gudang, and it ships to the stores. Same address as the office for now — you can change it later."
-                        : "Suppliers deliver straight to the stores. A Gudang can be added later."
+                        ? "Suppliers deliver to the warehouse, and it ships to the stores. Same address as the office for now — you can change it later."
+                        : "Suppliers deliver straight to the stores. A warehouse can be added later."
                     }
                   />
                 </div>
@@ -316,7 +317,7 @@ export function Onboarding({
                     <li>Its time zone, from the city</li>
                     <li>Its own cash, sales and profit & loss</li>
                     <li>Floor, back-room and reject stock</li>
-                    <li>A return pool for it at the Gudang</li>
+                    <li>A return pool for it at the warehouse</li>
                     <li>A code to pair its store server</li>
                   </ul>
                 </details>
@@ -439,7 +440,7 @@ export function Onboarding({
                 </p>
                 <dl className="mt-6 divide-y divide-hairline rounded-card border border-hairline">
                   <Made label="Head office" value="1" />
-                  {hasWarehouse && <Made label="Gudang" value="1" />}
+                  {hasWarehouse && <Made label="Warehouse" value="1" />}
                   <Made
                     label="Stores"
                     value={
@@ -544,15 +545,11 @@ function Made({ label, value }: { label: string; value: string }) {
 /// balances.
 function openableMonths(): { value: string; label: string }[] {
   const now = new Date()
-  const label = new Intl.DateTimeFormat("id-ID", {
-    month: "long",
-    year: "numeric",
-  })
   return [-1, 0, 1].map((offset) => {
     const month = new Date(now.getFullYear(), now.getMonth() + offset, 1)
     return {
       value: `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, "0")}`,
-      label: label.format(month),
+      label: monthYear(month),
     }
   })
 }

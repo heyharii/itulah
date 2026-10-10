@@ -116,7 +116,12 @@ fn log_tail(role: EdgeRole, dir: &Path, lines: usize) -> Vec<String> {
     };
     let newest = entries
         .filter_map(Result::ok)
-        .filter(|entry| entry.file_name().to_string_lossy().starts_with(role_prefix(role)))
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(role_prefix(role))
+        })
         .max_by_key(|entry| entry.metadata().and_then(|m| m.modified()).ok());
     let Some(newest) = newest else {
         return Vec::new();
@@ -143,7 +148,10 @@ fn database_checks(role: EdgeRole, path: &Path, checks: &mut Vec<Check>, detail:
         checks.push(check(
             "database",
             Verdict::Warn,
-            format!("No database yet — this node has never run as a {}.", role_noun(role)),
+            format!(
+                "No database yet — this node has never run as a {}.",
+                role_noun(role)
+            ),
         ));
         return;
     }

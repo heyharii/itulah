@@ -14,7 +14,7 @@ import {
 import { useIdentity } from "@/lib/session"
 import { ApiError } from "@itulah/contract/client"
 
-/// Where the Gudang lives decides whether there is anything to sign in to.
+/// Where the warehouse lives decides whether there is anything to sign in to.
 ///
 /// Run by the cloud (`dc_hosting: "cloud"`), it is the same server as the rest
 /// of the hub and the ordinary session already covers it: children render
@@ -27,7 +27,9 @@ export function OperationsGate({ children }: { children: React.ReactNode }) {
   if (hosting === undefined) {
     return (
       <PageContent>
-        <p className="text-meta text-body">Checking where the Gudang runs…</p>
+        <p className="text-meta text-body">
+          Checking where the warehouse runs…
+        </p>
       </PageContent>
     )
   }
@@ -43,7 +45,7 @@ export function edgeOnly(Screen: () => React.ReactNode): () => React.ReactNode {
     if (useDcHosting() !== "cloud") return <Screen />
     return (
       <PageContent>
-        <p className="text-meta text-body">The Gudang runs in the cloud.</p>
+        <p className="text-meta text-body">The warehouse runs in the cloud.</p>
       </PageContent>
     )
   }
@@ -154,7 +156,7 @@ function EdgeGate({ children }: { children: React.ReactNode }) {
       : cloudSignIn.error instanceof ApiError
         ? cloudSignIn.error.message
         : cloudSignIn.error !== null
-          ? "could not complete automatic Gudang sign-in"
+          ? "could not complete automatic warehouse sign-in"
           : session.error === null
             ? null
             : session.error instanceof ApiError
@@ -200,7 +202,7 @@ function EdgeGate({ children }: { children: React.ReactNode }) {
         <PageContent>
           <LoginForm
             title="Warehouse recovery"
-            caption={`A local account on ${where.data?.site_id ?? where.data?.node_id ?? "the Gudang node"}, for when the Central Dashboard cannot sign you in there.`}
+            caption={`A local account on ${where.data?.site_id ?? where.data?.node_id ?? "the warehouse node"}, for when the Central Dashboard cannot sign you in there.`}
             signIn={edgeLocalLogin}
             onSignedIn={(signedIn) => {
               // The token is what authorises everything after this, and it is

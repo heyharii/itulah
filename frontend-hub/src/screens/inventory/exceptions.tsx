@@ -1,20 +1,26 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import type { ColumnDef } from "@tanstack/react-table"
+import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
 import { ConfirmButton, SavedDialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
-import { Facts, Fact } from "@/components/ui/sheet"
+import { RefreshStamp } from "@/components/ui/refresh-stamp"
+import { Facts, Fact, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState, LoadingState } from "@/components/ui/states"
 import { ago, count, label as humanise, moment } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
+import { tableSetup, type TableSetup } from "@/lib/table"
 import { useSiteLabel } from "@/lib/queries/organisation"
 import {
   activateCount,
-  correctPlacement,
   createCount,
   fleetPools,
   idempotencyKey,
@@ -23,7 +29,6 @@ import {
   resolveMissing,
   type MovementScope,
   type MissingItem,
-  type ObservationAnomaly,
 } from "@/lib/queries/inventory"
 import { queryState } from "@/lib/query-state"
 
@@ -90,12 +95,110 @@ function ageText(days: number | null): string {
   return `${days} d`
 }
 
+/// A case on a card (a phone), the same card as every list (owner,
+/// 2026-10-06): what it is about over its SKU, the signed quantity it leads
+/// with, a foot that says which kind, where and how old, and a "Counting" pill
+/// while a count already covers it.
+function caseColumns(
+  placeName: (siteId: string | null | undefined) => string
+): ColumnDef<TableSetup, ExceptionCase>[] {
+  return [
+    {
+      id: "head",
+      accessorFn: (row) => row.article ?? row.sku ?? row.doc ?? row.id,
+      header: "",
+      enableSorting: false,
+      meta: { card: "title" },
+      cell: ({ row }) => {
+        const one = row.original
+        return (
+          <span className="flex min-w-0 flex-col gap-0.5">
+            <span className="text-[1rem] font-semibold break-words text-ink">
+              {one.article ?? one.sku ?? one.doc ?? one.id}
+            </span>
+            {one.article !== null && one.sku !== null && (
+              <span className="font-mono text-[0.875rem] font-normal text-mute">
+                {one.sku}
+              </span>
+            )}
+          </span>
+        )
+      },
+    },
+    {
+      id: "lead",
+      accessorFn: (row) => row.qty,
+      header: "",
+      enableSorting: false,
+      meta: { card: "lead" },
+      cell: ({ row }) => (
+        <span className="flex flex-col items-end tabular-nums">
+          <span
+            className={cn(
+              "text-[1.5rem] leading-tight font-semibold tracking-tight",
+              row.original.qty < 0 ? "text-bad-fg" : "text-warn-fg"
+            )}
+          >
+            {signed(row.original.qty)}
+          </span>
+          <span className="text-[0.875rem] text-mute">pcs</span>
+        </span>
+      ),
+    },
+    {
+      id: "foot",
+      accessorFn: (row) => row.ageDays ?? -1,
+      header: "",
+      enableSorting: false,
+      meta: { card: "foot" },
+      cell: ({ row }) => {
+        const one = row.original
+        return (
+          <span className="flex flex-col leading-6">
+            <span className="inline-flex items-center gap-2 text-ink">
+              <KindDot kind={one.kind} />
+              {one.kind}
+            </span>
+            <span className="tabular-nums">
+              {placeName(one.place)}
+              {" · "}
+              <span
+                className={cn(
+                  one.ageDays !== null &&
+                    one.ageDays > OVERDUE_DAYS &&
+                    "font-medium text-bad-fg"
+                )}
+              >
+                {ageText(one.ageDays)}
+              </span>
+            </span>
+          </span>
+        )
+      },
+    },
+    {
+      id: "status",
+      accessorFn: (row) => row.status,
+      header: "",
+      enableSorting: false,
+      meta: { align: "right", card: "status" },
+      cell: ({ row }) =>
+        row.original.status === "Counting" ? (
+          <Pill tone="info">Counting</Pill>
+        ) : null,
+    },
+  ]
+}
+
 export function Exceptions() {
-  const { cases } = useExceptionCases()
+  const { cases, feeds } = useExceptionCases()
   const [kind, setKind] = useState<string>("")
   const [needle, setNeedle] = useState("")
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const placeName = useSiteLabel()
+  const phone = useLayout() === "phone"
+  /// A phone opens a case in a sheet; a desk keeps it beside the list.
+  const [sheetOpen, setSheetOpen] = useState(false)
 
   /// Client-side over what the feeds already answered: the searches behind
   /// these rows are the server's, and re-asking them per keystroke would only
@@ -124,6 +227,21 @@ export function Exceptions() {
     return filtered.find((one) => one.id === selectedId) ?? filtered[0]
   }, [filtered, selectedId])
 
+  const cardColumnsOf = useMemo(() => caseColumns(placeName), [placeName])
+  const phoneTable = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: filtered,
+        columns: cardColumnsOf,
+        getRowId: (row: ExceptionCase) => row.id,
+      }),
+      [filtered, cardColumnsOf]
+    )
+  )
+  const kindCount = (value: string) =>
+    (cases ?? []).filter((one) => value === "" || one.kind === value).length
+
   return (
     <PageContent>
       <PageHeader
@@ -133,6 +251,56 @@ export function Exceptions() {
       />
       {cases === null ? (
         <LoadingState>Reading the exceptions…</LoadingState>
+      ) : phone ? (
+        <>
+          {/* The kind is the status button and the search the field, in the
+          dock, as on every list (owner, 2026-10-06). */}
+          <DockTools
+            search={{
+              value: needle,
+              onChange: setNeedle,
+              label: "Search Exceptions",
+            }}
+            status={{
+              value: kind,
+              options: [
+                { value: "", label: "All cases", count: kindCount("") },
+                ...KIND_OPTIONS.map((one) => ({
+                  value: one.value,
+                  label: one.label,
+                  count: kindCount(one.value),
+                })),
+              ],
+              onChange: setKind,
+            }}
+          />
+          {filtered.length === 0 ? (
+            <EmptyState>Nothing here</EmptyState>
+          ) : (
+            <DataTable<ExceptionCase>
+              refresh={feeds}
+              table={phoneTable}
+              onRowClick={(row) => {
+                setSelectedId(row.id)
+                setSheetOpen(true)
+              }}
+              pageScroll
+              cardsApart
+              cardLead
+              cardSort={false}
+            />
+          )}
+          <Sheet
+            open={sheetOpen && active !== null}
+            onOpenChange={setSheetOpen}
+            title="Exception"
+            caption={active?.kind}
+          >
+            {active !== null && (
+              <CasePanel key={active.id} one={active} placeName={placeName} />
+            )}
+          </Sheet>
+        </>
       ) : (
         <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_26rem]">
           <Card className="overflow-hidden">
@@ -143,7 +311,8 @@ export function Exceptions() {
                 onChange={(event) => setNeedle(event.target.value)}
                 className="h-8 w-full max-w-56 text-[0.875rem] sm:w-56"
               />
-              <span className="ml-auto text-[0.875rem] text-mute">
+              <RefreshStamp queries={feeds} className="ml-auto" />
+              <span className="text-[0.875rem] text-mute">
                 {count(filtered.length)} cases
               </span>
             </div>
@@ -231,8 +400,6 @@ function CasePanel({
 
   const missingRow = isMissingRow(one.raw) ? one.raw : null
   const gapRow = isGapRow(one.raw) ? one.raw : null
-  const anomalyRow: ObservationAnomaly | null =
-    !isMissingRow(one.raw) && !isGapRow(one.raw) ? one.raw : null
 
   /// The pool's own balances, for the figures. The same fleet read the feed
   /// mapped places with — one fetch, shared cache.
@@ -241,18 +408,6 @@ function CasePanel({
     queryFn: ({ signal }) => fleetPools(signal),
   })
   const poolRow = fleet.data?.items.find((item) => item.id === one.pool) ?? null
-
-  /// For a mismatch, the pool the readers saw the tag in.
-  const observedRow =
-    anomalyRow === null
-      ? null
-      : (fleet.data?.items.find(
-          (item) => item.id === anomalyRow.observed_pool
-        ) ?? null)
-  const observedLabel =
-    anomalyRow === null
-      ? null
-      : (observedRow?.label ?? anomalyRow.observed_pool)
 
   const figures: {
     label: string
@@ -287,21 +442,7 @@ function CasePanel({
             { label: "Found since", value: count(gapRow.found_qty) },
             { label: "Gap", value: count(gapRow.open_gap_qty), tone: "bad" },
           ]
-        : [
-            {
-              label: "Book here",
-              value: poolRow === null ? "—" : count(poolRow.stock),
-            },
-            {
-              label: "Seen here",
-              value:
-                poolRow === null || poolRow.observed === null
-                  ? "—"
-                  : count(poolRow.observed),
-            },
-            { label: "Seen at", value: observedLabel ?? "—" },
-            { label: "Pieces", value: count(one.qty) },
-          ]
+        : []
 
   /// The pool's recent movements for this SKU — the ledger's own account of
   /// how the piece got here. Server-narrowed: the pool matches either side
@@ -385,41 +526,6 @@ function CasePanel({
       refreshStock()
     },
   })
-
-  /// The one write an observation can lead to: a placement correction, with
-  /// the sighting itself as the evidence.
-  const move = useMutation({
-    mutationFn: (reason: string) => {
-      const row = anomalyRow!
-      return correctPlacement({
-        idempotency_key: idempotencyKey(),
-        actor_id: actor,
-        occurred_at: null,
-        reason,
-        evidence_reference: `reader ${row.device_id} · ${row.last_observed_at}`,
-        notes: null,
-        line: {
-          subject_id: row.subject_id,
-          epc: null,
-          quantity: row.quantity,
-          from: `${one.pool}:on_hand`,
-          to: `${row.observed_pool}:on_hand`,
-        },
-      })
-    },
-    onSuccess: () => {
-      setWrote("Placement corrected")
-      client.invalidateQueries({ queryKey: ["inventory", "pools"] })
-      client.invalidateQueries({ queryKey: inventoryKeys.fleet() })
-      client.invalidateQueries({ queryKey: inventoryKeys.anomalies() })
-      client.invalidateQueries({ queryKey: ["inventory", "movements"] })
-    },
-  })
-
-  /// The cloud cannot post against a pool an Edge node owns.
-  const writable =
-    poolRow?.authority.cloud_writable === true &&
-    (observedRow === null || observedRow.authority.cloud_writable)
 
   return (
     <Card className="flex flex-col overflow-hidden">
@@ -505,22 +611,7 @@ function CasePanel({
           <h3 className="mb-3 text-card-title font-semibold text-ink">
             Movement
           </h3>
-          {anomalyRow !== null ? (
-            <ol className="flex flex-col">
-              <TimelineRow
-                when={moment(anomalyRow.last_observed_at)}
-                title={`Seen at ${observedLabel}`}
-                sub={`Reader ${anomalyRow.device_id}`}
-                qty={`+${count(anomalyRow.quantity)}`}
-              />
-              <TimelineRow
-                when="The ledger"
-                title={`Books it at ${one.poolLabel === "" ? one.pool : one.poolLabel}`}
-                sub={one.pool}
-                qty={count(anomalyRow.quantity)}
-              />
-            </ol>
-          ) : gapRow !== null ? (
+          {gapRow !== null ? (
             <ol className="flex flex-col">
               <TimelineRow
                 when={moment(gapRow.received_at)}
@@ -616,30 +707,6 @@ function CasePanel({
             >
               Ask for a count
             </Button>
-          )}
-          {anomalyRow !== null && (
-            <ConfirmButton
-              label={`Move to ${observedLabel}`}
-              variant="primary"
-              title="Move the tag?"
-              confirmLabel="Move"
-              description={`Posts a placement correction: ${count(one.qty)} pcs from ${
-                one.poolLabel === "" ? one.pool : one.poolLabel
-              } to ${observedLabel}.`}
-              reason={{
-                label: "Why is the ledger moving this tag?",
-                hint: "Recorded as the correction's reason. The sighting is attached as the evidence.",
-              }}
-              pending={move.isPending}
-              disabled={actor === "" || !writable}
-              onConfirm={(said) => move.mutateAsync(said)}
-            />
-          )}
-          {!writable && anomalyRow !== null && (
-            <p className="text-[0.875rem] text-mute">
-              An Edge node owns one of these pools — the correction has to be
-              posted from the pool&rsquo;s own page on that node.
-            </p>
           )}
         </div>
       </div>

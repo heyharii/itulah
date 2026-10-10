@@ -1,4 +1,5 @@
 import type { GaContractRow } from "@itulah/contract"
+import { EMPTY, monthYear } from "@/lib/format"
 import { useSupplierName } from "@/screens/procurement/supplier-name"
 
 /// Words the register and the hub both print, kept out of `parts.tsx` because
@@ -9,16 +10,11 @@ import { useSupplierName } from "@/screens/procurement/supplier-name"
 ///
 /// Shared by the register's usage column and the hub's usage chart, because
 /// both draw a METER month and printing the first-of-the-month date would
-/// repeat "01" down every row. Kept here rather than promoted into
-/// `lib/format` until a third module asks the same question.
+/// repeat "01" down every row.
 export function monthLabel(period: string | null): string {
-  if (period === null) return "—"
-  const parsed = new Date(`${period}T00:00:00`)
-  if (Number.isNaN(parsed.getTime())) return period
-  return new Intl.DateTimeFormat("id-ID", {
-    month: "short",
-    year: "numeric",
-  }).format(parsed)
+  if (period === null) return EMPTY
+  const label = monthYear(period)
+  return label === EMPTY ? period : label
 }
 
 /// The party a contract names — a supplier when one is on the record, the
@@ -26,7 +22,7 @@ export function monthLabel(period: string | null): string {
 /// tenant renting our space, a co-operative). Every surface prints the same
 /// words, so they decide once, here.
 export function partyOf(row: GaContractRow): string {
-  return row.supplier_name ?? row.counterparty_name ?? "—"
+  return row.supplier_name ?? row.counterparty_name ?? EMPTY
 }
 
 /// The same, with a supplier written in full, "Maju Jaya, UD". For anything
@@ -48,5 +44,5 @@ export function siteOf(row: GaContractRow): string {
     ? "All stores"
     : row.site_scope === "ALL_SITES"
       ? "All sites"
-      : "—"
+      : EMPTY
 }

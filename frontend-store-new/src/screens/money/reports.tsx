@@ -1,17 +1,17 @@
 import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 
-import { Card } from "@/components/ui/card"
+import { DockTools } from "@/components/shell/dock-tools"
+import { Button } from "@/components/ui/button"
 import type { ChartRow } from "@/components/ui/chart"
-import { ListTable, type ListColumn } from "@/components/ui/list-table"
-import { Meter } from "@/components/ui/meter"
-import { OpenButton, OpenRows } from "@/components/ui/open-rows"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
+import type { ListColumn } from "@/components/ui/list-table"
+import { OpenButton } from "@/components/ui/open-rows"
 import { Pill } from "@/components/ui/pill"
-import { RecordSheet } from "@/components/ui/record-sheet"
 import { KeyValue, TotalsLadder } from "@/components/ui/rows"
-import { Stat, StatStrip } from "@/components/ui/stat-strip"
-import { EmptyState } from "@/components/ui/states"
-import { moment } from "@/lib/format"
+import { Fact, Facts, Sheet } from "@/components/ui/sheet"
+import { count, moment } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { useParam } from "@/lib/params"
 import { queryState } from "@/lib/query-state"
 import {
@@ -34,23 +34,16 @@ import {
   tenderOf,
 } from "@/screens/money/format"
 import {
-  CardHead,
-  Fact,
-  Facts,
+  ChartCard,
+  DeskBar,
   MoneyScreen,
-  SheetBlock,
+  Rows,
+  SheetSection,
   SpanPicker,
-  Toolbar,
+  SPANS,
+  spanChoices,
 } from "@/screens/money/parts"
 import { money, units } from "@itulah/contract/money"
-
-const SPANS = [
-  { value: "1", label: "Today" },
-  { value: "7", label: "7 days" },
-  { value: "30", label: "30 days" },
-] as const
-
-type SpanOption = (typeof SPANS)[number]["value"]
 
 const BUCKETS: readonly { value: Bucket; label: string }[] = [
   { value: "day", label: "Day" },
@@ -58,16 +51,21 @@ const BUCKETS: readonly { value: Bucket; label: string }[] = [
   { value: "month", label: "Month" },
 ]
 
+/// How many receipts a phone draws before somebody asks for more — a thousand
+/// cards in one list is a phone that stops scrolling.
+const PAGE = 48
+
 /// What this shop took, down to the receipt.
 ///
 /// Read out of the shop's own SQLite, so it answers with the line to head
 /// office down — which is the whole reason an edge node exists. A manager
 /// closing up does not stop needing today's takings because a tunnel dropped.
 ///
-/// Laid out as the hub reads a span: the figures in a strip, the run of the
-/// span as bars beside how it was paid, and the receipts under both — each of
-/// which opens in a sheet with its lines and its approval codes, because that
-/// is the list a card or QRIS match is done from.
+/// Laid out as the hub reads a span: the figures, the run of the span beside
+/// how it was paid, and the receipts under both — each of which opens in a
+/// sheet with its lines and its approval codes, because that is the list a card
+/// or QRIS match is done from. On a phone the span is the dock's status chip
+/// and the grouping a row of its ⚙ sheet.
 ///
 /// Thinner than the centre's report, and deliberately so: the edge `sale` row
 /// has `total_minor`, `paid_minor` and `change_minor` and no tax to split them
@@ -97,10 +95,29 @@ export function Reports() {
 
   return (
     <MoneyScreen>
-      <Toolbar>
+      <DockTools
+        status={{
+          value: String(days),
+          options: spanChoices(String(days)),
+          onChange: (next) => span.set(next),
+        }}
+        views={
+          days > 1
+            ? [
+                {
+                  title: "Group by",
+                  value: grouping,
+                  options: BUCKETS,
+                  onChange: (next) => bucket.set(next as Bucket),
+                },
+              ]
+            : undefined
+        }
+      />
+      <DeskBar>
         <SpanPicker
           options={SPANS}
-          value={(span.value ?? "1") as SpanOption}
+          value={(span.value ?? "1") as (typeof SPANS)[number]["value"]}
           onChange={(next) => span.set(next)}
         />
         <span className="text-meta text-mute tabular-nums">
@@ -108,36 +125,29 @@ export function Reports() {
             ? `Today, ${spanWords(range.from, range.to)}`
             : `Last ${units(days)} days · ${spanWords(range.from, range.to)}`}
         </span>
-      </Toolbar>
+      </DeskBar>
 
       {queryState(takings, {
-        loading: "Loading…",
+        loading: "Reading the takings…",
         render: (report) => (
           <Report
             report={report}
             days={days}
             run={
-              days > 1 ? (
-                <Card>
-                  <CardHead
-                    title={`Takings by ${grouping}`}
-                    sub={spanWords(range.from, range.to)}
-                    aside={
-                      <SpanPicker
-                        options={BUCKETS}
-                        value={grouping}
-                        onChange={(next) => bucket.set(next)}
-                      />
-                    }
-                  />
-                  {queryState(series, {
-                    loading: "Loading…",
+              days > 1
+                ? queryState(series, {
+                    loading: "Reading the run…",
                     render: (answer) => (
-                      <Run run={answer} grouping={grouping} />
+                      <Run
+                        run={answer}
+                        grouping={grouping}
+                        from={range.from}
+                        to={range.to}
+                        onGroup={(next) => bucket.set(next)}
+                      />
                     ),
-                  })}
-                </Card>
-              ) : null
+                  })
+                : null
             }
           />
         ),
@@ -167,20 +177,17 @@ function Report({
 
   return (
     <>
-      <StatStrip>
-        <Stat
+      <KpiStrip>
+        <Kpi
           label="Takings"
           value={money(sales.gross_minor)}
-          sub={`${units(sales.count)} ${sales.count === 1 ? "sale" : "sales"}`}
+          delta={`${units(sales.count)} ${sales.count === 1 ? "sale" : "sales"}`}
         />
-        <Stat
-          label="Average sale"
-          value={money(sales.average_minor)}
-        />
-        <Stat
+        <Kpi label="Average sale" value={money(sales.average_minor)} />
+        <Kpi
           label="Items sold"
           value={units(sales.units_sold)}
-          sub={
+          delta={
             sales.count === 0
               ? undefined
               : `${(sales.units_sold / sales.count).toLocaleString("id-ID", {
@@ -188,12 +195,8 @@ function Report({
                 })} a sale`
           }
         />
-        <Stat
-          label="In the drawer"
-          value={money(report.cash_expected_minor)}
-          sub="Cash less change"
-        />
-      </StatStrip>
+        <Kpi label="In the drawer" value={money(report.cash_expected_minor)} />
+      </KpiStrip>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
         {run !== null && <div className="min-w-0 lg:col-start-1">{run}</div>}
@@ -235,25 +238,49 @@ function Report({
   )
 }
 
-/// The run of the span, as bars, with the busiest bucket named under it.
-function Run({ run, grouping }: { run: SalesSeries; grouping: Bucket }) {
+/// The run of the span, as bars, with the busiest bucket written under it.
+function Run({
+  run,
+  grouping,
+  from,
+  to,
+  onGroup,
+}: {
+  run: SalesSeries
+  grouping: Bucket
+  from: string
+  to: string
+  onGroup: (next: Bucket) => void
+}) {
   const cells = new Map(run.cells.map((cell) => [cell.bucket_start, cell]))
   const rows: readonly ChartRow[] = run.buckets.map((start) => ({
     bucket: start,
     takings: cells.get(start)?.gross_minor ?? 0,
   }))
-  if (run.cells.length === 0) {
-    return (
-      <p className="px-4 py-12 text-center text-meta text-body">
-        No sales in this period.
-      </p>
-    )
-  }
-  const busiest = run.cells.reduce((best, cell) =>
-    cell.gross_minor > best.gross_minor ? cell : best,
-  )
+  const busiest =
+    run.cells.length === 0
+      ? null
+      : run.cells.reduce((best, cell) =>
+          cell.gross_minor > best.gross_minor ? cell : best,
+        )
   return (
-    <div className="px-3 pt-3.5 pb-2">
+    <ChartCard
+      title={`Takings by ${grouping}`}
+      sub={spanWords(from, to)}
+      aside={
+        <SpanPicker
+          options={BUCKETS}
+          value={grouping}
+          onChange={onGroup}
+          className="max-md:hidden"
+        />
+      }
+      note={
+        busiest === null
+          ? "No sales in this period."
+          : `Busiest: ${bucketTitle(busiest.bucket_start, grouping)} · ${money(busiest.gross_minor)}`
+      }
+    >
       <RunBars
         rows={rows}
         dataKey="takings"
@@ -263,79 +290,98 @@ function Run({ run, grouping }: { run: SalesSeries; grouping: Bucket }) {
         titleOf={(start) => bucketTitle(start, grouping)}
         className="h-[13.75rem] md:h-[15rem]"
       />
-      <p className="px-1 pt-2 pb-1 text-meta text-mute">
-        Busiest: {bucketTitle(busiest.bucket_start, grouping)} ·{" "}
-        <span className="tabular-nums">{money(busiest.gross_minor)}</span>
-      </p>
-    </div>
+    </ChartCard>
   )
 }
 
-/// How it was paid — each tender with its share of the takings.
-///
-/// The drawer figure's caveat lives here, beside the tenders it is about,
-/// rather than in a banner across the page: it is a footnote to one number,
-/// not news.
+/// How it was paid — each tender with its share of the takings, as numbers.
 function Tenders({ report }: { report: SalesWindow }) {
   const taken = report.tenders.reduce(
     (sum, tender) => sum + tender.amount_minor,
     0,
   )
+  const share = (amount: number) =>
+    taken === 0 ? "—" : `${Math.round((amount / taken) * 100)}%`
+  const columns: ListColumn<(typeof report.tenders)[number]>[] = [
+    {
+      id: "method",
+      header: "Method",
+      className: "min-w-[8rem]",
+      cell: (tender) => {
+        const kind = tenderOf(tender.method)
+        return (
+          <TwoLineTender
+            icon={kind.icon}
+            top={kind.word}
+            under={`${units(tender.count)} ${tender.count === 1 ? "tender" : "tenders"} · ${share(tender.amount_minor)}`}
+          />
+        )
+      },
+    },
+    {
+      id: "amount",
+      header: "Amount",
+      align: "right",
+      cell: (tender) => (
+        <span className="font-medium text-ink tabular-nums">
+          {money(tender.amount_minor)}
+        </span>
+      ),
+    },
+  ]
   return (
-    <div className="overflow-hidden rounded-card border border-hairline bg-canvas shadow-soft">
-      <CardHead
-        title="How it was paid"
-        sub={`${units(report.tenders.reduce((sum, tender) => sum + tender.count, 0))} tenders`}
-      />
-      {report.tenders.length === 0 ? (
-        <p className="px-4 py-8 text-center text-meta text-body">
-          Nothing taken.
-        </p>
-      ) : (
-        <ul className="px-4 py-1">
-          {report.tenders.map((tender) => {
-            const kind = tenderOf(tender.method)
-            const Glyph = kind.icon
-            return (
-              <li
-                key={tender.method}
-                className="border-b border-hairline py-3 last:border-b-0"
-              >
-                <div className="flex items-center gap-2.5 text-cell">
-                  <span className="grid size-[1.875rem] shrink-0 place-items-center rounded-inner bg-soft-2 text-body">
-                    <Glyph className="size-4 stroke-[1.7]" />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block font-medium text-ink">
-                      {kind.word}
-                    </span>
-                    <span className="block text-meta text-mute tabular-nums">
-                      {units(tender.count)}{" "}
-                      {tender.count === 1 ? "tender" : "tenders"} ·{" "}
-                      {taken === 0
-                        ? "—"
-                        : `${Math.round((tender.amount_minor / taken) * 100)}%`}
-                    </span>
-                  </span>
-                  <span className="font-medium text-ink tabular-nums">
-                    {money(tender.amount_minor)}
-                  </span>
-                </div>
-                <Meter
-                  className="mt-2"
-                  value={taken === 0 ? 0 : tender.amount_minor / taken}
-                />
-              </li>
-            )
-          })}
-        </ul>
-      )}
-    </div>
+    <Rows
+      title="How it was paid"
+      sub={`${units(report.tenders.reduce((sum, tender) => sum + tender.count, 0))} tenders`}
+      aside={money(taken)}
+      rows={report.tenders}
+      columns={columns}
+      rowKey={(tender) => tender.method}
+      empty="Nothing taken."
+      card={(tender) => {
+        const kind = tenderOf(tender.method)
+        return {
+          title: kind.word,
+          lead: {
+            figure: money(tender.amount_minor),
+            caption: share(tender.amount_minor),
+          },
+          foot: {
+            info: `${units(tender.count)} ${tender.count === 1 ? "tender" : "tenders"}`,
+          },
+        }
+      }}
+    />
   )
 }
 
-/// The receipts, newest first — a table on a desk, card rows on a phone —
-/// each one opening its sheet.
+/// A tender's name over what it was, with its glyph on a desk.
+function TwoLineTender({
+  icon: Glyph,
+  top,
+  under,
+}: {
+  icon: React.ComponentType<{ className?: string }>
+  top: string
+  under: string
+}) {
+  return (
+    <span className="flex min-w-0 items-center gap-2.5">
+      <span className="grid size-[1.875rem] shrink-0 place-items-center rounded-inner bg-soft-2 text-body">
+        <Glyph className="size-4 stroke-[1.7]" />
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate font-medium text-ink">{top}</span>
+        <span className="block truncate text-meta text-mute tabular-nums">
+          {under}
+        </span>
+      </span>
+    </span>
+  )
+}
+
+/// The receipts, newest first — the hub's table on a desk, lead cards on a
+/// phone — each one opening its sheet.
 function Receipts({
   report,
   days,
@@ -345,39 +391,42 @@ function Receipts({
   days: number
   onOpen: (id: string) => void
 }) {
+  const phone = useLayout() === "phone"
+  const [limit, setLimit] = useState(PAGE)
+  const shown = phone ? report.receipts.slice(0, limit) : report.receipts
   return (
-    <>
-      <Card>
-        <CardHead
-          title={
-            report.receipts_truncated
-              ? `Last ${units(report.receipts_limit)} receipts`
-              : "Receipts"
-          }
-          sub={
-            report.receipts.length === 0
-              ? undefined
-              : `${units(report.sales.count)} sales`
-          }
-        />
-        {report.receipts.length === 0 ? (
-          <EmptyState>
-            {days === 1
-              ? "No sales today."
-              : "No sales in this period."}
-          </EmptyState>
-        ) : (
-          <OpenRows onOpen={onOpen}>
-            <ListTable
-              rows={report.receipts}
-              columns={RECEIPT_COLUMNS}
-              rowKey={(receipt) => receipt.id}
-              empty="No receipts."
-            />
-          </OpenRows>
-        )}
-      </Card>
-    </>
+    <Rows
+      title={
+        report.receipts_truncated
+          ? `Last ${units(report.receipts_limit)} receipts`
+          : "Receipts"
+      }
+      aside={
+        report.receipts.length === 0
+          ? undefined
+          : `${units(report.sales.count)} ${report.sales.count === 1 ? "sale" : "sales"}`
+      }
+      rows={shown}
+      columns={RECEIPT_COLUMNS}
+      rowKey={(receipt) => receipt.id}
+      onOpen={(receipt) => onOpen(receipt.id)}
+      empty={days === 1 ? "No sales today." : "No sales in this period."}
+      card={(receipt) => ({
+        title: moment(receipt.completed_at),
+        code: receipt.id.slice(0, 8),
+        lead: { figure: money(receipt.total_minor), caption: "total" },
+        foot: { info: `${itemsWord(receipt)} · ${receipt.actor_id}` },
+      })}
+      foot={
+        phone && report.receipts.length > limit ? (
+          <div className="mt-4 flex justify-center">
+            <Button onClick={() => setLimit((was) => was + PAGE)}>
+              Show {count(Math.min(PAGE, report.receipts.length - limit))} more
+            </Button>
+          </div>
+        ) : undefined
+      }
+    />
   )
 }
 
@@ -403,7 +452,6 @@ const RECEIPT_COLUMNS: readonly ListColumn<Receipt>[] = [
   {
     id: "sale",
     header: "Sale",
-    card: "hide",
     className: "max-xl:hidden",
     cell: (receipt) => (
       <span className="font-mono text-id text-body">
@@ -414,13 +462,11 @@ const RECEIPT_COLUMNS: readonly ListColumn<Receipt>[] = [
   {
     id: "cashier",
     header: "Cashier",
-    card: "hide",
     cell: (receipt) => receipt.actor_id,
   },
   {
     id: "items",
     header: "Items",
-    card: "hide",
     className: "tabular-nums",
     cell: itemsWord,
   },
@@ -428,7 +474,6 @@ const RECEIPT_COLUMNS: readonly ListColumn<Receipt>[] = [
     id: "change",
     header: "Change",
     align: "right",
-    card: "hide",
     className: "tabular-nums max-lg:hidden",
     cell: (receipt) =>
       receipt.change_minor > 0 ? (
@@ -441,25 +486,11 @@ const RECEIPT_COLUMNS: readonly ListColumn<Receipt>[] = [
     id: "total",
     header: "Total",
     align: "right",
-    card: "status",
     cell: (receipt) => (
       <span className="font-medium text-ink tabular-nums">
         {money(receipt.total_minor)}
       </span>
     ),
-  },
-  {
-    // The phone's line of context: on a desk these have columns.
-    id: "summary",
-    header: "",
-    card: "meta",
-    className: "hidden",
-    cell: (receipt) =>
-      `${itemsWord(receipt)} · ${receipt.actor_id}${
-        receipt.change_minor > 0
-          ? ` · ${money(receipt.change_minor)} change`
-          : ""
-      }`,
   },
 ]
 
@@ -469,7 +500,8 @@ const RECEIPT_COLUMNS: readonly ListColumn<Receipt>[] = [
 ///
 /// The summary from the list is drawn at once; the lines arrive from the node's
 /// own receipt document, the same one the printer is handed, so what this
-/// sheet says is what the customer's paper says.
+/// sheet says is what the customer's paper says. Nothing sits in the foot: a
+/// receipt is read, not acted on.
 function ReceiptSheet({
   receipt,
   open,
@@ -484,7 +516,7 @@ function ReceiptSheet({
 
   const stamp = printed.data?.stamp ?? null
   return (
-    <RecordSheet
+    <Sheet
       open={open}
       onOpenChange={(next) => {
         if (!next) onClose()
@@ -511,10 +543,10 @@ function ReceiptSheet({
 
       <div className="mt-6">
         {queryState(printed, {
-          loading: "Loading…",
+          loading: "Reading the receipt…",
           render: (paper) => (
             <>
-              <SheetBlock
+              <SheetSection
                 title="Items"
                 aside={`${units(paper.lines.length)} ${paper.lines.length === 1 ? "line" : "lines"}`}
               >
@@ -563,9 +595,9 @@ function ReceiptSheet({
                   ]}
                   total={{ label: "Total", value: money(paper.total_minor) }}
                 />
-              </SheetBlock>
+              </SheetSection>
 
-              <SheetBlock title="How it was paid">
+              <SheetSection title="How it was paid">
                 <div className="rounded-card border border-hairline px-3.5 py-0.5">
                   {paper.tenders.map((tender, index) => {
                     const kind = tenderOf(tender.method)
@@ -596,11 +628,11 @@ function ReceiptSheet({
                     </KeyValue>
                   )}
                 </div>
-              </SheetBlock>
+              </SheetSection>
             </>
           ),
         })}
       </div>
-    </RecordSheet>
+    </Sheet>
   )
 }

@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { PageFoot } from "@/screens/people/settings-kit"
+import { useLayout } from "@/lib/layout"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { Day } from "@/components/ui/day"
@@ -23,6 +25,7 @@ import type { CompanyView } from "@itulah/contract"
 /// the BPJS numbers are stated here, from a date, and the history is kept.
 export function CompanySettings() {
   const canWrite = useCanWrite()
+  const phone = useLayout() === "phone"
   const company = useQuery({
     queryKey: orgKeys.company(),
     queryFn: ({ signal }) => orgCompany(signal),
@@ -36,6 +39,7 @@ export function CompanySettings() {
         title="Company"
         sub="Who the company is, and the BPJS numbers it is registered under."
         actions={
+          !phone &&
           canWrite && (
             <Button variant="primary" onClick={() => sheet.show(null)}>
               Update BPJS registration
@@ -63,7 +67,7 @@ export function CompanySettings() {
                   <KeyValue term="NPP BPJS Ketenagakerjaan">
                     {current?.npp ?? "not stated"}
                   </KeyValue>
-                  <KeyValue term="Kode badan usaha BPJS Kesehatan">
+                  <KeyValue term="BPJS Kesehatan business entity code">
                     {current?.kesehatan_code ?? "not stated"}
                   </KeyValue>
                   <KeyValue term="JKK risk class">
@@ -118,6 +122,12 @@ export function CompanySettings() {
           )
         },
       })}
+      {canWrite && (
+        <PageFoot
+          label="Update BPJS registration"
+          onClick={() => sheet.show(null)}
+        />
+      )}
     </PageContent>
   )
 }
@@ -176,7 +186,7 @@ function BpjsSheet({
       <Field label="NPP BPJS Ketenagakerjaan">
         <Input value={npp} onChange={(e) => setNpp(e.target.value)} />
       </Field>
-      <Field label="Kode badan usaha BPJS Kesehatan">
+      <Field label="BPJS Kesehatan business entity code">
         <Input
           value={kesehatan}
           onChange={(e) => setKesehatan(e.target.value)}

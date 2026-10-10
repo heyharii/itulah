@@ -350,7 +350,7 @@ export function PaymentReconciliation() {
         />
         <Toolbar.Spacer />
         <span className="text-[0.875rem] text-mute">
-          {unit === "" ? "Every unit" : <UnitName id={unit} />}
+          {unit === "" ? "All units" : <UnitName id={unit} />}
           {` · ${count(openInvoices.length)} open ${
             openInvoices.length === 1 ? "invoice" : "invoices"
           } · ${count(openPayments.length)} unallocated ${

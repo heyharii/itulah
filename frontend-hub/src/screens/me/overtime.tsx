@@ -67,7 +67,7 @@ export function Overtime() {
                             // so the act is the reason and it is stated rather
                             // than left blank — the server records one either
                             // way, and a blank is not a reason.
-                            reason: "bersedia lembur",
+                            reason: "willing to work overtime",
                           })
                         }
                       >
@@ -81,7 +81,7 @@ export function Overtime() {
                           answer.mutate({
                             orderId: order.id,
                             agreed: false,
-                            reason: "tidak bisa lembur",
+                            reason: "cannot work overtime",
                           })
                         }
                       >

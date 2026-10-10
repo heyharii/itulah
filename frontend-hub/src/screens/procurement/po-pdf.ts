@@ -6,8 +6,10 @@ import {
   paperDate,
   paymentText,
   titled,
+  variantLines,
   type Paper,
   type PrintableOrder,
+  type VariantName,
 } from "@/screens/procurement/po-print"
 import {
   DEFAULT_TERMS,
@@ -54,11 +56,14 @@ export function downloadOrdersPdf({
   orders,
   phone,
   paper,
+  variantName = (colour, size) => [colour, size].filter(Boolean).join(" "),
 }: {
   orders: readonly PrintableOrder[]
   /// The supplier's number as the screens write it.
   phone: (value: string | null | undefined) => string | null
   paper: Paper
+  /// "Black M" for a variant's codes, as the printed sheet says it.
+  variantName?: VariantName
 }): void {
   const [pageW, pageH] = SHEET[paper]
   const doc = new jsPDF({
@@ -272,10 +277,14 @@ export function downloadOrdersPdf({
         line.order_unit_code!.toLowerCase() !== "pcs"
           ? line.order_unit_code!.toLowerCase()
           : null
-      const receipts = (line.receipts ?? []).map(
-        (one, at, all) =>
-          `Received${all.length > 1 ? ` #${at + 1}` : ""} ${count(one.quantity)} pcs · ${paperDate(one.received_at)}`
-      )
+      // Under the name: the split by colour and size, then what arrived.
+      const receipts = [
+        ...variantLines(line, variantName),
+        ...(line.receipts ?? []).map(
+          (one, at, all) =>
+            `Received${all.length > 1 ? ` #${at + 1}` : ""} ${count(one.quantity)} pcs · ${paperDate(one.received_at)}`
+        ),
+      ]
       const nameWrapped = doc.splitTextToSize(
         line.article_name,
         quantityX - itemX - 4
@@ -373,7 +382,7 @@ export function downloadOrdersPdf({
         : `${count(pieces)} pcs`
     )
     totalRow("Subtotal", money(gross))
-    totalRow("Discount", discount === 0 ? "—" : `- ${money(discount)}`)
+    totalRow("Discount", discount === 0 ? "—" : money(-discount))
     doc.setDrawColor(...INK).setLineWidth(0.4)
     doc.line(totalsX, y - 3.4, pageW - MARGIN, y - 3.4)
     totalRow("Grand Total", money(gross - discount), true)

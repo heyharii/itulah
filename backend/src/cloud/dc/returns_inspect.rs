@@ -312,12 +312,20 @@ pub(super) async fn inspect(
         })
     };
     let from = place_of(&delivery.pool_id)?;
-    let racks = place_of(&site_pool_tx(&mut tx, &gudang, "STOCKROOM").await?.ok_or_else(|| {
-        AppError::Unprocessable(format!("the Gudang ({gudang}) has no stockroom pool"))
-    })?)?;
-    let reject = place_of(&site_pool_tx(&mut tx, &gudang, "REJECT").await?.ok_or_else(|| {
-        AppError::Unprocessable(format!("the Gudang ({gudang}) has no reject pool"))
-    })?)?;
+    let racks = place_of(
+        &site_pool_tx(&mut tx, &gudang, "STOCKROOM")
+            .await?
+            .ok_or_else(|| {
+                AppError::Unprocessable(format!("the Gudang ({gudang}) has no stockroom pool"))
+            })?,
+    )?;
+    let reject = place_of(
+        &site_pool_tx(&mut tx, &gudang, "REJECT")
+            .await?
+            .ok_or_else(|| {
+                AppError::Unprocessable(format!("the Gudang ({gudang}) has no reject pool"))
+            })?,
+    )?;
 
     let inspection_id = Uuid::new_v4();
     let now = state.clock.now();

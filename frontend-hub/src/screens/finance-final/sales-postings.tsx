@@ -5,8 +5,10 @@ import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Day } from "@/components/ui/day"
+import { Fab } from "@/components/ui/fab"
 import { Input } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
+import { BottomSheet } from "@/components/ui/picker-sheet"
 import { Pill } from "@/components/ui/pill"
 import { Toolbar } from "@/components/ui/segmented"
 import {
@@ -15,7 +17,8 @@ import {
   ErrorState,
   LoadingState,
 } from "@/components/ui/states"
-import { count, day, money, moment } from "@/lib/format"
+import { count, day, money, moment, percentBps } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   generateSalesPosting,
   listSalesPostings,
@@ -26,6 +29,7 @@ import {
 } from "@/lib/queries/sales-postings"
 import { financeKeys } from "@/lib/queries/finance"
 import { useUnits } from "@/lib/queries/organisation"
+import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
 import { SiteName, SiteSelect } from "@/screens/finance/parts"
 import { Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
 import { todayIso } from "@/screens/finance/chart"
@@ -44,6 +48,7 @@ export function SalesPostings() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [confirmPostId, setConfirmPostId] = useState<string | null>(null)
   const queryClient = useQueryClient()
+  const phone = useLayout() === "phone"
   // A posting is a site's trading day; the sites are read off the units.
   const register = useUnits()
 
@@ -95,9 +100,136 @@ export function SalesPostings() {
 
   const selected = detail.data?.posting ?? null
 
+  const postingDetail = (
+    <>
+      {detail.error ? (
+        <ErrorState error={detail.error} />
+      ) : detail.isPending || selected === null ? (
+        <LoadingState>Reading the posting detail…</LoadingState>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-[0.875rem] font-semibold text-ink">
+                  {day(selected.business_date)} ·{" "}
+                  <SiteName id={selected.site_id} />
+                </h2>
+                <Status status={selected.status} />
+              </div>
+              <p className="mt-1 text-[0.875rem] text-mute">
+                Generated {moment(selected.generated_at)} by{" "}
+                {selected.generated_by}
+                {selected.entry_number
+                  ? ` · journal ${selected.entry_number}`
+                  : ""}
+              </p>
+            </div>
+            {selected.status === "DRAFT" &&
+              (confirmPostId === selected.posting_id ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[0.875rem] text-warn-fg">
+                    This creates the day's journal entry.
+                  </span>
+                  <Button
+                    variant="primary"
+                    pending={post.isPending}
+                    onClick={() => post.mutate(selected.posting_id)}
+                  >
+                    {post.isPending ? "Posting…" : "Confirm post"}
+                  </Button>
+                  <Button
+                    variant="quiet"
+                    pending={post.isPending}
+                    onClick={() => setConfirmPostId(null)}
+                  >
+                    Keep as draft
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  variant="primary"
+                  onClick={() => setConfirmPostId(selected.posting_id)}
+                >
+                  Post to ledger
+                </Button>
+              ))}
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+            <Metric label="Sales" value={count(selected.sale_count)} />
+            <Metric label="Gross takings" value={money(selected.gross_minor)} />
+            <Metric label="Settled" value={money(selected.settled_minor)} />
+            <Metric label="Discounts" value={money(selected.discount_minor)} />
+            <Metric label="Output VAT" value={money(selected.vat_minor)} />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <h3 className="text-[0.875rem] font-semibold text-ink">
+              Tender split
+            </h3>
+            <Grid>
+              <thead>
+                <tr>
+                  <Th>Tender</Th>
+                  <Th>Acquirer</Th>
+                  <Th align="right">Receipts</Th>
+                  <Th align="right">Gross</Th>
+                  <Th align="right">Discount</Th>
+                  <Th align="right">Returns</Th>
+                  <Th align="right">VAT</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {detail.data.lines.map((line) => (
+                  <tr key={line.line_id}>
+                    <Td>
+                      {line.method}
+                      {line.card_kind ? ` · ${line.card_kind}` : ""}
+                      {line.card_kind_inferred ? " · inferred" : ""}
+                    </Td>
+                    <Td>{line.acquirer || "—"}</Td>
+                    <Td align="right">{count(line.tender_count)}</Td>
+                    <Td align="right">{money(line.gross_minor)}</Td>
+                    <Td align="right">{money(line.discount_minor)}</Td>
+                    <Td align="right">{money(line.returns_minor)}</Td>
+                    <Td align="right">{money(line.vat_minor)}</Td>
+                  </tr>
+                ))}
+                <TotalRow>
+                  <Td colSpan={2}>Day total</Td>
+                  <Td align="right">
+                    {count(
+                      detail.data.lines.reduce(
+                        (sum, line) => sum + line.tender_count,
+                        0
+                      )
+                    )}
+                  </Td>
+                  <Td align="right">{money(selected.gross_minor)}</Td>
+                  <Td align="right">{money(selected.discount_minor)}</Td>
+                  <Td align="right">{money(selected.returns_minor)}</Td>
+                  <Td align="right">{money(selected.vat_minor)}</Td>
+                </TotalRow>
+              </tbody>
+            </Grid>
+          </div>
+          <p className="text-[0.875rem] text-mute">
+            VAT source: {selected.vat_source} · rate{" "}
+            {percentBps(selected.vat_rate_bps)} · generated{" "}
+            {moment(selected.generated_at)}
+          </p>
+        </>
+      )}
+    </>
+  )
+
   return (
     <PageContent>
+      {/* A phone: "Generate draft" is the round + (its business date one of
+          the Filters), and a posting's detail is a sheet over the list. */}
       <PageHeader
+        className="max-md:hidden"
         crumb="Finance · Receivables"
         title="Sales Postings"
         actions={
@@ -123,6 +255,15 @@ export function SalesPostings() {
         }
       />
 
+      {site !== "" && businessDate !== "" && !register.isPending && (
+        <Fab
+          label="Generate draft"
+          onClick={() =>
+            generate.mutate({ site_id: site, business_date: businessDate })
+          }
+        />
+      )}
+
       <Toolbar>
         <SiteSelect
           value={site}
@@ -130,9 +271,18 @@ export function SalesPostings() {
             setSite(value)
             setSelectedId(null)
           }}
-          emptyLabel="Choose a site"
+          emptyLabel="Choose a store"
           className="h-control w-44"
         />
+        <div className="md:hidden">
+          <Day
+            value={businessDate}
+            onChange={setBusinessDate}
+            label="Business date for the draft"
+            clearable={false}
+            className="w-full"
+          />
+        </div>
         <label className="flex items-center gap-2 text-[0.875rem] text-mute">
           Month
           <Input
@@ -164,7 +314,7 @@ export function SalesPostings() {
         </Banner>
       )}
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {site === "" ? (
           <EmptyState>Choose a site to see its sales postings.</EmptyState>
         ) : list.error ? (
@@ -176,6 +326,31 @@ export function SalesPostings() {
             No sales posting for this site and month yet. Pick a business date
             and generate a draft.
           </EmptyState>
+        ) : phone ? (
+          <PhoneList
+            rows={rows.map((row) => ({
+              key: row.posting_id,
+              title: day(row.business_date),
+              code: row.entry_number ?? undefined,
+              lead: (
+                <CardFigure
+                  value={money(row.gross_minor)}
+                  caption="gross takings"
+                />
+              ),
+              foot: (
+                <span className="tabular-nums">
+                  {count(row.sale_count)} sales · discounts{" "}
+                  {money(row.discount_minor)} · VAT {money(row.vat_minor)}
+                </span>
+              ),
+              action: <Status status={row.status} />,
+              onOpen: () => {
+                setConfirmPostId(null)
+                setSelectedId(row.posting_id)
+              },
+            }))}
+          />
         ) : (
           <Grid>
             <thead>
@@ -207,135 +382,31 @@ export function SalesPostings() {
         )}
       </Card>
 
-      {selectedId !== null && (
-        <section className="flex flex-col gap-3 rounded-card border border-hairline bg-canvas p-4">
-          {detail.error ? (
-            <ErrorState error={detail.error} />
-          ) : detail.isPending || selected === null ? (
-            <LoadingState>Reading the posting detail…</LoadingState>
-          ) : (
-            <>
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-[0.875rem] font-semibold text-ink">
-                      {day(selected.business_date)} ·{" "}
-                      <SiteName id={selected.site_id} />
-                    </h2>
-                    <Status status={selected.status} />
-                  </div>
-                  <p className="mt-1 text-[0.875rem] text-mute">
-                    Generated {moment(selected.generated_at)} by{" "}
-                    {selected.generated_by}
-                    {selected.entry_number
-                      ? ` · journal ${selected.entry_number}`
-                      : ""}
-                  </p>
-                </div>
-                {selected.status === "DRAFT" &&
-                  (confirmPostId === selected.posting_id ? (
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-[0.875rem] text-warn-fg">
-                        This creates the day's journal entry.
-                      </span>
-                      <Button
-                        variant="primary"
-                        pending={post.isPending}
-                        onClick={() => post.mutate(selected.posting_id)}
-                      >
-                        {post.isPending ? "Posting…" : "Confirm post"}
-                      </Button>
-                      <Button
-                        variant="quiet"
-                        pending={post.isPending}
-                        onClick={() => setConfirmPostId(null)}
-                      >
-                        Keep as draft
-                      </Button>
-                    </div>
-                  ) : (
-                    <Button
-                      variant="primary"
-                      onClick={() => setConfirmPostId(selected.posting_id)}
-                    >
-                      Post to ledger
-                    </Button>
-                  ))}
-              </div>
-
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-                <Metric label="Sales" value={count(selected.sale_count)} />
-                <Metric
-                  label="Gross takings"
-                  value={money(selected.gross_minor)}
-                />
-                <Metric label="Settled" value={money(selected.settled_minor)} />
-                <Metric
-                  label="Discounts"
-                  value={money(selected.discount_minor)}
-                />
-                <Metric label="Output VAT" value={money(selected.vat_minor)} />
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <h3 className="text-[0.875rem] font-semibold text-ink">
-                  Tender split
-                </h3>
-                <Grid>
-                  <thead>
-                    <tr>
-                      <Th>Tender</Th>
-                      <Th>Acquirer</Th>
-                      <Th align="right">Receipts</Th>
-                      <Th align="right">Gross</Th>
-                      <Th align="right">Discount</Th>
-                      <Th align="right">Returns</Th>
-                      <Th align="right">VAT</Th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {detail.data.lines.map((line) => (
-                      <tr key={line.line_id}>
-                        <Td>
-                          {line.method}
-                          {line.card_kind ? ` · ${line.card_kind}` : ""}
-                          {line.card_kind_inferred ? " · inferred" : ""}
-                        </Td>
-                        <Td>{line.acquirer || "—"}</Td>
-                        <Td align="right">{count(line.tender_count)}</Td>
-                        <Td align="right">{money(line.gross_minor)}</Td>
-                        <Td align="right">{money(line.discount_minor)}</Td>
-                        <Td align="right">{money(line.returns_minor)}</Td>
-                        <Td align="right">{money(line.vat_minor)}</Td>
-                      </tr>
-                    ))}
-                    <TotalRow>
-                      <Td colSpan={2}>Day total</Td>
-                      <Td align="right">
-                        {count(
-                          detail.data.lines.reduce(
-                            (sum, line) => sum + line.tender_count,
-                            0
-                          )
-                        )}
-                      </Td>
-                      <Td align="right">{money(selected.gross_minor)}</Td>
-                      <Td align="right">{money(selected.discount_minor)}</Td>
-                      <Td align="right">{money(selected.returns_minor)}</Td>
-                      <Td align="right">{money(selected.vat_minor)}</Td>
-                    </TotalRow>
-                  </tbody>
-                </Grid>
-              </div>
-              <p className="text-[0.875rem] text-mute">
-                VAT source: {selected.vat_source} · rate{" "}
-                {selected.vat_rate_bps / 100}% · generated{" "}
-                {moment(selected.generated_at)}
-              </p>
-            </>
-          )}
-        </section>
-      )}
+      {selectedId !== null &&
+        (phone ? (
+          <BottomSheet
+            open
+            onOpenChange={(next) => {
+              if (!next) {
+                setConfirmPostId(null)
+                setSelectedId(null)
+              }
+            }}
+            title={
+              selected === null
+                ? "Sales posting"
+                : `Sales posting · ${day(selected.business_date)}`
+            }
+          >
+            <div className="flex min-h-0 flex-col gap-3 overflow-y-auto overscroll-contain px-4 pb-4">
+              {postingDetail}
+            </div>
+          </BottomSheet>
+        ) : (
+          <section className="flex flex-col gap-3 rounded-card border border-hairline bg-canvas p-4">
+            {postingDetail}
+          </section>
+        ))}
     </PageContent>
   )
 }

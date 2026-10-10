@@ -8,8 +8,10 @@ import {
 import { ChevronRight } from "lucide-react"
 
 import { Pill } from "@/components/ui/pill"
-import { count } from "@/lib/format"
+import { count, EMPTY } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { cn } from "@/lib/utils"
+import { CardFigure, PhoneCard } from "@/components/ui/phone-cards"
 import { Delta } from "@/screens/sales/delta"
 import { showSales, type SalesMatrix } from "@/screens/sales/matrix"
 import { useStackLabels } from "@/lib/stack-table"
@@ -45,6 +47,7 @@ const TAKINGS = 152
 const DELTA = 78
 
 export function SalesTable({
+  query = "",
   matrix,
   before,
   comparison,
@@ -54,6 +57,8 @@ export function SalesTable({
   onOpen,
   onFocus,
 }: {
+  /// A phone's search over the days, by what each is called ("Mon 6 Oct").
+  query?: string
   matrix: SalesMatrix
   /// The same shops over the span being compared against, or undefined while
   /// it is still being fetched. The figures render either way — a comparison
@@ -77,6 +82,7 @@ export function SalesTable({
   // hundred rows to reach it is the failure the old left-to-right axis had.
   const order = [...matrix.buckets].reverse()
   const stack = useStackLabels()
+  const phone = useLayout() === "phone"
 
   // The bucket today falls in is still being written by tills that are still
   // open, so every figure on that row is a part-day. It is drawn rather than
@@ -91,6 +97,25 @@ export function SalesTable({
   // under it, and there would be nothing to expand into.
   const alone = matrix.rows.length === 1
   const only = alone ? matrix.rows[0] : null
+
+  // A phone reads a card per day, not a matrix wider than the glass.
+  if (phone)
+    return (
+      <DayCards
+        query={query}
+        matrix={matrix}
+        before={before}
+        comparison={comparison}
+        bucket={bucket}
+        expanded={expanded}
+        onToggle={onToggle}
+        onOpen={onOpen}
+        onFocus={onFocus}
+        isLive={isLive}
+        alone={alone}
+        onlySiteId={only?.site_id ?? null}
+      />
+    )
 
   const HEAD =
     "sticky top-0 z-20 h-9 border-b border-hairline bg-canvas px-3 text-cell font-normal whitespace-nowrap text-body"
@@ -512,5 +537,207 @@ function BucketRows({
           </tr>
         ))}
     </>
+  )
+}
+
+/// The trading days as a phone's cards, newest first: the day is the head, what
+/// it took is the figure (how it compares with the span being compared against
+/// under it), and the rest of the row — average transaction, units, units per
+/// transaction — is the foot. A tap unfolds the shops that traded that day,
+/// each opening its receipts; with one shop on screen it opens that shop's day
+/// straight away. The same figures the table draws, from the same matrix.
+function DayCards({
+  query,
+  matrix,
+  before,
+  comparison,
+  bucket,
+  expanded,
+  onToggle,
+  onOpen,
+  onFocus,
+  isLive,
+  alone,
+  onlySiteId,
+}: {
+  query: string
+  matrix: SalesMatrix
+  before?: SalesMatrix
+  comparison: Comparison
+  bucket: SalesBucket
+  expanded: ReadonlySet<string>
+  onToggle: (bucketStart: string) => void
+  onOpen: (cell: { siteId: string; from: string; to: string }) => void
+  onFocus: (siteId: string) => void
+  isLive: (start: string) => boolean
+  alone: boolean
+  onlySiteId: string | null
+}) {
+  const needle = query.trim().toLowerCase()
+  const order = [...matrix.buckets]
+    .reverse()
+    .filter(
+      (start) =>
+        needle === "" ||
+        bucketTitle(start, bucket).toLowerCase().includes(needle)
+    )
+  if (order.length === 0)
+    return (
+      <p className="px-3.5 py-10 text-center text-meta text-body">
+        No day matches that search.
+      </p>
+    )
+  return (
+    <ul className="flex flex-col gap-2.5">
+      {order.map((start) => {
+        const takings = matrix.bucketTotal(start, "gross_minor")
+        const quiet = takings === 0
+        const open = expanded.has(start)
+        const span = { from: start, to: bucketEnd(start, bucket) }
+        const at = matrix.buckets.indexOf(start)
+        const wasBucket = before?.buckets[at]
+        const was =
+          before === undefined || wasBucket === undefined
+            ? null
+            : before.bucketTotal(wasBucket, "gross_minor")
+        const traded = matrix.rows
+          .filter(
+            (site) => matrix.siteValue(site.site_id, start, "sales_count") > 0
+          )
+          .sort(
+            (left, right) =>
+              matrix.siteValue(right.site_id, start, "gross_minor") -
+              matrix.siteValue(left.site_id, start, "gross_minor")
+          )
+        const sales = matrix.bucketTotal(start, "sales_count")
+        return (
+          <PhoneCard
+            key={start}
+            onOpen={
+              quiet && !alone
+                ? undefined
+                : () =>
+                    alone && onlySiteId !== null
+                      ? onOpen({ siteId: onlySiteId, ...span })
+                      : onToggle(start)
+            }
+            head={
+              <span className="flex min-w-0 flex-col gap-1">
+                <span
+                  className={cn(
+                    "flex flex-wrap items-center gap-x-2 gap-y-1 text-[1rem] font-semibold",
+                    quiet ? "text-mute" : "text-ink"
+                  )}
+                >
+                  {bucketTitle(start, bucket)}
+                  {isLive(start) && (
+                    <Pill tone="accent" withDot className="h-6 px-2">
+                      Live
+                    </Pill>
+                  )}
+                </span>
+                {!quiet && (
+                  <span className="text-[0.875rem] font-normal text-mute">
+                    {count(sales)}{" "}
+                    {sales === 1 ? "transaction" : "transactions"}
+                    {!alone && (
+                      <>
+                        {" "}
+                        · {count(traded.length)}{" "}
+                        {traded.length === 1 ? "shop" : "shops"}
+                      </>
+                    )}
+                  </span>
+                )}
+              </span>
+            }
+            lead={
+              quiet ? (
+                <CardFigure value={EMPTY} tone="quiet" />
+              ) : (
+                <CardFigure
+                  value={showSales("gross_minor", takings)}
+                  caption={
+                    was === null ? undefined : (
+                      <>
+                        <Delta
+                          now={takings}
+                          before={was}
+                          against={comparison.full}
+                        />{" "}
+                        {comparison.short}
+                      </>
+                    )
+                  }
+                />
+              )
+            }
+            foot={
+              quiet ? undefined : (
+                <>
+                  Avg{" "}
+                  {showSales(
+                    "average_minor",
+                    matrix.bucketTotal(start, "average_minor")
+                  )}{" "}
+                  ·{" "}
+                  {showSales(
+                    "units_sold",
+                    matrix.bucketTotal(start, "units_sold")
+                  )}{" "}
+                  units · UPT{" "}
+                  {showSales(
+                    "items_per_sale",
+                    matrix.bucketTotal(start, "items_per_sale")
+                  )}
+                </>
+              )
+            }
+          >
+            {open && !alone && (
+              <ul className="rounded-b-card border-t border-hairline">
+                {traded.map((site) => (
+                  <li
+                    key={site.site_id}
+                    className="flex min-h-11 items-center justify-between gap-3 px-4 text-[0.875rem] not-first:border-t not-first:border-hairline"
+                  >
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        onFocus(site.site_id)
+                      }}
+                      className="flex min-w-0 items-center gap-2 py-2 text-left"
+                    >
+                      <span
+                        aria-hidden
+                        className="size-[7px] shrink-0 rounded-[2px]"
+                        style={{ background: matrix.colourOf(site.site_id) }}
+                      />
+                      <span className="truncate text-body">
+                        {site.site_name}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        onOpen({ siteId: site.site_id, ...span })
+                      }}
+                      className="shrink-0 py-2 font-medium text-ink tabular-nums"
+                    >
+                      {showSales(
+                        "gross_minor",
+                        matrix.siteValue(site.site_id, start, "gross_minor")
+                      )}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </PhoneCard>
+        )
+      })}
+    </ul>
   )
 }

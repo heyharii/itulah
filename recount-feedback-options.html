@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recount feedback</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#20242c;--body:#565f6d;--mute:#666f7d;--hairline:#e6e6e9;
+  --soft:#f8f8f9;--soft-2:#f0f0f2;--soft-3:#f6f6f7;--canvas:#fff;
+  --accent:#2563eb;--ok-fg:#137a37;--ok-bg:#d9f4d2;--bad-fg:#be123c;--bad-bg:#fbeaea;
+  --info-fg:#2c57bf;--info-bg:#ddebfa;--scrim:rgba(246,246,247,.72);
+  --shadow-float:0 8px 24px rgb(24 39 60/6%),0 24px 64px rgb(24 39 60/12%);
+  --shadow-soft:0 1px 2px rgb(24 39 60/4%);
+  --ease-out:cubic-bezier(.23,1,.32,1);--ease-in-out:cubic-bezier(.77,0,.175,1);--ease-drawer:cubic-bezier(.32,.72,0,1);
+  --t-sheet:280ms;--t-exit:200ms;
+  --r-card:10px;--r-inner:8px;--r-shell:16px;
+}
+*{box-sizing:border-box;margin:0}
+body{font:15px/1.45 Inter,system-ui,sans-serif;color:var(--ink);background:var(--soft-3);-webkit-font-smoothing:antialiased}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:14px;color:var(--mute)}
+button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
+.btn{height:36px;padding:0 14px;border-radius:var(--r-inner);font-weight:500;font-size:14px;display:inline-flex;align-items:center;gap:6px;transition:transform 160ms var(--ease-out),background-color 150ms ease}
+.btn:active{transform:scale(.97)}
+.btn-soft{background:var(--soft-2);color:var(--ink)}
+.btn-primary{background:var(--accent);color:#fff}
+.chip-btn{height:28px;padding:0 10px;border-radius:6px;background:var(--accent);color:#fff;font-size:14px;font-weight:500}
+
+/* option bar */
+.bar{position:sticky;top:0;z-index:80;display:flex;align-items:center;gap:16px;padding:12px 24px;background:var(--canvas);border-bottom:1px solid var(--hairline)}
+.bar h1{font-size:15px;font-weight:600;margin-right:8px}
+.seg{display:flex;gap:2px;background:var(--soft-2);border-radius:var(--r-inner);padding:3px}
+.seg button{height:30px;padding:0 12px;border-radius:6px;font-size:14px;color:var(--body)}
+.seg button[aria-pressed=true]{background:var(--canvas);color:var(--ink);font-weight:500;box-shadow:var(--shadow-soft)}
+.bar2{top:57px;z-index:79;padding:8px 24px;background:var(--soft)}
+.bar2 h1{font-weight:500;color:var(--body)}
+.bar .note{color:var(--mute);font-size:14px;flex:1}
+
+/* page */
+.page{padding:24px 32px 64px;max-width:1180px}
+.page h2{font-size:22px;font-weight:600;margin-bottom:16px}
+.card{background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);box-shadow:var(--shadow-soft);overflow:hidden}
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+th{height:40px;background:var(--soft);text-align:left;font-size:14px;font-weight:500;color:var(--body);padding:0 20px;border-bottom:1px solid var(--hairline)}
+td{height:70px;padding:0 20px;border-top:1px solid var(--hairline);vertical-align:middle}
+tr:first-child td{border-top:0}
+td.num,th.num{text-align:right}
+.sub{font-size:14px;color:var(--mute)}
+.status{position:relative;height:28px;display:flex;align-items:center}
+.status > *{position:absolute;left:0;transition:opacity 220ms ease,filter 220ms ease,transform 220ms var(--ease-out)}
+.status .word{color:var(--info-fg);font-weight:500}
+.status .ok{color:var(--ok-fg)}
+.status[data-state=review] .word{opacity:0;filter:blur(3px);transform:translateY(4px)}
+.status[data-state=recount] .chip-btn{opacity:0;filter:blur(3px);transform:translateY(-4px);pointer-events:none}
+tr.wash td{animation:wash 1400ms ease-out}
+@keyframes wash{0%,25%{background:var(--info-bg)}100%{background:transparent}}
+
+/* sheet */
+.scrim{position:fixed;inset:104px 0 0 0;z-index:40;background:var(--scrim);transition:opacity var(--t-sheet) var(--ease-out)}
+.sheet{position:fixed;top:124px;right:20px;bottom:20px;z-index:41;width:min(72vw,900px);display:flex;flex-direction:column;background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-shell);box-shadow:var(--shadow-float);overflow:hidden;transition:transform var(--t-sheet) var(--ease-drawer)}
+.sheet.closed{transform:translateX(calc(100% + 20px));transition-duration:var(--t-exit)}
+.scrim.closed{opacity:0;pointer-events:none}
+.s-head{display:flex;align-items:center;gap:12px;padding:14px 28px;border-bottom:1px solid var(--hairline)}
+.s-head .t{font-size:18px;font-weight:600;display:flex;gap:8px;align-items:center}
+.s-body{flex:1;overflow:auto;padding:20px 32px;display:flex;flex-direction:column;gap:24px}
+.facts{display:grid;grid-template-columns:max-content 1fr max-content 1fr;gap:8px 16px}
+.facts dt{color:var(--body)}
+.s-body .card th,.s-body .card td{padding:0 16px}
+.s-body .card td{height:64px}
+.diff{display:inline-block;padding:4px 10px;border-radius:var(--r-inner);background:var(--bad-bg);color:var(--bad-fg);font-weight:500}
+tfoot td{background:var(--soft-2);height:52px;border-top:1px solid var(--hairline)}
+.sum{display:grid;grid-template-columns:1fr auto 9.5rem;row-gap:8px;margin-right:1px}
+.sum dt{grid-column:2;padding-right:40px;color:var(--body)}
+.sum dd{padding:0 16px;font-weight:500}
+.s-foot{display:flex;gap:12px;justify-content:flex-end;align-items:center;padding:16px 24px;border-top:1px solid var(--hairline)}
+
+/* in-button states (E) */
+.btn .lbl{display:inline-flex;align-items:center;gap:6px;transition:opacity 180ms ease,filter 180ms ease}
+.btn.busy .lbl{opacity:.0;filter:blur(2px)}
+.spin{position:absolute;width:16px;height:16px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin 600ms linear infinite;opacity:0;transition:opacity 150ms}
+.btn{position:relative}
+.btn.busy .spin{opacity:1}
+.btn.done{background:var(--ok-bg);color:var(--ok-fg)}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* centre receipt (A) */
+.receipt-scrim{position:fixed;inset:0;z-index:60;background:var(--scrim);backdrop-filter:blur(2px);transition:opacity 200ms var(--ease-out)}
+.receipt{position:fixed;top:50%;left:50%;z-index:61;width:24rem;translate:-50% -50%;background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);box-shadow:var(--shadow-float);padding:24px;display:flex;flex-direction:column;align-items:center;gap:16px;text-align:center;transition:opacity 200ms var(--ease-out),scale 200ms var(--ease-out)}
+.receipt .tick{width:56px;height:56px;border-radius:50%;background:var(--ok-bg);color:var(--ok-fg);display:grid;place-items:center}
+.receipt b{font-size:24px;font-weight:600;letter-spacing:-.01em}
+.bar-t{width:120px;height:3px;border-radius:3px;background:var(--soft-2);overflow:hidden}
+.bar-t i{display:block;height:100%;background:var(--ok-fg);opacity:.5;transform-origin:left;animation:drain 3000ms linear forwards}
+@keyframes drain{from{transform:scaleX(1)}to{transform:scaleX(0)}}
+.hidden-o{opacity:0;pointer-events:none}
+.receipt.hidden-o{scale:.96}
+
+/* toast (B) */
+.toast{position:fixed;right:24px;bottom:24px;z-index:70;width:360px;display:flex;gap:12px;align-items:flex-start;padding:14px 16px;background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-card);box-shadow:var(--shadow-float);transition:transform 400ms var(--ease-out),opacity 400ms var(--ease-out)}
+.toast.off{transform:translateY(calc(100% + 24px));opacity:0;transition-duration:200ms}
+.toast .tick{flex:none;width:28px;height:28px;border-radius:50%;background:var(--ok-bg);color:var(--ok-fg);display:grid;place-items:center}
+.toast .tt{font-weight:500}
+.toast .ts{color:var(--mute);font-size:14px}
+
+/* flying pill (C) and ghost (D) */
+.fly{position:fixed;z-index:75;left:0;top:0;height:28px;padding:0 10px;border-radius:999px;background:var(--info-bg);color:var(--info-fg);font-size:14px;font-weight:500;display:flex;align-items:center;gap:6px;white-space:nowrap;will-change:transform}
+.clip-wrap{position:fixed;inset:0;z-index:42;pointer-events:none;filter:drop-shadow(0 12px 28px rgb(24 39 60/.14))}
+.clip-ghost{position:absolute;inset:0;background:var(--canvas)}
+tr.lift td{animation:lift 1100ms var(--ease-out)}
+@keyframes lift{0%{background:var(--info-bg);transform:translateY(0)}20%{transform:translateY(-3px)}60%{transform:translateY(0)}100%{background:transparent}}
+.ghost{position:fixed;z-index:42;left:0;top:0;background:var(--canvas);border:1px solid var(--hairline);border-radius:var(--r-shell);box-shadow:var(--shadow-float);transform-origin:0 0;will-change:transform}
+
+.legend{margin-top:20px;color:var(--body);font-size:14px;max-width:720px}
+.legend b{color:var(--ink);font-weight:600}
+@media (prefers-reduced-motion:reduce){
+  .sheet,.sheet.closed{transition:opacity 200ms ease}
+  .sheet.closed{transform:none;opacity:0}
+  .toast.off{transform:none}
+  tr.wash td{animation-duration:900ms}
+}
+</style>
+</head>
+<body>
+<div class="bar">
+  <h1>Recount feedback</h1>
+  <div class="seg" id="seg">
+    <button data-o="A">A · Centre</button>
+    <button data-o="B">B · Toast</button>
+    <button data-o="C">C · Pulled in</button>
+    <button data-o="D">D · Sheet into row</button>
+    <button data-o="E">E · Button says it</button>
+  </div>
+  <span class="note" id="note"></span>
+</div>
+<div class="bar bar2">
+  <h1>Button says it, then</h1>
+  <div class="seg" id="seg2">
+    <button data-o="E1">1 · Scale into row</button>
+    <button data-o="E2">2 · Outline morph</button>
+    <button data-o="E3">3 · Fold, then slide</button>
+    <button data-o="E4">4 · Into the status</button>
+    <button data-o="E5">5 · Pull in</button>
+    <button data-o="E6">6 · Slide out, row lifts</button>
+    <button data-o="E7">7 · Pull in + toast</button>
+  </div>
+  <button class="btn btn-soft" id="replay">Replay</button>
+</div>
+
+<div class="page">
+  <h2>Purchase Orders</h2>
+  <div class="card">
+    <table id="list">
+      <colgroup><col style="width:30%"><col style="width:18%"><col style="width:16%"><col style="width:18%"><col></colgroup>
+      <thead><tr><th>PO</th><th>Delivery Date</th><th class="num">Ordered</th><th class="num">Received</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td>Indorama, PT<div class="mono">PO-041026-007 · 1 item</div></td><td style="color:var(--bad-fg)">07 Oct 2026</td><td class="num">8 pcs<div class="sub">Rp 320.000</div></td><td class="num">8 pcs <span style="color:var(--bad-fg)">(+12)</span><div class="sub">Rp 320.000</div></td><td><div class="status" data-state="review"><button class="chip-btn">Review Count</button><span class="word">Recounting</span></div></td></tr>
+        <tr id="target"><td>Indorama, PT<div class="mono">PO-041026-012 · 2 items</div></td><td>14 Oct 2026</td><td class="num">400 pcs<div class="sub">Rp 7.800.000</div></td><td class="num">700 pcs <span style="color:var(--bad-fg)">(+300)</span><div class="sub">Rp 10.140.000</div></td><td><div class="status" id="tstatus" data-state="review"><button class="chip-btn" id="openSheet">Review Count</button><span class="word">Recounting</span></div></td></tr>
+        <tr><td>Garmen AA, UD<div class="mono">PO-051026-003 · 1 item</div></td><td>22 Oct 2026</td><td class="num">30 pcs<div class="sub">Rp 2.400.000</div></td><td class="num" style="color:var(--mute)">0 pcs</td><td><span class="status ok"><span class="ok" style="position:static">Active</span></span></td></tr>
+        <tr><td>Indorama, PT<div class="mono">PO-051026-001 · 1 item</div></td><td>22 Oct 2026</td><td class="num">10 pcs<div class="sub">Rp 399.000</div></td><td class="num" style="color:var(--mute)">0 pcs</td><td><span class="status"><span class="word" style="position:static;color:var(--info-fg);font-weight:500">Recounting</span></span></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="legend" id="legend"></p>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<aside class="sheet" id="sheet" role="dialog" aria-label="Review Count">
+  <div class="s-head">
+    <div style="flex:1"><div class="t">Review Count <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#be123c" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg></div><div class="mono">PO-041026-012</div></div>
+    <button class="btn" aria-label="Close" id="closeX" style="width:32px;padding:0;justify-content:center">✕</button>
+  </div>
+  <div class="s-body">
+    <dl class="facts"><dt>Supplier</dt><dd>Indorama, PT</dd><dt>Counted</dt><dd>Rina Kusuma · 04 Oct 2026, 16:59</dd></dl>
+    <div class="card">
+      <table>
+        <colgroup><col style="width:3.5rem"><col><col style="width:10rem"><col style="width:10rem"><col style="width:9.5rem"></colgroup>
+        <thead><tr><th>No.</th><th>Article</th><th>Ordered Quantity</th><th>Counted Quantity</th><th>Difference</th></tr></thead>
+        <tbody>
+          <tr><td style="color:var(--mute)">1</td><td>Kemeja Gelambir<div class="sub">Pria · Celana</div></td><td>200 pcs</td><td>200 pcs</td><td style="color:var(--ok-fg);font-weight:500">✓ Matches</td></tr>
+          <tr><td style="color:var(--mute)">2</td><td>Kemeja Gelambir Slim<div class="sub">Pria · Celana</div></td><td>200 pcs</td><td>500 pcs</td><td><span class="diff">+300 pcs</span></td></tr>
+        </tbody>
+        <tfoot><tr><td></td><td style="font-weight:500;color:var(--body)">Total</td><td>400 pcs</td><td>700 pcs</td><td style="color:var(--bad-fg);font-weight:500">300 pcs extra</td></tr></tfoot>
+      </table>
+    </div>
+    <dl class="sum"><dt>Accepted</dt><dd>400 pcs</dd><dt>To Be Returned</dt><dd style="color:var(--bad-fg)">300 pcs</dd></dl>
+  </div>
+  <div class="s-foot">
+    <button class="btn btn-soft" id="recount"><span class="lbl">Recount</span><span class="spin"></span></button>
+    <button class="btn btn-primary">✓ Submit</button>
+  </div>
+</aside>
+
+<div class="receipt-scrim hidden-o" id="rscrim"></div>
+<div class="receipt hidden-o" id="receipt" role="status">
+  <span class="tick"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25"><path d="M5 12l5 5L20 7"/></svg></span>
+  <b>1 item sent back to count</b>
+  <span class="bar-t"><i></i></span>
+</div>
+
+<div class="toast off" id="toast" role="status">
+  <span class="tick"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12l5 5L20 7"/></svg></span>
+  <div><div class="tt">Sent back to count</div><div class="ts">PO-041026-012 · 1 item</div></div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id)
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches
+const wait=ms=>new Promise(r=>setTimeout(r,ms))
+const notes={
+  A:['Today: the sheet closes, a receipt in the middle for 3 s.','<b>A · Centre</b> — what is built now. Loud for a step that only sends work back: it covers the list you want to look at.'],
+  B:['Sheet closes; a quiet toast slides up at the bottom right; the row turns Recounting.','<b>B · Toast</b> — bottom right, 4 s, held while the pointer is on it. The list stays readable; the row changes behind it.'],
+  C:['Sheet closes; an "1 item" pill is pulled from the Recount button into the row, which turns Recounting.','<b>C · Pulled in</b> — the work visibly goes back into the order: the pill travels to the status cell and lands there. No toast.'],
+  D:['The sheet shrinks into its own row, then the row turns Recounting.','<b>D · Sheet into row</b> — the review folds back into the PO it came from (like closing a window into its icon). No toast.'],
+  E1:['Button confirms, then the sheet scales down into its row.','<b>E → 1 · Scale into row</b> — D after E. The box squashes a little on the way; quick.'],
+  E2:['Button confirms, content fades, then the sheet outline morphs into the row and fills blue.','<b>E → 2 · Outline morph</b> — no squashing: the edge itself travels and lands as the row highlight.'],
+  E3:['Button confirms, the sheet folds up to one row tall, then slides left into its row.','<b>E → 3 · Fold, then slide</b> — two clear steps: becomes a row, goes home.'],
+  E4:['Button confirms, the sheet shrinks straight into the Review Count chip, which turns Recounting.','<b>E → 4 · Into the status</b> — lands exactly on what changes; smallest target, clearest cause → effect.'],
+  E5:['Button confirms, the sheet slides away, the pill is pulled from the button into the row.','<b>E → 5 · Pull in</b> — C after E: the confirmed button sends a "1 item" pill into the status cell.'],
+  E6:['Button confirms, the sheet slides out as usual, the row lifts and settles as Recounting.','<b>E → 6 · Slide out, row lifts</b> — calmest: the normal close, then the row itself answers.'],
+  E7:['Button confirms, the pill is pulled into the row, then a toast at the bottom right says it.','<b>E → 7 · Pull in + toast</b> — all three: the click answers in place, the work visibly goes back into the order, and the toast keeps the PO number on screen for 4 s.'],
+  E:['The button answers in place (spinner → "Sent to count ✓"), then the sheet closes and the row turns Recounting.','<b>E · Button says it</b> — the feedback sits where the click was. No overlay at all; the row flips after.'],
+}
+let opt='B'
+function setOpt(o){opt=o;document.querySelectorAll('#seg button,#seg2 button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.o===o));$('note').textContent=notes[o][0];$('legend').innerHTML=notes[o][1];reset()}
+function reset(){
+  document.getAnimations().forEach(a=>{if(a.effect&&a.effect.target&&a.effect.target.classList&&(a.effect.target.classList.contains('fly')||a.effect.target.classList.contains('ghost')))a.cancel()})
+  document.querySelectorAll('.fly,.ghost,.clip-wrap').forEach(n=>n.remove())
+  $('sheet').style.visibility='';$('sheet').getAnimations().forEach(a=>a.cancel());$('target').classList.remove('lift');$('sheet').classList.remove('closed');$('scrim').classList.remove('closed')
+  $('tstatus').dataset.state='review';$('target').classList.remove('wash')
+  const r=$('recount');r.classList.remove('busy','done');r.querySelector('.lbl').textContent='Recount';r.disabled=false
+  $('receipt').classList.add('hidden-o');$('rscrim').classList.add('hidden-o');$('toast').classList.add('off')
+}
+function closeSheet(){$('sheet').classList.add('closed');$('scrim').classList.add('closed')}
+function flipRow(){const t=$('target');t.classList.remove('wash');void t.offsetWidth;t.classList.add('wash');$('tstatus').dataset.state='recount'}
+let toastTimer=null,held=false
+$('toast').onpointerenter=()=>{held=true};$('toast').onpointerleave=()=>{held=false}
+async function showToast(){
+  $('toast').classList.remove('off');let left=4000
+  clearInterval(toastTimer);toastTimer=setInterval(()=>{if(!held)left-=100;if(left<=0){clearInterval(toastTimer);$('toast').classList.add('off')}},100)
+}
+
+const rad=16
+function insetOf(r,round){return `inset(${r.top}px ${innerWidth-r.right}px ${innerHeight-r.bottom}px ${r.left}px round ${round}px)`}
+async function confirmInButton(btn){
+  btn.classList.remove('busy');btn.classList.add('done');btn.querySelector('.lbl').innerHTML='✓ Sent to count'
+  await wait(650)
+}
+async function morphTo(steps,dur,endColor){
+  const sheet=$('sheet'),s=sheet.getBoundingClientRect()
+  const wrap=document.createElement('div');wrap.className='clip-wrap ghost';const g=document.createElement('div');g.className='clip-ghost';wrap.appendChild(g);document.body.appendChild(wrap)
+  g.style.clipPath=insetOf(s,rad)
+  $('scrim').classList.add('closed')
+  await sheet.animate([{opacity:1},{opacity:0}],{duration:140,easing:'ease-out',fill:'forwards'}).finished
+  sheet.style.visibility='hidden'
+  if(reduce){wrap.remove();return}
+  const frames=[{clipPath:insetOf(s,rad),backgroundColor:'#ffffff'},...steps.map(([r,round,off])=>({clipPath:insetOf(r,round),offset:off}))]
+  frames[frames.length-1].backgroundColor=endColor
+  delete frames[frames.length-1].offset
+  await g.animate(frames,{duration:dur,easing:'cubic-bezier(.77,0,.175,1)',fill:'forwards'}).finished
+  await wrap.animate([{opacity:1},{opacity:0}],{duration:160,easing:'ease-out',fill:'forwards'}).finished
+  wrap.remove()
+}
+function finishSheet(){const sh=$('sheet');sh.getAnimations().forEach(a=>a.cancel());sh.classList.add('closed')}
+async function pullIn(from){
+  const pill=document.createElement('div');pill.className='fly';pill.textContent='1 item';document.body.appendChild(pill)
+  pill.style.transform=`translate(${from.left}px,${from.top+4}px)`
+  closeSheet();await wait(reduce?0:140)
+  const to=$('tstatus').getBoundingClientRect()
+  if(reduce){pill.remove();flipRow();return}
+  const mx=(from.left+to.left)/2,my=Math.min(from.top,to.top)-120
+  await pill.animate([
+    {transform:`translate(${from.left}px,${from.top+4}px) scale(1)`,opacity:1},
+    {transform:`translate(${mx}px,${my}px) scale(1.04)`,opacity:1,offset:.45},
+    {transform:`translate(${to.left}px,${to.top}px) scale(.9)`,opacity:1,offset:.92},
+    {transform:`translate(${to.left}px,${to.top}px) scale(.9)`,opacity:0}
+  ],{duration:620,easing:'cubic-bezier(.77,0,.175,1)',fill:'forwards'}).finished
+  pill.remove();flipRow()
+}
+
+async function run(){
+  const btn=$('recount');if(btn.disabled)return;btn.disabled=true
+  // The write itself — ~350 ms on the rig.
+  if(opt[0]==='E'){btn.classList.add('busy')}
+  await wait(350)
+  if(opt==='A'){
+    closeSheet();$('tstatus').dataset.state='recount'
+    const bar=$('receipt').querySelector('.bar-t i');bar.style.animation='none';void bar.offsetWidth;bar.style.animation=''
+    $('receipt').classList.remove('hidden-o');$('rscrim').classList.remove('hidden-o')
+    await wait(3000);$('receipt').classList.add('hidden-o');$('rscrim').classList.add('hidden-o')
+  }
+  if(opt==='B'){closeSheet();await wait(120);flipRow();await wait(80);showToast()}
+  if(opt==='C'){
+    const from=btn.getBoundingClientRect()
+    const pill=document.createElement('div');pill.className='fly';pill.textContent='1 item';document.body.appendChild(pill)
+    pill.style.transform=`translate(${from.left}px,${from.top+4}px)`
+    closeSheet()
+    await wait(reduce?0:140)
+    const to=$('tstatus').getBoundingClientRect()
+    const pw=pill.offsetWidth
+    if(reduce){pill.remove();flipRow();return}
+    // A curved pull: out and up, then into the cell.
+    const mx=(from.left+to.left)/2, my=Math.min(from.top,to.top)-120
+    await pill.animate([
+      {transform:`translate(${from.left}px,${from.top+4}px) scale(1)`,opacity:1},
+      {transform:`translate(${mx}px,${my}px) scale(1.04)`,opacity:1,offset:.45},
+      {transform:`translate(${to.left}px,${to.top}px) scale(.9)`,opacity:1,offset:.92},
+      {transform:`translate(${to.left}px,${to.top}px) scale(.9)`,opacity:0}
+    ],{duration:620,easing:'cubic-bezier(.77,0,.175,1)',fill:'forwards'}).finished
+    pill.remove();flipRow()
+  }
+  if(opt==='D'){
+    const s=$('sheet').getBoundingClientRect(),r=$('target').getBoundingClientRect()
+    const g=document.createElement('div');g.className='ghost'
+    Object.assign(g.style,{width:s.width+'px',height:s.height+'px',transform:`translate(${s.left}px,${s.top}px)`})
+    document.body.appendChild(g);$('sheet').style.visibility='hidden';$('scrim').classList.add('closed')
+    if(reduce){g.remove();flipRow();return}
+    await g.animate([
+      {transform:`translate(${s.left}px,${s.top}px) scale(1,1)`,opacity:1},
+      {transform:`translate(${r.left}px,${r.top}px) scale(${r.width/s.width},${r.height/s.height})`,opacity:.15}
+    ],{duration:440,easing:'cubic-bezier(.77,0,.175,1)',fill:'forwards'}).finished
+    g.remove();$('sheet').classList.add('closed');flipRow()
+  }
+  if(opt.length===2){
+    await confirmInButton(btn)
+    const row=$('target').getBoundingClientRect(),chip=$('openSheet').getBoundingClientRect()
+    if(opt==='E1'){
+      const s=$('sheet').getBoundingClientRect()
+      const g=document.createElement('div');g.className='ghost'
+      Object.assign(g.style,{width:s.width+'px',height:s.height+'px',transform:`translate(${s.left}px,${s.top}px)`})
+      document.body.appendChild(g);$('sheet').style.visibility='hidden';$('scrim').classList.add('closed')
+      if(!reduce)await g.animate([
+        {transform:`translate(${s.left}px,${s.top}px) scale(1,1)`,opacity:1},
+        {transform:`translate(${row.left}px,${row.top}px) scale(${row.width/s.width},${row.height/s.height})`,opacity:.15}
+      ],{duration:440,easing:'cubic-bezier(.77,0,.175,1)',fill:'forwards'}).finished
+      g.remove();finishSheet();flipRow()
+    }
+    if(opt==='E2'){await morphTo([[row,0]],520,'#ddebfa');finishSheet();flipRow()}
+    if(opt==='E3'){
+      const s=$('sheet').getBoundingClientRect()
+      const folded={top:s.top,bottom:s.top+row.height,left:s.left,right:s.right}
+      await morphTo([[folded,10,.45],[row,0]],720,'#ddebfa');finishSheet();flipRow()
+    }
+    if(opt==='E4'){await morphTo([[chip,6]],520,'#2563eb');finishSheet();flipRow()}
+    if(opt==='E5'){await pullIn(btn.getBoundingClientRect())}
+    if(opt==='E7'){await pullIn(btn.getBoundingClientRect());await wait(120);showToast()}
+    if(opt==='E6'){closeSheet();await wait(220);const t=$('target');t.classList.remove('lift');void t.offsetWidth;t.classList.add('lift');$('tstatus').dataset.state='recount'}
+    return
+  }
+  if(opt==='E'){
+    btn.classList.remove('busy');btn.classList.add('done');btn.querySelector('.lbl').innerHTML='✓ Sent to count'
+    await wait(700);closeSheet();await wait(160);flipRow()
+  }
+}
+$('recount').onclick=run
+$('replay').onclick=reset
+$('closeX').onclick=closeSheet
+$('openSheet').onclick=reset
+document.querySelectorAll('#seg button,#seg2 button').forEach(b=>b.onclick=()=>setOpt(b.dataset.o))
+setOpt('E7')
+</script>
+</body>
+</html>

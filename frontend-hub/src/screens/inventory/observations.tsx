@@ -11,34 +11,33 @@ import { Radar } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
+import { Fab } from "@/components/ui/fab"
 import { Field, Input, Textarea } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Toolbar } from "@/components/ui/segmented"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
-import { SubTabs } from "@/components/ui/sub-tabs"
 import { Tag } from "@/components/ui/tag"
 import {
-  useFilters,
   useFilterState,
   type Filter,
   type FilterField,
 } from "@/lib/filters"
 import { count, moment } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   fleetPools,
   idempotencyKey,
   ingestObservations,
   inventoryKeys,
-  observationAnomalies,
   sightingsPage,
   type Observation,
-  type ObservationAnomaly,
   type SightingScope,
 } from "@/lib/queries/inventory"
 import { queryState } from "@/lib/query-state"
@@ -46,16 +45,15 @@ import { tableSetup, type TableSetup } from "@/lib/table"
 import { useDebounced } from "@/lib/use-debounced"
 import { Choice } from "@/screens/inventory/parts"
 import { placements, writablePools } from "@/screens/inventory/shared"
+import { CardFigure, CardName } from "@/components/ui/phone-cards"
 
-/// What the readers saw, and where it disagrees with the books.
+/// What the readers saw.
 ///
 /// The claim this whole screen rests on is the server's own, and it is
-/// hardcoded in both answers: `automatic_inventory_effect: false` on an
-/// anomaly, `inventory_effect: {0, 0}` on an ingest. **A sighting is evidence,
-/// not a movement.** No amount of reading a tag in the wrong aisle moves it in
-/// the ledger; a person has to look at the mismatch and post a placement
-/// correction, which is why every anomaly row links straight into the pool
-/// where that correction is made.
+/// hardcoded in the answer to an ingest: `inventory_effect: {0, 0}`. **A
+/// sighting is evidence, not a movement.** No amount of reading a tag in the
+/// wrong aisle moves it in the ledger; a person has to look at it and post a
+/// placement correction in the pool.
 
 /// Which column means which order the endpoint names. A column not in here
 /// cannot be sorted — sorting it would sort the loaded pages and call that the
@@ -66,7 +64,7 @@ const SIGHTING_SORTS: Record<string, string> = {
   last_seen_at: "last_seen_at",
 }
 
-/// Every narrowing on the sightings tab is a parameter the server answers —
+/// Every narrowing here is a parameter the server answers —
 /// the pool box, the search, and the reader chip below — so the list walks
 /// the readers' whole history with `next_cursor` rather than sifting the
 /// newest few hundred.
@@ -75,6 +73,7 @@ const sightings: ColumnDef<TableSetup, Observation>[] = [
     accessorKey: "epc",
     header: "Tag",
     size: 220,
+    meta: { card: "hide" },
     cell: ({ row }) => (
       <span className="font-mono text-id text-body">{row.original.epc}</span>
     ),
@@ -84,6 +83,7 @@ const sightings: ColumnDef<TableSetup, Observation>[] = [
     header: "SKU",
     size: 140,
     enableSorting: false,
+    meta: { card: "hide" },
     cell: ({ row }) =>
       row.original.sku_code ? (
         <span className="font-mono text-id text-body">
@@ -100,6 +100,7 @@ const sightings: ColumnDef<TableSetup, Observation>[] = [
     header: "Seen in",
     size: 200,
     enableSorting: false,
+    meta: { card: "hide" },
     cell: ({ row }) => (
       <AppLink
         to="/inventory/pools"
@@ -115,13 +116,14 @@ const sightings: ColumnDef<TableSetup, Observation>[] = [
     header: "Reader",
     size: 150,
     enableSorting: false,
+    meta: { card: "hide" },
     cell: ({ row }) => <Tag>{row.original.device_id}</Tag>,
   },
   {
     accessorKey: "read_count",
     header: "Reads",
     size: 90,
-    meta: { align: "right" },
+    meta: { align: "right", card: "hide" },
     cell: ({ row }) => count(row.original.read_count),
   },
   {
@@ -129,7 +131,7 @@ const sightings: ColumnDef<TableSetup, Observation>[] = [
     header: "Best RSSI",
     size: 110,
     enableSorting: false,
-    meta: { align: "right" },
+    meta: { align: "right", card: "hide" },
     cell: ({ row }) =>
       row.original.best_rssi === null ? (
         <span className="text-mute">—</span>
@@ -141,12 +143,78 @@ const sightings: ColumnDef<TableSetup, Observation>[] = [
     accessorKey: "last_seen_at",
     header: "Last Seen",
     size: 160,
+    meta: { card: "hide" },
     // The decision metric on a sighting list: how fresh the evidence is.
     cell: ({ row }) => moment(row.original.last_seen_at),
   },
 ]
 
-/// The reader chip, the one narrowing on the sightings tab that is not the
+/// The card a phone draws for a sighting, as columns of their own that exist
+/// there only (`cardLead`): the SKU over the tag, how many times it was read,
+/// where and when, and which reader.
+const sightingCards: ColumnDef<TableSetup, Observation>[] = [
+  {
+    id: "head",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    accessorFn: (row) => row.sku_code ?? "",
+    cell: ({ row }) => (
+      <CardName // An unknown tag is still a fact, and is said so.
+        name={row.original.sku_code ?? "Unknown tag"}
+        code={row.original.epc}
+      />
+    ),
+  },
+  {
+    id: "lead",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "lead" },
+    accessorFn: (row) => row.read_count,
+    cell: ({ row }) => (
+      <CardFigure
+        value={count(row.original.read_count)}
+        caption={row.original.read_count === 1 ? "read" : "reads"}
+      />
+    ),
+  },
+  {
+    id: "foot",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    accessorFn: (row) => row.last_seen_at,
+    cell: ({ row }) => (
+      <span className="flex flex-col leading-6">
+        <AppLink
+          to="/inventory/pools"
+          sheet={{ key: "pool", value: row.original.pool_id }}
+          className="hover:text-ink hover:underline"
+        >
+          {row.original.pool_id}
+        </AppLink>
+        <span className="tabular-nums">
+          {moment(row.original.last_seen_at)}
+        </span>
+      </span>
+    ),
+  },
+  {
+    id: "reader",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { align: "right", card: "status" },
+    accessorFn: (row) => row.device_id,
+    cell: ({ row }) => <Tag>{row.original.device_id}</Tag>,
+  },
+]
+
+/// The reader chip, the one narrowing here that is not the
 /// pool box or the search. `single`, because the endpoint compares one column
 /// to one value.
 const SIGHTING_FIELDS: FilterField[] = [
@@ -167,84 +235,13 @@ function sightingScopeFromFilters(filters: readonly Filter[]): {
   return {}
 }
 
-const mismatches: ColumnDef<TableSetup, ObservationAnomaly>[] = [
-  {
-    accessorKey: "epc",
-    header: "Tag",
-    size: 220,
-    // A tag id is looked UP, not narrowed by: somebody holding one has the
-    // EPC box on the sightings tab, which asks the server.
-    cell: ({ row }) => (
-      <span className="font-mono text-id text-body">{row.original.epc}</span>
-    ),
-  },
-  {
-    accessorKey: "ledger_pool",
-    header: "The Books Say",
-    size: 200,
-    /// The two pool columns are the whole question on this tab — "everything
-    /// the books put in the DC that a reader saw elsewhere" is one clause on
-    /// each. Both facet off these rows, which is the only place the two sides
-    /// are spelled the same way.
-    meta: { filter: { kind: "option" } },
-    cell: ({ row }) => (
-      <AppLink
-        to="/inventory/pools"
-        sheet={{ key: "pool", value: row.original.ledger_pool }}
-        className="text-body hover:text-ink hover:underline"
-      >
-        {row.original.ledger_pool}
-      </AppLink>
-    ),
-  },
-  {
-    accessorKey: "observed_pool",
-    header: "The Reader Saw",
-    size: 200,
-    meta: { filter: { kind: "option" } },
-    cell: ({ row }) => (
-      <AppLink
-        to="/inventory/pools"
-        sheet={{ key: "pool", value: row.original.observed_pool }}
-        className="font-medium text-warn-fg hover:underline"
-      >
-        {row.original.observed_pool}
-      </AppLink>
-    ),
-  },
-  {
-    accessorKey: "quantity",
-    header: "Quantity",
-    size: 100,
-    meta: { align: "right", filter: { kind: "number", unit: "pcs" } },
-    cell: ({ row }) => count(row.original.quantity),
-  },
-  {
-    accessorKey: "device_id",
-    header: "Reader",
-    size: 150,
-    meta: { filter: { kind: "option" } },
-    cell: ({ row }) => <Tag>{row.original.device_id}</Tag>,
-  },
-  {
-    accessorKey: "last_observed_at",
-    header: "Seen",
-    size: 160,
-    meta: { filter: { kind: "date" } },
-    cell: ({ row }) => moment(row.original.last_observed_at),
-  },
-]
-
 export function Observations() {
-  const [tab, setTab] = useState("sightings")
+  const phone = useLayout() === "phone"
   const [pool, setPool] = useState("")
   const [text, setText] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [sighted, setSighted] = useState<SortingState>([
     { id: "last_seen_at", desc: true },
-  ])
-  const [mismatched, setMismatched] = useState<SortingState>([
-    { id: "quantity", desc: true },
   ])
 
   const fleet = useQuery({
@@ -252,11 +249,11 @@ export function Observations() {
     queryFn: ({ signal }) => fleetPools(signal),
   })
 
-  /// Two tables, two parameters. They share two column ids — `epc` and
-  /// `device_id` — so one key would carry a reader picked on the sightings tab
-  /// over to the anomalies tab and narrow a list nobody asked to narrow.
   const readFilters = useFilterState(SIGHTING_FIELDS)
-  const anomalyFilters = useFilters(mismatches, "f2")
+  const sightingColumns = useMemo(
+    () => (phone ? [...sightings, ...sightingCards] : sightings),
+    [phone]
+  )
 
   // Debounced: every keystroke is a query over every reader's history.
   const needle = useDebounced(text.trim(), 400)
@@ -281,13 +278,6 @@ export function Observations() {
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.next_cursor ?? undefined,
     placeholderData: (previous) => previous,
-    enabled: tab === "sightings",
-  })
-
-  const anomalies = useQuery({
-    queryKey: inventoryKeys.anomalies(),
-    queryFn: ({ signal }) => observationAnomalies(signal),
-    enabled: tab === "anomalies",
   })
 
   const readRows = useMemo(
@@ -310,44 +300,20 @@ export function Observations() {
     }),
     [readFilters, readHead]
   )
-  const anomalyRows = useMemo(() => anomalies.data ?? [], [anomalies.data])
 
   const readTable = useTable(
     useMemo(
       () => ({
         features: tableSetup,
         data: readRows,
-        columns: sightings,
+        columns: sightingColumns,
         getRowId: (row: Observation) => row.observation_id,
         state: { sorting: sighted },
         // The rows arrive in the order the request asked for.
         manualSorting: true,
         onSortingChange: setSighted,
       }),
-      [readRows, sighted]
-    )
-  )
-
-  const anomalyTable = useTable(
-    useMemo(
-      () => ({
-        features: tableSetup,
-        data: anomalyRows,
-        columns: anomalyFilters.columns,
-        getRowId: (row: ObservationAnomaly) =>
-          `${row.subject_id}/${row.observed_pool}`,
-        state: {
-          columnFilters: anomalyFilters.columnFilters,
-          sorting: mismatched,
-        },
-        onSortingChange: setMismatched,
-      }),
-      [
-        anomalyRows,
-        anomalyFilters.columns,
-        anomalyFilters.columnFilters,
-        mismatched,
-      ]
+      [readRows, sightingColumns, sighted]
     )
   )
 
@@ -368,93 +334,72 @@ export function Observations() {
         sub="What the readers saw. Evidence, never a movement — the ledger is only ever corrected by a person."
       />
 
-      <SubTabs
-        tabs={[
-          { value: "sightings", label: "Observations" },
-          {
-            value: "anomalies",
-            label: `Where they disagree${anomalies.data ? ` · ${anomalies.data.length}` : ""}`,
-          },
-        ]}
-        value={tab}
-        onChange={setTab}
+      {/* On a phone the search, the filter and the order are the dock's, and
+          so is the one thing this screen makes. */}
+      <DockTools
+        search={{
+          value: text,
+          onChange: setText,
+          label: "Search observations",
+        }}
+        filter={{
+          count: readFilters.filters.length,
+          panel: { model: readFilters, filterModel: readModel },
+        }}
+        sort={dockSortOf(readTable)}
       />
+      <Fab label="Submit a batch" onClick={() => setSubmitting(true)} />
+      <Toolbar className="max-md:hidden">
+        <Choice
+          value={pool}
+          onChange={setPool}
+          options={poolOptions}
+          className="max-w-72"
+        />
+        <Input
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          aria-label="Search observations"
+          className="h-8 w-64"
+        />
+        <FilterPanel model={readModel} />
+        <Toolbar.Spacer />
+        {readHead && (
+          <span className="text-meta text-mute tabular-nums">
+            {count(readHead.total)} observations
+          </span>
+        )}
+        <Button onClick={() => setSubmitting(true)}>
+          <Radar />
+          Submit a batch
+        </Button>
+      </Toolbar>
 
-      {tab === "sightings" ? (
-        <>
-          <Toolbar>
-            <Choice
-              value={pool}
-              onChange={setPool}
-              options={poolOptions}
-              className="max-w-72"
-            />
-            <Input
-              value={text}
-              onChange={(event) => setText(event.target.value)}
-              aria-label="Search observations"
-              className="h-8 w-64"
-            />
-            <FilterPanel model={readModel} />
-            <Toolbar.Spacer />
-            {readHead && (
-              <span className="text-meta text-mute tabular-nums">
-                {count(readHead.total)} observations
-              </span>
-            )}
-            <Button onClick={() => setSubmitting(true)}>
-              <Radar />
-              Submit a batch
-            </Button>
-          </Toolbar>
-
-          <Card className="overflow-hidden">
-            {queryState(reads, {
-              loading: "Reading the sweeps…",
-              render: () =>
-                readRows.length === 0 ? (
-                  <EmptyState>
-                    {pool === "" &&
-                    needle === "" &&
-                    readFilters.filters.length === 0
-                      ? "No reader has reported an observation to this node."
-                      : "No observation matches what you asked for."}
-                  </EmptyState>
-                ) : (
-                  <DataTable<Observation>
-                    table={readTable}
-                    more={reads}
-                    className="max-h-[calc(100dvh-17rem)]"
-                  />
-                ),
-            })}
-          </Card>
-        </>
-      ) : (
-        <>
-          <Toolbar>
-            <FilterPanel model={anomalyFilters} table={anomalyTable} />
-          </Toolbar>
-
-          <Card className="overflow-hidden">
-            {queryState(anomalies, {
-              loading: "Comparing the books with the readers…",
-              render: () =>
-                anomalyRows.length === 0 ? (
-                  <EmptyState>
-                    Every tag was last seen where the ledger says it is.
-                  </EmptyState>
-                ) : (
-                  <DataTable<ObservationAnomaly>
-                    table={anomalyTable}
-                    empty="No disagreement matches the filters in force."
-                    className="max-h-[calc(100dvh-17rem)]"
-                  />
-                ),
-            })}
-          </Card>
-        </>
-      )}
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
+        {queryState(reads, {
+          loading: "Reading the sweeps…",
+          render: () =>
+            readRows.length === 0 ? (
+              <EmptyState>
+                {pool === "" &&
+                needle === "" &&
+                readFilters.filters.length === 0
+                  ? "No reader has reported an observation to this node."
+                  : "No observation matches what you asked for."}
+              </EmptyState>
+            ) : (
+              <DataTable<Observation>
+                refresh={[reads]}
+                table={readTable}
+                more={reads}
+                className="max-h-[calc(100dvh-17rem)]"
+                cardSort={false}
+                cardsApart
+                cardLead
+              />
+            ),
+        })}
+      </Card>
 
       <BatchSheet open={submitting} onClose={() => setSubmitting(false)} />
     </PageContent>
@@ -516,10 +461,9 @@ function BatchSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
       })
     },
     onSuccess: () => {
-      // Sightings and the anomaly comparison both change; nothing in the ledger
-      // does, so no pool or fleet key is touched.
+      // The sightings change; nothing in the ledger does, so no pool or fleet
+      // key is touched.
       client.invalidateQueries({ queryKey: ["inventory", "observations"] })
-      client.invalidateQueries({ queryKey: inventoryKeys.anomalies() })
       // Only the tags: the next sweep is the same reader in the same pool.
       form.setFieldValue("tags", "")
     },

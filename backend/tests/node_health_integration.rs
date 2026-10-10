@@ -98,14 +98,20 @@ async fn a_heartbeat_is_filed_and_its_incidents_only_once(pool: PgPool) {
     cloud::record_heartbeat(&pool, ORIGIN, &snapshot)
         .await
         .unwrap_or_else(|error| panic!("second heartbeat: {error}"));
-    let incidents: i64 = sqlx::query_scalar("SELECT count(*) FROM node_incident WHERE origin_id = $1")
-        .bind(ORIGIN)
-        .fetch_one(&pool)
-        .await
-        .unwrap_or_else(|error| panic!("incidents: {error}"));
-    assert_eq!(incidents, 1, "the same incident in two heartbeats is filed once");
+    let incidents: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM node_incident WHERE origin_id = $1")
+            .bind(ORIGIN)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("incidents: {error}"));
+    assert_eq!(
+        incidents, 1,
+        "the same incident in two heartbeats is filed once"
+    );
 
-    let fleet = cloud::fleet(&pool).await.unwrap_or_else(|error| panic!("fleet: {error}"));
+    let fleet = cloud::fleet(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("fleet: {error}"));
     let node = fleet
         .iter()
         .find(|node| node.origin_id == ORIGIN)
@@ -157,7 +163,11 @@ async fn silence_is_noticed_by_the_sweep_once(pool: PgPool) {
         .await
         .unwrap_or_else(|error| panic!("age: {error}"));
     assert_eq!(cloud::sweep_silent_nodes(&pool).await.unwrap_or(0), 1);
-    assert_eq!(cloud::sweep_silent_nodes(&pool).await.unwrap_or(0), 0, "once per silence");
+    assert_eq!(
+        cloud::sweep_silent_nodes(&pool).await.unwrap_or(0),
+        0,
+        "once per silence"
+    );
     assert_eq!(alerts(&pool, "node.attention").await, 1);
 }
 
@@ -183,8 +193,18 @@ async fn operations_are_checked_at_the_desk_and_sent_to_the_node(pool: PgPool) {
     .unwrap_or_else(|error| panic!("deliveries: {error}"));
     assert_eq!(sent, vec!["node.restart".to_owned()]);
 
-    let no_reason = cloud::ask_node(&pool, ORIGIN, "node.backup", json!({ "reason": " " }), "ho-admin").await;
-    assert!(matches!(no_reason, Err(AppError::Validation(_))), "{no_reason:?}");
+    let no_reason = cloud::ask_node(
+        &pool,
+        ORIGIN,
+        "node.backup",
+        json!({ "reason": " " }),
+        "ho-admin",
+    )
+    .await;
+    assert!(
+        matches!(no_reason, Err(AppError::Validation(_))),
+        "{no_reason:?}"
+    );
     let plain_http = cloud::ask_node(
         &pool,
         ORIGIN,
@@ -194,9 +214,22 @@ async fn operations_are_checked_at_the_desk_and_sent_to_the_node(pool: PgPool) {
         "ho-admin",
     )
     .await;
-    assert!(matches!(plain_http, Err(AppError::Validation(_))), "{plain_http:?}");
-    let unknown = cloud::ask_node(&pool, ORIGIN, "node.format", json!({ "reason": "x" }), "ho-admin").await;
-    assert!(matches!(unknown, Err(AppError::Validation(_))), "{unknown:?}");
+    assert!(
+        matches!(plain_http, Err(AppError::Validation(_))),
+        "{plain_http:?}"
+    );
+    let unknown = cloud::ask_node(
+        &pool,
+        ORIGIN,
+        "node.format",
+        json!({ "reason": "x" }),
+        "ho-admin",
+    )
+    .await;
+    assert!(
+        matches!(unknown, Err(AppError::Validation(_))),
+        "{unknown:?}"
+    );
 }
 
 #[sqlx::test(migrations = "./migrations/postgres")]

@@ -97,7 +97,7 @@ function TrackQr({ letter }: { letter: LetterDetail }) {
           dangerouslySetInnerHTML={{ __html: svg }}
         />
       )}
-      <div className="mt-1 text-[0.625rem] leading-tight text-body">
+      <div className="mt-1 text-[0.875rem] leading-tight text-body">
         Scan to track
       </div>
     </div>

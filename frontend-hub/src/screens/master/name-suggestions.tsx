@@ -6,16 +6,19 @@ import { Pencil } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
 import { Dialog } from "@/components/ui/dialog"
+import { Fab } from "@/components/ui/fab"
 import { Field, Input } from "@/components/ui/field"
 import { BarSpacer, ExpandingSearch } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { useFilters } from "@/lib/filters"
+import { useLayout } from "@/lib/layout"
 import { queryState } from "@/lib/query-state"
 import {
   createNameSuggestion,
@@ -44,6 +47,7 @@ const columns: ColumnDef<TableSetup, NameSuggestion>[] = [
     id: "name",
     accessorFn: (row) => row.name,
     header: "Name",
+    meta: { card: "hide" },
     cell: ({ row }) => (
       <span className="font-medium text-ink">{row.original.name}</span>
     ),
@@ -53,7 +57,7 @@ const columns: ColumnDef<TableSetup, NameSuggestion>[] = [
     header: "Action",
     size: 80,
     enableSorting: false,
-    meta: { align: "right" },
+    meta: { align: "right", card: "hide" },
     cell: ({ row }) => (
       <button
         type="button"
@@ -63,6 +67,38 @@ const columns: ColumnDef<TableSetup, NameSuggestion>[] = [
       >
         <Pencil className="size-4" />
       </button>
+    ),
+  },
+  // Two columns that exist only on a card (a phone): the name, and the button
+  // that opens it — the card's own tap opens it too. A name has no figure and
+  // no state, so the card is one line.
+  {
+    id: "head",
+    accessorFn: (row) => row.name,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <span className="block min-w-0 truncate text-[1rem] font-semibold text-ink">
+        {row.original.name}
+      </span>
+    ),
+  },
+  {
+    id: "edit",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { align: "right", card: "status" },
+    cell: ({ row }) => (
+      <Button
+        variant="tint"
+        size="card"
+        aria-label={`Edit ${row.original.name}`}
+      >
+        Edit
+      </Button>
     ),
   },
 ]
@@ -80,6 +116,7 @@ export function NameSuggestions() {
   const all = useMemo(() => book.data ?? [], [book.data])
 
   const filters = useFilters(columns)
+  const phone = useLayout() === "phone"
   const table = useTable(
     useMemo(
       () => ({
@@ -91,11 +128,13 @@ export function NameSuggestions() {
           columnFilters: filters.columnFilters,
           globalFilter: query,
           sorting,
+          // The card's own columns are drawn on a phone and never on a desk.
+          columnVisibility: { head: phone, edit: phone },
         },
         onSortingChange: setSorting,
         onGlobalFilterChange: setQuery,
       }),
-      [all, filters.columns, filters.columnFilters, query, sorting]
+      [all, filters.columns, filters.columnFilters, query, sorting, phone]
     )
   )
 
@@ -109,7 +148,7 @@ export function NameSuggestions() {
     <PageContent>
       <PageHeader title="Name Suggestions" small />
 
-      <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2">
+      <div className="group/bar mb-3 flex min-h-[2.25rem] flex-wrap items-center gap-2 max-md:hidden">
         <ExpandingSearch
           value={query}
           onChange={setQuery}
@@ -127,7 +166,19 @@ export function NameSuggestions() {
         </Button>
       </div>
 
-      <Card className="overflow-clip">
+      <Fab
+        label="New Name"
+        onClick={() => {
+          setEditing(null)
+          setCreating(true)
+        }}
+      />
+      <DockTools
+        search={{ value: query, onChange: setQuery, label: "Search Names" }}
+        sort={dockSortOf(table)}
+      />
+
+      <Card className="overflow-clip max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(book, {
           loading: "Reading the names…",
           render: () =>
@@ -143,6 +194,7 @@ export function NameSuggestions() {
               </EmptyState>
             ) : (
               <DataTable<NameSuggestion>
+                refresh={[book]}
                 table={table}
                 onRowClick={(row) => {
                   setCreating(false)
@@ -151,6 +203,8 @@ export function NameSuggestions() {
                 isSelected={(row) => row.suggestion_id === editing}
                 empty="Nothing matches that search."
                 pageScroll
+                cardSort={false}
+                cardsApart
               />
             ),
         })}

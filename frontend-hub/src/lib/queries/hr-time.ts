@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { useMemo } from "react"
 
 import { node } from "@/lib/api"
+import { monthYear } from "@/lib/format"
 import { listEmployees, peopleKeys } from "@/lib/queries/people"
 import type { LeaveBalanceRow, LeaveRequestView } from "@itulah/contract"
 
@@ -138,8 +139,5 @@ export function stepMonth(month: string, by: number): string {
 
 export function monthTitle(month: string): string {
   const [year, number] = month.split("-").map(Number) as [number, number]
-  return new Date(year, number - 1, 1).toLocaleDateString("en-GB", {
-    month: "long",
-    year: "numeric",
-  })
+  return monthYear(new Date(year, number - 1, 1), true)
 }

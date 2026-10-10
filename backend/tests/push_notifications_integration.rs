@@ -352,7 +352,9 @@ async fn raise(pool: &PgPool, recipients: &[&str], commit: bool) -> Uuid {
     if commit {
         tx.commit().await.unwrap_or_else(|error| panic!("{error}"));
     } else {
-        tx.rollback().await.unwrap_or_else(|error| panic!("{error}"));
+        tx.rollback()
+            .await
+            .unwrap_or_else(|error| panic!("{error}"));
     }
     id
 }
@@ -387,10 +389,20 @@ async fn a_browser_subscribes_and_unsubscribes_itself(pool: PgPool) {
     let anonymous = send(app.clone(), "GET", "/api/v1/push/public-key", vec![], None).await;
     assert_eq!(anonymous.status, StatusCode::UNAUTHORIZED);
 
-    let key = send(app.clone(), "GET", "/api/v1/push/public-key", browser.read(), None).await;
+    let key = send(
+        app.clone(),
+        "GET",
+        "/api/v1/push/public-key",
+        browser.read(),
+        None,
+    )
+    .await;
     assert_eq!(key.status, StatusCode::OK);
     assert_eq!(key.body["enabled"], json!(true));
-    let public_key = key.body["public_key"].as_str().unwrap_or_default().to_owned();
+    let public_key = key.body["public_key"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
     assert_eq!(public_key.len(), 87);
 
     let device = FakeBrowser::new();
@@ -531,7 +543,13 @@ async fn only_your_own_subscription_can_be_removed(pool: PgPool) {
 async fn a_notification_queues_one_delivery_per_device_of_each_person_told(pool: PgPool) {
     let phone = FakeBrowser::new();
     let laptop = FakeBrowser::new();
-    subscribe_directly(&pool, "buyer", "https://fcm.googleapis.com/fcm/send/phone", &phone).await;
+    subscribe_directly(
+        &pool,
+        "buyer",
+        "https://fcm.googleapis.com/fcm/send/phone",
+        &phone,
+    )
+    .await;
     subscribe_directly(&pool, "buyer", "https://web.push.apple.com/laptop", &laptop).await;
 
     // Told: the buyer (two devices) and somebody with none.
@@ -588,12 +606,11 @@ async fn the_worker_sends_the_sentence_encrypted_and_signed(pool: PgPool) {
         "the notification's payload column must not travel: {message}"
     );
 
-    let healthy: (Option<chrono::DateTime<chrono::Utc>>, i32) = sqlx::query_as(
-        "SELECT last_success_at, failure_count FROM push_subscription",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap_or_else(|error| panic!("{error}"));
+    let healthy: (Option<chrono::DateTime<chrono::Utc>>, i32) =
+        sqlx::query_as("SELECT last_success_at, failure_count FROM push_subscription")
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("{error}"));
     assert!(healthy.0.is_some());
     assert_eq!(healthy.1, 0);
 
@@ -760,7 +777,9 @@ async fn next_event(
                 return data.and_then(|data| serde_json::from_str(data).ok());
             }
         }
-        let chunk = tokio::time::timeout_at(deadline, stream.next()).await.ok()??;
+        let chunk = tokio::time::timeout_at(deadline, stream.next())
+            .await
+            .ok()??;
         buffer.push_str(&String::from_utf8_lossy(&chunk.ok()?));
     }
 }
@@ -796,9 +815,14 @@ async fn the_stream_says_where_the_reader_stands_and_what_arrives(pool: PgPool) 
     assert_eq!(ready["unread"], json!(0));
 
     let told = raise(&pool, &["admin"], true).await;
-    let arrived = next_event(&mut stream, &mut buffer, "notification", Duration::from_secs(10))
-        .await
-        .unwrap_or_else(|| panic!("no notification event"));
+    let arrived = next_event(
+        &mut stream,
+        &mut buffer,
+        "notification",
+        Duration::from_secs(10),
+    )
+    .await
+    .unwrap_or_else(|| panic!("no notification event"));
     assert_eq!(arrived["notification_id"], json!(told));
     assert_eq!(arrived["title"], "Harga PO-1183 diminta berubah");
     assert!(!arrived.to_string().contains("secret_amount_minor"));

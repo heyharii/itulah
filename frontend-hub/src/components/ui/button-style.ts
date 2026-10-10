@@ -42,18 +42,24 @@ export const button = cva(
         ghost:
           "border border-hairline-2 bg-canvas text-text shadow-soft hover:bg-soft-2 hover:text-ink [&_svg]:text-line-ico",
         soft: "bg-soft-2 text-text hover:bg-hairline [&_svg]:text-line-ico",
+        // The button on a record card's foot (Edit, Set up, Pick): accent text on
+        // the accent's own wash, as Apple's tinted button. Quieter than `primary`
+        // where a list carries twenty of them, and the same on every card
+        // (owner, 2026-10-06).
+        tint: "bg-accent-bg font-semibold text-accent hover:bg-accent-bg/60 [&_svg]:text-accent",
         quiet: "text-body hover:bg-soft-2 hover:text-ink [&_svg]:text-line-ico",
         danger: "bg-bad-bg text-bad-fg hover:brightness-97",
       },
       size: {
         // 32, from `--spacing-control` — the one height every control in a
         // toolbar agrees on. `sm` exists only for controls inside a table row.
-        // Under a finger every size grows to something a thumb can land
-        // on (44, 40, 44: Apple's least) — the desk's 32/28 stay dense for a mouse. The
-        // pointer decides, not the width: an iPad is wide and still touched.
+        // Under a finger every size grows to 44, what a thumb can land on
+        // (Apple's least; D1, 2026-10-06) — the desk's 36/28 stay dense for a
+        // mouse. The pointer decides, not the width: an iPad is wide and
+        // still touched.
         default:
           "h-control px-2.5 text-control pointer-coarse:h-11 pointer-coarse:px-4 [&_svg]:size-4",
-        sm: "h-[1.75rem] px-2 text-meta pointer-coarse:h-10 pointer-coarse:px-3.5 [&_svg]:size-3.5",
+        sm: "h-[1.75rem] px-2 text-meta pointer-coarse:h-11 pointer-coarse:px-3.5 [&_svg]:size-3.5",
         // 44 — a form's own button, beside 44px fields (the sign-in first,
         // 2026-09-28). A size rather than a class passed in, because `h-*`
         // from outside cannot beat `h-control`: `cn` does not know the custom
@@ -61,6 +67,10 @@ export const button = cva(
         // picks the 32.
         lg: "h-[2.75rem] px-4 text-[0.9375rem] [&_svg]:size-[1.125rem]",
         icon: "size-control pointer-coarse:size-11 [&_svg]:size-4",
+        // The foot of a record card: 32 to look at and still 44 to land on —
+        // the pseudo-element is the hit area (Apple: a control may draw smaller
+        // than its target). The foot's own padding leaves room for it.
+        card: "relative h-8 px-3.5 text-control after:absolute after:-inset-1.5 after:content-[''] [&_svg]:size-4",
       },
     },
     defaultVariants: { variant: "ghost", size: "default" },

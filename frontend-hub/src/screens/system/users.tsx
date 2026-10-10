@@ -12,8 +12,10 @@ import { Fragment, useMemo, useState } from "react"
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Card } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
+import { Fab } from "@/components/ui/fab"
 import { Field, Input, Select } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
@@ -29,6 +31,7 @@ import {
 import { Tag } from "@/components/ui/tag"
 import { useFilterState, type Filter, type FilterField } from "@/lib/filters"
 import { count, day, moment } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { useRoles } from "@/lib/queries/invitations"
 import {
   createUser,
@@ -49,6 +52,7 @@ import { tableSetup, type TableSetup } from "@/lib/table"
 import { useDebounced } from "@/lib/use-debounced"
 import { cn } from "@/lib/utils"
 import { InviteSheet } from "@/screens/people/invite-sheet"
+import { DESK_BAR } from "@/components/ui/phone-cards"
 import { Secret } from "@/screens/system/shared"
 import { saying } from "@/screens/system/units"
 import type { Role } from "@itulah/contract"
@@ -284,6 +288,163 @@ const columns: ColumnDef<TableSetup, UserRow>[] = [
   },
 ]
 
+/// The register as a phone draws it: a card per account (the person over the
+/// login, the job role under them, when they last signed in and how they stand)
+/// under a folding heading per group — one list, read down the page, nothing to
+/// scroll sideways.
+interface UserCard extends UserRow {
+  readonly group: string
+  readonly groupLabel: string
+  readonly groupCount: number
+}
+
+const stateOf = (row: UserRow) =>
+  row.active && row.employee_status === "TERMINATED" ? (
+    <Status tone="bad">Left, still open</Status>
+  ) : row.active && row.login_blocked_until ? (
+    <Status tone="warn">Locked</Status>
+  ) : row.active ? (
+    <Status tone="ok">Active</Status>
+  ) : (
+    <Status tone="bad">Blocked</Status>
+  )
+
+const cardColumns: ColumnDef<TableSetup, UserCard>[] = [
+  {
+    id: "head",
+    accessorFn: (row) => row.employee_name ?? row.display_name,
+    header: "",
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="min-w-0 break-words">
+          {row.original.employee_name ?? row.original.display_name}
+        </span>
+        <span className="truncate text-[0.875rem] font-normal text-mute">
+          <span className="font-mono">{row.original.username}</span>
+          {row.original.employee_id === null && " · no employee record"}
+        </span>
+      </span>
+    ),
+  },
+  {
+    id: "job_role",
+    accessorFn: (row) => row.role_name,
+    header: "",
+    enableSorting: false,
+    meta: { card: "meta" },
+    cell: ({ row }) => (
+      <span>
+        {row.original.role_name}
+        {row.original.nodes.some((node) => !node.derived) && (
+          <span className="text-warn-fg"> · Legacy access</span>
+        )}
+      </span>
+    ),
+  },
+  {
+    id: "foot",
+    accessorFn: (row) => row.last_login_at,
+    header: "",
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) =>
+      row.original.last_login_at === null
+        ? "Never signed in"
+        : `Signed in ${day(row.original.last_login_at)}`,
+  },
+  {
+    id: "state",
+    header: "",
+    enableSorting: false,
+    meta: { card: "status" },
+    cell: ({ row }) => stateOf(row.original),
+  },
+]
+
+function PhoneUsers({
+  groups,
+  grouped,
+  selected,
+  onOpen,
+  more,
+}: {
+  groups: readonly UserGroup[]
+  grouped: boolean
+  selected: string | undefined
+  onOpen: (username: string) => void
+  more: Pageable
+}) {
+  const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set())
+  const rows = useMemo<UserCard[]>(
+    () =>
+      groups.flatMap((group) =>
+        group.rows.map((row) => ({
+          ...row,
+          group: group.key,
+          groupLabel: group.label,
+          groupCount: group.rows.length,
+        }))
+      ),
+    [groups]
+  )
+  const table = useTable(
+    useMemo(
+      () => ({
+        features: tableSetup,
+        data: rows,
+        columns: cardColumns,
+        getRowId: (row: UserCard) => row.username,
+      }),
+      [rows]
+    )
+  )
+  return (
+    <DataTable<UserCard>
+      table={table}
+      more={more}
+      onRowClick={(row) => onOpen(row.username)}
+      isSelected={(row) => row.username === selected}
+      cardsApart
+      cardLead
+      cardSort={false}
+      stickyBefore
+      isHidden={(row) => grouped && folded.has(row.group)}
+      renderBefore={(row, index, all) =>
+        grouped && (index === 0 || all[index - 1].group !== row.group) ? (
+          <button
+            type="button"
+            aria-expanded={!folded.has(row.group)}
+            onClick={() =>
+              setFolded((was) => {
+                const next = new Set(was)
+                if (!next.delete(row.group)) next.add(row.group)
+                return next
+              })
+            }
+            className="flex w-full items-center gap-2 px-1 py-2 text-left transition-opacity active:opacity-60"
+          >
+            <span className="min-w-0 text-[1rem] font-semibold break-words text-ink">
+              {row.groupLabel}
+            </span>
+            <span className="shrink-0 text-[0.9375rem] text-mute tabular-nums">
+              {count(row.groupCount)}
+            </span>
+            <span className="flex-1" />
+            <ChevronDown
+              className={cn(
+                "size-4 shrink-0 text-line-ico transition-[rotate] duration-200 ease-(--ease-out) motion-reduce:transition-none",
+                folded.has(row.group) && "-rotate-90"
+              )}
+            />
+          </button>
+        ) : null
+      }
+    />
+  )
+}
+
 function UsersTab() {
   const [query, setQuery] = useState("")
   const [adding, setAdding] = useState(false)
@@ -293,6 +454,7 @@ function UsersTab() {
   const [sorting, setSorting] = useState<SortingState>([
     { id: "last_login", desc: false },
   ])
+  const phone = useLayout() === "phone"
 
   const filters = useFilterState(FIELDS)
   const [groupBy, setGroupBy] = useState<GroupBy>("place")
@@ -368,18 +530,24 @@ function UsersTab() {
 
   const groups = useMemo(() => groupUsers(rows, groupBy), [rows, groupBy])
 
+  const inviteNote = (
+    <Banner tone="info" className="mb-3.5">
+      Adding somebody by hand still works below, but{" "}
+      <AppLink to="/people/invitations" className="font-medium underline">
+        Invite people
+      </AppLink>{" "}
+      is the door most people should come in through: they set their own
+      password, and nothing here ever has to hold one of theirs.
+    </Banner>
+  )
+
   return (
     <>
-      <Banner tone="info" className="mb-3.5">
-        Adding somebody by hand still works below, but{" "}
-        <AppLink to="/people/invitations" className="font-medium underline">
-          Invite people
-        </AppLink>{" "}
-        is the door most people should come in through: they set their own
-        password, and nothing here ever has to hold one of theirs.
-      </Banner>
+      {/* On a phone this note and the by-hand door close the list instead of
+          opening it. */}
+      {!phone && inviteNote}
 
-      <Toolbar>
+      <div className={DESK_BAR}>
         <Input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
@@ -407,7 +575,30 @@ function UsersTab() {
             </Button>
           </>
         )}
-      </Toolbar>
+      </div>
+
+      {canWrite && (
+        <Fab label="Invite people" onClick={() => invite.open(true)} />
+      )}
+      <DockTools
+        search={{ value: query, onChange: setQuery, label: "Search accounts" }}
+        filter={{
+          count: filters.filters.length,
+          panel: { model: filters, filterModel: model, table },
+        }}
+        sort={dockSortOf(table)}
+        status={{
+          value: groupBy,
+          options: GROUP_OPTIONS.map((one) => ({
+            value: one.value,
+            label:
+              one.value === "none"
+                ? one.label
+                : `By ${one.label.toLowerCase()}`,
+          })),
+          onChange: (next) => setGroupBy(next as GroupBy),
+        }}
+      />
 
       {queryState(users, {
         loading: "Loading the accounts…",
@@ -423,6 +614,14 @@ function UsersTab() {
                 </EmptyState>
               )}
             </Card>
+          ) : phone ? (
+            <PhoneUsers
+              groups={groups}
+              grouped={groupBy !== "none"}
+              selected={user.value}
+              onOpen={(username) => user.open(username)}
+              more={users}
+            />
           ) : groupBy === "none" ? (
             <Card className="overflow-hidden">
               <DataTable<UserRow>
@@ -445,6 +644,17 @@ function UsersTab() {
             </Card>
           ),
       })}
+
+      {phone && (
+        <div className="mt-4 flex flex-col gap-3">
+          {inviteNote}
+          {canWrite && (
+            <Button variant="quiet" onClick={() => setAdding(true)}>
+              Add user directly
+            </Button>
+          )}
+        </div>
+      )}
 
       <UserSheet
         key={user.value ?? "none"}

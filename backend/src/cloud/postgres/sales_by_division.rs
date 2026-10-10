@@ -353,13 +353,40 @@ async fn voided_sales(
     tag: Option<&str>,
     division: Option<&str>,
 ) -> Result<VoidedSales, AppError> {
-    let voided = sqlx::query(&format!(
-        "WITH {SOLD_LINES}
-         SELECT COUNT(DISTINCT sale_id)::bigint AS count,
-                COALESCE(SUM(charged_minor), 0)::bigint AS gross_minor
-           FROM scoped
-          WHERE status = 'VOIDED'"
-    ))
+    // Straight to the voided sales (a partial index, 0930) rather than every
+    // line of the window: voids are a few in a hundred.
+    let voided = sqlx::query(
+        "WITH voided AS (
+             SELECT e.sale_id, e.site_id, e.occurred_at AS sold_at, sk.article_id,
+                    COALESCE(el.line_total_minor, el.quantity * el.unit_price_minor)::bigint
+                        AS charged_minor
+               FROM edge_sale e
+               JOIN edge_sale_line el ON el.sale_id = e.sale_id
+               LEFT JOIN sku sk ON sk.sku_code = el.sku_code
+              WHERE e.status = 'VOIDED' AND e.business_date BETWEEN $1 AND $2
+             UNION ALL
+             SELECT s.id, s.site_id, s.completed_at, sk.article_id, sl.total_minor
+               FROM sale s
+               JOIN sale_line sl ON sl.sale_id = s.id
+               JOIN sku sk ON sk.id = sl.sku_id
+              WHERE s.status = 'VOIDED' AND s.completed_at IS NOT NULL
+                AND s.completed_at >= ($1::date - 1)::timestamptz
+                AND s.completed_at <  ($2::date + 2)::timestamptz
+                AND site_local_date(s.completed_at, s.site_id) BETWEEN $1 AND $2
+         )
+         SELECT COUNT(DISTINCT v.sale_id)::bigint AS count,
+                COALESCE(SUM(v.charged_minor), 0)::bigint AS gross_minor
+           FROM voided v
+          WHERE ($3::text IS NULL OR unit_of_site(v.site_id) = $3)
+            AND ($4::text IS NULL OR EXISTS (
+                    SELECT 1 FROM article_tag t
+                     WHERE t.article_id = v.article_id AND t.tag_code = $4))
+            AND ($5::text IS NULL OR EXISTS (
+                    SELECT 1 FROM article_division_period dp
+                     WHERE dp.article_id = v.article_id AND dp.division_code = $5
+                       AND dp.valid_from <= v.sold_at
+                       AND (dp.valid_to IS NULL OR v.sold_at < dp.valid_to)))",
+    )
     .bind(from)
     .bind(to)
     .bind(unit)
@@ -462,6 +489,22 @@ macro_rules! sku_of {
     };
 }
 
+/// The order an article came in on, for the summary's rows `r`.
+const ORDER_OF_ARTICLE: &str = "LEFT JOIN article_purchase_line apl ON apl.article_id = r.article_id
+     LEFT JOIN purchase_order_line pol ON pol.po_line_id = apl.po_line_id
+     LEFT JOIN purchase_order po ON po.purchase_order_id = pol.purchase_order_id";
+
+/// The summary's rows in the window: `$1`/`$2` the dates, `$3` a unit, `$4` a
+/// division as sold.
+const ROLLUP_ROWS: &str = "
+    r AS (
+        SELECT d.*
+          FROM sales_sku_day d
+         WHERE d.business_date BETWEEN $1 AND $2
+           AND ($3::text IS NULL OR unit_of_site(d.site_id) = $3)
+           AND ($4::text IS NULL OR d.division_code = $4)
+    )";
+
 const PO_CODE: &str = "COALESCE(po.po_number, '')";
 const PO_NAME: &str = "COALESCE(po.po_number
                     || COALESCE(' · ' || COALESCE(po.supplier_name_snapshot, po.supplier_name), ''),
@@ -469,8 +512,7 @@ const PO_NAME: &str = "COALESCE(po.po_number
 const SUPPLIER_CODE: &str = "COALESCE(po.supplier_code_snapshot, po.supplier_id, '')";
 const SUPPLIER_NAME: &str =
     "COALESCE(po.supplier_name_snapshot, po.supplier_name, po.supplier_id, 'No supplier')";
-const ARTICLE_NAME: &str =
-    "COALESCE(a.article_code || ' · ' || a.name, 'Unknown article')";
+const ARTICLE_NAME: &str = "COALESCE(a.article_code || ' · ' || a.name, 'Unknown article')";
 /// "20114300101 · Kemeja Oxford · Navy / M". `{row}` is `m` or `x`.
 macro_rules! sku_name {
     ($row:literal) => {
@@ -673,6 +715,43 @@ impl BreakdownBy {
         }
     }
 
+    /// The same over the store-day summary `r` (`sales_sku_day`, 0930), for
+    /// every grouping the summary carries: it already holds the division and
+    /// tags as sold, and the order is the article's (one article, one order).
+    /// Campaign, payment and session need the line or the receipt, and read
+    /// the raw lines.
+    fn over_rollup(self) -> Option<Grouping> {
+        Some(match self {
+            Self::Tag => Grouping::plain(
+                "tc.code",
+                "COALESCE(t.label, NULLIF(tc.code, ''), 'Untagged')",
+                "CROSS JOIN LATERAL unnest(CASE WHEN cardinality(r.tag_codes) = 0
+                                                THEN ARRAY['']::text[]
+                                                ELSE r.tag_codes END) AS tc(code)
+                 LEFT JOIN tag t ON t.code = tc.code",
+            ),
+            Self::Division => Grouping::plain(
+                "r.division_code",
+                "COALESCE(d.label, NULLIF(r.division_code, ''), 'Unclassified')",
+                "LEFT JOIN division d ON d.code = r.division_code",
+            ),
+            Self::Store => Grouping::plain(
+                "r.site_id",
+                "COALESCE(st.name, r.site_id)",
+                "LEFT JOIN site st ON st.id = r.site_id",
+            ),
+            Self::Article => Grouping::plain(
+                "COALESCE(a.article_code, '')",
+                ARTICLE_NAME,
+                "LEFT JOIN article a ON a.id = r.article_id",
+            ),
+            Self::Sku => Grouping::plain("r.sku_code", sku_name!("r"), sku_of!("r")),
+            Self::Po => Grouping::plain(PO_CODE, PO_NAME, ORDER_OF_ARTICLE),
+            Self::Supplier => Grouping::plain(SUPPLIER_CODE, SUPPLIER_NAME, ORDER_OF_ARTICLE),
+            Self::Campaign | Self::Payment | Self::Session => return None,
+        })
+    }
+
     /// The same over stock on hand `x`, where the grouping has a stock at
     /// all: stock is now, so it is grouped by what the articles are now, and
     /// a piece by the order its EPC came in on. A campaign or a way of paying
@@ -701,11 +780,7 @@ impl BreakdownBy {
                 ARTICLE_NAME,
                 "LEFT JOIN article a ON a.id = x.article_id",
             ),
-            Self::Sku => Grouping::plain(
-                "COALESCE(x.sku_code, '')",
-                sku_name!("x"),
-                sku_of!("x"),
-            ),
+            Self::Sku => Grouping::plain("COALESCE(x.sku_code, '')", sku_name!("x"), sku_of!("x")),
             Self::Po => Grouping::plain(PO_CODE, PO_NAME, order_of!("x")),
             Self::Supplier => Grouping::plain(SUPPLIER_CODE, SUPPLIER_NAME, order_of!("x")),
             Self::Campaign | Self::Payment | Self::Session => return None,
@@ -935,23 +1010,7 @@ pub async fn sales_breakdown(
     // One pass for the three cuts: per step (the chart), per shop (the
     // per-store table) and over the window (the rows, whose article count is
     // distinct over the window and cannot be added up from the other two).
-    let Grouping {
-        ctes,
-        code,
-        name,
-        joins,
-        weight,
-    } = by.over_sales();
-    let sold = sqlx::query(&format!(
-        "WITH {SOLD_LINES}, {MOVEMENT}{ctes},
-         keyed AS (
-             SELECT GREATEST(date_trunc($6, m.day::timestamp)::date, $1::date) AS starts,
-                    {code} AS code, {name} AS name, ({weight})::numeric AS weight,
-                    m.site_id, m.article_id, m.sold_qty, m.returned_qty,
-                    m.gross_minor, m.discount_minor, m.refund_minor, m.cost
-               FROM movement m
-               {joins}
-         )
+    const CUTS: &str = "
          SELECT starts, code, name, site_id,
                 GROUPING(starts) = 0 AS per_step,
                 GROUPING(site_id) = 0 AS per_site,
@@ -963,16 +1022,63 @@ pub async fn sales_breakdown(
                 ROUND(SUM(cost * weight))::bigint AS cost_minor
            FROM keyed
           GROUP BY GROUPING SETS ((starts, code, name), (code, name, site_id), (code, name))
-          ORDER BY starts NULLS FIRST, code"
-    ))
-    .bind(from)
-    .bind(to)
-    .bind(unit)
-    .bind(None::<&str>)
-    .bind(division)
-    .bind(step)
-    .fetch_all(pool)
-    .await?;
+          ORDER BY starts NULLS FIRST, code";
+    let summed = by.over_rollup();
+    if summed.is_some() {
+        super::sales_rollup_catch_up(pool, from, to, 60).await?;
+    }
+    let sold = if let Some(Grouping {
+        code, name, joins, ..
+    }) = &summed
+    {
+        sqlx::query(&format!(
+            "WITH {ROLLUP_ROWS},
+             keyed AS (
+                 SELECT GREATEST(date_trunc($5, r.business_date::timestamp)::date, $1::date)
+                            AS starts,
+                        {code} AS code, {name} AS name, 1::numeric AS weight,
+                        r.site_id, r.article_id, r.sold_qty, r.returned_qty,
+                        r.gross_minor, r.gross_minor - r.net_minor AS discount_minor,
+                        r.refund_minor, r.cost_minor AS cost
+                   FROM r
+                   {joins}
+             ){CUTS}"
+        ))
+        .bind(from)
+        .bind(to)
+        .bind(unit)
+        .bind(division)
+        .bind(step)
+        .fetch_all(pool)
+        .await?
+    } else {
+        let Grouping {
+            ctes,
+            code,
+            name,
+            joins,
+            weight,
+        } = by.over_sales();
+        sqlx::query(&format!(
+            "WITH {SOLD_LINES}, {MOVEMENT}{ctes},
+             keyed AS (
+                 SELECT GREATEST(date_trunc($6, m.day::timestamp)::date, $1::date) AS starts,
+                        {code} AS code, {name} AS name, ({weight})::numeric AS weight,
+                        m.site_id, m.article_id, m.sold_qty, m.returned_qty,
+                        m.gross_minor, m.discount_minor, m.refund_minor, m.cost
+                   FROM movement m
+                   {joins}
+             ){CUTS}"
+        ))
+        .bind(from)
+        .bind(to)
+        .bind(unit)
+        .bind(None::<&str>)
+        .bind(division)
+        .bind(step)
+        .fetch_all(pool)
+        .await?
+    };
 
     let mut rows = std::collections::BTreeMap::<String, BreakdownRow>::new();
     let mut cells = std::collections::BTreeMap::<(String, String), BreakdownCell>::new();
@@ -1075,7 +1181,12 @@ pub async fn sales_breakdown(
 
     let mut rows: Vec<BreakdownRow> = rows.into_values().collect();
     rows.sort_by(|a, b| {
-        (a.code.is_empty(), std::cmp::Reverse(a.net_minor), std::cmp::Reverse(a.stock), &a.name)
+        (
+            a.code.is_empty(),
+            std::cmp::Reverse(a.net_minor),
+            std::cmp::Reverse(a.stock),
+            &a.name,
+        )
             .cmp(&(
                 b.code.is_empty(),
                 std::cmp::Reverse(b.net_minor),
@@ -1095,8 +1206,7 @@ pub async fn sales_breakdown(
 
     // Totals are read on their own, every line and piece once — by tag and
     // by campaign the rows overlap — per step, per shop and over the window.
-    let sums = sqlx::query(&format!(
-        "WITH {SOLD_LINES}, {MOVEMENT}
+    const SUMS: &str = "
          SELECT starts, site_id,
                 GROUPING(starts) = 0 AS per_step,
                 GROUPING(site_id) = 0 AS per_site,
@@ -1105,20 +1215,46 @@ pub async fn sales_breakdown(
                 COALESCE(SUM(discount_minor), 0)::bigint AS discount_minor,
                 COALESCE(SUM(refund_minor), 0)::bigint AS returns_minor,
                 COALESCE(ROUND(SUM(cost)), 0)::bigint AS cost_minor
-           FROM (SELECT GREATEST(date_trunc($6, m.day::timestamp)::date, $1::date) AS starts,
-                        m.*
-                   FROM movement m) m
+           FROM m
           GROUP BY GROUPING SETS ((starts), (site_id), ())
-          ORDER BY starts NULLS FIRST, site_id"
-    ))
-    .bind(from)
-    .bind(to)
-    .bind(unit)
-    .bind(None::<&str>)
-    .bind(division)
-    .bind(step)
-    .fetch_all(pool)
-    .await?;
+          ORDER BY starts NULLS FIRST, site_id";
+    let sums = if summed.is_some() {
+        sqlx::query(&format!(
+            "WITH {ROLLUP_ROWS},
+             m AS (
+                 SELECT GREATEST(date_trunc($5, r.business_date::timestamp)::date, $1::date)
+                            AS starts,
+                        r.site_id, r.sold_qty, r.returned_qty, r.gross_minor,
+                        r.gross_minor - r.net_minor AS discount_minor, r.refund_minor,
+                        r.cost_minor AS cost
+                   FROM r
+             ){SUMS}"
+        ))
+        .bind(from)
+        .bind(to)
+        .bind(unit)
+        .bind(division)
+        .bind(step)
+        .fetch_all(pool)
+        .await?
+    } else {
+        sqlx::query(&format!(
+            "WITH {SOLD_LINES}, {MOVEMENT},
+             m AS (
+                 SELECT GREATEST(date_trunc($6, m.day::timestamp)::date, $1::date) AS starts,
+                        m.*
+                   FROM movement m
+             ){SUMS}"
+        ))
+        .bind(from)
+        .bind(to)
+        .bind(unit)
+        .bind(None::<&str>)
+        .bind(division)
+        .bind(step)
+        .fetch_all(pool)
+        .await?
+    };
 
     let mut total = BreakdownTotal::default();
     let mut site_totals = std::collections::BTreeMap::<String, BreakdownCell>::new();
@@ -1222,8 +1358,8 @@ mod tests {
     #[test]
     fn a_breakdown_names_what_it_is_by() {
         for by in [
-            "tag", "division", "store", "article", "sku", "po", "supplier", "campaign",
-            "payment", "session",
+            "tag", "division", "store", "article", "sku", "po", "supplier", "campaign", "payment",
+            "session",
         ] {
             let parsed = BreakdownBy::parse(by).unwrap_or_else(|_| panic!("{by}"));
             assert_eq!(parsed.as_str(), by);

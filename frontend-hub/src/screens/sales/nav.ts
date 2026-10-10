@@ -59,6 +59,15 @@ import type { AppModule } from "@/lib/navigation"
 /// (`screens/sales/breakdown.tsx`). What used to be Sales by store here became
 /// Store analytics and moved under More; nothing on it changed.
 ///
+/// **One menu: the Explorer (owner, 8 Oct 2026).** The department is now a
+/// single screen, Sales, that reads the sales summary any way a person asks —
+/// by article, SKU, division, tag, supplier, PO, colour, size, store or time,
+/// as a table, the stores side by side or a heatmap
+/// (`screens/sales/explorer.tsx`). The nine "Sales by …" screens below, the
+/// session report and the four older screens keep their paths, their labels and
+/// their `moved` redirects, and sit under More, so ⌘K and every old link still
+/// open them; nothing on them changed.
+///
 /// Every old `/storeops/…` URL that still has a screen redirects to it,
 /// carrying its search parameters — see `moved` below and `routes.tsx`. Those
 /// paths are in bookmarks, in notifications and in links people have sent each
@@ -67,7 +76,7 @@ export const salesNav: AppModule = {
   id: "sales",
   label: "Sales",
   icon: TrendingUp,
-  home: "/sales",
+  home: "/sales/explorer",
   sections: [
     {
       // Owner's menu of 2026-09-28: the department leads on the estate-wide
@@ -78,6 +87,12 @@ export const salesNav: AppModule = {
       // under More; none of the four lost anything but their row.
       items: [
         {
+          // The department's one menu (owner, 8 Oct 2026).
+          path: "/sales/explorer",
+          label: "Sales",
+          icon: TrendingUp,
+        },
+        {
           path: "/sales",
           label: "Sales",
           icon: TrendingUp,
@@ -86,47 +101,60 @@ export const salesNav: AppModule = {
         {
           path: "/sales/by-store",
           label: "Sales by Store",
+          // The bottom bar's word: a 14px label has a fifth of the width.
+          short: "By Store",
           icon: Store,
+          more: true,
         },
         {
           path: "/sales/by-division",
           label: "Sales by Division",
+          short: "By Division",
           icon: FolderTree,
+          more: true,
         },
         {
           path: "/sales/by-tag",
           label: "Sales by Tag",
+          short: "By Tag",
           icon: Tags,
+          more: true,
         },
         {
           path: "/sales/by-article",
           label: "Sales by Article",
           icon: Shirt,
+          more: true,
         },
         {
           path: "/sales/by-sku",
           label: "Sales by SKU",
           icon: Barcode,
+          more: true,
         },
         {
           path: "/sales/by-po",
           label: "Sales by PO",
           icon: ClipboardList,
+          more: true,
         },
         {
           path: "/sales/by-supplier",
           label: "Sales by Supplier",
           icon: Truck,
+          more: true,
         },
         {
           path: "/sales/by-campaign",
           label: "Sales by Campaign",
           icon: Megaphone,
+          more: true,
         },
         {
           path: "/sales/by-payment",
           label: "Sales by Payment",
           icon: CreditCard,
+          more: true,
         },
         {
           // One cashier at one seat, drawer open to drawer counted (owner,
@@ -134,6 +162,7 @@ export const salesNav: AppModule = {
           path: "/sales/by-session",
           label: "Sales by Cashier Session",
           icon: Clock,
+          more: true,
         },
         {
           // The store-by-store reading that used to lead the menu: a row per

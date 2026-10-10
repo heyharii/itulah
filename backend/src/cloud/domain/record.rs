@@ -646,10 +646,7 @@ const ROUTE_SUBJECTS: &[(&str, RecordKind)] = &[
     // One check's own record, read at `/api/v1/finance/integrity/{key}`. The
     // literal `/integrity/run` beside it is a machine act, not a record and not
     // matched here: a placeholder in a shape matches only a placeholder.
-    (
-        "/api/v1/finance/integrity/{}",
-        RecordKind::IntegrityCheck,
-    ),
+    ("/api/v1/finance/integrity/{}", RecordKind::IntegrityCheck),
     // GA's own records. Every path that carries the record's id is here, and
     // the placeholders match only the route's own `{param}` segments — so
     // `/api/v1/ga/repairs/{}/move` files against the repair and not against
@@ -661,8 +658,14 @@ const ROUTE_SUBJECTS: &[(&str, RecordKind)] = &[
     ("/api/v1/ga/assets/{}/notes", RecordKind::Asset),
     ("/api/v1/ga/contracts/{}", RecordKind::Contract),
     ("/api/v1/ga/contracts/{}/archive", RecordKind::Contract),
-    ("/api/v1/ga/contracts/{}/meter-readings", RecordKind::Contract),
-    ("/api/v1/ga/maintenance-tasks/{}", RecordKind::MaintenanceTask),
+    (
+        "/api/v1/ga/contracts/{}/meter-readings",
+        RecordKind::Contract,
+    ),
+    (
+        "/api/v1/ga/maintenance-tasks/{}",
+        RecordKind::MaintenanceTask,
+    ),
     ("/api/v1/ga/inspections/{}", RecordKind::Inspection),
     ("/api/v1/ga/repairs/{}", RecordKind::Repair),
     ("/api/v1/ga/repairs/{}/move", RecordKind::Repair),
@@ -906,6 +909,11 @@ pub const DECLARED_BY_HANDLER: &[(&str, &str, Option<RecordKind>)] = &[
     (
         "POST",
         "/api/v1/inventory/allotments",
+        Some(RecordKind::Allotment),
+    ),
+    (
+        "POST",
+        "/api/v1/inventory/allotments/batch",
         Some(RecordKind::Allotment),
     ),
     ("POST", "/api/v1/inventory/counts", Some(RecordKind::Count)),

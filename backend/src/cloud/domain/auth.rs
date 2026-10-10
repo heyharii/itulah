@@ -640,13 +640,19 @@ mod tests {
     /// the blanket rule is last.
     #[test]
     fn ga_is_a_supervisors_surface_to_read_and_to_write() {
-        assert_eq!(required_role("GET", "/api/v1/ga/overview"), Role::Supervisor);
+        assert_eq!(
+            required_role("GET", "/api/v1/ga/overview"),
+            Role::Supervisor
+        );
         assert_eq!(
             required_role("POST", "/api/v1/ga/contracts"),
             Role::Supervisor
         );
         assert_eq!(
-            required_role("PATCH", "/api/v1/ga/assets/9f0f5f0e-0000-0000-0000-000000000000"),
+            required_role(
+                "PATCH",
+                "/api/v1/ga/assets/9f0f5f0e-0000-0000-0000-000000000000"
+            ),
             Role::Supervisor
         );
         // And the arm is on the prefix, not on a path somebody has to remember

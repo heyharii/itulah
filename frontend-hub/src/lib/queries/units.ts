@@ -10,7 +10,7 @@ import type {
 } from "@itulah/contract"
 
 import { node } from "@/lib/api"
-import { count } from "@/lib/format"
+import { count, quantity } from "@/lib/format"
 
 export type {
   CreateUnitConversionRequest,
@@ -291,7 +291,7 @@ export function formatInUnit(
   unit: Pick<UnitOfMeasure, "code" | "label" | "pieces" | "is_base">,
   baseLabel: string = "pcs"
 ): string {
-  if (unit.is_base) return `${count(pieces)} ${unit.label}`
+  if (unit.is_base) return quantity(pieces, unit.label)
   const split = inUnit(pieces, unit.pieces)
   if (split === null) return `${count(pieces)} ${baseLabel}`
   if (split.rest === 0) return `${count(split.whole)} ${unit.label}`

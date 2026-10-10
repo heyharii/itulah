@@ -530,21 +530,28 @@ async fn article_facets(
                                 GROUP BY 1) g), '[]'::jsonb) AS tags,
              COALESCE((SELECT jsonb_agg(jsonb_build_object('value', value, 'count', count)
                                         ORDER BY count DESC, value)
-                         FROM (SELECT s.size_code::text AS value,
-                                      count(DISTINCT b.id) AS count
-                                 FROM base b
-                                 JOIN sku s ON s.article_id = b.id
-                                WHERE s.size_code IS NOT NULL
+                         -- Pairs first, then counted: `count(DISTINCT …)` sorts
+                         -- every SKU of the book inside each group, which at
+                         -- 600 000 SKUs was most of this query.
+                         FROM (SELECT value, count(*) AS count
+                                 FROM (SELECT DISTINCT s.size_code::text AS value, b.id
+                                         FROM base b
+                                         JOIN sku s ON s.article_id = b.id
+                                        WHERE s.size_code IS NOT NULL) p
                                 GROUP BY 1) z), '[]'::jsonb) AS sizes,
              COALESCE((SELECT jsonb_agg(jsonb_build_object('value', value, 'count', count)
                                         ORDER BY count DESC, value)
-                         FROM (SELECT ac.colour_code AS value,
-                                      count(DISTINCT b.id) AS count
+                         -- Read off the colourways, each kept only when a SKU
+                         -- stands behind it. A colour is named once per article
+                         -- (article_colour_colour_unique), so a row is one
+                         -- article — the count the SKU join used to reach by
+                         -- de-duplicating every SKU.
+                         FROM (SELECT ac.colour_code AS value, count(*) AS count
                                  FROM base b
-                                 JOIN sku s ON s.article_id = b.id
-                                 JOIN article_colour ac
-                                      ON ac.article_id = b.id
-                                     AND ac.colour_digit = s.colour_digit
+                                 JOIN article_colour ac ON ac.article_id = b.id
+                                WHERE EXISTS (SELECT 1 FROM sku s
+                                               WHERE s.article_id = ac.article_id
+                                                 AND s.colour_digit = ac.colour_digit)
                                 GROUP BY 1) k), '[]'::jsonb) AS colours"
     );
     let row = sqlx::query(&sql)
@@ -1011,11 +1018,10 @@ async fn update_article_units(
     sales_unit_code: &NullablePatch<String>,
     units: Option<&[ArticleUnitInput]>,
 ) -> Result<(), AppError> {
-    let current: String =
-        sqlx::query_scalar("SELECT stock_unit_code FROM article WHERE id = $1")
-            .bind(article_id)
-            .fetch_one(&mut **transaction)
-            .await?;
+    let current: String = sqlx::query_scalar("SELECT stock_unit_code FROM article WHERE id = $1")
+        .bind(article_id)
+        .fetch_one(&mut **transaction)
+        .await?;
     let stock_unit = match stock_unit_code.and_then(unit_code_of) {
         Some(code) if code != current => {
             let whole: Option<bool> =
@@ -1024,7 +1030,11 @@ async fn update_article_units(
                     .fetch_optional(&mut **transaction)
                     .await?;
             match whole {
-                None => return Err(AppError::Validation(format!("{code} is not in the units master"))),
+                None => {
+                    return Err(AppError::Validation(format!(
+                        "{code} is not in the units master"
+                    )))
+                }
                 Some(false) => {
                     return Err(AppError::Validation(format!(
                         "{code} is not counted in whole numbers, and stock is; \
@@ -1120,12 +1130,13 @@ async fn update_article_units(
             NullablePatch::Value(value) => unit_code_of(value),
         };
         if let Some(code) = &code {
-            let known: Option<rust_decimal::Decimal> =
-                sqlx::query_scalar("SELECT article_unit_factor(article_code, $2) FROM article WHERE id = $1")
-                    .bind(article_id)
-                    .bind(code)
-                    .fetch_one(&mut **transaction)
-                    .await?;
+            let known: Option<rust_decimal::Decimal> = sqlx::query_scalar(
+                "SELECT article_unit_factor(article_code, $2) FROM article WHERE id = $1",
+            )
+            .bind(article_id)
+            .bind(code)
+            .fetch_one(&mut **transaction)
+            .await?;
             if known.is_none() {
                 return Err(AppError::Validation(format!(
                     "{code} does not convert to {stock_unit} for this article; add it to its units first"

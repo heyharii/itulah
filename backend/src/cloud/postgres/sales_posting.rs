@@ -54,8 +54,7 @@ use super::stock_ledger::{self, StockOutflow};
 use crate::cloud::application::AppError;
 use crate::cloud::domain::sales_posting::{
     build_with, classify_card, exception_reason, CardKind, DayFigures, DayRules, LedgerSide,
-    RecordedVat,
-    TenderBucket, RETURN_CREDIT,
+    RecordedVat, TenderBucket, RETURN_CREDIT,
 };
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
@@ -386,7 +385,9 @@ impl EdcBanks {
         .iter()
         .map(|row| {
             Ok((
-                row.try_get::<String, _>("terminal_id")?.trim().to_ascii_uppercase(),
+                row.try_get::<String, _>("terminal_id")?
+                    .trim()
+                    .to_ascii_uppercase(),
                 row.try_get::<String, _>("bank_code")?,
             ))
         })
@@ -894,8 +895,11 @@ async fn read_day(
             // shop's EDC bank when the tender names it, or when the shop has
             // only one; failing that the company's primary bank account.
             let acquirer = bucket.acquirer.to_ascii_uppercase();
-            let site_banks: std::collections::BTreeSet<String> =
-                edc.terminals.values().map(|bank| bank.to_ascii_uppercase()).collect();
+            let site_banks: std::collections::BTreeSet<String> = edc
+                .terminals
+                .values()
+                .map(|bank| bank.to_ascii_uppercase())
+                .collect();
             bucket.direct_bank = Some(if site_banks.contains(&acquirer) {
                 acquirer
             } else if site_banks.len() == 1 {
@@ -1127,7 +1131,8 @@ pub async fn sales_posting_generate(
     }
 
     let reading = read_day(pool, &site_id, request.business_date).await?;
-    let posting = build_with(&reading.figures, day_rules(pool).await?).map_err(AppError::Validation)?;
+    let posting =
+        build_with(&reading.figures, day_rules(pool).await?).map_err(AppError::Validation)?;
 
     let posting_id = existing
         .as_ref()
@@ -1302,7 +1307,9 @@ pub async fn sales_posting_exception_resolve(
     let status: String = row.try_get("status")?;
     let day_status: String = row.try_get("day_status")?;
     if status != "OPEN" {
-        return Err(AppError::Conflict("this exception is already resolved".into()));
+        return Err(AppError::Conflict(
+            "this exception is already resolved".into(),
+        ));
     }
     // QRIS names the bank of its EDC; an e-wallet names its provider. Both
     // then post like the day would have (`meanings_for`).
@@ -1323,25 +1330,33 @@ pub async fn sales_posting_exception_resolve(
     let currency: String = row.try_get("currency")?;
     let net = row.try_get::<i64, _>("receipts_minor")? - row.try_get::<i64, _>("refunds_minor")?;
     if net <= 0 {
-        return Err(AppError::Validation("this line nets to nothing; there is nothing to post".into()));
+        return Err(AppError::Validation(
+            "this line nets to nothing; there is nothing to post".into(),
+        ));
     }
     // PPN is ignored for now (owner decision, 25 Sep), and 0377 removes the
     // `vat_out` map: the whole net is revenue and no VAT line is built.
     let vat = 0i64;
     let _ = vat_rate_bps;
-    let label = if method == "EWALLET" { "E-wallet" } else { "QRIS" };
+    let label = if method == "EWALLET" {
+        "E-wallet"
+    } else {
+        "QRIS"
+    };
     // The day happened at the shop; its takings are in the books of the unit
     // that owns it.
     let unit = super::sites::unit_of_site(pool, &site_id).await?;
     let memo = format!("{label} {bank} takings (exception resolved)");
     let lines = vec![
         {
-            let mut line = PostingLine::debit("card_receivable_debit", &unit, net).with_qualifier(&bank);
+            let mut line =
+                PostingLine::debit("card_receivable_debit", &unit, net).with_qualifier(&bank);
             line.memo = Some(memo.clone());
             line
         },
         {
-            let mut line = PostingLine::credit("revenue_debit", &unit, net - vat).with_qualifier(&bank);
+            let mut line =
+                PostingLine::credit("revenue_debit", &unit, net - vat).with_qualifier(&bank);
             line.memo = Some(format!("{label} {bank} sales"));
             line
         },
@@ -1857,7 +1872,8 @@ pub async fn sales_posting_post(
         existing.posting.business_date,
     )
     .await?;
-    let built = build_with(&reading.figures, day_rules(pool).await?).map_err(AppError::Validation)?;
+    let built =
+        build_with(&reading.figures, day_rules(pool).await?).map_err(AppError::Validation)?;
     let unchanged = reading.gross_minor == existing.posting.gross_minor
         && reading.untendered_minor == existing.posting.untendered_minor
         && reading.sale_count == existing.posting.sale_count

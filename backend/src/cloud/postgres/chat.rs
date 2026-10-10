@@ -1041,7 +1041,9 @@ pub async fn send_message(
         return Err(AppError::Validation("idempotency_key is required".into()));
     }
     if key.len() > 128 || key.starts_with("system:") {
-        return Err(AppError::Validation("that idempotency_key is not usable".into()));
+        return Err(AppError::Validation(
+            "that idempotency_key is not usable".into(),
+        ));
     }
 
     let mut tx = db.begin().await?;
@@ -1277,10 +1279,14 @@ pub async fn edit_message(
     let mut tx = db.begin().await?;
     let target = lock_message(&mut tx, conversation_id, seq).await?;
     if target.kind != "TEXT" || target.author != editor {
-        return Err(AppError::Forbidden("only the author can edit a message".into()));
+        return Err(AppError::Forbidden(
+            "only the author can edit a message".into(),
+        ));
     }
     if target.deleted {
-        return Err(AppError::Conflict("a deleted message cannot be edited".into()));
+        return Err(AppError::Conflict(
+            "a deleted message cannot be edited".into(),
+        ));
     }
     if body.is_empty() && !target.has_files {
         return Err(AppError::Validation(
@@ -1563,13 +1569,11 @@ async fn room_kind(
     tx: &mut Transaction<'_, Postgres>,
     conversation_id: Uuid,
 ) -> Result<String, AppError> {
-    sqlx::query_scalar(
-        "SELECT kind FROM chat_conversation WHERE conversation_id = $1 FOR UPDATE",
-    )
-    .bind(conversation_id)
-    .fetch_optional(&mut **tx)
-    .await?
-    .ok_or_else(|| no_conversation(conversation_id))
+    sqlx::query_scalar("SELECT kind FROM chat_conversation WHERE conversation_id = $1 FOR UPDATE")
+        .bind(conversation_id)
+        .fetch_optional(&mut **tx)
+        .await?
+        .ok_or_else(|| no_conversation(conversation_id))
 }
 
 async fn is_group_admin(
@@ -1771,16 +1775,17 @@ pub async fn remove_participant(
     } else {
         require_group_admin(&mut tx, conversation_id, actor).await?;
     }
-    let removed = sqlx::query(
-        "DELETE FROM chat_participant WHERE conversation_id = $1 AND username = $2",
-    )
-    .bind(conversation_id)
-    .bind(target)
-    .execute(&mut *tx)
-    .await?
-    .rows_affected();
+    let removed =
+        sqlx::query("DELETE FROM chat_participant WHERE conversation_id = $1 AND username = $2")
+            .bind(conversation_id)
+            .bind(target)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
     if removed == 0 {
-        return Err(AppError::NotFound(format!("{target} is not in this conversation")));
+        return Err(AppError::NotFound(format!(
+            "{target} is not in this conversation"
+        )));
     }
 
     let remaining: i64 =
@@ -1858,7 +1863,9 @@ pub async fn set_admin(
     .fetch_one(&mut *tx)
     .await?;
     if !present {
-        return Err(AppError::NotFound(format!("{target} is not in this conversation")));
+        return Err(AppError::NotFound(format!(
+            "{target} is not in this conversation"
+        )));
     }
     if changed > 0 {
         let admins: i64 = sqlx::query_scalar(
@@ -2069,6 +2076,9 @@ mod tests {
     fn names_are_joined_the_way_a_sentence_joins_them() {
         assert_eq!(join_names(&["A".into()]), "A");
         assert_eq!(join_names(&["A".into(), "B".into()]), "A and B");
-        assert_eq!(join_names(&["A".into(), "B".into(), "C".into()]), "A, B and C");
+        assert_eq!(
+            join_names(&["A".into(), "B".into(), "C".into()]),
+            "A, B and C"
+        );
     }
 }

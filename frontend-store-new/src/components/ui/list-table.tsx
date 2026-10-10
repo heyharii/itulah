@@ -62,7 +62,8 @@ export function ListTable<T>({
   empty: React.ReactNode
   /// Pressing a row does this instead of unfolding it, and the unfolding moves
   /// to an arrow at the row's left edge: the row opens a record, the arrow
-  /// opens what is inside it.
+  /// opens what is inside it. With no `detail`, the row is simply pressable —
+  /// on a desk, the table form of a list whose records open as a sheet.
   onOpen?: (row: T) => void
   /// A little more air above and below each row.
   roomy?: boolean
@@ -138,7 +139,9 @@ export function ListTable<T>({
               )}
             >
               {detail === undefined ? (
-                <div className={cn("px-3.5", roomy ? "py-4" : "py-3")}>{summary}</div>
+                <div className={cn("px-3.5", roomy ? "py-4" : "py-3")}>
+                  {summary}
+                </div>
               ) : leftArrow ? (
                 <div className="flex items-center">
                   <span className="shrink-0 pl-1.5">
@@ -225,32 +228,32 @@ export function ListTable<T>({
               <Fragment key={key}>
                 <tr
                   onClick={
-                    leftArrow
-                      ? () => onOpen(row)
+                    leftArrow || (detail === undefined && onOpen !== undefined)
+                      ? () => onOpen?.(row)
                       : detail
                         ? () => toggle(key)
                         : undefined
                   }
                   onKeyDown={
-                    detail
+                    detail || onOpen
                       ? (event) => {
                           if (event.target !== event.currentTarget) return
                           if (event.key === "Enter" || event.key === " ") {
                             event.preventDefault()
-                            if (leftArrow) onOpen(row)
+                            if (leftArrow || detail === undefined) onOpen?.(row)
                             else toggle(key)
                           }
                         }
                       : undefined
                   }
-                  tabIndex={detail ? 0 : undefined}
+                  tabIndex={detail || onOpen ? 0 : undefined}
                   aria-expanded={detail && !leftArrow ? expanded : undefined}
                   className={cn(
                     // A minimum, not a height: `height` on a row is a floor,
                     // so a wrapped name grows the row instead of clipping it.
                     "border-b border-hairline last:border-b-0 pointer-coarse:h-tap",
                     roomy ? "h-[3.75rem]" : "h-row",
-                    detail &&
+                    (detail || onOpen) &&
                       "cursor-pointer outline-none focus-visible:bg-soft",
                     expanded
                       ? "border-b-transparent bg-soft"

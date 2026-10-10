@@ -11,10 +11,12 @@ import { Plus } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
+import { Fab } from "@/components/ui/fab"
 import { Field, Input } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import {
@@ -34,7 +36,7 @@ import { Tag } from "@/components/ui/tag"
 import { Lifecycle } from "@/components/ui/timeline"
 import { SHOW_MISSING } from "@/lib/features"
 import { useFilterState, type FilterField } from "@/lib/filters"
-import { usePanelDock } from "@/lib/layout"
+import { useLayout, usePanelDock } from "@/lib/layout"
 import { count, label as humanise, moment } from "@/lib/format"
 import {
   activateCount,
@@ -42,7 +44,7 @@ import {
   approveCount,
   countDetail,
   countScopeFromFilters,
-  countsPage,
+  countsBookQuery,
   createCount,
   fleetPools,
   idempotencyKey,
@@ -65,6 +67,7 @@ import {
 } from "@/screens/inventory/missing-data"
 import { Choice } from "@/screens/inventory/parts"
 import { signed, useActor, writablePools } from "@/screens/inventory/shared"
+import { cn } from "@/lib/utils"
 
 /// Official counts — the only thing in this app that is allowed to tell the
 /// ledger it is wrong.
@@ -104,6 +107,7 @@ const columns: ColumnDef<TableSetup, CountRow>[] = [
     accessorKey: "reason",
     header: "Count",
     size: 250,
+    meta: { card: "hide" },
     // Ordered by the POOL it counts, which is the order the endpoint has and
     // the one somebody means: two counts of the same shelf belong together,
     // and nobody looks for a count by the first letter of its reason.
@@ -123,12 +127,14 @@ const columns: ColumnDef<TableSetup, CountRow>[] = [
     header: "Kind",
     size: 100,
     enableSorting: false,
+    meta: { card: "hide" },
     cell: ({ row }) => <Tag>{humanise(row.original.kind)}</Tag>,
   },
   {
     accessorKey: "execution_authority",
     header: "Counted by",
     size: 130,
+    meta: { card: "hide" },
     // Not a parameter this endpoint takes, so it is a column and not a filter:
     // a chip the request cannot carry is a control that claims to narrow a
     // list and does not.
@@ -147,6 +153,7 @@ const columns: ColumnDef<TableSetup, CountRow>[] = [
     accessorKey: "status",
     header: "Status",
     size: 120,
+    meta: { card: "hide" },
     cell: ({ row }) => (
       <Pill
         tone={
@@ -168,7 +175,7 @@ const columns: ColumnDef<TableSetup, CountRow>[] = [
     header: "Expected",
     size: 100,
     enableSorting: false,
-    meta: { align: "right" },
+    meta: { align: "right", card: "hide" },
     cell: ({ row }) => count(row.original.expected),
   },
   {
@@ -176,7 +183,7 @@ const columns: ColumnDef<TableSetup, CountRow>[] = [
     header: "Found",
     size: 100,
     enableSorting: false,
-    meta: { align: "right" },
+    meta: { align: "right", card: "hide" },
     cell: ({ row }) => count(row.original.found),
   },
   {
@@ -184,7 +191,7 @@ const columns: ColumnDef<TableSetup, CountRow>[] = [
     accessorFn: (row) => row.found - row.expected,
     header: "Difference",
     size: 120,
-    meta: { align: "right" },
+    meta: { align: "right", card: "hide" },
     // The decision metric. Sorted ascending by default so the deepest shortage
     // is the first row: a count that found everything needs nobody.
     cell: ({ row }) => {
@@ -208,7 +215,7 @@ const columns: ColumnDef<TableSetup, CountRow>[] = [
     accessorKey: "created_at",
     header: "Opened",
     size: 150,
-    meta: { priority: 2 },
+    meta: { priority: 2, card: "hide" },
     cell: ({ row }) => moment(row.original.created_at),
   },
   {
@@ -218,13 +225,104 @@ const columns: ColumnDef<TableSetup, CountRow>[] = [
     // The other end of the record, and the other order the endpoint has: a
     // supervisor asking "what was signed off this week" is asking about this
     // date and not about when the count was opened.
-    meta: { priority: 3 },
+    meta: { priority: 3, card: "hide" },
     cell: ({ row }) =>
       row.original.closed_at === null ? (
         <span className="text-mute">—</span>
       ) : (
         moment(row.original.closed_at)
       ),
+  },
+  // Four columns that exist only on a card (a phone), the same card as every
+  // list (owner, 2026-10-06): the reason over the shelf counted, the
+  // difference it leads with — the decision metric — a foot that says what was
+  // expected, what was found, how and when, and where the count stands.
+  {
+    id: "head",
+    accessorFn: (row) => row.reason,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="text-[1rem] font-semibold break-words text-ink">
+          {row.original.reason}
+        </span>
+        <span className="font-mono text-[0.875rem] font-normal break-words text-mute">
+          {row.original.pool_id}
+        </span>
+      </span>
+    ),
+  },
+  {
+    id: "lead",
+    accessorFn: (row) => row.found - row.expected,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "lead" },
+    cell: ({ row }) => {
+      const difference = row.original.found - row.original.expected
+      return (
+        <span className="flex flex-col items-end tabular-nums">
+          <span
+            className={cn(
+              "text-[1.5rem] leading-tight font-semibold tracking-tight",
+              difference < 0
+                ? "text-bad-fg"
+                : difference > 0
+                  ? "text-warn-fg"
+                  : "text-mute"
+            )}
+          >
+            {difference === 0 ? "—" : signed(difference)}
+          </span>
+          <span className="text-[0.875rem] text-mute">difference</span>
+        </span>
+      )
+    },
+  },
+  {
+    id: "foot",
+    accessorFn: (row) => row.created_at,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => (
+      <span className="flex flex-col leading-6 tabular-nums">
+        <span>
+          {`Expected ${count(row.original.expected)} · Found ${count(row.original.found)}`}
+        </span>
+        <span>
+          {`${humanise(row.original.kind)} · ${row.original.execution_authority === "EDGE_DC" ? "DC" : "Cloud"} · ${moment(row.original.created_at)}`}
+        </span>
+      </span>
+    ),
+  },
+  {
+    id: "state",
+    accessorFn: (row) => row.status,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { align: "right", card: "status" },
+    cell: ({ row }) => (
+      <Pill
+        tone={
+          row.original.status === "CLOSED"
+            ? "ok"
+            : row.original.status === "REVIEW"
+              ? "warn"
+              : row.original.status === "ACTIVE"
+                ? "info"
+                : "neutral"
+        }
+      >
+        {humanise(row.original.status)}
+      </Pill>
+    ),
   },
 ]
 
@@ -252,6 +350,7 @@ export function Counts() {
   /// Whether the filter panel has room to stand beside the list. Below it the
   /// same model is a sheet behind a Filter button, and the panel unmounts.
   const docked = usePanelDock()
+  const phone = useLayout() === "phone"
   const [composing, setComposing] = useState(false)
   const sheet = useSheet("count")
   // The deepest shortage first: a count that found everything needs nobody.
@@ -318,14 +417,9 @@ export function Counts() {
 
   const narrowed = needle !== "" || filters.filters.length > 0
 
-  const board = useInfiniteQuery({
-    queryKey: inventoryKeys.countsScoped(scope),
-    queryFn: ({ pageParam, signal }) =>
-      countsPage({ ...scope, cursor: pageParam }, signal),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-    placeholderData: (previous) => previous,
-  })
+  // The opening scope is `COUNTS_OPENING_SCOPE` (`lib/queries/inventory.ts`),
+  // which the prefetcher asks for: keep the default sort above in step.
+  const board = useInfiniteQuery(countsBookQuery(scope))
 
   const rows = useMemo(
     () => board.data?.pages.flatMap((page) => page.rows) ?? [],
@@ -358,13 +452,17 @@ export function Counts() {
         data: rows,
         columns,
         getRowId: (row: CountRow) => row.id,
-        state: { sorting },
+        state: {
+          sorting,
+          // The card's own columns are drawn on a phone and never on a desk.
+          columnVisibility: { head: phone, lead: phone, foot: phone, state: phone },
+        },
         // The rows arrive in the order the request asked for. Sorting them
         // again here would sort the page and call it the book.
         manualSorting: true,
         onSortingChange: setSorting,
       }),
-      [rows, sorting]
+      [rows, sorting, phone]
     )
   )
 
@@ -377,7 +475,7 @@ export function Counts() {
           {/* One line the width of the table, carrying everything that acts on
               it: what narrows it at the left, what orders and shapes it in the
               middle, and what opens a new one at the right. */}
-          <div className="group/bar mb-3 flex flex-wrap items-center gap-1.5">
+          <div className="group/bar mb-3 flex flex-wrap items-center gap-1.5 max-md:hidden">
             <ExpandingSearch
               value={search.value ?? ""}
               onChange={(next) => (next ? search.open(next) : search.close())}
@@ -424,7 +522,32 @@ export function Counts() {
             </Button>
           </div>
 
-          <Card className="overflow-hidden">
+          {/* A phone's status, search, filter and order are the dock's and its
+              New count the round plus, as on every list (owner, 2026-10-06). */}
+          <Fab label="New Count" onClick={() => setComposing(true)} />
+          <DockTools
+            search={{
+              value: search.value ?? "",
+              onChange: (next) => (next ? search.open(next) : search.close()),
+              label: "Search Counts",
+            }}
+            filter={{
+              count: filters.filters.length,
+              panel: { model: { ...filters, fields: counted } },
+            }}
+            sort={dockSortOf(table)}
+            status={{
+              value: slice.value ?? "",
+              options: SLICES.map((one) => ({
+                value: one.value,
+                label: one.label,
+                count: one.value === "" ? undefined : facetOf(head, one.value),
+              })),
+              onChange: (next) => (next === "" ? slice.close() : slice.open(next)),
+            }}
+          />
+
+          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
             {queryState(board, {
               loading: "Reading the count board…",
               render: () =>
@@ -444,12 +567,17 @@ export function Counts() {
                   </EmptyState>
                 ) : (
                   <DataTable<CountRow>
+                    refresh={[board]}
                     table={table}
                     more={board}
                     rowHeight={64}
                     onRowClick={(row) => sheet.open(row.id)}
                     isSelected={(row) => row.id === sheet.value}
-                    className="max-h-[calc(100dvh-14rem)]"
+                    className="max-h-[calc(100dvh-14rem)] max-md:max-h-none"
+                    pageScroll={phone}
+                    cardsApart
+                    cardLead
+                    cardSort={false}
                   />
                 ),
             })}

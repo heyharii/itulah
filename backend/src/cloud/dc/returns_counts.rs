@@ -88,7 +88,8 @@ SELECT c.*,
 fn summary_from(row: &sqlx::postgres::PgRow) -> Result<EdgeOfficialCountSummary, AppError> {
     let count_id: Uuid = row.try_get("id")?;
     let status: String = row.try_get("status")?;
-    let mut scope: OfficialCountScope = serde_json::from_value(row.try_get::<Value, _>("scope_json")?)?;
+    let mut scope: OfficialCountScope =
+        serde_json::from_value(row.try_get::<Value, _>("scope_json")?)?;
     scope.sku_codes = row.try_get("sku_codes")?;
     let submitted = status == "REVIEW" || status == "CLOSED";
     let closed = status == "CLOSED";
@@ -199,7 +200,9 @@ pub(super) async fn list(State(state): State<AppState>) -> Result<Json<Value>, A
         .iter()
         .map(summary_from)
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(Json(json!({ "items": items, "execution_authority": "CLOUD" })))
+    Ok(Json(
+        json!({ "items": items, "execution_authority": "CLOUD" }),
+    ))
 }
 
 pub(super) async fn detail(
@@ -278,7 +281,9 @@ pub(super) async fn entries(
     }
     // One order, so the same scan sent again is the same request to the
     // cloud's idempotency.
-    request.entries.sort_by(|left, right| left.epc.cmp(&right.epc));
+    request
+        .entries
+        .sort_by(|left, right| left.epc.cmp(&right.epc));
     let site = common::gudang_site(&state.db).await?;
 
     // Resolve every tag to its subject, creating one only for a piece the
@@ -294,14 +299,13 @@ pub(super) async fn entries(
         )));
     }
     let scope: OfficialCountScope = serde_json::from_value(scope_json)?;
-    let scope_skus: HashSet<String> = sqlx::query_scalar::<_, String>(
-        "SELECT upper(sku_code) FROM sku WHERE id = ANY($1)",
-    )
-    .bind(&scope.sku_ids)
-    .fetch_all(&mut *tx)
-    .await?
-    .into_iter()
-    .collect();
+    let scope_skus: HashSet<String> =
+        sqlx::query_scalar::<_, String>("SELECT upper(sku_code) FROM sku WHERE id = ANY($1)")
+            .bind(&scope.sku_ids)
+            .fetch_all(&mut *tx)
+            .await?
+            .into_iter()
+            .collect();
     let scope_epcs: HashSet<String> = scope
         .epcs
         .iter()

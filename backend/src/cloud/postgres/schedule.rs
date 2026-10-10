@@ -24,7 +24,7 @@ use crate::cloud::application::AppError;
 use crate::cloud::domain::schedule;
 use crate::cloud::domain::{
     actions, Authorization, CarryForward, EmployeeId, LeaveEvent, LeavePolicy, LeaveTypeCatalogue,
-    UnitId, PolicyTimeline, RosterDay,
+    PolicyTimeline, RosterDay, UnitId,
 };
 use crate::cloud::postgres::{self as infrastructure, NewNotification};
 use chrono::{DateTime, Datelike, Duration, NaiveDate, Utc};

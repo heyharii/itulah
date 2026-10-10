@@ -1,11 +1,14 @@
 import { Link, type LinkProps } from "@tanstack/react-router"
-import { ArrowRight, Store } from "lucide-react"
+import { ArrowRight, Check, ChevronDown, Store } from "lucide-react"
+import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockPortal, useDock } from "@/components/shell/dock"
 import { CardHeader, CardTitle } from "@/components/ui/card"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
-import { ChoiceMenu } from "@/components/ui/list-chrome"
+import { ChoiceMenu, SHEET_ROW } from "@/components/ui/list-chrome"
 import { PageHeader } from "@/components/ui/page-header"
+import { BottomSheet } from "@/components/ui/picker-sheet"
 import { Segmented } from "@/components/ui/segmented"
 import { cn } from "@/lib/utils"
 import { change, changeTone, percent } from "@/screens/executive/format"
@@ -20,13 +23,13 @@ import { TERMS, type ReportScope } from "@/screens/executive/scope"
 export function Movement({ now, before }: { now: number; before: number }) {
   const fraction = change(now, before)
   if (fraction === null) {
-    return <span className="font-normal text-mute">vs periode lalu —</span>
+    return <span className="font-normal text-mute">vs previous period —</span>
   }
   return (
     <>
       <span aria-hidden>{fraction > 0 ? "↗" : fraction < 0 ? "↘" : "→"}</span>
       {percent(Math.abs(fraction))}
-      <span className="ml-1 font-normal text-mute">vs periode lalu</span>
+      <span className="ml-1 font-normal text-mute">vs previous period</span>
     </>
   )
 }
@@ -96,7 +99,9 @@ export function ReportPage({
     <PageContent>
       <PageHeader crumb="Executive" title={title} className="mb-4" />
 
-      <div className="mb-5 flex flex-wrap items-center gap-2">
+      {/* On a phone the period and the shop are the dock's two buttons, and
+          the page opens on its figures. */}
+      <div className="mb-5 flex flex-wrap items-center gap-2 max-md:hidden">
         <Segmented
           options={TERMS}
           value={scope.term}
@@ -104,11 +109,11 @@ export function ReportPage({
         />
         {storeFilter && (
           <ChoiceMenu
-            heading="Toko"
+            heading="Store"
             icon={Store}
             value={scope.store ?? null}
             options={[
-              { value: null, label: "Semua toko" },
+              { value: null, label: "All stores" },
               ...stores.map((place) => ({
                 value: place.site_id,
                 label: place.name,
@@ -118,18 +123,143 @@ export function ReportPage({
             className="border border-hairline-2 bg-canvas"
           />
         )}
-        <span className="w-full text-[0.875rem] text-mute md:ml-auto md:w-auto">
+        <span className="ml-auto text-[0.875rem] text-mute">
           {scope.label}
           {storeFilter &&
             scope.store !== undefined &&
             ` · ${nameOf(scope.store)}`}
-          <span className="text-faint"> · dibanding </span>
+          <span className="text-faint"> · vs </span>
           {scope.beforeLabel}
         </span>
       </div>
 
+      <ScopeDock
+        scope={scope}
+        stores={stores}
+        storeFilter={storeFilter}
+        storeName={scope.store === undefined ? undefined : nameOf(scope.store)}
+      />
+      <p className="mb-4 text-[0.875rem] text-mute md:hidden">
+        {scope.label}
+        {storeFilter &&
+          scope.store !== undefined &&
+          ` · ${nameOf(scope.store)}`}
+        <span className="text-faint"> · vs </span>
+        {scope.beforeLabel}
+      </p>
+
       {children}
     </PageContent>
+  )
+}
+
+/// The period and the shop, as the two buttons over the bottom bar on a phone
+/// (owner, 2026-10-06: nothing to choose at the top of a page). The period is
+/// one of four, the shop one of a few dozen; each opens its own sheet.
+function ScopeDock({
+  scope,
+  stores,
+  storeFilter,
+  storeName,
+}: {
+  scope: ReportScope
+  stores: readonly { site_id: string; name: string }[]
+  storeFilter: boolean
+  storeName: string | undefined
+}) {
+  const dock = useDock()
+  const [open, setOpen] = useState<"term" | "store" | null>(null)
+  const term = TERMS.find((one) => one.value === scope.term)
+  const chip =
+    "inline-flex h-9 min-w-0 items-center gap-1 rounded-full bg-soft-2 pr-2.5 pl-3.5 text-[0.875rem] font-medium text-ink transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.97]"
+
+  const rows = <T extends string | undefined>(
+    options: readonly { value: T; label: string }[],
+    current: T,
+    pick: (value: T) => void
+  ) => (
+    <div className="min-h-0 overflow-y-auto overscroll-contain px-2 pb-3">
+      {options.map((one) => {
+        const on = one.value === current
+        return (
+          <button
+            key={one.label}
+            type="button"
+            aria-pressed={on}
+            onClick={() => {
+              pick(one.value)
+              setOpen(null)
+            }}
+            className={cn(SHEET_ROW, on && "font-medium text-accent")}
+          >
+            <span className="flex-1">{one.label}</span>
+            <Check className={cn("size-4 shrink-0", on ? "" : "opacity-0")} />
+          </button>
+        )
+      })}
+    </div>
+  )
+
+  return (
+    <>
+      <DockPortal slot="tabs">
+        <div className="flex min-w-0 gap-1.5">
+          <button
+            type="button"
+            onClick={() => setOpen("term")}
+            aria-haspopup="dialog"
+            aria-label={`Period: ${term?.label ?? ""}`}
+            className={cn(chip, "shrink-0")}
+          >
+            <span className="truncate">{term?.label}</span>
+            <ChevronDown className="size-4 shrink-0 text-line-ico" />
+          </button>
+          {storeFilter && (
+            <button
+              type="button"
+              onClick={() => setOpen("store")}
+              aria-haspopup="dialog"
+              aria-label={`Store: ${storeName ?? "All stores"}`}
+              className={chip}
+            >
+              <Store className="size-4 shrink-0 text-line-ico" />
+              <span className="truncate">{storeName ?? "All stores"}</span>
+              <ChevronDown className="size-4 shrink-0 text-line-ico" />
+            </button>
+          )}
+        </div>
+      </DockPortal>
+      {dock?.available === true && (
+        <>
+          <BottomSheet
+            open={open === "term"}
+            onOpenChange={(next) => !next && setOpen(null)}
+            title="Period"
+          >
+            {rows(TERMS, scope.term, scope.setTerm)}
+          </BottomSheet>
+          {storeFilter && (
+            <BottomSheet
+              open={open === "store"}
+              onOpenChange={(next) => !next && setOpen(null)}
+              title="Store"
+            >
+              {rows<string | undefined>(
+                [
+                  { value: undefined, label: "All stores" },
+                  ...stores.map((place) => ({
+                    value: place.site_id,
+                    label: place.name,
+                  })),
+                ],
+                scope.store,
+                scope.setStore
+              )}
+            </BottomSheet>
+          )}
+        </>
+      )}
+    </>
   )
 }
 
@@ -150,7 +280,7 @@ export function Head({
   children?: React.ReactNode
 }) {
   return (
-    <CardHeader className="items-start px-[1.125rem] pt-4 pb-3">
+    <CardHeader className="items-start px-[1.125rem] pt-4 pb-3 max-md:flex-wrap">
       <div className="min-w-0">
         <CardTitle>{title}</CardTitle>
         {sub !== undefined && (

@@ -197,7 +197,10 @@ pub fn is_connected(name: &str) -> bool {
 pub fn routes(router: axum::Router<AppState>) -> Router<AppState> {
     router
         .route("/api/v1/dc/print-bridge/next", get(next_job))
-        .route("/api/v1/dc/print-bridge/jobs/{job_id}/result", post(job_result))
+        .route(
+            "/api/v1/dc/print-bridge/jobs/{job_id}/result",
+            post(job_result),
+        )
 }
 
 fn authorised(headers: &HeaderMap) -> bool {

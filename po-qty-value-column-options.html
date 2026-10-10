@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Quantity + value, one column</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" />
+<style>
+/* Purchase Orders list — the Ordered and Received figures, five ways to put a
+   quantity and a value in one column. Sizes measured on the running hub
+   (:5480, 5 Oct 2026): header band 40px #f8f8f9 14/500, cells 20px padding
+   15px, group dividers #c6c6cc, footer 44px 14/500, Review Count 28px r8,
+   KPI label 14/500 value 18/600, controls 34px. Motion per Emil Kowalski:
+   transform/opacity/filter only, custom ease-out, exits faster, nothing on
+   a keyboard action. */
+:root {
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --canvas: #ffffff; --soft: #f8f8f9; --soft-2: #f0f0f2; --soft-3: #f6f6f7;
+  --hairline: #e6e6e9; --hairline-2: #dadade; --hairline-strong: #c6c6cc;
+  --ink: #20242c; --body: #565f6d; --mute: #666f7d; --faint: #b9c0c9; --line-ico: #89919d;
+  --rail: #242526; --rail-3: #393b3d; --rail-text: #c3c4c7;
+  --accent: #2563eb; --accent-bg: #eff5ff;
+  --ok-fg: #137a37; --info-fg: #2c57bf; --warn-fg: #a64a08; --bad-fg: #be123c;
+  --r-card: 10px; --r-inner: 8px;
+  --shadow-soft: 0 1px 3px rgb(24 39 60 / 4%);
+  --shadow-pop: 0 4px 8px rgb(24 39 60 / 4%), 0 12px 32px rgb(24 39 60 / 8%);
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--soft-3); color: var(--ink); font: 400 15px/1.45 var(--font-sans); letter-spacing: -0.006em; -webkit-font-smoothing: antialiased; }
+button { font: inherit; letter-spacing: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: inherit; }
+button { touch-action: manipulation; -webkit-user-select: none; user-select: none; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+.ico { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+.ico-12 { width: 12px; height: 12px; }
+.num { font-variant-numeric: tabular-nums; }
+.mute { color: var(--mute); }
+.bad { color: var(--bad-fg); }
+
+/* ── prototype chrome (not part of the design) ─────────────────────────── */
+.proto { position: sticky; top: 0; z-index: 30; height: 52px; display: flex; align-items: center; gap: 14px; padding: 0 16px; background: #e4e4e8; font: 500 14px/1 system-ui, sans-serif; color: #3a3a40; letter-spacing: 0; overflow-x: auto; }
+.proto b { font-weight: 600; color: #18181b; white-space: nowrap; }
+.seg { display: inline-flex; background: #d6d6db; border-radius: 9px; padding: 3px; gap: 2px; flex-shrink: 0; }
+.seg button { height: 28px; padding: 0 11px; border-radius: 7px; color: #55555c; white-space: nowrap; font: 500 14px/1 system-ui, sans-serif; letter-spacing: 0; transition: transform 120ms var(--ease-out); }
+.seg button:active { transform: scale(0.97); }
+.seg button[aria-pressed="true"] { background: #fff; color: #18181b; box-shadow: 0 1px 2px rgb(0 0 0 / 10%); }
+.seg button i { font-style: normal; color: #8a8a92; margin-right: 6px; }
+
+/* ── shell: rail 68 · department column 232 · page ──────────────────────── */
+.app { display: grid; grid-template-columns: 68px 232px minmax(0, 1fr); min-height: calc(100vh - 52px); }
+.rail { background: var(--rail); display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 0; position: sticky; top: 52px; height: calc(100vh - 52px); }
+.logo { width: 32px; height: 32px; border-radius: 8px; background: #000; display: grid; place-items: center; position: relative; box-shadow: 0 0 0 1px rgb(255 255 255 / 10%); margin-bottom: 8px; }
+.logo b { color: #fff; font: 700 16px/1 var(--font-sans); letter-spacing: -0.04em; }
+.logo i { position: absolute; right: 6px; bottom: 7px; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+.rbtn { width: 40px; height: 40px; border-radius: var(--r-inner); display: grid; place-items: center; color: var(--rail-text); }
+.rbtn .ico { width: 20px; height: 20px; }
+.rbtn[aria-current="true"] { background: var(--rail-3); color: #fff; }
+.rail .sp { flex: 1; }
+.me { width: 28px; height: 28px; border-radius: 50%; background: #3d3f42; color: #fff; display: grid; place-items: center; font: 600 14px/1 var(--font-sans); }
+.side { background: var(--canvas); border-right: 1px solid var(--hairline); display: flex; flex-direction: column; position: sticky; top: 52px; height: calc(100vh - 52px); }
+.side-h { height: 52px; display: flex; align-items: center; padding: 0 12px 0 16px; border-bottom: 1px solid var(--hairline); }
+.side-h h2 { flex: 1; margin: 0; font: 600 15px/22px var(--font-sans); letter-spacing: -0.01em; }
+.side-h .ico { color: var(--line-ico); }
+.side-l { display: flex; flex-direction: column; gap: 2px; padding: 10px; }
+.sitem { height: 36px; display: flex; align-items: center; padding: 0 10px; border-radius: var(--r-inner); font-size: 14px; color: var(--body); white-space: nowrap; }
+.sitem[aria-current="page"] { background: var(--accent-bg); color: var(--accent); font-weight: 500; }
+.sitem .n { margin-left: auto; padding: 0 4px; font-weight: 500; color: var(--bad-fg); font-variant-numeric: tabular-nums; }
+.side .sp { flex: 1; }
+.clock { height: 52px; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-top: 1px solid var(--hairline); font-size: 14px; color: var(--body); font-variant-numeric: tabular-nums; }
+.clock .ico { color: var(--line-ico); }
+@media (max-width: 1180px) { .app { grid-template-columns: 68px minmax(0, 1fr); } .side { display: none; } }
+@media (max-width: 760px) { .app { grid-template-columns: minmax(0, 1fr); } .rail { display: none; } }
+
+/* ── page ──────────────────────────────────────────────────────────────── */
+.page { padding: 22px 36px 48px; min-width: 0; }
+@media (max-width: 760px) { .page { padding: 18px 16px 40px; } }
+.page-title { margin: 0 0 12px; font: 600 15px/20px var(--font-sans); letter-spacing: -0.01em; }
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+@media (max-width: 760px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.kpi { background: var(--canvas); border: 1px solid var(--hairline); border-radius: var(--r-card); box-shadow: var(--shadow-soft); padding: 13px 16px 14px; }
+.kpi span { display: block; font: 500 14px/20px var(--font-sans); color: var(--body); }
+.kpi b { display: block; padding-top: 6px; font: 600 18px/22px var(--font-sans); letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+.tabs { display: flex; border-bottom: 1px solid var(--hairline); margin-bottom: 14px; overflow-x: auto; }
+.tab { position: relative; height: 40px; padding: 8px 12px 10px; font: 500 14px/20px var(--font-sans); color: var(--body); white-space: nowrap; }
+.tab small { font: inherit; color: var(--mute); margin-left: 6px; font-variant-numeric: tabular-nums; }
+.tab[aria-selected="true"] { color: var(--ink); }
+.tab[aria-selected="true"]::after { content: ""; position: absolute; left: 12px; right: 12px; bottom: -1px; height: 2px; border-radius: 1px; background: var(--ink); }
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; min-height: 36px; }
+.field { height: 34px; display: inline-flex; align-items: center; gap: 8px; padding: 0 10px; border: 1px solid var(--hairline-2); border-radius: var(--r-inner); background: var(--canvas); font-size: 14px; color: var(--mute); white-space: nowrap; }
+.field .ico { color: var(--line-ico); }
+.field.search { width: 176px; }
+.field.date { width: 132px; justify-content: space-between; }
+.bar .sp { flex: 1; }
+.ghost { height: 34px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: var(--r-inner); font-size: 14px; color: var(--body); transition: transform 120ms var(--ease-out); }
+.ghost:active { transform: scale(0.97); }
+.ghost .ico { color: var(--line-ico); }
+.cta { height: 34px; display: inline-flex; align-items: center; padding: 0 12px; border-radius: var(--r-inner); background: var(--accent); color: #fff; font: 500 14px/1 var(--font-sans); transition: transform 120ms var(--ease-out); }
+.cta:active { transform: scale(0.97); }
+@media (hover: hover) and (pointer: fine) { .ghost:hover { background: var(--soft-2); color: var(--ink); } }
+
+/* unit switch (option E) — same look as the hub's small segmented control */
+.unit[hidden] { display: none; }
+.unit { display: inline-flex; height: 34px; padding: 3px; gap: 2px; border-radius: var(--r-inner); background: var(--soft-2); }
+.unit button { height: 28px; padding: 0 10px; border-radius: 6px; font: 500 14px/1 var(--font-sans); color: var(--body); transition: transform 120ms var(--ease-out), background-color 120ms ease, color 120ms ease; }
+.unit button:active { transform: scale(0.97); }
+.unit button[aria-pressed="true"] { background: var(--canvas); color: var(--ink); box-shadow: 0 1px 2px rgb(24 39 60 / 10%); }
+
+/* ── table ─────────────────────────────────────────────────────────────── */
+.card { background: var(--canvas); border: 1px solid var(--hairline); border-radius: var(--r-card); box-shadow: var(--shadow-soft); overflow-x: auto; }
+table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+th { height: 40px; padding: 0 20px; background: var(--soft); border-bottom: 1px solid var(--hairline-2); font: 500 14px/20px var(--font-sans); color: var(--body); text-align: left; white-space: nowrap; vertical-align: middle; }
+th.group { text-align: center; border-left: 1px solid var(--hairline-strong); border-right: 1px solid var(--hairline-strong); }
+th.gl { border-left: 1px solid var(--hairline-strong); }
+th.gr { border-right: 1px solid var(--hairline-strong); }
+th.r, td.r { text-align: right; }
+.sort { display: inline-flex; align-items: center; gap: 4px; height: 28px; margin: 0 -4px; padding: 0 4px; border-radius: 6px; color: inherit; white-space: nowrap; transition: transform 120ms var(--ease-out); }
+.sort:active { transform: scale(0.97); }
+.sort .ico { color: var(--faint); }
+.sort[data-on] { color: var(--ink); }
+.sort[data-on] .ico { color: var(--ink); }
+.sort .by { color: var(--mute); font-weight: 500; }
+@media (hover: hover) and (pointer: fine) { .sort:hover { color: var(--ink); } .sort:hover .ico { color: var(--line-ico); } }
+td { padding: 20px; border-bottom: 1px solid var(--hairline); font-size: 15px; line-height: 24px; vertical-align: middle; font-variant-numeric: tabular-nums; }
+tbody tr:last-child td { border-bottom: 0; }
+@media (hover: hover) and (pointer: fine) { tbody tr:hover td { background: #fbfbfc; } }
+tfoot td { padding: 12px 20px; background: var(--soft); border-top: 1px solid var(--hairline-2); border-bottom: 0; font: 500 14px/20px var(--font-sans); font-variant-numeric: tabular-nums; }
+tfoot .stack span + span { font-weight: 400; }
+
+.po { display: flex; flex-direction: column; gap: 2px; line-height: 20px; min-width: 0; }
+.po b { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.po span { font-size: 14px; color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.po code { font-family: var(--font-mono); font-size: 14px; letter-spacing: -0.01em; }
+.late { color: var(--bad-fg); font-weight: 500; }
+.stack { display: flex; flex-direction: column; align-items: flex-end; }
+.stack > span { white-space: nowrap; }
+.lead { font-weight: 500; color: var(--ink); white-space: nowrap; }
+/* "860 pcs · 340 short": the short part may drop to its own line, never cut */
+.line { display: flex; flex-wrap: wrap; justify-content: flex-end; column-gap: 0.32em; }
+.line > span { white-space: nowrap; }
+/* option C: two figures on one line, each in its own right-aligned track */
+.pair { display: grid; grid-template-columns: 84px minmax(0, 1fr); column-gap: 12px; justify-items: end; align-items: baseline; }
+.pair > span { white-space: nowrap; }
+.pair .under { grid-column: 1; }
+.review { height: 28px; padding: 0 8px; border-radius: var(--r-inner); background: var(--accent); color: #fff; font: 500 15px/20px var(--font-sans); white-space: nowrap; transition: transform 120ms var(--ease-out); }
+.review:active { transform: scale(0.97); }
+.st-active { color: var(--ok-fg); }
+.st-partial { color: var(--info-fg); }
+
+/* option E: the figures cross-fade when the unit flips (blur hides the swap) */
+.fig { transition: opacity 180ms var(--ease-out), filter 180ms var(--ease-out); }
+.fig.enter { opacity: 0; filter: blur(2px); transition: none; }
+@media (prefers-reduced-motion: reduce) { .fig.enter { filter: none; } }
+
+/* sort menu — scales from the header it opened from */
+.menu { position: fixed; z-index: 50; min-width: 228px; padding: 4px; background: var(--canvas); border: 1px solid var(--hairline); border-radius: var(--r-card); box-shadow: var(--shadow-pop);
+  opacity: 0; transform: scale(0.97); transform-origin: var(--origin, top right); pointer-events: none;
+  transition: opacity 120ms var(--ease-out), transform 120ms var(--ease-out); }
+.menu.open { opacity: 1; transform: none; pointer-events: auto; transition-duration: 160ms; }
+.menu.instant { transition: none; }
+.menu button { width: 100%; min-height: 32px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 8px; border-radius: 7px; font-size: 14px; color: var(--ink); }
+.menu button .ico { color: var(--accent); visibility: hidden; }
+.menu button[aria-checked="true"] .ico { visibility: visible; }
+.menu hr { border: 0; border-top: 1px solid var(--hairline); margin: 4px -4px; }
+@media (hover: hover) and (pointer: fine) { .menu button:hover { background: var(--soft-2); } }
+</style>
+</head>
+<body>
+
+<div class="proto" role="toolbar" aria-label="Prototype">
+  <b>Ordered · Received</b>
+  <div class="seg" id="ver">
+    <button data-v="now" aria-pressed="true">Now</button>
+    <button data-v="a" aria-pressed="false"><i>A</i>Value on top</button>
+    <button data-v="b" aria-pressed="false"><i>B</i>Pieces on top</button>
+    <button data-v="c" aria-pressed="false"><i>C</i>One line</button>
+    <button data-v="d" aria-pressed="false"><i>D</i>With price</button>
+    <button data-v="e" aria-pressed="false"><i>E</i>Switch</button>
+  </div>
+</div>
+
+<div class="app">
+  <nav class="rail" aria-label="Departments">
+    <div class="logo"><b>C</b><i></i></div>
+    <span class="rbtn" aria-current="true"><svg class="ico" viewBox="0 0 24 24"><circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2.5 3.5h3l2.4 11.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.5L21 8H6.6"/></svg></span>
+    <span class="rbtn"><svg class="ico" viewBox="0 0 24 24"><path d="M20.4 18.5 12 22l-8.4-3.5V5.5L12 2l8.4 3.5z"/><path d="M3.6 5.5 12 9l8.4-3.5M12 9v13"/></svg></span>
+    <span class="rbtn"><svg class="ico" viewBox="0 0 24 24"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="18" r="1.6"/><circle cx="17" cy="18" r="1.6"/></svg></span>
+    <span class="rbtn"><svg class="ico" viewBox="0 0 24 24"><path d="M3 9.5 12 4l9 5.5M5 10v9h14v-9M9 19v-5h6v5"/></svg></span>
+    <span class="rbtn"><svg class="ico" viewBox="0 0 24 24"><path d="M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1zM15.5 8.5a5 5 0 0 1 0 7"/></svg></span>
+    <span class="rbtn"><svg class="ico" viewBox="0 0 24 24"><path d="M3 21h18M5 21V10M19 21V10M9 21v-6h6v6M2 10l10-6 10 6"/></svg></span>
+    <span class="sp"></span>
+    <span class="me">R</span>
+  </nav>
+
+  <aside class="side">
+    <div class="side-h"><h2>Procurement</h2><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16"/></svg></div>
+    <div class="side-l">
+      <span class="sitem" aria-current="page">Purchase Orders<span class="n">5</span></span>
+      <span class="sitem">Suppliers</span>
+      <span class="sitem">Sourcing</span>
+      <span class="sitem">Return PO<span class="n">2</span></span>
+    </div>
+    <span class="sp"></span>
+    <div class="clock"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Mon 5 Oct 2026 · 15:51</div>
+  </aside>
+
+  <main class="page">
+    <h1 class="page-title">Purchase Orders</h1>
+    <div class="kpis" id="kpis"></div>
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" aria-selected="true">Active PO<small>8</small></button>
+      <button class="tab" role="tab" aria-selected="false">Completed PO<small>12</small></button>
+      <button class="tab" role="tab" aria-selected="false">Cancelled PO<small>1</small></button>
+    </div>
+    <div class="bar">
+      <span class="field search"><svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Search orders</span>
+      <span class="field date">Issued<svg class="ico" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg></span>
+      <span class="field date">Delivery date<svg class="ico" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg></span>
+      <span class="sp"></span>
+      <div class="unit" id="unit" role="group" aria-label="Show figures as" hidden>
+        <button data-u="pcs" aria-pressed="true">Pieces</button>
+        <button data-u="rp" aria-pressed="false">Value</button>
+      </div>
+      <button class="ghost"><svg class="ico" viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="16" rx="2.5"/><path d="M9.5 4v16M14.5 4v16"/></svg>Columns</button>
+      <button class="cta">New order</button>
+    </div>
+    <div class="card"><table id="t"></table></div>
+  </main>
+</div>
+
+<div class="menu" id="menu" role="menu"></div>
+
+<script>
+const ROWS = [
+  { sup: "Indorama, PT",     po: "PO-051026-001", due: "22 Oct 2026", d: 22, pcs: 10,    items: 1, net: 399000,     rp: 0,          rn: 0,          st: "review" },
+  { sup: "Indorama, PT",     po: "PO-041026-012", due: "14 Oct 2026", d: 14, pcs: 200,   items: 1, net: 7800000,    rp: 0,          rn: 0,          st: "review" },
+  { sup: "Indorama, PT",     po: "PO-021026-001", due: "10 Oct 2026", d: 10, pcs: 600,   items: 2, net: 6720000,    rp: 0,          rn: 0,          st: "review" },
+  { sup: "Busana Prima, CV", po: "PO-260926-004", due: "02 Oct 2026", d: 2,  pcs: 1200,  items: 6, net: 54600000,   rp: 860,        rn: 39130000,   st: "partial", late: true },
+  { sup: "Busana Prima, CV", po: "PO-290926-003", due: "01 Oct 2026", d: 1,  pcs: 8,     items: 1, net: 320000,     rp: 0,          rn: 0,          st: "active",  late: true },
+  { sup: "Indorama, PT",     po: "PO-041026-011", due: "14 Oct 2026", d: 14, pcs: 20000, items: 1, net: 3999980000, rp: 12000,      rn: 2399988000, st: "partial" },
+  { sup: "Tekstil Jaya, PT", po: "PO-280926-002", due: "08 Oct 2026", d: 8,  pcs: 480,   items: 4, net: 26880000,   rp: 96,         rn: 5376000,    st: "partial" },
+  { sup: "Garmen AA, UD",    po: "PO-041026-010", due: "15 Oct 2026", d: 15, pcs: 200,   items: 1, net: 3200000,    rp: 0,          rn: 0,          st: "active" },
+];
+
+const n = (v) => v.toLocaleString("id-ID");
+const rp = (v) => "Rp " + n(v);
+const pcs = (v) => `${n(v)} ${v === 1 ? "pc" : "pcs"}`;
+const items = (v) => `${n(v)} ${v === 1 ? "item" : "items"}`;
+const short = (r) => (r.rp > 0 && r.rp < r.pcs ? r.pcs - r.rp : 0);
+const sum = (k) => ROWS.reduce((a, r) => a + r[k], 0);
+
+const ICON = {
+  both: '<svg class="ico ico-12" viewBox="0 0 24 24"><path d="m7 9 5-5 5 5M7 15l5 5 5-5"/></svg>',
+  asc: '<svg class="ico ico-12" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
+  desc: '<svg class="ico ico-12" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></svg>',
+  check: '<svg class="ico" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>',
+};
+
+let ver = "now";
+let unit = "pcs";
+let sort = null; // { key, dir }
+
+/* ── cells ──────────────────────────────────────────────────────────────── */
+const poCell = (r, withItems) => `<div class="po"><b title="${r.sup}">${r.sup}</b><span><code>${r.po}</code>${withItems ? ` · ${items(r.items)}` : ""}</span></div>`;
+const dueCell = (r) => `<span class="${r.late ? "late" : ""}">${r.due}</span>`;
+const statusCell = (r) =>
+  r.st === "review" ? `<button class="review">Review Count</button>`
+  : r.st === "partial" ? `<span class="st-partial">Partially received</span>`
+  : `<span class="st-active">Active</span>`;
+const nothing = `<span class="mute">0 pcs</span>`;
+const pcsLine = (r) => {
+  const s = short(r);
+  return `<span class="line"><span class="${s ? "bad" : "mute"}">${pcs(r.rp)}</span>${s ? `<span class="bad">· ${n(s)} short</span>` : ""}</span>`;
+};
+const price = (r) => r.items === 1 ? `${pcs(r.pcs)} × ${rp(Math.round(r.net / r.pcs))}` : `${pcs(r.pcs)} · avg ${rp(Math.round(r.net / r.pcs))}`;
+
+/* ── each version: its column widths, headers, cells and footer ─────────── */
+const PO_W = { now: 250, a: 250, b: 250, c: 216, d: 250, e: 250 };
+const V = {
+  now: {
+    cols: [132, 176, 152, 176, 176],
+    head: () => `
+      <tr><th rowspan="2">${sortBtn("po", "PO")}</th><th rowspan="2">${sortBtn("due", "Delivery Date")}</th>
+        <th colspan="2" class="group">Ordered</th><th rowspan="2" class="r">${sortBtn("rp", "Received Quantity", true)}</th><th rowspan="2">${sortBtn("st", "Status")}</th></tr>
+      <tr><th class="r gl">${sortBtn("pcs", "Quantity", true)}</th><th class="r gr">${sortBtn("net", "Value", true)}</th></tr>`,
+    row: (r) => `<td>${poCell(r)}</td><td>${dueCell(r)}</td>
+      <td class="r"><div class="stack"><span>${pcs(r.pcs)}</span><span class="mute">${items(r.items)}</span></div></td>
+      <td class="r"><span class="lead">${rp(r.net)}</span></td>
+      <td class="r">${r.rp ? `<div class="stack"><span class="${short(r) ? "bad" : ""}">${pcs(r.rp)}</span>${short(r) ? `<span class="bad">${pcs(short(r))} short</span>` : ""}</div>` : nothing}</td>
+      <td>${statusCell(r)}</td>`,
+    foot: () => `<td>${ROWS.length} orders</td><td></td><td class="r">${pcs(sum("pcs"))}</td><td class="r">${rp(sum("net"))}</td><td class="r">${pcs(sum("rp"))}</td><td></td>`,
+  },
+  a: {
+    cols: [132, 184, 216, 176],
+    head: () => plainHead(menuBtn("o", "Ordered"), menuBtn("r", "Received")),
+    row: (r) => `<td>${poCell(r, true)}</td><td>${dueCell(r)}</td>
+      <td class="r"><div class="stack"><span class="lead">${rp(r.net)}</span><span class="mute">${pcs(r.pcs)}</span></div></td>
+      <td class="r">${r.rp ? `<div class="stack"><span>${rp(r.rn)}</span>${pcsLine(r)}</div>` : nothing}</td>
+      <td>${statusCell(r)}</td>`,
+    foot: () => `<td>${ROWS.length} orders</td><td></td>
+      <td class="r"><div class="stack"><span>${rp(sum("net"))}</span><span class="mute">${pcs(sum("pcs"))}</span></div></td>
+      <td class="r"><div class="stack"><span>${rp(sum("rn"))}</span><span class="mute">${pcs(sum("rp"))}</span></div></td><td></td>`,
+  },
+  b: {
+    cols: [132, 184, 216, 176],
+    head: () => plainHead(menuBtn("o", "Ordered"), menuBtn("r", "Received")),
+    row: (r) => {
+      const s = short(r);
+      return `<td>${poCell(r, true)}</td><td>${dueCell(r)}</td>
+      <td class="r"><div class="stack"><span class="lead">${pcs(r.pcs)}</span><span class="mute">${rp(r.net)}</span></div></td>
+      <td class="r">${r.rp ? `<div class="stack"><span class="line"><span class="${s ? "bad" : ""}">${pcs(r.rp)}</span>${s ? `<span class="bad">· ${n(s)} short</span>` : ""}</span><span class="mute">${rp(r.rn)}</span></div>` : nothing}</td>
+      <td>${statusCell(r)}</td>`;
+    },
+    foot: () => `<td>${ROWS.length} orders</td><td></td>
+      <td class="r"><div class="stack"><span>${pcs(sum("pcs"))}</span><span class="mute">${rp(sum("net"))}</span></div></td>
+      <td class="r"><div class="stack"><span>${pcs(sum("rp"))}</span><span class="mute">${rp(sum("rn"))}</span></div></td><td></td>`,
+  },
+  c: {
+    cols: [132, 264, 264, 176],
+    head: () => plainHead(menuBtn("o", "Ordered"), menuBtn("r", "Received")),
+    row: (r) => {
+      const s = short(r);
+      return `<td>${poCell(r, true)}</td><td>${dueCell(r)}</td>
+      <td class="r"><div class="pair"><span>${pcs(r.pcs)}</span><span class="lead">${rp(r.net)}</span></div></td>
+      <td class="r">${r.rp ? `<div class="pair"><span class="${s ? "bad" : ""}">${pcs(r.rp)}</span><span>${rp(r.rn)}</span>${s ? `<span class="bad under">${n(s)} short</span>` : ""}</div>` : `<div class="pair"><span class="mute">0 pcs</span><span class="mute">Rp 0</span></div>`}</td>
+      <td>${statusCell(r)}</td>`;
+    },
+    foot: () => `<td>${ROWS.length} orders</td><td></td>
+      <td class="r"><div class="pair"><span>${pcs(sum("pcs"))}</span><span>${rp(sum("net"))}</span></div></td>
+      <td class="r"><div class="pair"><span>${pcs(sum("rp"))}</span><span>${rp(sum("rn"))}</span></div></td><td></td>`,
+  },
+  d: {
+    cols: [132, 224, 216, 176],
+    head: () => plainHead(menuBtn("o", "Ordered"), menuBtn("r", "Received")),
+    row: (r) => `<td>${poCell(r, true)}</td><td>${dueCell(r)}</td>
+      <td class="r"><div class="stack"><span class="lead">${rp(r.net)}</span><span class="mute">${price(r)}</span></div></td>
+      <td class="r">${r.rp ? `<div class="stack"><span>${rp(r.rn)}</span>${pcsLine(r)}</div>` : nothing}</td>
+      <td>${statusCell(r)}</td>`,
+    foot: () => V.a.foot(),
+  },
+  e: {
+    cols: [132, 176, 176, 176],
+    head: () => plainHead(sortBtn(unit === "pcs" ? "pcs" : "net", "Ordered", true), sortBtn(unit === "pcs" ? "rp" : "rn", "Received", true)),
+    row: (r) => {
+      const s = short(r);
+      const ord = unit === "pcs" ? pcs(r.pcs) : rp(r.net);
+      const got = unit === "pcs" ? pcs(r.rp) : rp(r.rn);
+      const gap = unit === "pcs" ? `${pcs(s)} short` : `${rp(r.net - Math.round(r.net * r.rp / r.pcs))} short`;
+      return `<td>${poCell(r, true)}</td><td>${dueCell(r)}</td>
+      <td class="r"><span class="fig lead">${ord}</span></td>
+      <td class="r">${r.rp ? `<div class="stack fig"><span class="${s ? "bad" : ""}">${got}</span>${s ? `<span class="bad">${gap}</span>` : ""}</div>` : `<span class="fig mute">${unit === "pcs" ? "0 pcs" : "Rp 0"}</span>`}</td>
+      <td>${statusCell(r)}</td>`;
+    },
+    foot: () => `<td>${ROWS.length} orders</td><td></td>
+      <td class="r"><span class="fig">${unit === "pcs" ? pcs(sum("pcs")) : rp(sum("net"))}</span></td>
+      <td class="r"><span class="fig">${unit === "pcs" ? pcs(sum("rp")) : rp(sum("rn"))}</span></td><td></td>`,
+  },
+};
+
+function plainHead(ordered, received) {
+  return `<tr><th>${sortBtn("po", "PO")}</th><th>${sortBtn("due", "Delivery Date")}</th>
+    <th class="r">${ordered}</th><th class="r">${received}</th><th>${sortBtn("st", "Status")}</th></tr>`;
+}
+
+/* A plain header: click cycles high → low → off. Right-aligned headings put
+   the arrow first, as the hub does. */
+function sortBtn(key, label, right) {
+  const on = sort && sort.key === key;
+  const ico = on ? ICON[sort.dir] : ICON.both;
+  return `<button class="sort" data-sort="${key}" ${on ? "data-on" : ""}>${right ? ico + label : label + ico}</button>`;
+}
+
+/* A merged heading: it holds two figures, so a click asks which one to sort
+   by. While sorted, the heading names the figure — "· Rp" or "· pcs". */
+const MENU_KEYS = { o: { rp: "net", pcs: "pcs" }, r: { rp: "rn", pcs: "rp" } };
+function menuBtn(col, label) {
+  const keys = MENU_KEYS[col];
+  const on = sort && (sort.key === keys.rp || sort.key === keys.pcs);
+  const by = on ? `<span class="by">· ${sort.key === keys.rp ? "Rp" : "pcs"}</span>` : "";
+  return `<button class="sort" data-menu="${col}" aria-haspopup="menu" ${on ? "data-on" : ""}>${on ? ICON[sort.dir] : ICON.both}${label}${by}</button>`;
+}
+
+/* ── render ─────────────────────────────────────────────────────────────── */
+function sorted() {
+  const rank = (r) => (r.st === "review" ? 0 : r.late ? 1 : 2); // the hub's hidden first key
+  const st = { review: 0, partial: 1, active: 2 };
+  const val = (r, k) => (k === "po" ? r.po : k === "due" ? r.d : k === "st" ? st[r.st] : r[k]);
+  return [...ROWS].sort((x, y) => {
+    if (rank(x) !== rank(y)) return rank(x) - rank(y);
+    if (!sort) return 0;
+    const a = val(x, sort.key), b = val(y, sort.key);
+    const c = typeof a === "string" ? a.localeCompare(b) : a - b;
+    return sort.dir === "asc" ? c : -c;
+  });
+}
+
+function render() {
+  const v = V[ver];
+  const cols = [PO_W[ver], ...v.cols].map((w) => `<col style="width:${w}px">`).join("");
+  const min = [PO_W[ver], ...v.cols].reduce((a, w) => a + w, 0);
+  document.getElementById("t").style.minWidth = min + "px";
+  document.getElementById("t").innerHTML =
+    `<colgroup>${cols}</colgroup><thead>${v.head()}</thead>` +
+    `<tbody>${sorted().map((r) => `<tr>${v.row(r)}</tr>`).join("")}</tbody>` +
+    `<tfoot><tr>${v.foot()}</tr></tfoot>`;
+  document.getElementById("unit").hidden = ver !== "e";
+}
+
+function kpis() {
+  const open = ROWS.length, late = ROWS.filter((r) => r.late).length;
+  const bn = (sum("net") / 1e9).toLocaleString("id-ID", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  document.getElementById("kpis").innerHTML = [["Orders", open], ["Still open", open], ["Overdue", late], ["On order", `Rp ${bn} billion`]]
+    .map(([k, val]) => `<div class="kpi"><span>${k}</span><b>${val}</b></div>`).join("");
+}
+
+/* ── sort menu ──────────────────────────────────────────────────────────── */
+const menu = document.getElementById("menu");
+let menuFor = null;
+function openMenu(btn, col) {
+  const keys = MENU_KEYS[col];
+  const item = (key, dir, label) =>
+    `<button role="menuitemradio" aria-checked="${!!(sort && sort.key === key && sort.dir === dir)}" data-key="${key}" data-dir="${dir}">${label}${ICON.check}</button>`;
+  menu.innerHTML =
+    item(keys.rp, "desc", "Value, high to low") + item(keys.rp, "asc", "Value, low to high") + "<hr>" +
+    item(keys.pcs, "desc", "Quantity, high to low") + item(keys.pcs, "asc", "Quantity, low to high");
+  const b = btn.getBoundingClientRect();
+  const w = 228;
+  menu.style.top = b.bottom + 6 + "px";
+  menu.style.left = Math.max(8, Math.min(b.right - w, innerWidth - w - 8)) + "px";
+  menu.classList.remove("instant");
+  menu.classList.add("open");
+  menuFor = col;
+}
+function closeMenu(instant) {
+  if (!menuFor) return;
+  menu.classList.toggle("instant", !!instant);
+  menu.classList.remove("open");
+  menuFor = null;
+}
+
+document.addEventListener("click", (e) => {
+  const v = e.target.closest("#ver button");
+  if (v) {
+    ver = v.dataset.v;
+    sort = null;
+    document.querySelectorAll("#ver button").forEach((b) => b.setAttribute("aria-pressed", b === v));
+    closeMenu(true);
+    render();
+    return;
+  }
+  const m = e.target.closest("[data-menu]");
+  if (m) {
+    if (menuFor === m.dataset.menu) closeMenu();
+    else openMenu(m, m.dataset.menu);
+    return;
+  }
+  const pick = e.target.closest("#menu [data-key]");
+  if (pick) {
+    const same = sort && sort.key === pick.dataset.key && sort.dir === pick.dataset.dir;
+    sort = same ? null : { key: pick.dataset.key, dir: pick.dataset.dir };
+    closeMenu();
+    render();
+    return;
+  }
+  const s = e.target.closest("[data-sort]");
+  if (s) {
+    const k = s.dataset.sort;
+    sort = !sort || sort.key !== k ? { key: k, dir: "desc" } : sort.dir === "desc" ? { key: k, dir: "asc" } : null;
+    render();
+    return;
+  }
+  const u = e.target.closest("#unit button");
+  if (u && u.dataset.u !== unit) {
+    unit = u.dataset.u;
+    if (sort) sort = { key: { pcs: "net", net: "pcs", rp: "rn", rn: "rp" }[sort.key] ?? sort.key, dir: sort.dir };
+    document.querySelectorAll("#unit button").forEach((b) => b.setAttribute("aria-pressed", b === u));
+    render();
+    // the new figures arrive softly; a keyboard flip stays instant
+    if (e.detail !== 0) {
+      const figs = document.querySelectorAll(".fig");
+      figs.forEach((f) => f.classList.add("enter"));
+      requestAnimationFrame(() => requestAnimationFrame(() => figs.forEach((f) => f.classList.remove("enter"))));
+    }
+    return;
+  }
+  if (menuFor && !e.target.closest("#menu")) closeMenu();
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu(true); });
+addEventListener("resize", () => closeMenu(true));
+document.addEventListener("scroll", () => closeMenu(true), true);
+
+kpis();
+render();
+</script>
+</body>
+</html>

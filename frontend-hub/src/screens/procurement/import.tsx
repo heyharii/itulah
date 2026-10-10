@@ -22,6 +22,7 @@ import { Section, TotalsLadder } from "@/components/ui/rows"
 import { Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { day, money } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   unitFactor,
   useUnits,
@@ -183,23 +184,35 @@ function orderedFields(
 
 export function PoImport() {
   const [restart, setRestart] = useState(0)
+  const phone = useLayout() === "phone"
   return (
     <PageContent>
       <PageHeader
         crumb="Procurement"
         title="Import PO"
-        sub="Bangun PO dari file — Excel, PDF, atau foto dokumen order. PO baru dibuat setelah kamu periksa di ringkasan."
+        sub="Build a PO from a file — Excel, PDF, or a photo of the order document. A new PO is only created after you check it in the summary."
+        // On a phone nothing but the title stands at the top: starting over is
+        // the button at the foot of the page.
         actions={
-          <Button variant="ghost" onClick={() => setRestart((n) => n + 1)}>
-            <Plus className="size-4" />
-            Mulai ulang
-          </Button>
+          phone ? undefined : (
+            <Button variant="ghost" onClick={() => setRestart((n) => n + 1)}>
+              <Plus className="size-4" />
+              Start over
+            </Button>
+          )
         }
       />
       {/* Remounted to restart. The flow holds four pieces of state that must
           all go back together, and a `key` change is the one way to say that
           which cannot leave one of them behind. */}
       <PoImportFlow key={restart} />
+      {phone && (
+        <div className="mt-6 flex justify-center">
+          <Button variant="quiet" onClick={() => setRestart((n) => n + 1)}>
+            Start over
+          </Button>
+        </div>
+      )}
     </PageContent>
   )
 }
@@ -248,17 +261,17 @@ export function PoImportFlow({ onDone }: { onDone?: () => void }) {
     <>
       {health.data !== undefined && !health.data.gateway && (
         <Banner tone="info" className="mb-4">
-          Jev (AI Gateway) belum dikonfigurasi — keputusan keyakinan memakai
-          aturan deterministik, jadi wizard akan bertanya lebih banyak.
+          Jev (AI Gateway) is not configured — confidence decisions use
+          deterministic rules, so the wizard will ask more questions.
         </Banner>
       )}
       {health.data !== undefined &&
         !health.data.openparser &&
         !health.data.liteparse && (
           <Banner tone="warn" className="mb-4">
-            OCR belum tersedia (OPENPARSER_API_KEY / LITEPARSE_BIN kosong) — PDF
-            hasil scan dan foto belum bisa dibaca; PDF teks dan Excel tetap
-            jalan.
+            OCR is not available (OPENPARSER_API_KEY / LITEPARSE_BIN empty) —
+            scanned PDFs and photos cannot be read yet; text PDFs and Excel
+            still work.
           </Banner>
         )}
 
@@ -364,12 +377,12 @@ export function PoImportSheet({
       open={open}
       onOpenChange={(next) => !next && onClose()}
       title="Import PO"
-      caption="Bangun PO dari file — Excel, PDF, atau foto dokumen order. PO baru dibuat setelah kamu periksa di ringkasan."
+      caption="Build a PO from a file — Excel, PDF, or a photo of the order document. A new PO is only created after you check it in the summary."
       width="workspace"
       actions={
         <Button variant="ghost" onClick={() => setRun((n) => n + 1)}>
           <Plus className="size-4" />
-          Mulai ulang
+          Start over
         </Button>
       }
     >
@@ -413,7 +426,7 @@ function UploadStep({
   if (drafts.length === 0 && reports.length > 0) {
     return (
       <div className="flex flex-col gap-4">
-        <Section title="Hasil Baca">
+        <Section title="Reading Results">
           <div className="flex flex-col gap-2">
             {reports.map((report, index) => (
               <div
@@ -435,8 +448,8 @@ function UploadStep({
             ))}
           </div>
           <Banner tone="bad" className="mt-3">
-            Tidak ada draf PO yang bisa ditinjau. Perbaiki file atau konfigurasi
-            OCR, lalu coba lagi.
+            No PO drafts to review. Fix the file or the OCR configuration, then
+            try again.
           </Banner>
         </Section>
         <PickFiles
@@ -452,7 +465,7 @@ function UploadStep({
   if (drafts.length > 0) {
     return (
       <div className="flex flex-col gap-4">
-        <Section title={`Draf dari dokumen (${drafts.length})`}>
+        <Section title={`Drafts from documents (${drafts.length})`}>
           <p className="-mt-2 mb-3 text-[0.875rem] text-mute">
             {reports
               .map(
@@ -473,7 +486,7 @@ function UploadStep({
                   <div className="truncate text-[0.875rem] text-ink">
                     {draft.supplier_name === null &&
                     draft.supplier_id === null ? (
-                      "Supplier belum ditentukan"
+                      "Supplier not set yet"
                     ) : (
                       <SupplierName
                         code={draft.supplier_id}
@@ -481,7 +494,8 @@ function UploadStep({
                       />
                     )}
                     <span className="ml-2 text-body">
-                      {draft.lines.length} baris
+                      {draft.lines.length}{" "}
+                      {draft.lines.length === 1 ? "line" : "lines"}
                     </span>
                   </div>
                   <div className="text-[0.875rem] text-mute">
@@ -489,16 +503,19 @@ function UploadStep({
                   </div>
                 </div>
                 {draft.questions.length > 0 ? (
-                  <Pill tone="warn">{draft.questions.length} pertanyaan</Pill>
+                  <Pill tone="warn">
+                    {draft.questions.length}{" "}
+                    {draft.questions.length === 1 ? "question" : "questions"}
+                  </Pill>
                 ) : (
-                  <Pill tone="ok">lengkap</Pill>
+                  <Pill tone="ok">complete</Pill>
                 )}
               </button>
             ))}
           </div>
           <div className="flex justify-end">
             <Button variant="primary" onClick={onReviewAll}>
-              Lanjut ke ringkasan
+              Continue to summary
             </Button>
           </div>
         </Section>
@@ -566,10 +583,10 @@ function PickFiles({
       >
         <Upload className="size-6 text-mute" />
         <span className="text-[0.875rem] text-ink">
-          Pilih atau tarik file — bisa beberapa sekaligus
+          Choose or drag files — several at once is fine
         </span>
         <span className="text-[0.875rem] text-mute">
-          Excel (.xlsx/.xls/.csv), PDF, atau foto dokumen order
+          Excel (.xlsx/.xls/.csv), PDF, or a photo of the order document
         </span>
       </button>
 
@@ -593,7 +610,7 @@ function PickFiles({
                   }
                   className="text-[0.875rem] text-mute hover:text-bad"
                 >
-                  buang
+                  remove
                 </button>
               </div>
             )
@@ -609,16 +626,15 @@ function PickFiles({
               ) : (
                 <Send className="size-4" />
               )}
-              Baca {picked.length} file
+              Read {picked.length} {picked.length === 1 ? "file" : "files"}
             </Button>
           </div>
         </div>
       )}
 
       <EmptyState>
-        File-file yang menyebut supplier dan nomor PO yang sama digabung jadi
-        satu order. Semua draf diperiksa dulu — tidak ada PO dibuat dari file
-        mentah.
+        Files that name the same supplier and PO number are merged into one
+        order. Every draft is checked first — no PO is created from a raw file.
       </EmptyState>
     </div>
   )
@@ -659,7 +675,7 @@ function WizardStep({
       const next = await validatePoDraft(draft, answers)
       onValidated(next)
     } catch (e) {
-      setError(e instanceof Error ? e.message : "gagal memeriksa jawaban")
+      setError(e instanceof Error ? e.message : "could not check the answers")
     } finally {
       setSending(false)
     }
@@ -672,12 +688,12 @@ function WizardStep({
 
   return (
     <div className="flex flex-col gap-5">
-      <Section title="Lengkapi Data Yang Belum Jelas">
+      <Section title="Fill In What Is Unclear">
         <p className="-mt-2 mb-3 text-[0.875rem] text-mute">
           {draft.source_files.join(", ")} · {draft.parser_note ?? draft.parser}
         </p>
         {draft.questions.length === 0 ? (
-          <EmptyState>Semua sudah jelas untuk draf ini.</EmptyState>
+          <EmptyState>Everything is clear for this draft.</EmptyState>
         ) : (
           <div className="flex flex-col gap-4">
             {draft.questions.map((question) => (
@@ -699,8 +715,9 @@ function WizardStep({
       <div className="flex items-center justify-end gap-2">
         {remaining.length > 0 && (
           <span className="mr-auto text-[0.875rem] text-mute">
-            {remaining.length} pertanyaan belum dijawab — boleh lanjut, nanti
-            ditanya lagi di ringkasan.
+            {remaining.length}{" "}
+            {remaining.length === 1 ? "question" : "questions"} not answered —
+            you can continue; they will be asked again in the summary.
           </span>
         )}
         <Button
@@ -709,7 +726,7 @@ function WizardStep({
           onClick={() => void submit()}
         >
           {sending ? <Loader2 className="size-4 animate-spin" /> : null}
-          Periksa jawaban
+          Check answers
         </Button>
       </div>
     </div>
@@ -735,7 +752,7 @@ function QuestionRow({
       hint={
         question.hint ??
         (question.confidence !== null
-          ? `Keyakinan bacaan ${Math.round(question.confidence * 100)}%`
+          ? `Reading confidence ${Math.round(question.confidence * 100)}%`
           : null) ??
         undefined
       }
@@ -946,11 +963,11 @@ function SummaryStep({
       <EmptyState
         action={
           <Button variant="primary" onClick={onDone}>
-            Mulai upload lagi
+            Start another upload
           </Button>
         }
       >
-        Tidak ada draf — semua sudah dibuat atau dibuang.
+        No drafts — all have been created or removed.
       </EmptyState>
     )
   }
@@ -971,10 +988,12 @@ function SummaryStep({
 
   return (
     <div className="flex flex-col gap-4">
-      <Section title={`Ringkasan import — ${drafts.length} order`}>
+      <Section
+        title={`Import summary — ${drafts.length} ${drafts.length === 1 ? "order" : "orders"}`}
+      >
         <p className="-mt-2 mb-3 text-[0.875rem] text-mute">
-          Periksa setiap order sebelum dibuat. PO hanya dibuat saat tombol di
-          bawah ditekan.
+          Check every order before it is created. A PO is only created when the
+          button below is pressed.
         </p>
         <div className="flex flex-col gap-4">
           {drafts.map((draft) => (
@@ -1005,11 +1024,11 @@ function SummaryStep({
           <TotalsLadder
             rows={[
               {
-                label: `${ready.length} order siap dibuat`,
-                value: `${ready.reduce((n, d) => n + d.lines.length, 0)} baris`,
+                label: `${ready.length} ${ready.length === 1 ? "order" : "orders"} ready to create`,
+                value: `${ready.reduce((n, d) => n + d.lines.length, 0)} lines`,
               },
             ]}
-            total={{ label: "Total nilai", value: money(grandMinor) }}
+            total={{ label: "Total value", value: money(grandMinor) }}
           />
         )}
 
@@ -1018,13 +1037,14 @@ function SummaryStep({
         <div className="flex items-center justify-end gap-2">
           {incomplete.length > 0 && (
             <span className="mr-auto text-[0.875rem] text-mute">
-              {incomplete.length} order belum lengkap — selesaikan wizardnya
-              dulu sebelum bisa dibuat.
+              {incomplete.length}{" "}
+              {incomplete.length === 1 ? "order is" : "orders are"} incomplete —
+              finish the wizard for them before they can be created.
             </span>
           )}
           {created.length > 0 && pending.length === 0 && (
             <Button variant="primary" onClick={onDone}>
-              Selesai
+              Done
             </Button>
           )}
           <Button
@@ -1044,7 +1064,7 @@ function SummaryStep({
             }
           >
             <CheckCircle2 className="size-4" />
-            Buat {ready.length} PO
+            Create {ready.length} {ready.length === 1 ? "PO" : "POs"}
           </Button>
         </div>
       </Section>
@@ -1055,18 +1075,18 @@ function SummaryStep({
         }}
         title={
           made.length === 1 ? (
-            <>{made[0].number} dibuat</>
+            <>{made[0].number} created</>
           ) : (
             <>
-              {made.length} PO dibuat ·{" "}
+              {made.length} POs created ·{" "}
               {made.map((one) => one.number).join(", ")}
             </>
           )
         }
       >
         {made.length === 1
-          ? `${made[0].lines} baris · tercatat sebagai ${made[0].recorded}.`
-          : `${made.reduce((sum, one) => sum + one.lines, 0)} baris · tercatat sebagai ${made.map((one) => one.recorded).join(", ")}.`}
+          ? `${made[0].lines} ${made[0].lines === 1 ? "line" : "lines"} · recorded as ${made[0].recorded}.`
+          : `${made.reduce((sum, one) => sum + one.lines, 0)} lines · recorded as ${made.map((one) => one.recorded).join(", ")}.`}
       </SavedDialog>
     </div>
   )
@@ -1110,6 +1130,12 @@ function SummaryDraftCard({
     (sum, line) => sum + (line.quantity ?? 0) * (line.unit_price_minor ?? 0),
     0
   )
+  const phone = useLayout() === "phone"
+  const removeLine = (lineId: string) =>
+    onChanged({
+      ...draft,
+      lines: draft.lines.filter((l) => l.line_id !== lineId),
+    })
 
   return (
     <div className="rounded-inner border border-hairline">
@@ -1117,7 +1143,7 @@ function SummaryDraftCard({
         <div className="min-w-0">
           <div className="truncate text-[0.9375rem] font-medium text-ink">
             {draft.supplier_name === null && draft.supplier_id === null ? (
-              "Supplier belum ditentukan"
+              "Supplier not set yet"
             ) : (
               <SupplierName
                 code={draft.supplier_id}
@@ -1126,26 +1152,27 @@ function SummaryDraftCard({
             )}
           </div>
           <div className="text-[0.875rem] text-mute">
-            {draft.source_files.join(", ")} · {draft.lines.length} baris
+            {draft.source_files.join(", ")} · {draft.lines.length}{" "}
+            {draft.lines.length === 1 ? "line" : "lines"}
             {draft.expected_arrival !== null &&
               ` · delivery ${day(draft.expected_arrival)}`}
           </div>
         </div>
         <div className="flex items-center gap-2">
           {created ? (
-            <Pill tone="ok">sudah dibuat</Pill>
+            <Pill tone="ok">created</Pill>
           ) : !isCreatable(draft) ? (
             <Pill tone="warn">
               {draft.questions.length > 0
-                ? `${draft.questions.length} pertanyaan`
-                : "belum lengkap"}
+                ? `${draft.questions.length} ${draft.questions.length === 1 ? "question" : "questions"}`
+                : "incomplete"}
             </Pill>
           ) : (
-            <Pill tone="ok">siap</Pill>
+            <Pill tone="ok">ready</Pill>
           )}
           {!created && !isCreatable(draft) && (
             <Button variant="ghost" onClick={onFix}>
-              Lengkapi
+              Complete
             </Button>
           )}
           {!created && (
@@ -1165,33 +1192,33 @@ function SummaryDraftCard({
         </div>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[40rem] table-fixed border-collapse text-[0.875rem]">
-          <thead>
-            <tr>
-              <th className={HEAD}>Barang</th>
-              <th className={`${HEAD} w-[7rem] text-right`}>Quantity</th>
-              <th className={`${HEAD} w-[9rem]`}>Satuan</th>
-              <th className={`${HEAD} w-[10rem] text-right`}>Harga</th>
-              <th className={`${HEAD} w-[11rem] text-right`}>Jumlah</th>
-              <th className={`${HEAD} w-[2.5rem]`} />
-            </tr>
-          </thead>
-          <tbody>
-            {draft.lines.map((line) => (
-              <tr key={line.line_id}>
-                <td className={CELL}>
-                  <Input
-                    value={line.article_name ?? ""}
-                    onChange={(event) =>
-                      setLine(line.line_id, {
-                        article_name: event.target.value,
-                      })
-                    }
-                    className="h-8 border-transparent bg-transparent"
-                  />
-                </td>
-                <td className={CELL}>
+      {phone ? (
+        // A phone: a block to a line — the name over its figures — in place of
+        // a table that is wider than the glass.
+        <ul className="divide-y divide-hairline border-b border-hairline">
+          {draft.lines.map((line) => (
+            <li key={line.line_id} className="flex flex-col gap-2.5 px-4 py-3">
+              <div className="flex items-center gap-2">
+                <Input
+                  aria-label="Article"
+                  value={line.article_name ?? ""}
+                  onChange={(event) =>
+                    setLine(line.line_id, { article_name: event.target.value })
+                  }
+                  className="min-w-0 flex-1"
+                />
+                <button
+                  type="button"
+                  aria-label="Remove line"
+                  onClick={() => removeLine(line.line_id)}
+                  className="grid size-tap shrink-0 place-items-center text-mute active:text-bad"
+                >
+                  <Trash2 className="size-4" />
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
+                <label className="flex min-w-0 flex-col gap-1">
+                  <span className="text-[0.875rem] text-mute">Quantity</span>
                   <Input
                     type="number"
                     value={line.quantity ?? ""}
@@ -1203,18 +1230,18 @@ function SummaryDraftCard({
                             : Number.parseInt(event.target.value, 10),
                       })
                     }
-                    className="h-8 border-transparent bg-transparent text-right"
+                    className="text-right tabular-nums"
                   />
-                </td>
-                <td className={CELL}>
+                </label>
+                <div className="flex min-w-0 flex-col gap-1">
+                  <span className="text-[0.875rem] text-mute">Unit</span>
                   <Select
-                    aria-label="Satuan"
+                    aria-label="Unit"
                     value={line.unit_code ?? ""}
                     invalid={needsUnit(line)}
                     onChange={(unit_code) =>
                       setLine(line.line_id, { unit_code })
                     }
-                    className="h-8 border-transparent bg-transparent"
                   >
                     {unitChoices.map((unit) => (
                       <option key={unit.code} value={unit.code}>
@@ -1222,19 +1249,9 @@ function SummaryDraftCard({
                       </option>
                     ))}
                   </Select>
-                  {needsUnit(line) ? (
-                    <div className="mt-0.5 text-[0.875rem] text-bad">
-                      Satuan "{line.unit}" belum dikenal — pilih satuan
-                    </div>
-                  ) : (
-                    line.unit && (
-                      <div className="mt-0.5 text-[0.875rem] text-mute">
-                        tertulis "{line.unit}"
-                      </div>
-                    )
-                  )}
-                </td>
-                <td className={CELL}>
+                </div>
+                <label className="flex min-w-0 flex-col gap-1">
+                  <span className="text-[0.875rem] text-mute">Price</span>
                   <Input
                     type="number"
                     value={line.unit_price_minor ?? ""}
@@ -1246,36 +1263,143 @@ function SummaryDraftCard({
                             : Number.parseInt(event.target.value, 10),
                       })
                     }
-                    className="h-8 border-transparent bg-transparent text-right tabular-nums"
+                    className="text-right tabular-nums"
                   />
-                </td>
-                <td className={`${CELL} text-right tabular-nums`}>
-                  {money((line.quantity ?? 0) * (line.unit_price_minor ?? 0))}
-                </td>
-                <td className={CELL}>
-                  <button
-                    type="button"
-                    aria-label="Buang baris"
-                    onClick={() =>
-                      onChanged({
-                        ...draft,
-                        lines: draft.lines.filter(
-                          (l) => l.line_id !== line.line_id
-                        ),
-                      })
-                    }
-                    className="text-mute hover:text-bad"
-                  >
-                    <Trash2 className="size-3.5" />
-                  </button>
-                </td>
+                </label>
+                <div className="flex min-w-0 flex-col gap-1">
+                  <span className="text-[0.875rem] text-mute">Total</span>
+                  <span className="flex h-11 items-center justify-end text-[1rem] font-semibold text-ink tabular-nums">
+                    {money((line.quantity ?? 0) * (line.unit_price_minor ?? 0))}
+                  </span>
+                </div>
+              </div>
+              {needsUnit(line) ? (
+                <div className="text-[0.875rem] text-bad">
+                  Unit "{line.unit}" is not recognised — choose a unit
+                </div>
+              ) : (
+                line.unit && (
+                  <div className="text-[0.875rem] text-mute">
+                    written as "{line.unit}"
+                  </div>
+                )
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[40rem] table-fixed border-collapse text-[0.875rem]">
+            <thead>
+              <tr>
+                <th className={HEAD}>Article</th>
+                <th className={`${HEAD} w-[7rem] text-right`}>Quantity</th>
+                <th className={`${HEAD} w-[9rem]`}>Unit</th>
+                <th className={`${HEAD} w-[10rem] text-right`}>Price</th>
+                <th className={`${HEAD} w-[11rem] text-right`}>Total</th>
+                <th className={`${HEAD} w-[2.5rem]`} />
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {draft.lines.map((line) => (
+                <tr key={line.line_id}>
+                  <td className={CELL}>
+                    <Input
+                      value={line.article_name ?? ""}
+                      onChange={(event) =>
+                        setLine(line.line_id, {
+                          article_name: event.target.value,
+                        })
+                      }
+                      className="h-8 border-transparent bg-transparent"
+                    />
+                  </td>
+                  <td className={CELL}>
+                    <Input
+                      type="number"
+                      value={line.quantity ?? ""}
+                      onChange={(event) =>
+                        setLine(line.line_id, {
+                          quantity:
+                            event.target.value === ""
+                              ? null
+                              : Number.parseInt(event.target.value, 10),
+                        })
+                      }
+                      className="h-8 border-transparent bg-transparent text-right"
+                    />
+                  </td>
+                  <td className={CELL}>
+                    <Select
+                      aria-label="Unit"
+                      value={line.unit_code ?? ""}
+                      invalid={needsUnit(line)}
+                      onChange={(unit_code) =>
+                        setLine(line.line_id, { unit_code })
+                      }
+                      className="h-8 border-transparent bg-transparent"
+                    >
+                      {unitChoices.map((unit) => (
+                        <option key={unit.code} value={unit.code}>
+                          {unit.label}
+                        </option>
+                      ))}
+                    </Select>
+                    {needsUnit(line) ? (
+                      <div className="mt-0.5 text-[0.875rem] text-bad">
+                        Unit "{line.unit}" is not recognised — choose a unit
+                      </div>
+                    ) : (
+                      line.unit && (
+                        <div className="mt-0.5 text-[0.875rem] text-mute">
+                          written as "{line.unit}"
+                        </div>
+                      )
+                    )}
+                  </td>
+                  <td className={CELL}>
+                    <Input
+                      type="number"
+                      value={line.unit_price_minor ?? ""}
+                      onChange={(event) =>
+                        setLine(line.line_id, {
+                          unit_price_minor:
+                            event.target.value === ""
+                              ? null
+                              : Number.parseInt(event.target.value, 10),
+                        })
+                      }
+                      className="h-8 border-transparent bg-transparent text-right tabular-nums"
+                    />
+                  </td>
+                  <td className={`${CELL} text-right tabular-nums`}>
+                    {money((line.quantity ?? 0) * (line.unit_price_minor ?? 0))}
+                  </td>
+                  <td className={CELL}>
+                    <button
+                      type="button"
+                      aria-label="Remove line"
+                      onClick={() =>
+                        onChanged({
+                          ...draft,
+                          lines: draft.lines.filter(
+                            (l) => l.line_id !== line.line_id
+                          ),
+                        })
+                      }
+                      className="text-mute hover:text-bad"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
-      <div className="flex items-center justify-between px-4 py-3">
+      <div className="flex items-center justify-between gap-3 px-4 py-3">
         <span className="text-[0.875rem] text-mute">{draft.parser_note}</span>
         <span className="text-[0.875rem] font-semibold text-ink tabular-nums">
           {money(total)}

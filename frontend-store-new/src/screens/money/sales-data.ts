@@ -19,7 +19,8 @@ export interface Row extends Figures {
   readonly label: string
 }
 
-export type Measure = "gross_minor" | "sales_count" | "average_minor" | "units_sold"
+export type Measure =
+  "gross_minor" | "sales_count" | "average_minor" | "units_sold"
 
 export const ZERO: Figures = { sales_count: 0, units_sold: 0, gross_minor: 0 }
 
@@ -153,7 +154,9 @@ export function weekdayRows(receipts: readonly Receipt[]): readonly Row[] {
 /// From the first hour anyone sold in to the last, so the bars do not carry a
 /// night of empty hours either side.
 export function hourRows(receipts: readonly Receipt[]): readonly Row[] {
-  const by = rowsBy(receipts, (r) => String(new Date(r.completed_at).getHours()))
+  const by = rowsBy(receipts, (r) =>
+    String(new Date(r.completed_at).getHours()),
+  )
   const hours = [...by.keys()].map(Number)
   if (hours.length === 0) return []
   const first = Math.min(...hours)

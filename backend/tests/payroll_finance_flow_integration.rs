@@ -176,7 +176,9 @@ struct Hub {
 
 impl Hub {
     async fn open(pool: &PgPool) -> Self {
-        let _ = tracing_subscriber::fmt().with_env_filter("error").try_init();
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter("error")
+            .try_init();
         cloud::bootstrap_admin(pool, Some(ADMIN_PASSWORD), true)
             .await
             .unwrap_or_else(|error| panic!("bootstrap: {error}"));
@@ -197,18 +199,32 @@ impl Hub {
     }
 
     async fn get(&self, path: &str) -> Response {
-        send(self.app.clone(), "GET", path, read_headers(&self.cookies), None).await
+        send(
+            self.app.clone(),
+            "GET",
+            path,
+            read_headers(&self.cookies),
+            None,
+        )
+        .await
     }
 
     async fn ok(&self, path: &str, body: Value) -> Value {
         let response = self.post(path, body).await;
-        assert_eq!(response.status, StatusCode::OK, "POST {path}: {:?}", response.body);
+        assert_eq!(
+            response.status,
+            StatusCode::OK,
+            "POST {path}: {:?}",
+            response.body
+        );
         response.body
     }
 
     /// Register somebody, hire them and post them to `unit` from `from`.
     async fn staff(&self, code: &str, unit: &str, from: &str) -> String {
-        let registered = self.ok("/api/v1/employees", json!({ "employee_code": code })).await;
+        let registered = self
+            .ok("/api/v1/employees", json!({ "employee_code": code }))
+            .await;
         let id = registered["employee_id"]
             .as_str()
             .unwrap_or_else(|| panic!("employee_id: {registered:?}"))
@@ -266,7 +282,9 @@ impl Hub {
             )
             .await;
         let run_id = opened["id"].as_str().unwrap_or_default().to_owned();
-        let slips = self.get(&format!("/api/v1/payroll/runs/{run_id}/slips")).await;
+        let slips = self
+            .get(&format!("/api/v1/payroll/runs/{run_id}/slips"))
+            .await;
         assert_eq!(slips.status, StatusCode::OK, "{:?}", slips.body);
         let list = slips.body.as_array().cloned().unwrap_or_default();
         (run_id, list)
@@ -285,9 +303,7 @@ fn sum_of(lines: &Value, codes: &[&str]) -> i64 {
         .as_array()
         .map(|all| {
             all.iter()
-                .filter(|line| {
-                    codes.iter().any(|code| line["component_code"] == *code)
-                })
+                .filter(|line| codes.iter().any(|code| line["component_code"] == *code))
                 .filter_map(|line| line["amount_minor"].as_i64())
                 .sum()
         })
@@ -325,7 +341,10 @@ async fn a_head_office_month_reaches_the_books_and_is_paid(pool: PgPool) {
     let today = chrono::Utc::now().date_naive();
     for (year, month) in [
         (2026, 4),
-        (chrono::Datelike::year(&today), chrono::Datelike::month(&today)),
+        (
+            chrono::Datelike::year(&today),
+            chrono::Datelike::month(&today),
+        ),
     ] {
         cloud::open_period(&pool, year, i32::try_from(month).unwrap_or(1))
             .await
@@ -350,11 +369,17 @@ async fn a_head_office_month_reaches_the_books_and_is_paid(pool: PgPool) {
     .await;
     leave_setup(&hub, Some(5)).await;
     let ani = hub.staff("K0001", "ho", "2026-01-05").await;
-    hub.pay(&ani, "2026-01-01", 10_000_000, json!([{ "code": "JABATAN", "minor": 1_000_000 }]))
-        .await;
+    hub.pay(
+        &ani,
+        "2026-01-01",
+        10_000_000,
+        json!([{ "code": "JABATAN", "minor": 1_000_000 }]),
+    )
+    .await;
     hub.identity(&ani, "ptkp", "K/1").await;
     hub.identity(&ani, "bpjs_kesehatan", "0001234567891").await;
-    hub.identity(&ani, "bpjs_ketenagakerjaan", "11000000003").await;
+    hub.identity(&ani, "bpjs_ketenagakerjaan", "11000000003")
+        .await;
     hub.ok(
         &format!("/api/v1/employees/{ani}/payroll-identity"),
         json!({ "field": "bank_account", "bank_name": "BCA", "bank_account": "1234567890",
@@ -371,13 +396,20 @@ async fn a_head_office_month_reaches_the_books_and_is_paid(pool: PgPool) {
                     "first_period": "2026-04", "purpose": "biaya sekolah", "reason": "disetujui HR" }),
         )
         .await;
-    let advance = granted[0]["advance_id"].as_str().unwrap_or_default().to_owned();
+    let advance = granted[0]["advance_id"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
     hub.ok(
         &format!("/api/v1/finance/advances/{advance}/pay"),
         json!({ "posting_date": "2026-04-02", "cash_key": "petty_cash", "cash_qualifier": "" }),
     )
     .await;
-    assert_eq!(balance(&pool, "1054", "ho").await, 2_500_000, "the loan is an advance on 1054");
+    assert_eq!(
+        balance(&pool, "1054", "ho").await,
+        2_500_000,
+        "the loan is an advance on 1054"
+    );
 
     // Two rostered days with no punch, and the rule that makes them cost.
     hub.ok(
@@ -411,23 +443,50 @@ async fn a_head_office_month_reaches_the_books_and_is_paid(pool: PgPool) {
     // The allowance is the agreement's figure, in the statutory base, and a
     // defined JABATAN component does not leave the slip waiting on a rate.
     assert_eq!(slip["statutory_base_minor"], 11_000_000, "{slip:?}");
-    assert_eq!(slip["components_incomplete_because"], Value::Null, "{slip:?}");
-    assert!(sum_of(&slip["earnings"], &["UANG_CUTI"]) > 0, "leave paid out: {slip:?}");
-    assert_eq!(sum_of(&slip["deductions"], &["POTONGAN_ABSEN"]), 800_000, "{slip:?}");
-    assert_eq!(sum_of(&slip["deductions"], &["CICILAN_PINJAMAN"]), 1_000_000, "{slip:?}");
+    assert_eq!(
+        slip["components_incomplete_because"],
+        Value::Null,
+        "{slip:?}"
+    );
+    assert!(
+        sum_of(&slip["earnings"], &["UANG_CUTI"]) > 0,
+        "leave paid out: {slip:?}"
+    );
+    assert_eq!(
+        sum_of(&slip["deductions"], &["POTONGAN_ABSEN"]),
+        800_000,
+        "{slip:?}"
+    );
+    assert_eq!(
+        sum_of(&slip["deductions"], &["CICILAN_PINJAMAN"]),
+        1_000_000,
+        "{slip:?}"
+    );
     let pph21 = sum_of(&slip["deductions"], &["PPH21"]);
     assert!(pph21 > 0, "PPh 21 withheld: {slip:?}");
     let employee_bpjs = sum_of(&slip["deductions"], &["BPJS_KES", "BPJS_JHT", "BPJS_JP"]);
     let company_bpjs = sum_of(
         &slip["company_contributions"],
-        &["BPJS_KES_CO", "BPJS_JHT_CO", "BPJS_JP_CO", "BPJS_JKK_CO", "BPJS_JKM_CO"],
+        &[
+            "BPJS_KES_CO",
+            "BPJS_JHT_CO",
+            "BPJS_JP_CO",
+            "BPJS_JKK_CO",
+            "BPJS_JKM_CO",
+        ],
     );
-    assert!(employee_bpjs > 0 && company_bpjs > 0, "BPJS both shares: {slip:?}");
+    assert!(
+        employee_bpjs > 0 && company_bpjs > 0,
+        "BPJS both shares: {slip:?}"
+    );
     let net = slip["net_minor"].as_i64().unwrap_or_default();
 
     // The place signs, a second officer approves, and HR hands it over.
-    hub.ok(&format!("/api/v1/payroll/runs/{run_id}/submission"), json!({ "reason": "dicek" }))
-        .await;
+    hub.ok(
+        &format!("/api/v1/payroll/runs/{run_id}/submission"),
+        json!({ "reason": "dicek" }),
+    )
+    .await;
     hub.ok(
         "/api/v1/auth/users",
         json!({ "username": "hr.budi", "display_name": "Budi", "password": ADMIN_PASSWORD,
@@ -443,7 +502,12 @@ async fn a_head_office_month_reaches_the_books_and_is_paid(pool: PgPool) {
         Some(json!({ "reason": "disetujui" })),
     )
     .await;
-    assert_eq!(approved.status, StatusCode::OK, "approve: {:?}", approved.body);
+    assert_eq!(
+        approved.status,
+        StatusCode::OK,
+        "approve: {:?}",
+        approved.body
+    );
     let crossed = hub
         .ok(
             &format!("/api/v1/payroll/runs/{run_id}/finance-handover"),
@@ -460,7 +524,11 @@ async fn a_head_office_month_reaches_the_books_and_is_paid(pool: PgPool) {
         -(employee_bpjs + company_bpjs),
         "BPJS owed, both shares"
     );
-    assert_eq!(balance(&pool, "1054", "ho").await, 1_500_000, "one instalment back");
+    assert_eq!(
+        balance(&pool, "1054", "ho").await,
+        1_500_000,
+        "one instalment back"
+    );
     assert_eq!(balance(&pool, "2017", "ho").await, -net, "net pay owed");
     let expense: i64 = sqlx::query_scalar(
         "SELECT COALESCE(SUM(l.debit_minor - l.credit_minor), 0)::bigint
@@ -505,13 +573,29 @@ async fn a_head_office_month_reaches_the_books_and_is_paid(pool: PgPool) {
     .unwrap_or_else(|error| panic!("bank account: {error}"));
     let settle = format!("/api/v1/payroll/runs/{run_id}/finance-handover/settlement");
     let unsaid = hub.post(&settle, json!({ "reason": "transfer" })).await;
-    assert_eq!(unsaid.status, StatusCode::BAD_REQUEST, "which bank: {:?}", unsaid.body);
+    assert_eq!(
+        unsaid.status,
+        StatusCode::BAD_REQUEST,
+        "which bank: {:?}",
+        unsaid.body
+    );
     let paid = hub
-        .ok(&settle, json!({ "reason": "transfer", "bank_key": "bank_giro", "bank_qualifier": "BCA" }))
+        .ok(
+            &settle,
+            json!({ "reason": "transfer", "bank_key": "bank_giro", "bank_qualifier": "BCA" }),
+        )
         .await;
     assert_eq!(paid["state"], "PAID");
-    assert_eq!(balance(&pool, "2017", "ho").await, 0, "payroll payable cleared");
-    assert_eq!(balance(&pool, "1005", "ho").await, -net, "the bank paid net");
+    assert_eq!(
+        balance(&pool, "2017", "ho").await,
+        0,
+        "payroll payable cleared"
+    );
+    assert_eq!(
+        balance(&pool, "1005", "ho").await,
+        -net,
+        "the bank paid net"
+    );
 
     // A claim: approval books the cost against what is owed to the person,
     // the payout clears it from petty cash.
@@ -530,9 +614,15 @@ async fn a_head_office_month_reaches_the_books_and_is_paid(pool: PgPool) {
         )
         .await;
     let claim = filed["claim_id"].as_str().unwrap_or_default().to_owned();
-    let line = filed["lines"][0]["line_id"].as_str().unwrap_or_default().to_owned();
-    hub.ok(&format!("/api/v1/expense-claims/{claim}/submission"), json!({ "reason": "ajukan" }))
-        .await;
+    let line = filed["lines"][0]["line_id"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    hub.ok(
+        &format!("/api/v1/expense-claims/{claim}/submission"),
+        json!({ "reason": "ajukan" }),
+    )
+    .await;
     let decided = send(
         hub.app.clone(),
         "POST",
@@ -542,9 +632,17 @@ async fn a_head_office_month_reaches_the_books_and_is_paid(pool: PgPool) {
                      "lines": [{ "line_id": line, "sanctioned_minor": 350_000 }] })),
     )
     .await;
-    assert_eq!(decided.status, StatusCode::OK, "approve claim: {:?}", decided.body);
-    hub.ok(&format!("/api/v1/expense-claims/{claim}/payout"), json!({ "paid_on": "2026-04-15" }))
-        .await;
+    assert_eq!(
+        decided.status,
+        StatusCode::OK,
+        "approve claim: {:?}",
+        decided.body
+    );
+    hub.ok(
+        &format!("/api/v1/expense-claims/{claim}/payout"),
+        json!({ "paid_on": "2026-04-15" }),
+    )
+    .await;
     let claim_books: Vec<(String, i64)> = sqlx::query_as(
         "SELECT l.account_code, SUM(l.debit_minor - l.credit_minor)::bigint
            FROM journal_entry e JOIN journal_line l ON l.entry_id = e.entry_id
@@ -557,9 +655,15 @@ async fn a_head_office_month_reaches_the_books_and_is_paid(pool: PgPool) {
     .fetch_all(&pool)
     .await
     .unwrap_or_else(|error| panic!("claim books: {error}"));
-    assert_eq!(claim_books.len(), 2, "cost and cash, payable cleared: {claim_books:?}");
+    assert_eq!(
+        claim_books.len(),
+        2,
+        "cost and cash, payable cleared: {claim_books:?}"
+    );
     assert!(
-        claim_books.iter().any(|(code, amount)| code.starts_with('6') && *amount == 350_000),
+        claim_books
+            .iter()
+            .any(|(code, amount)| code.starts_with('6') && *amount == 350_000),
         "the claim is a cost: {claim_books:?}"
     );
     assert!(
@@ -578,7 +682,10 @@ async fn a_store_loan_is_lent_and_repaid_in_the_stores_books(pool: PgPool) {
     let today = chrono::Utc::now().date_naive();
     for (year, month) in [
         (2026, 4),
-        (chrono::Datelike::year(&today), chrono::Datelike::month(&today)),
+        (
+            chrono::Datelike::year(&today),
+            chrono::Datelike::month(&today),
+        ),
     ] {
         cloud::open_period(&pool, year, i32::try_from(month).unwrap_or(1))
             .await
@@ -601,17 +708,27 @@ async fn a_store_loan_is_lent_and_repaid_in_the_stores_books(pool: PgPool) {
                     "first_period": "2026-04", "purpose": "kebutuhan keluarga", "reason": "disetujui HR" }),
         )
         .await;
-    let advance = granted[0]["advance_id"].as_str().unwrap_or_default().to_owned();
+    let advance = granted[0]["advance_id"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
     hub.ok(
         &format!("/api/v1/finance/advances/{advance}/pay"),
         json!({ "posting_date": "2026-04-02", "cash_key": "petty_cash", "cash_qualifier": "" }),
     )
     .await;
-    assert_eq!(balance(&pool, "1054", "store-07").await, 1_500_000, "lent by the store");
+    assert_eq!(
+        balance(&pool, "1054", "store-07").await,
+        1_500_000,
+        "lent by the store"
+    );
 
     let (run_id, _) = hub.run("store-07", "2026-04").await;
-    hub.ok(&format!("/api/v1/payroll/runs/{run_id}/submission"), json!({ "reason": "dicek" }))
-        .await;
+    hub.ok(
+        &format!("/api/v1/payroll/runs/{run_id}/submission"),
+        json!({ "reason": "dicek" }),
+    )
+    .await;
     hub.ok(
         "/api/v1/auth/users",
         json!({ "username": "hr.budi", "display_name": "Budi", "password": ADMIN_PASSWORD,
@@ -627,15 +744,28 @@ async fn a_store_loan_is_lent_and_repaid_in_the_stores_books(pool: PgPool) {
         Some(json!({ "reason": "disetujui" })),
     )
     .await;
-    assert_eq!(approved.status, StatusCode::OK, "approve: {:?}", approved.body);
+    assert_eq!(
+        approved.status,
+        StatusCode::OK,
+        "approve: {:?}",
+        approved.body
+    );
     hub.ok(
         &format!("/api/v1/payroll/runs/{run_id}/finance-handover"),
         json!({ "reason": "gaji April ke keuangan" }),
     )
     .await;
 
-    assert_eq!(balance(&pool, "1054", "store-07").await, 1_000_000, "one instalment back");
-    assert_eq!(balance(&pool, "1054", "ho").await, 0, "head office lent nothing");
+    assert_eq!(
+        balance(&pool, "1054", "store-07").await,
+        1_000_000,
+        "one instalment back"
+    );
+    assert_eq!(
+        balance(&pool, "1054", "ho").await,
+        0,
+        "head office lent nothing"
+    );
     assert_eq!(lopsided(&pool).await, vec![], "every journal balances");
 }
 
@@ -654,8 +784,13 @@ async fn a_transfer_pays_every_day_once_and_an_allowance_code_blocks_nobody(pool
     )
     .await;
     let siti = hub.staff("K0801", "store-07", "2026-01-05").await;
-    hub.pay(&siti, "2026-01-01", 5_000_000, json!([{ "code": "JABATAN", "minor": 500_000 }]))
-        .await;
+    hub.pay(
+        &siti,
+        "2026-01-01",
+        5_000_000,
+        json!([{ "code": "JABATAN", "minor": 500_000 }]),
+    )
+    .await;
     hub.identity(&siti, "ptkp", "TK/0").await;
     let budi = hub.staff("K0802", "store-07", "2026-01-05").await;
     hub.pay(&budi, "2026-01-01", 3_000_000, json!([])).await;
@@ -669,7 +804,10 @@ async fn a_transfer_pays_every_day_once_and_an_allowance_code_blocks_nobody(pool
         )
         .await;
     let proposal = filed["id"].as_str().unwrap_or_default().to_owned();
-    assert_eq!(filed["props"][0]["from"], "store-07", "where they are now: {filed:?}");
+    assert_eq!(
+        filed["props"][0]["from"], "store-07",
+        "where they are now: {filed:?}"
+    );
     hub.ok(
         "/api/v1/auth/users",
         json!({ "username": "hr.budi", "display_name": "Budi", "password": ADMIN_PASSWORD,
@@ -689,8 +827,12 @@ async fn a_transfer_pays_every_day_once_and_an_allowance_code_blocks_nobody(pool
 
     let (_, before) = hub.run("store-07", "2026-04").await;
     let (_, after) = hub.run("store-08", "2026-04").await;
-    let old_days = slip_of(&before, &budi)["days_paid"].as_i64().unwrap_or_default();
-    let new_days = slip_of(&after, &budi)["days_paid"].as_i64().unwrap_or_default();
+    let old_days = slip_of(&before, &budi)["days_paid"]
+        .as_i64()
+        .unwrap_or_default();
+    let new_days = slip_of(&after, &budi)["days_paid"]
+        .as_i64()
+        .unwrap_or_default();
     assert_eq!(old_days, 15, "the old place pays the 1st to the 15th");
     assert_eq!(old_days + new_days, 30, "every day of April paid once");
 
@@ -699,7 +841,10 @@ async fn a_transfer_pays_every_day_once_and_an_allowance_code_blocks_nobody(pool
         Value::Null,
         "JABATAN is Siti's allowance, not a rate Budi waits on"
     );
-    assert_eq!(slip_of(&before, &siti)["components_incomplete_because"], Value::Null);
+    assert_eq!(
+        slip_of(&before, &siti)["components_incomplete_because"],
+        Value::Null
+    );
 }
 
 /// THR paid in a month before a year's accrual has been built up (a company
@@ -710,7 +855,10 @@ async fn thr_beyond_the_accrual_is_expense_not_a_debit_liability(pool: PgPool) {
     let today = chrono::Utc::now().date_naive();
     for (year, month) in [
         (2026, 3),
-        (chrono::Datelike::year(&today), chrono::Datelike::month(&today)),
+        (
+            chrono::Datelike::year(&today),
+            chrono::Datelike::month(&today),
+        ),
     ] {
         cloud::open_period(&pool, year, i32::try_from(month).unwrap_or(1))
             .await
@@ -732,8 +880,11 @@ async fn thr_beyond_the_accrual_is_expense_not_a_debit_liability(pool: PgPool) {
         json!({ "holiday_on": "2026-03-20", "reason": "THR Idul Fitri" }),
     )
     .await;
-    hub.ok(&format!("/api/v1/payroll/runs/{run_id}/submission"), json!({ "reason": "dicek" }))
-        .await;
+    hub.ok(
+        &format!("/api/v1/payroll/runs/{run_id}/submission"),
+        json!({ "reason": "dicek" }),
+    )
+    .await;
     hub.ok(
         "/api/v1/auth/users",
         json!({ "username": "hr.budi", "display_name": "Budi", "password": ADMIN_PASSWORD,
@@ -749,14 +900,23 @@ async fn thr_beyond_the_accrual_is_expense_not_a_debit_liability(pool: PgPool) {
         Some(json!({ "reason": "disetujui" })),
     )
     .await;
-    assert_eq!(approved.status, StatusCode::OK, "approve: {:?}", approved.body);
+    assert_eq!(
+        approved.status,
+        StatusCode::OK,
+        "approve: {:?}",
+        approved.body
+    );
     hub.ok(
         &format!("/api/v1/payroll/runs/{run_id}/finance-handover"),
         json!({ "reason": "gaji Maret" }),
     )
     .await;
 
-    assert_eq!(balance(&pool, "2018", "store-07").await, 0, "THR owed never goes negative");
+    assert_eq!(
+        balance(&pool, "2018", "store-07").await,
+        0,
+        "THR owed never goes negative"
+    );
     assert_eq!(
         balance(&pool, "6018", "store-07").await,
         6_000_000,

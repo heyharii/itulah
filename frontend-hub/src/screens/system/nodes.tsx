@@ -6,21 +6,23 @@ import { CloudOff, Radio } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
+import { Fab } from "@/components/ui/fab"
 import { ExceptionQueue, type Exception } from "@/components/ui/exception-queue"
 import { Checkbox, Field, Input, Select } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { MiniTable, TotalsLadder } from "@/components/ui/rows"
-import { Toolbar } from "@/components/ui/segmented"
 import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
 import { count, day } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   bootstrapOrigin,
   fleetStatus,
@@ -36,6 +38,7 @@ import {
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import { CardFigure, CardName, DESK_BAR } from "@/components/ui/phone-cards"
 import { EnrolmentQueue, InstallSheet } from "@/screens/system/enrolments"
 import { toneRank } from "@/lib/node-health"
 import {
@@ -87,7 +90,7 @@ function state(row: NodeRow): {
   return { tone: "ok", text: "Current" }
 }
 
-const columns: ColumnDef<TableSetup, NodeRow>[] = [
+const deskColumns: ColumnDef<TableSetup, NodeRow>[] = [
   {
     id: "condition",
     // Sorted worst first by default: the page answers "which shop do I ring".
@@ -228,6 +231,90 @@ const columns: ColumnDef<TableSetup, NodeRow>[] = [
   },
 ]
 
+/// On a phone each node is a card: its name over its key, what it says is
+/// happening and where it is, how far behind it is, when it last answered, and
+/// its condition. The desk's columns are not drawn there.
+const columns: ColumnDef<TableSetup, NodeRow>[] = [
+  ...deskColumns.map((column) => ({
+    ...column,
+    meta: { ...column.meta, card: "hide" as const },
+  })),
+  {
+    id: "head",
+    accessorFn: (row) => row.label ?? row.origin_id,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <CardName
+        name={row.original.label ?? row.original.origin_id}
+        code={row.original.label === null ? undefined : row.original.origin_id}
+      />
+    ),
+  },
+  {
+    id: "what",
+    accessorFn: (row) => row.health?.assessment.headline ?? "",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "meta" },
+    cell: ({ row }) => row.original.health?.assessment.headline,
+  },
+  {
+    id: "where",
+    accessorFn: (row) => row.site_id ?? row.node_role ?? "",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "meta" },
+    cell: ({ row }) =>
+      [
+        row.original.site_id,
+        row.original.node_role,
+        row.original.health?.version,
+      ]
+        .filter((part) => part !== null && part !== undefined && part !== "")
+        .join(" · "),
+  },
+  {
+    id: "lead",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "lead" },
+    cell: ({ row }) => (
+      <CardFigure
+        value={
+          row.original.pending === null ? "—" : count(row.original.pending)
+        }
+        caption="behind"
+        tone={!row.original.pending ? "quiet" : undefined}
+      />
+    ),
+  },
+  {
+    id: "foot",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) =>
+      row.original.last_ack_age_seconds === null
+        ? "Never acknowledged"
+        : `Last ack ${span(row.original.last_ack_age_seconds)}`,
+  },
+  {
+    id: "phone_condition",
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "status" },
+    cell: ({ row }) => <HealthPill health={row.original.health} />,
+  },
+]
+
 export function Nodes({
   /// Rendered as one tab of "Store servers" (`screens/system/servers.tsx`)
   /// rather than as its own page: no `PageHeader`, and its actions move into
@@ -244,6 +331,7 @@ export function Nodes({
   const [sorting, setSorting] = useState<SortingState>([
     { id: "condition", desc: true },
   ])
+  const phone = useLayout() === "phone"
 
   const origins = useQuery({
     queryKey: systemKeys.origins(),
@@ -296,11 +384,20 @@ export function Nodes({
           columnFilters: filters.columnFilters,
           globalFilter: query,
           sorting,
+          // The card's own columns are drawn on a phone and never on a desk.
+          columnVisibility: {
+            head: phone,
+            what: phone,
+            where: phone,
+            lead: phone,
+            foot: phone,
+            phone_condition: phone,
+          },
         },
         onSortingChange: setSorting,
         onGlobalFilterChange: setQuery,
       }),
-      [rows, filters.columns, filters.columnFilters, query, sorting]
+      [rows, filters.columns, filters.columnFilters, query, sorting, phone]
     )
   )
 
@@ -363,8 +460,25 @@ export function Nodes({
       )}
 
       {embedded && (
-        <div className="mb-3 flex flex-wrap items-center gap-2">{actions}</div>
+        <div className="mb-3 flex flex-wrap items-center gap-2 max-md:hidden">
+          {actions}
+        </div>
       )}
+
+      {/* On a phone the search, the filter and the order are the dock's, and
+          installing a server is its round button (the Store Servers page draws
+          it when this is one of its tabs). */}
+      {!embedded && (
+        <Fab label="Install server" onClick={() => setInstalling(true)} />
+      )}
+      <DockTools
+        search={{ value: query, onChange: setQuery, label: "Search servers" }}
+        filter={{
+          count: filters.filters.length,
+          panel: { model: filters, table },
+        }}
+        sort={dockSortOf(table)}
+      />
 
       <EnrolmentQueue />
 
@@ -381,11 +495,11 @@ export function Nodes({
           clauses are you asking the register something it does not volunteer —
           every store server, every server with no site, everything not
           current. */}
-      <Toolbar>
+      <div className={DESK_BAR}>
         <FilterPanel model={filters} table={table} />
-      </Toolbar>
+      </div>
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         {queryState(origins, {
           loading: "Loading the register…",
           render: () =>
@@ -401,10 +515,24 @@ export function Nodes({
                 isSelected={(row) => row.origin_id === origin.value}
                 empty="No server matches that search."
                 className="max-h-[calc(100dvh-14rem)]"
+                cardSort={false}
+                cardsApart
+                cardLead
               />
             ),
         })}
       </Card>
+
+      {/* The fallback door, at the foot of the list on a phone. */}
+      {embedded && (
+        <Button
+          variant="quiet"
+          className="mt-3 w-full md:hidden"
+          onClick={() => setRegistering(true)}
+        >
+          Register by key
+        </Button>
+      )}
 
       <NodeSheet
         node={rows.find((row) => row.origin_id === origin.value) ?? null}
@@ -430,7 +558,7 @@ export function Nodes({
         crumb="System"
         title="Store Servers"
         sub="Every store server the centre has issued a key to, and how far behind it is."
-        actions={actions}
+        actions={phone ? undefined : actions}
       />
       {body}
     </PageContent>

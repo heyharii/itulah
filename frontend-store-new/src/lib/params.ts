@@ -88,6 +88,14 @@ export const PARAMS = {
   division: text,
   /// Whether the catalogue draws one card per article or one per SKU.
   view: oneOf(["article", "sku"] as const),
+  /// The Stock screens' record sheets, one key each, so a reload keeps the
+  /// sheet that was open and a back gesture closes it: a pool (`store-01.floor`),
+  /// a count, an inbound delivery, a ledger movement, a return request.
+  pool: text,
+  count: text,
+  delivery: text,
+  movement: text,
+  returning: text,
   /// How many days the report covers, ending today.
   span: counted,
   /// How the series is grouped.

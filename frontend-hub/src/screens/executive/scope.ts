@@ -4,13 +4,14 @@ import {
   type SalesRange,
 } from "@itulah/contract/reporting"
 
+import { dateText } from "@/lib/format"
 import { useSheet } from "@/lib/sheets"
 
 /// What the executive report is read over: a period, the one it is measured
 /// against, and which shop — or the whole company.
 ///
 /// Held in the URL (`?term=` and `?store=`) so a report somebody sends is the
-/// report the other person opens, and so crossing from Ringkasan to Kas & laba
+/// report the other person opens, and so crossing from Overview to Cash & Profit
 /// keeps the question that was being asked.
 ///
 /// The comparison is always the SAME SHAPE one step back. Twenty-five days of
@@ -24,10 +25,10 @@ export const TERMS: readonly {
   readonly value: Term
   readonly label: string
 }[] = [
-  { value: "month", label: "Bulan ini" },
-  { value: "last-month", label: "Bulan lalu" },
-  { value: "quarter", label: "Kuartal ini" },
-  { value: "year", label: "Tahun ini" },
+  { value: "month", label: "This month" },
+  { value: "last-month", label: "Last month" },
+  { value: "quarter", label: "This quarter" },
+  { value: "year", label: "This year" },
 ]
 
 export interface Span {
@@ -142,16 +143,15 @@ const BUCKET: Record<Term, SalesBucket> = {
   year: "month",
 }
 
-const monthName = (date: Date) =>
-  date.toLocaleDateString("id-ID", { month: "long" })
+const monthName = (date: Date) => dateText(date, { month: "long" })
 
-/// "1–25 September 2026", "1 Juli – 25 September 2026", "1 Des 2025 – 5 Jan 2026".
+/// "1–25 September 2026", "1 July – 25 September 2026", "1 Dec 2025 – 5 Jan 2026".
 export function spanLabel(span: Span): string {
   const from = new Date(`${span.from}T12:00:00`)
   const to = new Date(`${span.to}T12:00:00`)
   if (from.getFullYear() !== to.getFullYear()) {
     const long = (date: Date) =>
-      date.toLocaleDateString("id-ID", {
+      dateText(date, {
         day: "numeric",
         month: "short",
         year: "numeric",
@@ -185,7 +185,7 @@ export function useReportScope(): ReportScope {
     label: spanLabel(current),
     beforeLabel: spanLabel(before),
     asOf: current.to,
-    asOfLabel: new Date(`${current.to}T12:00:00`).toLocaleDateString("id-ID", {
+    asOfLabel: dateText(new Date(`${current.to}T12:00:00`), {
       day: "numeric",
       month: "short",
       year: "numeric",

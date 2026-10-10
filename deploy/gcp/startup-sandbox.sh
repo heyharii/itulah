@@ -100,8 +100,9 @@ if ! docker ps -a --format '{{.Names}}' | grep -qx pg; then
     -e POSTGRES_USER=itulah -e POSTGRES_PASSWORD="$PG_PASSWORD" -e POSTGRES_DB=itulah_control \
     -v "$state/pg:/var/lib/postgresql/data" \
     -p 127.0.0.1:5432:5432 \
-    postgres:16 -c shared_buffers=128MB -c max_connections=200 -c work_mem=2MB \
-      -c maintenance_work_mem=64MB -c effective_cache_size=512MB
+    postgres:16 -c shared_buffers="${PG_SHARED_BUFFERS:-128MB}" -c max_connections="${PG_MAX_CONNECTIONS:-200}" \
+      -c work_mem="${PG_WORK_MEM:-2MB}" \
+      -c maintenance_work_mem="${PG_MAINTENANCE_WORK_MEM:-64MB}" -c effective_cache_size="${PG_EFFECTIVE_CACHE_SIZE:-512MB}"
 else
   docker start pg >/dev/null
 fi

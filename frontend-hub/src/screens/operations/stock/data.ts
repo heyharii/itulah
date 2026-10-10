@@ -1,10 +1,10 @@
 import { useQueries, useQuery } from "@tanstack/react-query"
 import { useMemo } from "react"
 
-import { dateText } from "@/lib/format"
+import { weekday } from "@/lib/format"
+import { stockFleetQuery } from "@/lib/operations/queries"
 import {
   allotmentDetail,
-  fleetPools,
   inventoryKeys,
   listAllotments,
   poolAvailability,
@@ -42,7 +42,7 @@ import { supplierLabel } from "@/screens/procurement/supplier-format"
 /// - **Return stock** — the head-office pools that hold what each store sent
 ///   back (`STORE_REJECT`, kept per store of origin).
 /// - **To supplier** — over-delivery from `purchase-returns`, and the returns
-///   still at the Gudang from `supplier-returns`.
+///   still at the warehouse from `supplier-returns`.
 ///
 /// Reads the CLOUD, not the DC node (see `screens/operations/index.tsx`).
 
@@ -167,10 +167,7 @@ export function days(iso: string): number {
 }
 
 export function due(iso: string | null): string {
-  if (!iso) return "—"
-  const at = new Date(iso)
-  if (Number.isNaN(at.getTime())) return "—"
-  return dateText(at, { weekday: "short", day: "numeric", month: "short" })
+  return weekday(iso)
 }
 
 /// The allotment book, once, for the whole screen — the same read the
@@ -183,10 +180,7 @@ function useBook() {
 }
 
 export function useStock() {
-  const pools = useQuery({
-    queryKey: inventoryKeys.fleet(),
-    queryFn: ({ signal }) => fleetPools(signal),
-  })
+  const pools = useQuery(stockFleetQuery())
   const orders = useQuery({
     queryKey: procurementKeys.orders({
       statuses: ["ACTIVE", "PARTIALLY_RECEIVED"],
@@ -244,7 +238,7 @@ export function useStock() {
     enabled: warehouseId !== "",
   })
 
-  // A store's name is on its own pools; the outbound leaves sit at the Gudang
+  // A store's name is on its own pools; the outbound leaves sit at the warehouse
   // and only carry the store's id.
   const siteName = useMemo(() => {
     const names = new Map<string, string>()
@@ -509,7 +503,7 @@ export function useStock() {
       overDelivery: { pcs: total(overDelivery), rows: overDelivery },
       returns: { pcs: total(returns), rows: returns },
       toSupplier,
-      // The Gudang: everything in the building. On order has not arrived and
+      // The warehouse: everything in the building. On order has not arrived and
       // Missing has left the pools, so neither is in it.
       gudang:
         unidentifiedPcs +
@@ -541,10 +535,7 @@ export type StockData = ReturnType<typeof useStock>
 /// The fleet read gates the screen: nothing in the table can be drawn without
 /// it, and every other read degrades to an empty section.
 export function useStockStatus() {
-  const pools = useQuery({
-    queryKey: inventoryKeys.fleet(),
-    queryFn: ({ signal }) => fleetPools(signal),
-  })
+  const pools = useQuery(stockFleetQuery())
   return {
     pending: pools.isPending,
     error: pools.isError ? pools.error : null,
@@ -614,10 +605,7 @@ const live = (row: AllotmentRow) =>
 /// the allotment's last change.
 export function useOutboundCards(enabled: boolean) {
   const book = useBook()
-  const pools = useQuery({
-    queryKey: inventoryKeys.fleet(),
-    queryFn: ({ signal }) => fleetPools(signal),
-  })
+  const pools = useQuery(stockFleetQuery())
   const rows = useMemo(
     () => (enabled ? (book.data?.items ?? []).filter(live) : []),
     [enabled, book.data]

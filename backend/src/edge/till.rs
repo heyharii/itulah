@@ -309,7 +309,11 @@ fn require_seat(connection: &Connection, terminal: &str) -> Result<(), EdgeError
     } else {
         format!(
             "{terminal} is not a till seat of this store; it has {}",
-            seats.iter().map(|seat| seat_label(seat)).collect::<Vec<_>>().join(", ")
+            seats
+                .iter()
+                .map(|seat| seat_label(seat))
+                .collect::<Vec<_>>()
+                .join(", ")
         )
     }))
 }
@@ -317,12 +321,12 @@ fn require_seat(connection: &Connection, terminal: &str) -> Result<(), EdgeError
 /// The open shift this person holds, at any seat.
 pub fn open_shift_of(connection: &Connection, actor: &str) -> Result<Option<String>, EdgeError> {
     connection
-        .query_row(
+        .prepare_cached(
             "SELECT id FROM cash_shift WHERE opened_by=?1 AND status='OPEN'
               ORDER BY opened_at DESC, id LIMIT 1",
-            [actor.trim()],
-            |row| row.get(0),
         )
+        .map_err(db)?
+        .query_row([actor.trim()], |row| row.get(0))
         .optional()
         .map_err(db)
 }
@@ -335,12 +339,12 @@ fn require_free_person(
     terminal: &str,
 ) -> Result<(), EdgeError> {
     let held: Option<(String, String)> = connection
-        .query_row(
+        .prepare_cached(
             "SELECT id, terminal_id FROM cash_shift WHERE opened_by=?1 AND status='OPEN'
               ORDER BY opened_at DESC, id LIMIT 1",
-            [actor.trim()],
-            |row| Ok((row.get(0)?, row.get(1)?)),
         )
+        .map_err(db)?
+        .query_row([actor.trim()], |row| Ok((row.get(0)?, row.get(1)?)))
         .optional()
         .map_err(db)?;
     match held {
@@ -358,9 +362,9 @@ fn require_free_person(
 
 /// The store's own date at `at`: the day a shift opened then trades for.
 fn local_date(connection: &Connection, at: DateTime<Utc>) -> String {
-    let offset = chrono::Duration::minutes(i64::from(
-        super::site_profile::utc_offset_minutes(connection),
-    ));
+    let offset = chrono::Duration::minutes(i64::from(super::site_profile::utc_offset_minutes(
+        connection,
+    )));
     (at + offset).date_naive().to_string()
 }
 
@@ -376,7 +380,9 @@ pub fn seats(connection: &Connection) -> Result<Vec<TillSeat>, EdgeError> {
             )
             .map_err(db)?;
         let rows = statement
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
+            .query_map([], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })
             .map_err(db)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(db)?
     };
@@ -459,13 +465,19 @@ pub fn take_over(
     let ended = match open_shift_id(tx, terminal)? {
         Some(held) => {
             let running = report(tx, &held)?;
-            tx.execute(
+            tx.prepare_cached(
                 "UPDATE cash_shift
                     SET status='CLOSED', closed_by=?2, closed_at=?3,
                         expected_cash_minor=?4, taken_over_by=?2
                   WHERE id=?1 AND status='OPEN'",
-                params![held, actor, stamp(now), running.expected_cash_minor],
             )
+            .map_err(db)?
+            .execute(params![
+                held,
+                actor,
+                stamp(now),
+                running.expected_cash_minor
+            ])
             .map_err(db)?;
             Some(report(tx, &held)?)
         }
@@ -522,29 +534,30 @@ fn insert_shift(
 ) -> Result<ShiftReport, EdgeError> {
     let shift_id = Uuid::new_v4().to_string();
     let opened_at = now;
-    tx.execute(
+    tx.prepare_cached(
         "INSERT INTO cash_shift(id,idempotency_key,terminal_id,status,opened_by,opened_at,
                                 opening_float_minor,business_date)
          VALUES(?1,?2,?3,'OPEN',?4,?5,?6,?7)",
-        params![
-            shift_id,
-            idempotency_key,
-            terminal,
-            actor,
-            stamp(opened_at),
-            opening_float_minor,
-            local_date(tx, opened_at)
-        ],
     )
+    .map_err(db)?
+    .execute(params![
+        shift_id,
+        idempotency_key,
+        terminal,
+        actor,
+        stamp(opened_at),
+        opening_float_minor,
+        local_date(tx, opened_at)
+    ])
     .map_err(db)?;
 
     // The float is a cash movement like any other. Recording it only in the
     // shift row would mean the drawer's arithmetic had two sources, and the
     // one nobody looks at is the one that drifts.
     if opening_float_minor > 0 {
-        tx.execute(
-            "INSERT INTO cash_movement(id,idempotency_key,shift_id,kind,amount_minor,reason,actor_id,occurred_at)
-             VALUES(?1,?2,?3,'OPENING_FLOAT',?4,'Modal awal',?5,?6)",
+        tx.prepare_cached("INSERT INTO cash_movement(id,idempotency_key,shift_id,kind,amount_minor,reason,actor_id,occurred_at)
+             VALUES(?1,?2,?3,'OPENING_FLOAT',?4,'Modal awal',?5,?6)"
+    ).map_err(db)?.execute(
             params![
                 Uuid::new_v4().to_string(),
                 format!("{idempotency_key}:float"),
@@ -572,11 +585,11 @@ pub fn count_shift(
 ) -> Result<ShiftReport, EdgeError> {
     check_declaration(request)?;
     let (status, holder, declared): (String, String, Option<i64>) = tx
-        .query_row(
-            "SELECT status, opened_by, declared_cash_minor FROM cash_shift WHERE id=?1",
-            [shift_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
+        .prepare_cached("SELECT status, opened_by, declared_cash_minor FROM cash_shift WHERE id=?1")
+        .map_err(db)?
+        .query_row([shift_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
         .optional()
         .map_err(db)?
         .ok_or_else(|| EdgeError::NotFound(format!("shift {shift_id}")))?;
@@ -596,20 +609,21 @@ pub fn count_shift(
     // Recomputed rather than read: a sale the holder rang offline before the
     // seat was taken can arrive after, and belongs in this drawer.
     let running = report(tx, shift_id)?;
-    tx.execute(
+    tx.prepare_cached(
         "UPDATE cash_shift
             SET declared_cash_minor=?2, expected_cash_minor=?3, variance_minor=?4,
                 close_note=COALESCE(?5, close_note), counted_at=?6
           WHERE id=?1",
-        params![
-            shift_id,
-            request.declared_cash_minor,
-            running.expected_cash_minor,
-            request.declared_cash_minor - running.expected_cash_minor,
-            request.note.as_deref().map(str::trim),
-            stamp(now)
-        ],
     )
+    .map_err(db)?
+    .execute(params![
+        shift_id,
+        request.declared_cash_minor,
+        running.expected_cash_minor,
+        request.declared_cash_minor - running.expected_cash_minor,
+        request.note.as_deref().map(str::trim),
+        stamp(now)
+    ])
     .map_err(db)?;
     report(tx, shift_id)
 }
@@ -644,15 +658,15 @@ pub fn shift_for_sale(
 ) -> Result<Option<String>, EdgeError> {
     let at = at.to_rfc3339_opts(SecondsFormat::Micros, true);
     let then: Option<String> = connection
-        .query_row(
+        .prepare_cached(
             "SELECT id FROM cash_shift
               WHERE opened_by=?1
                 AND julianday(opened_at) <= julianday(?2)
                 AND (closed_at IS NULL OR julianday(?2) < julianday(closed_at))
               ORDER BY opened_at DESC, id LIMIT 1",
-            params![actor.trim(), at],
-            |row| row.get(0),
         )
+        .map_err(db)?
+        .query_row(params![actor.trim(), at], |row| row.get(0))
         .optional()
         .map_err(db)?;
     match then {
@@ -670,11 +684,9 @@ pub fn business_date_for(
 ) -> Result<String, EdgeError> {
     let from_shift: Option<String> = match shift_id {
         Some(shift_id) => connection
-            .query_row(
-                "SELECT business_date FROM cash_shift WHERE id=?1",
-                [shift_id],
-                |row| row.get(0),
-            )
+            .prepare_cached("SELECT business_date FROM cash_shift WHERE id=?1")
+            .map_err(db)?
+            .query_row([shift_id], |row| row.get(0))
             .optional()
             .map_err(db)?
             .flatten(),
@@ -727,11 +739,9 @@ pub fn open_shift_id(
     terminal_id: &str,
 ) -> Result<Option<String>, EdgeError> {
     connection
-        .query_row(
-            "SELECT id FROM cash_shift WHERE terminal_id=?1 AND status='OPEN'",
-            [terminal_id.trim()],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT id FROM cash_shift WHERE terminal_id=?1 AND status='OPEN'")
+        .map_err(db)?
+        .query_row([terminal_id.trim()], |row| row.get(0))
         .optional()
         .map_err(db)
 }
@@ -745,11 +755,11 @@ pub fn open_shift_id(
 /// other's count.
 pub fn any_open_shift(connection: &Connection) -> Result<Option<String>, EdgeError> {
     connection
-        .query_row(
+        .prepare_cached(
             "SELECT id FROM cash_shift WHERE status='OPEN' ORDER BY opened_at, id LIMIT 1",
-            [],
-            |row| row.get(0),
         )
+        .map_err(db)?
+        .query_row([], |row| row.get(0))
         .optional()
         .map_err(db)
 }
@@ -777,7 +787,11 @@ pub fn record_cash_movement(
         ));
     }
     require_open(tx, shift_id)?;
-    require_holder(&holder_of(tx, shift_id)?, request.actor_id.trim(), request.supervising)?;
+    require_holder(
+        &holder_of(tx, shift_id)?,
+        request.actor_id.trim(),
+        request.supervising,
+    )?;
 
     // Money leaving the drawer is the direction somebody steals in. A drop
     // into the safe is money still in the shop; a payout is money gone.
@@ -794,9 +808,9 @@ pub fn record_cash_movement(
         None
     };
 
-    tx.execute(
-        "INSERT INTO cash_movement(id,idempotency_key,shift_id,kind,amount_minor,reason,actor_id,approved_by,occurred_at)
-         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+    tx.prepare_cached("INSERT INTO cash_movement(id,idempotency_key,shift_id,kind,amount_minor,reason,actor_id,approved_by,occurred_at)
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)"
+    ).map_err(db)?.execute(
         params![
             Uuid::new_v4().to_string(),
             request.idempotency_key,
@@ -830,27 +844,32 @@ pub fn close_shift(
     // Only the person who counted the float in counts the drawer out — or a
     // supervisor. Anybody else closing it would be declaring money they never
     // held.
-    require_holder(&holder_of(tx, shift_id)?, request.actor_id.trim(), request.supervising)?;
+    require_holder(
+        &holder_of(tx, shift_id)?,
+        request.actor_id.trim(),
+        request.supervising,
+    )?;
     record_count(tx, shift_id, request)?;
 
     let running = report(tx, shift_id)?;
     let variance = request.declared_cash_minor - running.expected_cash_minor;
-    tx.execute(
+    tx.prepare_cached(
         "UPDATE cash_shift
             SET status='CLOSED', closed_by=?2, closed_at=?3,
                 declared_cash_minor=?4, expected_cash_minor=?5, variance_minor=?6,
                 close_note=?7, counted_at=?3
           WHERE id=?1",
-        params![
-            shift_id,
-            request.actor_id.trim(),
-            stamp(now),
-            request.declared_cash_minor,
-            running.expected_cash_minor,
-            variance,
-            request.note.as_deref().map(str::trim)
-        ],
     )
+    .map_err(db)?
+    .execute(params![
+        shift_id,
+        request.actor_id.trim(),
+        stamp(now),
+        request.declared_cash_minor,
+        running.expected_cash_minor,
+        variance,
+        request.note.as_deref().map(str::trim)
+    ])
     .map_err(db)?;
     report(tx, shift_id)
 }
@@ -908,10 +927,11 @@ fn record_count(
         )));
     }
     for line in request.counted.iter().filter(|line| line.pieces > 0) {
-        tx.execute(
+        tx.prepare_cached(
             "INSERT INTO cash_shift_count(shift_id,value_minor,pieces) VALUES(?1,?2,?3)",
-            params![shift_id, line.value_minor, line.pieces],
         )
+        .map_err(db)?
+        .execute(params![shift_id, line.value_minor, line.pieces])
         .map_err(db)?;
     }
     Ok(())
@@ -919,11 +939,9 @@ fn record_count(
 
 fn holder_of(connection: &Connection, shift_id: &str) -> Result<String, EdgeError> {
     connection
-        .query_row(
-            "SELECT opened_by FROM cash_shift WHERE id=?1",
-            [shift_id],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT opened_by FROM cash_shift WHERE id=?1")
+        .map_err(db)?
+        .query_row([shift_id], |row| row.get(0))
         .optional()
         .map_err(db)?
         .ok_or_else(|| EdgeError::NotFound(format!("shift {shift_id}")))
@@ -931,11 +949,9 @@ fn holder_of(connection: &Connection, shift_id: &str) -> Result<String, EdgeErro
 
 fn require_open(connection: &Connection, shift_id: &str) -> Result<(), EdgeError> {
     let status: Option<String> = connection
-        .query_row(
-            "SELECT status FROM cash_shift WHERE id=?1",
-            [shift_id],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT status FROM cash_shift WHERE id=?1")
+        .map_err(db)?
+        .query_row([shift_id], |row| row.get(0))
         .optional()
         .map_err(db)?;
     match status.as_deref() {
@@ -948,32 +964,32 @@ fn require_open(connection: &Connection, shift_id: &str) -> Result<(), EdgeError
 /// What this shift took, and what should therefore be in the drawer.
 pub fn report(connection: &Connection, shift_id: &str) -> Result<ShiftReport, EdgeError> {
     let head = connection
-        .query_row(
+        .prepare_cached(
             "SELECT terminal_id,status,opened_by,opened_at,closed_by,closed_at,
                     opening_float_minor,declared_cash_minor,variance_minor,close_note,
                     business_date,taken_over_by,counted_at
                FROM cash_shift WHERE id=?1",
-            [shift_id],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, Option<String>>(4)?,
-                    row.get::<_, Option<String>>(5)?,
-                    row.get::<_, i64>(6)?,
-                    row.get::<_, Option<i64>>(7)?,
-                    row.get::<_, Option<i64>>(8)?,
-                    row.get::<_, Option<String>>(9)?,
-                    (
-                        row.get::<_, Option<String>>(10)?,
-                        row.get::<_, Option<String>>(11)?,
-                        row.get::<_, Option<String>>(12)?,
-                    ),
-                ))
-            },
         )
+        .map_err(db)?
+        .query_row([shift_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, Option<String>>(5)?,
+                row.get::<_, i64>(6)?,
+                row.get::<_, Option<i64>>(7)?,
+                row.get::<_, Option<i64>>(8)?,
+                row.get::<_, Option<String>>(9)?,
+                (
+                    row.get::<_, Option<String>>(10)?,
+                    row.get::<_, Option<String>>(11)?,
+                    row.get::<_, Option<String>>(12)?,
+                ),
+            ))
+        })
         .optional()
         .map_err(db)?
         .ok_or_else(|| EdgeError::NotFound(format!("shift {shift_id}")))?;
@@ -981,21 +997,23 @@ pub fn report(connection: &Connection, shift_id: &str) -> Result<ShiftReport, Ed
     // Completed sales only. A voided sale was rung and reversed; counting its
     // money would report a drawer that is short by every void of the evening.
     let (sale_count, sales_total_minor, change_given_minor) = connection
-        .query_row(
+        .prepare_cached(
             "SELECT COUNT(*), COALESCE(SUM(total_minor),0), COALESCE(SUM(change_minor),0)
                FROM sale WHERE shift_id=?1 AND status='COMPLETED'",
-            [shift_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
+        .map_err(db)?
+        .query_row([shift_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
         .map_err(db)?;
 
     let (voided_count, voided_total_minor) = connection
-        .query_row(
+        .prepare_cached(
             "SELECT COUNT(*), COALESCE(SUM(total_minor),0)
                FROM sale WHERE shift_id=?1 AND status='VOIDED'",
-            [shift_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
         )
+        .map_err(db)?
+        .query_row([shift_id], |row| Ok((row.get(0)?, row.get(1)?)))
         .map_err(db)?;
 
     let mut tenders = Vec::new();
@@ -1033,13 +1051,13 @@ pub fn report(connection: &Connection, shift_id: &str) -> Result<ShiftReport, Ed
     }
 
     let (cash_refunds_minor, non_cash_refunds_minor) = connection
-        .query_row(
+        .prepare_cached(
             "SELECT COALESCE(SUM(CASE WHEN refund_method='CASH' THEN refund_minor ELSE 0 END),0),
                     COALESCE(SUM(CASE WHEN refund_method<>'CASH' THEN refund_minor ELSE 0 END),0)
                FROM sale_return WHERE shift_id=?1",
-            [shift_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
         )
+        .map_err(db)?
+        .query_row([shift_id], |row| Ok((row.get(0)?, row.get(1)?)))
         .map_err(db)?;
 
     let mut movements = Vec::new();
@@ -1225,11 +1243,11 @@ pub fn verify_supervisor(
     let username =
         crate::security::normalize_username(&supervisor.username).map_err(EdgeError::Validation)?;
     let row: Option<(String, String, i64)> = connection
-        .query_row(
-            "SELECT password_hash,role,active FROM edge_user WHERE username=?1",
-            [&username],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
+        .prepare_cached("SELECT password_hash,role,active FROM edge_user WHERE username=?1")
+        .map_err(db)?
+        .query_row([&username], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
         .optional()
         .map_err(db)?;
 
@@ -1320,30 +1338,31 @@ pub fn record_approval(
     let approved_by = verify_supervisor(tx, Some(&request.supervisor))?;
     let approval_id = Uuid::new_v4().to_string();
     let recorded_at = stamp(now);
-    tx.execute(
+    tx.prepare_cached(
         "INSERT INTO till_approval
            (id,idempotency_key,action,terminal_id,actor_id,approved_by,detail,reason,
             epcs_json,amount_minor,recorded_at)
          VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
-        params![
-            approval_id,
-            request.idempotency_key,
-            action,
-            terminal,
-            request.actor_id.trim(),
-            approved_by,
-            detail,
-            request
-                .reason
-                .as_deref()
-                .map(str::trim)
-                .filter(|reason| !reason.is_empty()),
-            serde_json::to_string(&request.epcs)
-                .map_err(|error| EdgeError::Validation(error.to_string()))?,
-            request.amount_minor,
-            recorded_at,
-        ],
     )
+    .map_err(db)?
+    .execute(params![
+        approval_id,
+        request.idempotency_key,
+        action,
+        terminal,
+        request.actor_id.trim(),
+        approved_by,
+        detail,
+        request
+            .reason
+            .as_deref()
+            .map(str::trim)
+            .filter(|reason| !reason.is_empty()),
+        serde_json::to_string(&request.epcs)
+            .map_err(|error| EdgeError::Validation(error.to_string()))?,
+        request.amount_minor,
+        recorded_at,
+    ])
     .map_err(db)?;
     Ok(TillApproval {
         approval_id,
@@ -1464,9 +1483,9 @@ pub fn sold_lines(connection: &Connection, sale_id: &str) -> Result<Vec<SoldLine
 
 pub fn sale_status(connection: &Connection, sale_id: &str) -> Result<String, EdgeError> {
     connection
-        .query_row("SELECT status FROM sale WHERE id=?1", [sale_id], |row| {
-            row.get(0)
-        })
+        .prepare_cached("SELECT status FROM sale WHERE id=?1")
+        .map_err(db)?
+        .query_row([sale_id], |row| row.get(0))
         .optional()
         .map_err(db)?
         .ok_or_else(|| EdgeError::NotFound(format!("sale {sale_id}")))
@@ -1492,33 +1511,34 @@ pub fn record_return(
         })
         .ok_or_else(|| EdgeError::Validation("refund total overflow".into()))?;
 
-    tx.execute(
+    tx.prepare_cached(
         "INSERT INTO sale_return(id,idempotency_key,sale_id,refund_minor,refund_method,
                                  refund_reference,reason,actor_id,approved_by,shift_id,
                                  movement_group_id,occurred_at)
          VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
-        params![
-            return_id,
-            request.idempotency_key,
-            request.sale_id,
-            refund_minor,
-            request.refund_method.trim().to_ascii_uppercase(),
-            request.refund_reference.as_deref().map(str::trim),
-            request.reason.trim(),
-            request.actor_id.trim(),
-            approved_by,
-            shift_id,
-            movement_group_id,
-            stamp(occurred_at)
-        ],
     )
+    .map_err(db)?
+    .execute(params![
+        return_id,
+        request.idempotency_key,
+        request.sale_id,
+        refund_minor,
+        request.refund_method.trim().to_ascii_uppercase(),
+        request.refund_reference.as_deref().map(str::trim),
+        request.reason.trim(),
+        request.actor_id.trim(),
+        approved_by,
+        shift_id,
+        movement_group_id,
+        stamp(occurred_at)
+    ])
     .map_err(db)?;
 
     let mut returned = Vec::with_capacity(lines.len());
     for (line, disposition) in lines {
-        tx.execute(
-            "INSERT INTO sale_return_line(return_id,sale_id,subject_id,epc,sku_code,refund_minor,disposition)
-             VALUES(?1,?2,?3,?4,?5,?6,?7)",
+        tx.prepare_cached("INSERT INTO sale_return_line(return_id,sale_id,subject_id,epc,sku_code,refund_minor,disposition)
+             VALUES(?1,?2,?3,?4,?5,?6,?7)"
+    ).map_err(db)?.execute(
             params![
                 return_id,
                 request.sale_id,
@@ -1539,14 +1559,14 @@ pub fn record_return(
     }
 
     let remaining_lines: i64 = tx
-        .query_row(
+        .prepare_cached(
             "SELECT COUNT(*) FROM sale_line l
               WHERE l.sale_id=?1
                 AND NOT EXISTS(SELECT 1 FROM sale_return_line r
                                 WHERE r.sale_id=l.sale_id AND r.subject_id=l.subject_id)",
-            [&request.sale_id],
-            |row| row.get(0),
         )
+        .map_err(db)?
+        .query_row([&request.sale_id], |row| row.get(0))
         .map_err(db)?;
 
     Ok(ReturnResult {
@@ -1582,18 +1602,19 @@ pub fn mark_voided(
     approved_by: &str,
     occurred_at: DateTime<Utc>,
 ) -> Result<(), EdgeError> {
-    tx.execute(
+    tx.prepare_cached(
         "UPDATE sale SET status='VOIDED', voided_at=?2, voided_by=?3, void_reason=?4,
                          void_approved_by=?5
           WHERE id=?1 AND status='COMPLETED'",
-        params![
-            sale_id,
-            stamp(occurred_at),
-            request.actor_id.trim(),
-            request.reason.trim(),
-            approved_by
-        ],
     )
+    .map_err(db)?
+    .execute(params![
+        sale_id,
+        stamp(occurred_at),
+        request.actor_id.trim(),
+        request.reason.trim(),
+        approved_by
+    ])
     .map_err(db)?;
     Ok(())
 }
@@ -1637,21 +1658,21 @@ pub fn receipt_document(
     footer: Option<&str>,
 ) -> Result<ReceiptDocument, EdgeError> {
     let head = connection
-        .query_row(
+        .prepare_cached(
             "SELECT status,total_minor,paid_minor,change_minor,actor_id,completed_at
                FROM sale WHERE id=?1",
-            [sale_id],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, i64>(1)?,
-                    row.get::<_, i64>(2)?,
-                    row.get::<_, i64>(3)?,
-                    row.get::<_, String>(4)?,
-                    row.get::<_, String>(5)?,
-                ))
-            },
         )
+        .map_err(db)?
+        .query_row([sale_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+            ))
+        })
         .optional()
         .map_err(db)?
         .ok_or_else(|| EdgeError::NotFound(format!("sale {sale_id}")))?;
@@ -1718,11 +1739,9 @@ pub fn receipt_document(
     }
 
     let returned_minor: i64 = connection
-        .query_row(
-            "SELECT COALESCE(SUM(refund_minor),0) FROM sale_return WHERE sale_id=?1",
-            [sale_id],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT COALESCE(SUM(refund_minor),0) FROM sale_return WHERE sale_id=?1")
+        .map_err(db)?
+        .query_row([sale_id], |row| row.get(0))
         .map_err(db)?;
 
     let stamp_text = if head.0 == "VOIDED" {
@@ -1869,33 +1888,33 @@ pub fn shift_fact(
     site_id: &str,
 ) -> Result<serde_json::Value, EdgeError> {
     let head = connection
-        .query_row(
+        .prepare_cached(
             "SELECT terminal_id,status,opened_by,opened_at,opening_float_minor,
                     closed_by,closed_at,declared_cash_minor,expected_cash_minor,
                     variance_minor,close_note,business_date,taken_over_by,counted_at
                FROM cash_shift WHERE id=?1",
-            [shift_id],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, i64>(4)?,
-                    row.get::<_, Option<String>>(5)?,
-                    row.get::<_, Option<String>>(6)?,
-                    row.get::<_, Option<i64>>(7)?,
-                    row.get::<_, Option<i64>>(8)?,
-                    row.get::<_, Option<i64>>(9)?,
-                    row.get::<_, Option<String>>(10)?,
-                    (
-                        row.get::<_, Option<String>>(11)?,
-                        row.get::<_, Option<String>>(12)?,
-                        row.get::<_, Option<String>>(13)?,
-                    ),
-                ))
-            },
         )
+        .map_err(db)?
+        .query_row([shift_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, Option<String>>(5)?,
+                row.get::<_, Option<String>>(6)?,
+                row.get::<_, Option<i64>>(7)?,
+                row.get::<_, Option<i64>>(8)?,
+                row.get::<_, Option<i64>>(9)?,
+                row.get::<_, Option<String>>(10)?,
+                (
+                    row.get::<_, Option<String>>(11)?,
+                    row.get::<_, Option<String>>(12)?,
+                    row.get::<_, Option<String>>(13)?,
+                ),
+            ))
+        })
         .optional()
         .map_err(db)?
         .ok_or_else(|| EdgeError::NotFound(format!("shift {shift_id}")))?;

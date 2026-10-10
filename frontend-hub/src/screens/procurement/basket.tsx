@@ -170,7 +170,7 @@ export function BasketSheet({
         <KpiStrip className="grid-cols-2 md:grid-cols-4 xl:grid-cols-4">
           <Kpi label="Suppliers" value={count(groups.length)} />
           <Kpi label="Lines" value={count(lines.length)} />
-          <Kpi label="Pieces" value={count(pieces)} />
+          <Kpi label="Pcs" value={count(pieces)} />
           <Kpi label="At Catalogue Prices" value={money(value)} />
         </KpiStrip>
 

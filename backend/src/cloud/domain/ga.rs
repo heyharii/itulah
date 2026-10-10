@@ -41,7 +41,8 @@ use FieldKind::{Date, Text};
 /// is written once here rather than sorted alphabetically anywhere: an
 /// alphabetical list would open the register on `AUDIO`.
 pub const BUILDS: [&str; 11] = [
-    "LAND", "BUILDING", "TECH", "VEHICLE", "FFE", "IT", "AUDIO", "OE", "SOFTWARE", "DEFERRED", "CIP",
+    "LAND", "BUILDING", "TECH", "VEHICLE", "FFE", "IT", "AUDIO", "OE", "SOFTWARE", "DEFERRED",
+    "CIP",
 ];
 
 /// What a field's value has to BE.
@@ -102,51 +103,206 @@ pub struct BuildField {
 pub fn build_fields(build: &str) -> &'static [BuildField] {
     match build {
         "LAND" => &[
-            BuildField { key: "cert", label: "Sertifikat", kind: Text, required: true },
-            BuildField { key: "area", label: "Luas tanah", kind: Text, required: false },
-            BuildField { key: "expiry", label: "Hak berlaku s/d", kind: Date, required: false },
+            BuildField {
+                key: "cert",
+                label: "Sertifikat",
+                kind: Text,
+                required: true,
+            },
+            BuildField {
+                key: "area",
+                label: "Luas tanah",
+                kind: Text,
+                required: false,
+            },
+            BuildField {
+                key: "expiry",
+                label: "Hak berlaku s/d",
+                kind: Date,
+                required: false,
+            },
         ],
         "BUILDING" => &[
-            BuildField { key: "area", label: "Luas bangunan", kind: Text, required: false },
-            BuildField { key: "floors", label: "Lantai", kind: Text, required: false },
-            BuildField { key: "use", label: "Penggunaan", kind: Text, required: false },
+            BuildField {
+                key: "area",
+                label: "Luas bangunan",
+                kind: Text,
+                required: false,
+            },
+            BuildField {
+                key: "floors",
+                label: "Lantai",
+                kind: Text,
+                required: false,
+            },
+            BuildField {
+                key: "use",
+                label: "Penggunaan",
+                kind: Text,
+                required: false,
+            },
         ],
         "TECH" => &[
-            BuildField { key: "make", label: "Merek / model", kind: Text, required: true },
-            BuildField { key: "capacity", label: "Kapasitas", kind: Text, required: false },
-            BuildField { key: "install", label: "Dipasang", kind: Date, required: false },
-            BuildField { key: "warranty", label: "Garansi s/d", kind: Date, required: false },
+            BuildField {
+                key: "make",
+                label: "Merek / model",
+                kind: Text,
+                required: true,
+            },
+            BuildField {
+                key: "capacity",
+                label: "Kapasitas",
+                kind: Text,
+                required: false,
+            },
+            BuildField {
+                key: "install",
+                label: "Dipasang",
+                kind: Date,
+                required: false,
+            },
+            BuildField {
+                key: "warranty",
+                label: "Garansi s/d",
+                kind: Date,
+                required: false,
+            },
         ],
         "VEHICLE" => &[
-            BuildField { key: "make", label: "Merek / model", kind: Text, required: true },
-            BuildField { key: "plate", label: "Plat", kind: Text, required: true },
-            BuildField { key: "year", label: "Tahun", kind: Text, required: false },
-            BuildField { key: "chassis", label: "No. rangka", kind: Text, required: false },
-            BuildField { key: "engine", label: "No. mesin", kind: Text, required: false },
-            BuildField { key: "odo", label: "Odometer", kind: Text, required: false },
+            BuildField {
+                key: "make",
+                label: "Merek / model",
+                kind: Text,
+                required: true,
+            },
+            BuildField {
+                key: "plate",
+                label: "Plat",
+                kind: Text,
+                required: true,
+            },
+            BuildField {
+                key: "year",
+                label: "Tahun",
+                kind: Text,
+                required: false,
+            },
+            BuildField {
+                key: "chassis",
+                label: "No. rangka",
+                kind: Text,
+                required: false,
+            },
+            BuildField {
+                key: "engine",
+                label: "No. mesin",
+                kind: Text,
+                required: false,
+            },
+            BuildField {
+                key: "odo",
+                label: "Odometer",
+                kind: Text,
+                required: false,
+            },
         ],
         "FFE" => &[
-            BuildField { key: "type", label: "Jenis", kind: Text, required: false },
-            BuildField { key: "material", label: "Material", kind: Text, required: false },
-            BuildField { key: "dim", label: "Dimensi", kind: Text, required: false },
+            BuildField {
+                key: "type",
+                label: "Jenis",
+                kind: Text,
+                required: false,
+            },
+            BuildField {
+                key: "material",
+                label: "Material",
+                kind: Text,
+                required: false,
+            },
+            BuildField {
+                key: "dim",
+                label: "Dimensi",
+                kind: Text,
+                required: false,
+            },
         ],
         "IT" => &[
-            BuildField { key: "device", label: "Perangkat", kind: Text, required: true },
-            BuildField { key: "make", label: "Merek / model", kind: Text, required: false },
-            BuildField { key: "spec", label: "Spesifikasi", kind: Text, required: false },
-            BuildField { key: "host", label: "Hostname", kind: Text, required: false },
-            BuildField { key: "warranty", label: "Garansi s/d", kind: Date, required: false },
+            BuildField {
+                key: "device",
+                label: "Perangkat",
+                kind: Text,
+                required: true,
+            },
+            BuildField {
+                key: "make",
+                label: "Merek / model",
+                kind: Text,
+                required: false,
+            },
+            BuildField {
+                key: "spec",
+                label: "Spesifikasi",
+                kind: Text,
+                required: false,
+            },
+            BuildField {
+                key: "host",
+                label: "Hostname",
+                kind: Text,
+                required: false,
+            },
+            BuildField {
+                key: "warranty",
+                label: "Garansi s/d",
+                kind: Date,
+                required: false,
+            },
         ],
         "AUDIO" => &[
-            BuildField { key: "make", label: "Merek / model", kind: Text, required: false },
-            BuildField { key: "power", label: "Daya", kind: Text, required: false },
-            BuildField { key: "warranty", label: "Garansi s/d", kind: Date, required: false },
+            BuildField {
+                key: "make",
+                label: "Merek / model",
+                kind: Text,
+                required: false,
+            },
+            BuildField {
+                key: "power",
+                label: "Daya",
+                kind: Text,
+                required: false,
+            },
+            BuildField {
+                key: "warranty",
+                label: "Garansi s/d",
+                kind: Date,
+                required: false,
+            },
         ],
         "OE" => &[
-            BuildField { key: "material", label: "Material", kind: Text, required: false },
-            BuildField { key: "dim", label: "Ukuran", kind: Text, required: false },
-            BuildField { key: "area", label: "Area toko", kind: Text, required: false },
-            BuildField { key: "repl", label: "Diganti lewat replacement", kind: Text, required: false },
+            BuildField {
+                key: "material",
+                label: "Material",
+                kind: Text,
+                required: false,
+            },
+            BuildField {
+                key: "dim",
+                label: "Ukuran",
+                kind: Text,
+                required: false,
+            },
+            BuildField {
+                key: "area",
+                label: "Area toko",
+                kind: Text,
+                required: false,
+            },
+            BuildField {
+                key: "repl",
+                label: "Diganti lewat replacement",
+                kind: Text,
+                required: false,
+            },
         ],
         _ => &[],
     }
@@ -219,7 +375,11 @@ fn field_of(build: &str, key: &str) -> Option<&'static BuildField> {
 /// because a `specs` full of empty strings looks full to a reader, to a
 /// `jsonb ?` test and to a form that re-fills itself from it, and none of the
 /// three means anything.
-fn value_for(build: &str, field: &BuildField, value: &serde_json::Value) -> Result<Option<serde_json::Value>, AppError> {
+fn value_for(
+    build: &str,
+    field: &BuildField,
+    value: &serde_json::Value,
+) -> Result<Option<serde_json::Value>, AppError> {
     let raw = match value {
         serde_json::Value::Null => return Ok(None),
         serde_json::Value::String(text) => text.trim().to_string(),
@@ -458,8 +618,12 @@ pub const CONTRACT_TYPES: &[(&str, &str, &str)] = &[
 /// this list — its CHECK sees columns, not the type's meaning — so it lives
 /// beside [`CONTRACT_TYPES`], where the writer that refuses a misplaced
 /// scope can quote it.
-pub const CONTRACT_SCOPE_TYPES: &[&str] =
-    &["SEWA_TOKO", "JASA_MAINTENANCE", "JASA_CLEANING", "ASURANSI_PROPERTI"];
+pub const CONTRACT_SCOPE_TYPES: &[&str] = &[
+    "SEWA_TOKO",
+    "JASA_MAINTENANCE",
+    "JASA_CLEANING",
+    "ASURANSI_PROPERTI",
+];
 
 /// The `prepaid_kind` category a type's advance payments land in, as
 /// `(contract type, prepaid_kind category)`.
@@ -538,8 +702,14 @@ pub const INSPECTION_RESULTS: &[&str] = &["BAIK", "PERHATIAN", "RUSAK"];
 
 /// The repair ladder's rungs, in order. The MOVES between them are
 /// [`repair_may_move`]; this list only names the vocabulary.
-pub const REPAIR_STATUSES: &[&str] =
-    &["OPEN", "APPROVED", "IN_PROGRESS", "COMPLETED", "CLOSED", "CANCELLED"];
+pub const REPAIR_STATUSES: &[&str] = &[
+    "OPEN",
+    "APPROVED",
+    "IN_PROGRESS",
+    "COMPLETED",
+    "CLOSED",
+    "CANCELLED",
+];
 
 /// The replacement ladder's rungs, in order.
 pub const REPLACEMENT_STATUSES: &[&str] =
@@ -593,8 +763,11 @@ pub fn repair_object_for_class(class_kind: &str, class_code: &str) -> Option<&'s
         "FFE_KOMPUTER" => Some("KOMPUTER"),
         "FFE_STAFF_HOUSE_MESS" | "BANGUNAN_STAFF_HOUSE_MESS" => Some("STAFF_HOUSE"),
         "SEVENTH_SOFT_APPLICATION" | "OPTI_TEX_SYSTEM" => Some("SOFTWARE"),
-        "INSTALASI_MEKANIKAL_ELEKTRIKAL" | "BANGUNAN_UTAMA" | "BANGUNAN_TAMBAHAN"
-        | "TANAH_HAK_MILIK" | "HAK_SEWA_TANAH_HGB" => Some("BANGUNAN"),
+        "INSTALASI_MEKANIKAL_ELEKTRIKAL"
+        | "BANGUNAN_UTAMA"
+        | "BANGUNAN_TAMBAHAN"
+        | "TANAH_HAK_MILIK"
+        | "HAK_SEWA_TANAH_HGB" => Some("BANGUNAN"),
         _ if code.starts_with("FFE_") => Some("FFE"),
         _ if kind == "INTANGIBLE" => Some("SOFTWARE"),
         _ => None,
@@ -652,7 +825,9 @@ pub fn next_due_from(
     }
     match interval_kind.trim().to_ascii_uppercase().as_str() {
         "DAYS" => from.checked_add_days(chrono::Days::new(u64::try_from(interval_value).ok()?)),
-        "MONTHS" => from.checked_add_months(chrono::Months::new(u32::try_from(interval_value).ok()?)),
+        "MONTHS" => {
+            from.checked_add_months(chrono::Months::new(u32::try_from(interval_value).ok()?))
+        }
         // KM, and anything unknown: no odometer, no date.
         _ => None,
     }

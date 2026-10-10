@@ -55,7 +55,10 @@ pub const NODE_ACTIONS_CAPABILITY: &str = "node.actions.v1";
 /// The four operations every build since 0475 takes. The fleet page's own
 /// `ask` endpoint is held to these: it does not look at capabilities.
 pub fn is_node_op(command_type: &str) -> bool {
-    matches!(command_type, NODE_RESTART | NODE_BACKUP | NODE_DIAGNOSE | NODE_UPDATE)
+    matches!(
+        command_type,
+        NODE_RESTART | NODE_BACKUP | NODE_DIAGNOSE | NODE_UPDATE
+    )
 }
 
 /// The instructions only a node advertising [`NODE_ACTIONS_CAPABILITY`] takes.
@@ -92,7 +95,10 @@ pub const ACTION_DONE: &str = "DONE";
 pub const ACTION_FAILED: &str = "FAILED";
 
 pub fn is_action_state(state: &str) -> bool {
-    matches!(state, ACTION_QUEUED | ACTION_RUNNING | ACTION_DONE | ACTION_FAILED)
+    matches!(
+        state,
+        ACTION_QUEUED | ACTION_RUNNING | ACTION_DONE | ACTION_FAILED
+    )
 }
 
 /// `node.update`: which build, where it is, and the proof it is ours.
@@ -122,7 +128,9 @@ pub fn parse_update(payload: &serde_json::Value) -> Result<UpdatePayload, String
     if !update.url.starts_with("https://") {
         return Err("an update is downloaded over https only".into());
     }
-    let hex = |value: &str, len: usize| value.len() == len && value.bytes().all(|b| b.is_ascii_hexdigit());
+    let hex = |value: &str, len: usize| {
+        value.len() == len && value.bytes().all(|b| b.is_ascii_hexdigit())
+    };
     if !hex(&update.sha256, 64) {
         return Err("sha256 must be 64 hex characters".into());
     }
@@ -145,7 +153,9 @@ pub fn parse_window(window: &str) -> Result<(u32, u32), String> {
         let (h, m): (u32, u32) = (h.parse().ok()?, m.parse().ok()?);
         (h < 24 && m < 60).then_some(h * 60 + m)
     };
-    let (from, to) = window.split_once('-').ok_or("window must look like 23:00-05:00")?;
+    let (from, to) = window
+        .split_once('-')
+        .ok_or("window must look like 23:00-05:00")?;
     Ok((
         minutes(from).ok_or("window must look like 23:00-05:00")?,
         minutes(to).ok_or("window must look like 23:00-05:00")?,

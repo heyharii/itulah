@@ -8,8 +8,8 @@
 //! Time does not flow; it JUMPS: the loop takes the earliest scheduled beat,
 //! advances the virtual clock to it, and asks that actor to decide.
 
-use crate::clock::SimClock;
 use crate::client::{call, call_idem, peek, Expect, Node, Nodes, Recorder, SimError, SimResult};
+use crate::clock::SimClock;
 use crate::scenario::Scenario;
 use chrono::Datelike;
 use serde_json::{json, Value};
@@ -103,7 +103,16 @@ pub async fn run_scenario(
     let mut scheduled: Vec<(chrono::DateTime<chrono::Utc>, usize)> = beats
         .iter()
         .enumerate()
-        .map(|(i, (days, hour, minute, _))| (clock.at_local(monday + chrono::Duration::days(i64::from(*days)), *hour, *minute), i))
+        .map(|(i, (days, hour, minute, _))| {
+            (
+                clock.at_local(
+                    monday + chrono::Duration::days(i64::from(*days)),
+                    *hour,
+                    *minute,
+                ),
+                i,
+            )
+        })
         .collect();
     scheduled.sort_by_key(|(at, _)| *at);
 
@@ -116,7 +125,9 @@ pub async fn run_scenario(
             Beat::Bootstrap => bootstrap(scenario, nodes, rec, clock, &mut world).await?,
             Beat::OpenPo => open_po(scenario, nodes, rec, clock, &mut world).await?,
             Beat::OpenReceipt => open_receipt(nodes, rec, clock, &mut world).await?,
-            Beat::CountAndVerify => count_and_verify(scenario, nodes, rec, clock, &mut world).await?,
+            Beat::CountAndVerify => {
+                count_and_verify(scenario, nodes, rec, clock, &mut world).await?
+            }
             Beat::RecordInvoice => record_invoice(scenario, nodes, rec, clock, &mut world).await?,
             Beat::Settle => settle(scenario, nodes, rec, clock, &mut world).await?,
             Beat::Audit => audit(nodes, rec, clock, &mut world).await?,
@@ -153,7 +164,13 @@ async fn bootstrap(
     world: &mut World,
 ) -> SimResult<()> {
     let supplier = call_idem(
-        nodes, rec, clock, CLOUD, Node::Cloud, "POST", "/api/v1/suppliers",
+        nodes,
+        rec,
+        clock,
+        CLOUD,
+        Node::Cloud,
+        "POST",
+        "/api/v1/suppliers",
         json!({
             "supplier_code": scenario.topology.supplier,
             "name": format!("{} (rig)", scenario.topology.supplier),
@@ -173,7 +190,12 @@ async fn bootstrap(
         .zip([25_000_i64, 18_500, 42_000].iter().cycle())
     {
         let item = call_idem(
-            nodes, rec, clock, CLOUD, Node::Cloud, "POST",
+            nodes,
+            rec,
+            clock,
+            CLOUD,
+            Node::Cloud,
+            "POST",
             &format!("/api/v1/suppliers/{}/items", world.supplier_id),
             json!({
                 "supplier_item_code": code,
@@ -220,7 +242,12 @@ async fn open_po(
         .collect();
 
     let receipt = call_idem(
-        nodes, rec, clock, CLOUD, Node::Cloud, "POST",
+        nodes,
+        rec,
+        clock,
+        CLOUD,
+        Node::Cloud,
+        "POST",
         "/api/v1/purchase-orders/catalog",
         json!({
             "po_number": world.po_number,
@@ -260,7 +287,13 @@ async fn open_receipt(
     let dc_supplier_id = str_field(first, "supplier_id", "DC work line")?;
 
     let receipt = call(
-        nodes, rec, clock, COUNTER, Node::Dc, "POST", "/api/v1/dc/goods-receipts",
+        nodes,
+        rec,
+        clock,
+        COUNTER,
+        Node::Dc,
+        "POST",
+        "/api/v1/dc/goods-receipts",
         json!({
             "supplier_id": dc_supplier_id,
             "arrived_at": clock.now().to_rfc3339(),
@@ -286,8 +319,15 @@ async fn count_and_verify(
 ) -> SimResult<()> {
     let lines = read_po_lines(nodes).await?;
     let open_receipts = call(
-        nodes, rec, clock, COUNTER, Node::Dc, "GET",
-        "/api/v1/dc/goods-receipts", Value::Null, Expect::Success,
+        nodes,
+        rec,
+        clock,
+        COUNTER,
+        Node::Dc,
+        "GET",
+        "/api/v1/dc/goods-receipts",
+        Value::Null,
+        Expect::Success,
     )
     .await?;
     let receipt_id = open_receipts
@@ -313,11 +353,19 @@ async fn count_and_verify(
             .ok_or_else(|| SimError("DC work line lacks article_code".into()))?
             .to_string();
         let qty = ordered.get(&code).copied().ok_or_else(|| {
-            SimError(format!("DC shows work line {code} that the scenario never ordered"))
+            SimError(format!(
+                "DC shows work line {code} that the scenario never ordered"
+            ))
         })?;
         let po_line_id = str_field(line, "po_line_id", "DC work line")?;
         let count = call(
-            nodes, rec, clock, COUNTER, Node::Dc, "POST", "/api/v1/dc/purchase-counts",
+            nodes,
+            rec,
+            clock,
+            COUNTER,
+            Node::Dc,
+            "POST",
+            "/api/v1/dc/purchase-counts",
             json!({
                 "receipt_id": receipt_id,
                 "po_line_id": po_line_id,
@@ -331,7 +379,13 @@ async fn count_and_verify(
         let count_id = str_field(&count, "count_id", "purchase count")?;
 
         let verify = call(
-            nodes, rec, clock, VERIFIER, Node::Dc, "POST", "/api/v1/dc/purchase-verifications",
+            nodes,
+            rec,
+            clock,
+            VERIFIER,
+            Node::Dc,
+            "POST",
+            "/api/v1/dc/purchase-verifications",
             json!({
                 "count_id": count_id,
                 "verifier_actor_id": VERIFIER,
@@ -359,8 +413,15 @@ async fn record_invoice(
     world: &mut World,
 ) -> SimResult<()> {
     let open_receipts = call(
-        nodes, rec, clock, VERIFIER, Node::Dc, "GET",
-        "/api/v1/dc/goods-receipts", Value::Null, Expect::Success,
+        nodes,
+        rec,
+        clock,
+        VERIFIER,
+        Node::Dc,
+        "GET",
+        "/api/v1/dc/goods-receipts",
+        Value::Null,
+        Expect::Success,
     )
     .await?;
     let receipt_id = open_receipts
@@ -383,7 +444,12 @@ async fn record_invoice(
     world.invoice_total_minor = total;
 
     call(
-        nodes, rec, clock, VERIFIER, Node::Dc, "POST",
+        nodes,
+        rec,
+        clock,
+        VERIFIER,
+        Node::Dc,
+        "POST",
         &format!("/api/v1/dc/goods-receipts/{receipt_id}/invoice"),
         json!({
             "receipt_id": receipt_id,
@@ -419,8 +485,7 @@ async fn settle(
             .or_else(|| unbilled.get("items").and_then(Value::as_array))
             .and_then(|items| {
                 items.iter().find(|r| {
-                    r.get("receipt_number").and_then(Value::as_str)
-                        == Some(receipt_number.as_str())
+                    r.get("receipt_number").and_then(Value::as_str) == Some(receipt_number.as_str())
                 })
             })
             .cloned())
@@ -441,7 +506,10 @@ async fn settle(
         let receipt_number = world.receipt_number.clone();
         wait_until("the delivery lines reach the identity queue", async || {
             let pending = peek(
-                nodes, "finance@ho", Node::Cloud, "/api/v1/article-setups/unidentified",
+                nodes,
+                "finance@ho",
+                Node::Cloud,
+                "/api/v1/article-setups/unidentified",
             )
             .await?;
             let mine: Vec<Value> = pending
@@ -467,7 +535,13 @@ async fn settle(
     // anything can post into them.
     let today = clock.today_local();
     call(
-        nodes, rec, clock, "finance@ho", Node::Cloud, "POST", "/api/v1/finance/periods",
+        nodes,
+        rec,
+        clock,
+        "finance@ho",
+        Node::Cloud,
+        "POST",
+        "/api/v1/finance/periods",
         json!({ "year": today.year(), "month": today.month() }),
         Expect::Success,
     )
@@ -477,7 +551,12 @@ async fn settle(
     // suspend credit the bill will clear, and both the match and the post
     // refuse a delivery that is not in the ledger yet.
     call(
-        nodes, rec, clock, "finance@ho", Node::Cloud, "POST",
+        nodes,
+        rec,
+        clock,
+        "finance@ho",
+        Node::Cloud,
+        "POST",
         &format!("/api/v1/finance/receipts/{cloud_receipt_id}/post"),
         json!({ "posting_date": clock.today_local().to_string() }),
         Expect::Success,
@@ -488,7 +567,13 @@ async fn settle(
     // three-way match: what the invoice charges, laid beside what was
     // accepted at the ordered price.
     let bill = call(
-        nodes, rec, clock, "finance@ho", Node::Cloud, "POST", "/api/v1/finance/bills",
+        nodes,
+        rec,
+        clock,
+        "finance@ho",
+        Node::Cloud,
+        "POST",
+        "/api/v1/finance/bills",
         json!({
             "invoice_number": world.invoice_number,
             "supplier_id": receipt_supplier,
@@ -523,7 +608,12 @@ async fn settle(
         })
         .collect();
     let matched = call(
-        nodes, rec, clock, "finance@ho", Node::Cloud, "POST",
+        nodes,
+        rec,
+        clock,
+        "finance@ho",
+        Node::Cloud,
+        "POST",
         &format!("/api/v1/finance/bills/{}/match", world.bill_id),
         json!({
             "receipt_ids": [cloud_receipt_id],
@@ -540,7 +630,12 @@ async fn settle(
     }
 
     let posted_bill = call(
-        nodes, rec, clock, "finance@ho", Node::Cloud, "POST",
+        nodes,
+        rec,
+        clock,
+        "finance@ho",
+        Node::Cloud,
+        "POST",
         &format!("/api/v1/finance/bills/{}/post", world.bill_id),
         json!({ "posting_date": clock.today_local().to_string() }),
         Expect::Success,
@@ -553,7 +648,13 @@ async fn settle(
     // seeds the goods side of the map but leaves the client's bank accounts
     // to the clerk, so the clerk sets it here.
     call(
-        nodes, rec, clock, "finance@ho", Node::Cloud, "POST", "/api/v1/finance/account-map",
+        nodes,
+        rec,
+        clock,
+        "finance@ho",
+        Node::Cloud,
+        "POST",
+        "/api/v1/finance/account-map",
         json!({
             "semantic_key": "bank_savings",
             "site_id": site_id,
@@ -567,7 +668,13 @@ async fn settle(
     .await?;
 
     let payment = call(
-        nodes, rec, clock, "finance@ho", Node::Cloud, "POST", "/api/v1/finance/payments",
+        nodes,
+        rec,
+        clock,
+        "finance@ho",
+        Node::Cloud,
+        "POST",
+        "/api/v1/finance/payments",
         json!({
             "site_id": site_id,
             "payment_date": clock.today_local().to_string(),
@@ -587,7 +694,12 @@ async fn settle(
     // PAYMENT. The clerk still records the payment and its allocation; the
     // refusal is pinned so the audit holds the pause up as what it is.
     let refused = call(
-        nodes, rec, clock, "finance@ho", Node::Cloud, "POST",
+        nodes,
+        rec,
+        clock,
+        "finance@ho",
+        Node::Cloud,
+        "POST",
         &format!("/api/v1/finance/payments/{}/post", world.payment_id),
         json!({ "posting_date": clock.today_local().to_string() }),
         Expect::Status(409),
@@ -604,9 +716,15 @@ async fn settle(
     }
 
     let held = call(
-        nodes, rec, clock, "finance@ho", Node::Cloud, "GET",
+        nodes,
+        rec,
+        clock,
+        "finance@ho",
+        Node::Cloud,
+        "GET",
         &format!("/api/v1/finance/payments/{}", world.payment_id),
-        Value::Null, Expect::Success,
+        Value::Null,
+        Expect::Success,
     )
     .await?;
     world.payment_status = str_field(&held, "status", "held payment")?;
@@ -623,9 +741,15 @@ async fn audit(
     world: &mut World,
 ) -> SimResult<()> {
     let orders = call(
-        nodes, rec, clock, CLOUD, Node::Cloud, "GET",
+        nodes,
+        rec,
+        clock,
+        CLOUD,
+        Node::Cloud,
+        "GET",
         &format!("/api/v1/purchase-orders?q={}", world.po_number),
-        Value::Null, Expect::Success,
+        Value::Null,
+        Expect::Success,
     )
     .await?;
     let row = orders
@@ -642,8 +766,15 @@ async fn audit(
     }
 
     let unbilled = call(
-        nodes, rec, clock, CLOUD, Node::Cloud, "GET", "/api/v1/finance/unbilled",
-        Value::Null, Expect::Success,
+        nodes,
+        rec,
+        clock,
+        CLOUD,
+        Node::Cloud,
+        "GET",
+        "/api/v1/finance/unbilled",
+        Value::Null,
+        Expect::Success,
     )
     .await?;
     let still_there = unbilled

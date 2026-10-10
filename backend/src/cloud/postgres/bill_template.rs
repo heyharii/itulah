@@ -118,12 +118,11 @@ pub async fn record_bill_template(
     // not an archived one. The refusals are in words because "foreign key"
     // names a constraint, not the mistake.
     if let Some(contract_id) = request.contract_id {
-        let live: Option<bool> = sqlx::query_scalar(
-            "SELECT NOT archived FROM ga_contract WHERE contract_id = $1",
-        )
-        .bind(contract_id)
-        .fetch_optional(pool)
-        .await?;
+        let live: Option<bool> =
+            sqlx::query_scalar("SELECT NOT archived FROM ga_contract WHERE contract_id = $1")
+                .bind(contract_id)
+                .fetch_optional(pool)
+                .await?;
         match live {
             None => {
                 return Err(AppError::Validation(
@@ -347,12 +346,10 @@ pub async fn bill_template_sweep(
             // running the old code, a restored row. Our draft is the duplicate
             // and goes, so the guard stays one-draft-per-period whatever
             // happens.
-            sqlx::query(
-                "DELETE FROM supplier_invoice WHERE invoice_id = $1 AND status = 'DRAFT'",
-            )
-            .bind(bill.invoice_id)
-            .execute(&mut *tx)
-            .await?;
+            sqlx::query("DELETE FROM supplier_invoice WHERE invoice_id = $1 AND status = 'DRAFT'")
+                .bind(bill.invoice_id)
+                .execute(&mut *tx)
+                .await?;
             out.already_raised += 1;
         } else {
             out.raised += 1;

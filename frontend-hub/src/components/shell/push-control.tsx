@@ -54,25 +54,25 @@ function AddToHomeScreen() {
   return (
     <div className="flex flex-col gap-2">
       <Note icon={BellRing}>
-        Di iPhone dan iPad, notifikasi hanya bisa diterima setelah aplikasi ini
-        dipasang di layar utama.
+        On iPhone and iPad, notifications can only be received once this app is
+        added to the Home Screen.
       </Note>
       <ol className="ml-6 flex list-decimal flex-col gap-1 text-[0.875rem] leading-snug text-body">
         <li>
-          Ketuk{" "}
-          <Share aria-label="Bagikan" className="inline size-4 align-[-3px]" />{" "}
-          <span className="font-medium text-ink">Bagikan</span> di Safari.
+          Tap{" "}
+          <Share aria-label="Share" className="inline size-4 align-[-3px]" />{" "}
+          <span className="font-medium text-ink">Share</span> in Safari.
         </li>
         <li>
-          Pilih{" "}
+          Choose{" "}
           <SquarePlus aria-hidden className="inline size-4 align-[-3px]" />{" "}
-          <span className="font-medium text-ink">Tambah ke Layar Utama</span>.
+          <span className="font-medium text-ink">Add to Home Screen</span>.
         </li>
         <li>
-          Buka <span className="font-medium text-ink">Central</span> dari layar
-          utama, lalu ketuk{" "}
-          <span className="font-medium text-ink">Aktifkan notifikasi</span> di
-          sini.
+          Open <span className="font-medium text-ink">Central</span> from the
+          Home Screen, then tap{" "}
+          <span className="font-medium text-ink">Turn on notifications</span>{" "}
+          here.
         </li>
       </ol>
     </div>
@@ -85,7 +85,7 @@ function InstallButton() {
   return (
     <Button size="sm" variant="quiet" onClick={() => void install.install()}>
       <Download />
-      Pasang aplikasi
+      Install app
     </Button>
   )
 }
@@ -119,7 +119,7 @@ export function PushControl({ className }: { className?: string }) {
       setProblem(
         error instanceof Error && error.message !== ""
           ? error.message
-          : "Notifikasi tidak bisa diaktifkan. Coba lagi."
+          : "Notifications could not be turned on. Try again."
       ),
     onSettled: () =>
       void client.invalidateQueries({ queryKey: keys.enabled(username) }),
@@ -136,30 +136,32 @@ export function PushControl({ className }: { className?: string }) {
   } else if (support === "unsupported") {
     body = (
       <Note>
-        Browser ini tidak bisa menerima notifikasi push. Daftar ini tetap
-        diperbarui selama halamannya terbuka.
+        This browser cannot receive push notifications. This list still updates
+        while the page is open.
       </Note>
     )
   } else if (server.data !== undefined && !server.data.enabled) {
-    body = <Note>Notifikasi push belum diaktifkan di server ini.</Note>
+    body = (
+      <Note>Push notifications are not turned on for this server yet.</Note>
+    )
   } else if (asked === "denied" || permission() === "denied") {
     body = (
       <Note>
-        Notifikasi diblokir untuk situs ini. Izinkan lewat pengaturan situs di
-        browser, lalu muat ulang halaman.
+        Notifications are blocked for this site. Allow them in the
+        browser&rsquo;s site settings, then reload the page.
       </Note>
     )
   } else if (enabled.data === true) {
     body = (
       <div className="flex items-center justify-between gap-2">
-        <Note icon={BellRing}>Notifikasi aktif di perangkat ini.</Note>
+        <Note icon={BellRing}>Notifications are on for this device.</Note>
         <Button
           size="sm"
           variant="quiet"
           pending={turnOff.isPending}
           onClick={() => turnOff.mutate()}
         >
-          Matikan
+          Turn off
         </Button>
       </div>
     )
@@ -167,7 +169,7 @@ export function PushControl({ className }: { className?: string }) {
     body = (
       <div className="flex flex-col gap-2">
         <Note icon={BellRing}>
-          Dapatkan pemberitahuan di perangkat ini, juga saat aplikasi tertutup.
+          Get notified on this device, even when the app is closed.
         </Note>
         <div>
           <Button
@@ -178,12 +180,13 @@ export function PushControl({ className }: { className?: string }) {
             onClick={() => turnOn.mutate()}
           >
             <BellRing />
-            {turnOn.isPending ? "Mengaktifkan…" : "Aktifkan notifikasi"}
+            {turnOn.isPending ? "Turning on…" : "Turn on notifications"}
           </Button>
         </div>
         {asked === "default" && turnOn.isSuccess && (
           <Note>
-            Izin belum diberikan. Tekan lagi bila ingin menerima notifikasi.
+            Permission has not been given. Press again if you want to receive
+            notifications.
           </Note>
         )}
         {problem !== null && (

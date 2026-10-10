@@ -192,17 +192,30 @@ mod tests {
     use super::*;
 
     fn date(raw: &str) -> NaiveDate {
-        raw.parse().unwrap_or_else(|error| panic!("date {raw}: {error}"))
+        raw.parse()
+            .unwrap_or_else(|error| panic!("date {raw}: {error}"))
     }
 
     #[test]
     fn a_contract_is_news_inside_its_window_and_for_a_month_after() {
         let ends = date("2026-10-31");
         assert_eq!(expiry_band(ends, date("2026-08-31"), 60), None);
-        assert_eq!(expiry_band(ends, date("2026-09-01"), 60), Some(ExpiryBand::Soon));
-        assert_eq!(expiry_band(ends, date("2026-10-31"), 60), Some(ExpiryBand::Soon));
-        assert_eq!(expiry_band(ends, date("2026-11-01"), 60), Some(ExpiryBand::Ended));
-        assert_eq!(expiry_band(ends, date("2026-11-30"), 60), Some(ExpiryBand::Ended));
+        assert_eq!(
+            expiry_band(ends, date("2026-09-01"), 60),
+            Some(ExpiryBand::Soon)
+        );
+        assert_eq!(
+            expiry_band(ends, date("2026-10-31"), 60),
+            Some(ExpiryBand::Soon)
+        );
+        assert_eq!(
+            expiry_band(ends, date("2026-11-01"), 60),
+            Some(ExpiryBand::Ended)
+        );
+        assert_eq!(
+            expiry_band(ends, date("2026-11-30"), 60),
+            Some(ExpiryBand::Ended)
+        );
         assert_eq!(expiry_band(ends, date("2026-12-01"), 60), None, "old news");
     }
 

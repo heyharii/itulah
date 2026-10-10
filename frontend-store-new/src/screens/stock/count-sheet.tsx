@@ -2,21 +2,22 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useMemo, useRef } from "react"
 
 import { Button } from "@/components/ui/button"
-import { RecordSheet } from "@/components/ui/record-sheet"
-import { ErrorState, LoadingState } from "@/components/ui/states"
+import { Pill } from "@/components/ui/pill"
+import { Fact, Facts, Sheet } from "@/components/ui/sheet"
+import { Banner, ErrorState, LoadingState } from "@/components/ui/states"
 import {
   countKey,
   countsKey,
   submitCount,
   useCount,
-  type CountStatus,
   type ScannedPiece,
   type StoreCount,
 } from "@/lib/counts"
 import { describe } from "@/lib/errors"
 import { count, day, moment } from "@/lib/format"
-import { cn } from "@/lib/utils"
-import { poolName, statusOf } from "@/screens/stock/count-words"
+import { useHeld } from "@/screens/stock/open-record"
+import { FOOT, Row, RowList, SheetSection } from "@/screens/stock/parts"
+import { kindLabel, poolName, statusOf } from "@/screens/stock/count-words"
 import { useRange } from "@/screens/stock/shared"
 import { idempotencyKey } from "@itulah/contract/client"
 
@@ -24,30 +25,45 @@ import { idempotencyKey } from "@itulah/contract/client"
 /// files its own entries; this sheet only shows what it has filed so far and
 /// sends the count. Blind: no expected quantity, difference or match anywhere.
 
-/// Dot, then word — the app's grammar for a state.
-export function CountStatusWord({ status }: { status: CountStatus }) {
-  const { word, dot } = statusOf(status)
-  return (
-    <span className="inline-flex items-center gap-2 text-cell text-body">
-      <span aria-hidden className={cn("size-1.5 rounded-full", dot)} />
-      {word}
-    </span>
-  )
-}
-
-const pieces = (n: number) => `${count(n)} ${n === 1 ? "piece" : "pieces"}`
+const pcs = (n: number) => `${count(n)} pcs`
 
 // ── The sheet ───────────────────────────────────────────────────────────────
 
+/// `entry` is the count asked for; `undefined` is closed. The sheet keeps the
+/// last one while it slides away, and starts afresh for a different count (its
+/// own send key, its own reading of what the handheld filed).
 export function CountSheet({
   entry,
   onClose,
 }: {
+  entry: StoreCount | undefined
+  onClose: () => void
+}) {
+  const held = useHeld(entry)
+  if (held === undefined) return null
+  return (
+    <CountSheetFor
+      key={held.count_id}
+      entry={held}
+      open={entry !== undefined}
+      onClose={onClose}
+    />
+  )
+}
+
+function CountSheetFor({
+  entry,
+  open,
+  onClose,
+}: {
   entry: StoreCount
+  open: boolean
   onClose: () => void
 }) {
   const active = entry.status === "ACTIVE"
-  const detail = useCount(entry.count_id, active)
+  // Re-read for what the handheld files only while the sheet is open: the held
+  // sheet outlives its closing, and a closed one has nobody to show it to.
+  const detail = useCount(entry.count_id, active && open)
   const client = useQueryClient()
   const sendKey = useRef(idempotencyKey())
 
@@ -68,35 +84,30 @@ export function CountSheet({
     const ok = window.confirm(
       total === 0
         ? "Submit an empty count?"
-        : `Submit ${pieces(total)}? You can't change it after.`,
+        : `Submit ${pcs(total)}? You can't change it after.`,
     )
     if (ok) send.mutate()
   }
 
   const sent = !active || send.isSuccess
   const shownTotal = sent && detail.data === undefined ? entry.counted : total
+  const status = statusOf(sent && active ? "SUBMITTED" : entry.status)
 
   return (
-    <RecordSheet
-      open
+    <Sheet
+      open={open}
       onOpenChange={(next) => {
         if (!next) onClose()
       }}
       title={poolName(entry.pool_id)}
-      badge={
-        <CountStatusWord status={sent && active ? "SUBMITTED" : entry.status} />
-      }
-      caption={[
-        `Asked ${day(entry.created_at)}`,
-        entry.reason !== null && entry.reason !== "" ? entry.reason : null,
-      ]
-        .filter(Boolean)
-        .join(" · ")}
+      badge={<Pill tone={status.tone}>{status.word}</Pill>}
+      caption={`${kindLabel(entry.kind)} · Asked ${day(entry.created_at)}`}
       footer={
         sent ? undefined : (
           <div className="flex justify-end">
             <Button
               variant="primary"
+              className={`${FOOT} max-md:w-full`}
               disabled={send.isPending || detail.data === undefined}
               onClick={submit}
             >
@@ -106,37 +117,42 @@ export function CountSheet({
         )
       }
     >
-      {sent ? (
-        <div className="flex flex-col gap-2">
-          <p className="text-card-title font-medium text-ink">
-            {entry.status === "CLOSED" ? "Closed." : "Sent to head office."}
-          </p>
-          <p className="text-[1.5rem] leading-8 font-semibold tracking-[-0.02em] text-ink tabular-nums">
-            {pieces(shownTotal)}
-          </p>
-          {entry.submitted_at !== null && (
-            <p className="text-meta text-mute">{moment(entry.submitted_at)}</p>
-          )}
-        </div>
-      ) : detail.isError && detail.data === undefined ? (
-        <ErrorState
-          error={detail.error}
-          onRetry={() => void detail.refetch()}
-        />
-      ) : detail.data === undefined ? (
-        <LoadingState />
-      ) : (
-        <div className="flex flex-col gap-7">
-          <p className="text-meta text-mute">
-            Sweep this pool with the handheld.
-          </p>
-          {send.error !== null && (
-            <p className="text-meta text-bad-fg">{describe(send.error)}</p>
-          )}
+      <div className="flex flex-col gap-6">
+        {entry.reason !== null && entry.reason !== "" && (
+          <Facts>
+            <Fact term="Reason" wide>
+              {entry.reason}
+            </Fact>
+          </Facts>
+        )}
+
+        {send.error !== null && (
+          <Banner tone="bad">{describe(send.error)}</Banner>
+        )}
+
+        {sent ? (
+          <Facts>
+            <Fact term="Counted">{pcs(shownTotal)}</Fact>
+            <Fact term={entry.status === "CLOSED" ? "Closed" : "Sent"}>
+              {moment(
+                entry.status === "CLOSED"
+                  ? (entry.closed_at ?? entry.submitted_at)
+                  : entry.submitted_at,
+              )}
+            </Fact>
+          </Facts>
+        ) : detail.isError && detail.data === undefined ? (
+          <ErrorState
+            error={detail.error}
+            onRetry={() => void detail.refetch()}
+          />
+        ) : detail.data === undefined ? (
+          <LoadingState>Reading the count…</LoadingState>
+        ) : (
           <Counted scanned={counted} total={total} />
-        </div>
-      )}
-    </RecordSheet>
+        )}
+      </div>
+    </Sheet>
   )
 }
 
@@ -173,34 +189,27 @@ function Counted({
   }, [scanned])
 
   return (
-    <section>
-      <p className="text-[1.5rem] leading-8 font-semibold tracking-[-0.02em] text-ink tabular-nums">
-        {pieces(total)}
-      </p>
+    <SheetSection title="Counted" aside={pcs(total)}>
       {rows.length === 0 ? (
-        <p className="mt-4 text-meta text-mute">Nothing counted yet.</p>
+        <p className="text-meta text-mute">
+          Nothing counted yet. Sweep this pool with the handheld.
+        </p>
       ) : (
-        <div className="mt-4 overflow-hidden rounded-card border border-hairline">
+        <RowList>
           {rows.map((row) => (
-            <div
+            <Row
               key={row.sku}
-              className="flex h-16 items-center gap-4 border-t border-hairline px-4 first:border-t-0"
-            >
-              <span className="min-w-0 flex-1">
-                <span className="block truncate font-medium text-ink">
-                  {bySku.get(row.sku)?.name ?? row.sku}
-                </span>
-                <span className="mt-1 block truncate font-mono text-id text-mute">
-                  {row.sku}
-                </span>
-              </span>
-              <span className="font-medium text-ink tabular-nums">
-                {count(row.quantity)}
-              </span>
-            </div>
+              title={bySku.get(row.sku)?.name ?? row.sku}
+              sub={
+                bySku.get(row.sku) === undefined ? undefined : (
+                  <span className="font-mono">{row.sku}</span>
+                )
+              }
+              figure={count(row.quantity)}
+            />
           ))}
-        </div>
+        </RowList>
       )}
-    </section>
+    </SheetSection>
   )
 }

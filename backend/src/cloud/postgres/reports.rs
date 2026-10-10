@@ -360,8 +360,7 @@ pub async fn sales_window(pool: &PgPool, query: SalesWindowQuery) -> Result<Valu
     let offset_minutes = match query.utc_offset_minutes {
         Some(minutes) => offset_of(Some(minutes)),
         None => {
-            super::sites::business_utc_offset_minutes(pool, site_id.as_deref(), Utc::now())
-                .await?
+            super::sites::business_utc_offset_minutes(pool, site_id.as_deref(), Utc::now()).await?
         }
     };
     let (start, end) = crate::reporting::window_of(query.from, query.to, offset_minutes)

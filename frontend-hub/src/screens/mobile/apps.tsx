@@ -1,10 +1,12 @@
 import { useQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
-import { Bell, ChevronRight } from "lucide-react"
+import { Bell, ChevronRight, Search } from "lucide-react"
 
 import { AppIcon } from "@/components/shell/app-icon"
 import { PageContent } from "@/components/shell/app-shell"
+import { useOpenPalette } from "@/components/shell/palette-opener"
 import { appsFor, landingOf, type AppTile } from "@/lib/apps"
+import { weekday } from "@/lib/format"
 import { listNotifications, systemKeys } from "@/lib/queries/system"
 import { useIdentity } from "@/lib/session"
 import { cn } from "@/lib/utils"
@@ -47,6 +49,7 @@ function Waiting({ tile }: { tile: AppTile }) {
 /// what is unread.
 export function Apps() {
   const identity = useIdentity()
+  const openPalette = useOpenPalette()
   const tiles = appsFor(identity.data?.role)
 
   // The bell's own query and key, so the count here and the badge on the
@@ -79,13 +82,7 @@ export function Apps() {
       {/* The greeting is the page's large title, the way a phone's own apps
           open — no card around it. The date above it is the quiet line. */}
       <header className="mb-5">
-        <p className="text-[0.875rem] font-medium text-mute">
-          {now.toLocaleDateString("en-GB", {
-            weekday: "long",
-            day: "numeric",
-            month: "long",
-          })}
-        </p>
+        <p className="text-[0.875rem] font-medium text-mute">{weekday(now)}</p>
         <h1 className="mt-1 text-[1.75rem] leading-[1.12] font-semibold tracking-[-0.025em] text-ink">
           {greeting}
           {name !== "" && `, ${name}`}
@@ -153,6 +150,26 @@ export function Apps() {
             )
           })}
         </ul>
+      )}
+
+      {/* A phone has no ⌘K, and the screens kept out of the menus (Stores,
+          Members, the Ops stations, most of Finance's setup) are reached by
+          typing where to go. The row is the palette's door, at the foot of
+          the page with every other action. */}
+      {openPalette !== null && (
+        <button
+          type="button"
+          onClick={openPalette}
+          className="group mt-3 flex h-14 w-full items-center gap-3 rounded-3xl border border-hairline bg-canvas px-3.5 text-left shadow-soft transition-colors duration-(--t-press) active:bg-soft"
+        >
+          <span className="grid size-9 shrink-0 place-items-center rounded-[0.6875rem] bg-soft-2 text-body transition-[scale] duration-(--t-press) ease-(--ease-out) group-active:scale-[0.92]">
+            <Search className="size-[1.125rem] stroke-[1.7]" />
+          </span>
+          <span className="min-w-0 flex-1 truncate text-[1rem] font-medium text-ink">
+            Search or jump to…
+          </span>
+          <ChevronRight className="size-4 shrink-0 text-line-ico" />
+        </button>
       )}
     </PageContent>
   )

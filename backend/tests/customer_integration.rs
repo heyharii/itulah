@@ -474,13 +474,29 @@ async fn a_voided_sale_is_shown_as_voided_and_counts_toward_nothing(pool: PgPool
     ingest(
         &pool,
         1,
-        sale_payload(kept, Some(MEMBER), 100_000, 0, 10, 60, one_line("KMJ-01", 100_000, 100_000)),
+        sale_payload(
+            kept,
+            Some(MEMBER),
+            100_000,
+            0,
+            10,
+            60,
+            one_line("KMJ-01", 100_000, 100_000),
+        ),
     )
     .await;
     ingest(
         &pool,
         2,
-        sale_payload(voided, Some(MEMBER), 300_000, 0, 27, 30, one_line("KMJ-02", 300_000, 300_000)),
+        sale_payload(
+            voided,
+            Some(MEMBER),
+            300_000,
+            0,
+            27,
+            30,
+            one_line("KMJ-02", 300_000, 300_000),
+        ),
     )
     .await;
 
@@ -518,9 +534,15 @@ async fn a_voided_sale_is_shown_as_voided_and_counts_toward_nothing(pool: PgPool
     let summary = cloud::customer_summary(&pool, MEMBER)
         .await
         .unwrap_or_else(|e| panic!("summary: {e}"));
-    assert_eq!(summary.transaction_count, 1, "a voided sale is not a purchase");
+    assert_eq!(
+        summary.transaction_count, 1,
+        "a voided sale is not a purchase"
+    );
     assert_eq!(summary.spent_minor, 100_000, "the refund is not spend");
-    assert_eq!(summary.points_earned_total, 10, "its points were taken back");
+    assert_eq!(
+        summary.points_earned_total, 10,
+        "its points were taken back"
+    );
 
     let page = cloud::customer_transactions(&pool, MEMBER, CustomerTransactionsQuery::default())
         .await

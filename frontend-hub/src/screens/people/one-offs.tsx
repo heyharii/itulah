@@ -4,6 +4,8 @@ import { useState } from "react"
 import type { PayrollAdjustmentRow } from "@itulah/contract"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
+import { Fab } from "@/components/ui/fab"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Field, Input, Select } from "@/components/ui/field"
@@ -30,6 +32,12 @@ import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
 import { OneOffImport } from "@/screens/people/one-off-import-card"
 import { useUnit } from "@/screens/people/parts"
+import {
+  CardButton,
+  CardFigure,
+  CardName,
+  PhoneCards,
+} from "@/components/ui/phone-cards"
 
 /// Payroll › One-offs — the figures a place files into a month's batch that
 /// are not part of anyone's standing pay: an incentive, a commission, a
@@ -82,6 +90,7 @@ function useFilingUnits(): {
 
 export function OneOffs() {
   const canWrite = useCanWrite()
+  const phone = useLayout() === "phone"
   const unit = useUnit()
   const [unitId, setUnitId] = useState("")
   const [period, setPeriod] = useState(thisMonth)
@@ -106,8 +115,9 @@ export function OneOffs() {
       <PageHeader
         crumb="People"
         title="One-offs"
-        sub="Incentives, commissions and kasbon instalments filed into a month's payroll."
+        sub="Incentives, commissions and advance instalments filed into a month's payroll."
         actions={
+          !phone &&
           canWrite && (
             <>
               <Button variant="ghost" onClick={() => setImporting(true)}>
@@ -120,6 +130,7 @@ export function OneOffs() {
           )
         }
       />
+      {canWrite && <Fab label="File one-off" onClick={() => setFiling(true)} />}
 
       <Toolbar>
         {unit.units.length > 0 && (
@@ -145,15 +156,57 @@ export function OneOffs() {
         </span>
       </Toolbar>
 
-      <Card className="overflow-hidden px-4 py-2">
+      <Card className="overflow-hidden px-4 py-2 max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:p-0 max-md:shadow-none">
         {queryState(rows, {
           loading: "Reading the one-offs…",
           render: () =>
             filed.length === 0 ? (
               <EmptyState>
                 Nothing filed for {period}. Use File one-off to add an incentive
-                or a kasbon instalment, or Import CSV to add many at once.
+                or an advance instalment, or Import CSV to add many at once.
               </EmptyState>
+            ) : phone ? (
+              <PhoneCards
+                rows={filed}
+                onOpen={(row) => setOpenId(row.id)}
+                rowId={(row) => row.id}
+                spec={{
+                  title: (row) => (
+                    <CardName
+                      name={row.full_name ?? row.employee_code}
+                      line={
+                        <>
+                          <span className="block">
+                            {row.label}
+                            {row.advance_id !== null && " · potong advance"}
+                          </span>
+                          <span className="block">{row.unit_id}</span>
+                        </>
+                      }
+                    />
+                  ),
+                  lead: (row) => (
+                    <CardFigure
+                      value={money(row.amount_minor)}
+                      caption={
+                        row.kind === "DEDUCTION" ? "deduction" : "earning"
+                      }
+                    />
+                  ),
+                  foot: (row) => (
+                    <Pill tone={row.withdrawable ? "warn" : "ok"}>
+                      {row.withdrawable ? "Filed" : "In the batch"}
+                    </Pill>
+                  ),
+                  action: (row) => (
+                    <CardButton
+                      label="Open"
+                      ariaLabel={`Open ${row.label} for ${row.full_name ?? row.employee_code}`}
+                      onClick={() => setOpenId(row.id)}
+                    />
+                  ),
+                }}
+              />
             ) : (
               <MiniTable
                 head={[
@@ -202,6 +255,20 @@ export function OneOffs() {
             ),
         })}
       </Card>
+
+      {/* Importing many is a desk job in the main, but it stays reachable: at
+          the foot of the list on a phone, not at the top. */}
+      {canWrite && (
+        <div className="mt-4 md:hidden">
+          <Button
+            variant="tint"
+            className="w-full"
+            onClick={() => setImporting(true)}
+          >
+            Import CSV
+          </Button>
+        </div>
+      )}
 
       {filing && (
         <FileOneOffSheet
@@ -270,7 +337,7 @@ function OneOffSheet({
         <Fact term="Filed by">{row.filed_by}</Fact>
         <Fact term="Filed">{moment(row.filed_at)}</Fact>
         {row.advance_id !== null && (
-          <Fact term="Repays">a kasbon (potong advance)</Fact>
+          <Fact term="Repays">an advance taken from pay</Fact>
         )}
       </Facts>
 

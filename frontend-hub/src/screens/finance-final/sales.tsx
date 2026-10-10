@@ -11,7 +11,7 @@ import {
   LoadMore,
   LoadingState,
 } from "@/components/ui/states"
-import { clock, count, day, money } from "@/lib/format"
+import { clock, count, day, money, percentOf } from "@/lib/format"
 import {
   analyticsKeys,
   dailyReport,
@@ -254,7 +254,7 @@ export function Sales() {
                 This span is {count(dates.length)} days. A day-by-day split
                 costs one request per day, so it is drawn for spans up to{" "}
                 {DAY_LIMIT} days — narrow the window, or leave the site on{" "}
-                <b>Every site</b> to see the same span one row per shop.
+                <b>All sites</b> to see the same span one row per shop.
               </Note>
             ) : (
               <Grid>
@@ -752,8 +752,7 @@ function Figure({ minor }: { minor: number | null }) {
 /// happens to be zero are different sentences, and dividing by the first would
 /// print `NaN%` for both.
 function share(part: number, whole: number): string {
-  if (whole === 0) return "—"
-  return `${((part / whole) * 100).toFixed(1)}%`
+  return percentOf(part, whole)
 }
 
 function labelFor(method: string): string {

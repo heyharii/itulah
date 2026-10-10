@@ -83,7 +83,10 @@ fn active() -> bool {
 }
 
 /// The stored body with a date put back, read as the request it was.
-fn voucher_on(voucher: &serde_json::Value, on: NaiveDate) -> Result<RecordVoucherRequest, AppError> {
+fn voucher_on(
+    voucher: &serde_json::Value,
+    on: NaiveDate,
+) -> Result<RecordVoucherRequest, AppError> {
     let mut body = voucher.clone();
     let object = body
         .as_object_mut()
@@ -108,7 +111,9 @@ fn check(voucher: &RecordVoucherRequest) -> Result<String, AppError> {
         ));
     }
     if voucher.lines.is_empty() {
-        return Err(AppError::Validation("a repeat needs at least one line".into()));
+        return Err(AppError::Validation(
+            "a repeat needs at least one line".into(),
+        ));
     }
     if let Some(line) = voucher
         .lines
@@ -204,7 +209,9 @@ pub async fn save_cash_document_repeat(
     }
     let frequency = request.frequency.trim().to_ascii_uppercase();
     if !matches!(frequency.as_str(), "MONTHLY" | "QUARTERLY" | "YEARLY") {
-        return Err(AppError::Validation("a repeat is MONTHLY, QUARTERLY or YEARLY".into()));
+        return Err(AppError::Validation(
+            "a repeat is MONTHLY, QUARTERLY or YEARLY".into(),
+        ));
     }
     if request.end_date.is_some_and(|end| end < request.next_date) {
         return Err(AppError::Validation(
@@ -319,11 +326,13 @@ pub async fn run_cash_document_repeats(
                 }
                 Err(error) => {
                     let reason = error.to_string();
-                    sqlx::query("UPDATE cash_document_repeat SET last_error = $2 WHERE repeat_id = $1")
-                        .bind(repeat_id)
-                        .bind(&reason)
-                        .execute(pool)
-                        .await?;
+                    sqlx::query(
+                        "UPDATE cash_document_repeat SET last_error = $2 WHERE repeat_id = $1",
+                    )
+                    .bind(repeat_id)
+                    .bind(&reason)
+                    .execute(pool)
+                    .await?;
                     sweep.failed.push(format!("{name} ({on}): {reason}"));
                     break;
                 }

@@ -7,12 +7,12 @@ use crate::contract::{
 };
 use crate::edge::{
     sync::EdgeSyncHandle, AdvanceKoliRequest, CreateKoliShipmentRequest, DeviceProof, EdgeAuth,
-    EdgeAuthConfig, EdgeError, EdgeInventory, EdgeOfficialCountDetail, EdgeOfficialCountSummary, EdgePermission, EdgePrincipal, EdgeRfid, EdgeRole,
-    IntakeRequest, MoveRequest, NodeContext, OfficialCountEntriesRequest,
-    OfficialCountSubmitRequest, OpenGoodsReceiptRequest, OperationalPool, PackKoliRequest,
-    PickRequest, PoolBalance, PurchaseCountRequest, PurchaseReturnHandoverRequest, PurchaseVerifyRequest,
-    ReceiveBatchRequest,
-    ReceiveRequest, RecordInvoiceRequest, RejectDeliveryRequest, SaleRequest,
+    EdgeAuthConfig, EdgeError, EdgeInventory, EdgeOfficialCountDetail, EdgeOfficialCountSummary,
+    EdgePermission, EdgePrincipal, EdgeRfid, EdgeRole, IntakeRequest, MoveRequest, NodeContext,
+    OfficialCountEntriesRequest, OfficialCountSubmitRequest, OpenGoodsReceiptRequest,
+    OperationalPool, PackKoliRequest, PickRequest, PoolBalance, PurchaseCountBatchRequest,
+    PurchaseCountRequest, PurchaseReturnHandoverRequest, PurchaseVerifyRequest,
+    ReceiveBatchRequest, ReceiveRequest, RecordInvoiceRequest, RejectDeliveryRequest, SaleRequest,
     StoreInvoiceDocumentRequest, TaggingConfirmRequest, RFID_OBSERVATION_PATH, RFID_PING_PATH,
 };
 use crate::security::{self, CSRF_COOKIE, SESSION_COOKIE};
@@ -30,6 +30,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{collections::BTreeMap, path::PathBuf, str::FromStr, sync::Arc};
 use tower_http::{
+    compression::CompressionLayer,
     services::{ServeDir, ServeFile},
     trace::TraceLayer,
 };
@@ -235,7 +236,10 @@ pub fn dc_router_with_sync(
         // ordinary move out of the return pool: good goods to the racks,
         // damaged goods to reject.
         .route("/api/v1/dc/inbound", get(store_inbound_list))
-        .route("/api/v1/dc/inbound/{delivery_id}", get(store_inbound_detail))
+        .route(
+            "/api/v1/dc/inbound/{delivery_id}",
+            get(store_inbound_detail),
+        )
         .route(
             "/api/v1/dc/inbound/{delivery_id}/receive",
             post(store_inbound_receive),
@@ -267,6 +271,10 @@ pub fn dc_router_with_sync(
         )
         .route("/api/v1/dc/purchase-orders", get(dc_purchase_lines))
         .route(
+            "/api/v1/dc/purchase-orders/summary",
+            get(dc_purchase_summary),
+        )
+        .route(
             "/api/v1/dc/goods-receipts",
             get(dc_goods_receipts).post(dc_open_goods_receipt),
         )
@@ -285,6 +293,10 @@ pub fn dc_router_with_sync(
         .route(
             "/api/v1/dc/purchase-counts",
             get(dc_counts_awaiting_verification).post(dc_count_purchase),
+        )
+        .route(
+            "/api/v1/dc/purchase-counts/batch",
+            post(dc_count_purchase_batch),
         )
         .route(
             "/api/v1/dc/purchase-verifications",
@@ -313,6 +325,7 @@ pub fn dc_router_with_sync(
             require_auth,
         ))
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
+        .layer(CompressionLayer::new())
         .layer(TraceLayer::new_for_http())
         .with_state(state))
 }
@@ -372,7 +385,10 @@ pub fn store_router_with_sync(
         // blind on arrival — see `edge::inbound`. The two routes above stay
         // for goods that arrive unannounced.
         .route("/api/v1/store/inbound", get(store_inbound_list))
-        .route("/api/v1/store/inbound/{delivery_id}", get(store_inbound_detail))
+        .route(
+            "/api/v1/store/inbound/{delivery_id}",
+            get(store_inbound_detail),
+        )
         .route(
             "/api/v1/store/inbound/{delivery_id}/receive",
             post(store_inbound_receive),
@@ -423,7 +439,10 @@ pub fn store_router_with_sync(
             "/api/v1/store/return-requests/{allotment_id}/send",
             post(store_return_send),
         )
-        .route("/api/v1/store/outbound/koli/{koli_id}", get(dc_koli_manifest))
+        .route(
+            "/api/v1/store/outbound/koli/{koli_id}",
+            get(dc_koli_manifest),
+        )
         .route(
             "/api/v1/store/outbound/koli/{koli_id}/seal",
             post(dc_seal_koli),
@@ -502,6 +521,19 @@ pub fn store_router_with_sync(
         .route(
             "/api/v1/store/vouchers/{code}/release",
             post(relay_voucher_release),
+        )
+        // A limited coupon's hold — HEMAT50, "kuota 100 transaksi" — for the
+        // voucher's reason: the count that keeps the cap is one number shared by
+        // every shop, so the use is reserved at the centre, where both shops can
+        // see it. No commit here: the hold rides on the sale fact and the centre
+        // commits it when the sale lands. See `relay_coupon`.
+        .route(
+            "/api/v1/store/coupons/{code}/authorize",
+            post(relay_coupon_authorize),
+        )
+        .route(
+            "/api/v1/store/coupons/{code}/release",
+            post(relay_coupon_release),
         )
         // An employee's benefit balance (cloud 0818) lives at the centre too:
         // she can show her code at any shop, so the balance it spends is held
@@ -875,7 +907,13 @@ fn edge_pool_metadata(
         Outbound {
             stage: OutboundStage::InTransit,
             ..
-        } => ("OUTBOUND", "IN_TRANSIT", "In Transit", 80, Some("IN_TRANSIT")),
+        } => (
+            "OUTBOUND",
+            "IN_TRANSIT",
+            "In Transit",
+            80,
+            Some("IN_TRANSIT"),
+        ),
         DcRejectDc { .. } => ("REJECT", "DC_REJECT", "DC Reject", 90, None),
         DcRejectStore { .. } | Return { .. } => {
             ("REJECT", "STORE_REJECT", "Store Return", 100, None)
@@ -1535,9 +1573,7 @@ async fn store_return_send(
             .into_iter()
             .find(|ask| ask.allotment_id == allotment_id)
             .ok_or_else(|| {
-                EdgeError::Conflict(format!(
-                    "nothing is left to send on return {allotment_id}"
-                ))
+                EdgeError::Conflict(format!("nothing is left to send on return {allotment_id}"))
             })?;
         for line in &ask.lines {
             state.inventory.pick_stock(PickRequest {
@@ -2342,6 +2378,153 @@ async fn relay_voucher(
     ))
 }
 
+/// What a till sends to hold, or let go of, one use of a limited coupon.
+///
+/// The voucher relay's shape without an amount — a coupon hold reserves a USE,
+/// not money; what it took off travels on the sale. The shopper rides along
+/// because a coupon set may cap uses per shopper, and head office measures that
+/// cap against whoever the hold names.
+#[derive(Debug, Deserialize)]
+struct RelayCouponCall {
+    /// The basket this hold belongs to — the till's own id for it.
+    checkout_id: String,
+    #[serde(default)]
+    customer_id: Option<String>,
+    #[serde(default)]
+    reason: Option<String>,
+}
+
+/// Relay one coupon call to head office, signed with this node's machine
+/// credential, exactly as [`relay_voucher`] does for a card.
+///
+/// When the line is down the answer is 503 and a sentence — never a hold this
+/// node made up. A hold only this shop can see is a hundredth use given away
+/// twice, which is the failure the limit exists to prevent; a coupon that
+/// simply does not apply while head office is unreachable is the honest
+/// alternative, and the cashier can tell the shopper why.
+async fn relay_coupon(
+    state: &EdgeState,
+    code: &str,
+    verb: &str,
+    actor: &str,
+    call: &RelayCouponCall,
+) -> Result<Value, EdgeError> {
+    let Some(sync) = state.sync.as_ref() else {
+        return Err(EdgeError::Upstream(
+            "this node has no upload URL configured, so it cannot reach head office \
+             to hold a limited coupon"
+                .into(),
+        ));
+    };
+    let Some((base, key)) = sync.cloud() else {
+        return Err(EdgeError::Configuration(
+            "SYNC_UPLOAD_URL is empty, so the relay cannot work out where head office is".into(),
+        ));
+    };
+    // The voucher's path-segment check fits a coupon code too: letters,
+    // digits and a hyphen are all a printed code is made of.
+    let segment = voucher_code_segment(code)
+        .map_err(|_| EdgeError::Validation("a coupon code is letters, digits and hyphens".into()))?;
+    let url = format!("{base}/api/v1/sync/coupons/{segment}/{verb}");
+    let node = state.inventory.node();
+    let body = json!({
+        "origin_id": &node.node_id,
+        "checkout_id": call.checkout_id,
+        "customer_id": call.customer_id,
+        "reason": call.reason,
+        // Stamped, never taken from the client — see `relay_voucher`.
+        "site_id": node.site_id.as_str(),
+        "actor_id": actor,
+    });
+    let sent = relay_client()?
+        .post(&url)
+        .header(relay::SYNC_KEY_HEADER, key)
+        .json(&body);
+    let (status, parsed) = relay_exchange(sent).await.map_err(|error| {
+        // The line is down. Said as a sentence a cashier can repeat to the
+        // shopper, with the transport's own words kept for whoever reads logs.
+        tracing::warn!(%error, code, verb, "coupon relay could not reach head office");
+        EdgeError::Upstream(
+            "head office cannot be reached, so this limited coupon cannot be held \
+             right now — it does not apply until the line is back"
+                .into(),
+        )
+    })?;
+    if status.is_success() {
+        return Ok(parsed);
+    }
+    // The centre's own refusal in its own words: "that offer has been used as
+    // often as it allows" is the sentence that ends the conversation.
+    Err(relay_refusal(
+        status,
+        &parsed,
+        "head office refused the coupon call",
+    ))
+}
+
+async fn relay_coupon_authorize(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(code): Path<String>,
+    Json(call): Json<RelayCouponCall>,
+) -> Result<Json<Value>, ApiError> {
+    let actor = relay_actor(&state, principal, "holding a coupon")?;
+    if call.checkout_id.trim().is_empty() {
+        return Err(ApiError(EdgeError::Validation(
+            "a coupon hold has to name the basket it is for".into(),
+        )));
+    }
+    let held = relay_coupon(&state, &code, "authorize", &actor, &call)
+        .await
+        .map_err(ApiError)?;
+    // Written down before the till hears yes: a quote or sale leans only on a
+    // hold recorded here (`vouched_coupon_holds`), so a hold the till was told
+    // about but this node never recorded cannot exist.
+    let authorization_id = held
+        .get("authorization_id")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            ApiError(EdgeError::Upstream(
+                "head office granted a coupon hold without naming it".into(),
+            ))
+        })?;
+    let expires_at = held
+        .get("expires_at")
+        .and_then(Value::as_str)
+        .and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
+        .map(|at| at.with_timezone(&chrono::Utc));
+    let record = crate::edge::CouponHoldRecord {
+        authorization_id,
+        code: code.trim().to_owned(),
+        checkout_id: call.checkout_id.clone(),
+        expires_at,
+    };
+    let inventory = state.inventory.clone();
+    run_blocking(move || inventory.record_coupon_hold(record)).await?;
+    Ok(Json(held))
+}
+
+async fn relay_coupon_release(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Path(code): Path<String>,
+    Json(call): Json<RelayCouponCall>,
+) -> Result<Json<Value>, ApiError> {
+    let actor = relay_actor(&state, principal, "releasing a coupon")?;
+    // Closed here FIRST, and whatever head office says: the basket was
+    // abandoned at this till, so no sale here may lean on the hold again. If
+    // the line is down the hold lapses at the centre on its own in minutes.
+    let inventory = state.inventory.clone();
+    let code_owned = code.clone();
+    let checkout_id = call.checkout_id.clone();
+    run_blocking(move || inventory.close_coupon_hold(&code_owned, &checkout_id)).await?;
+    let released = relay_coupon(&state, &code, "release", &actor, &call)
+        .await
+        .map_err(ApiError)?;
+    Ok(Json(released))
+}
+
 /// What a till sends for an employee benefit call. The shop and the cashier
 /// are stamped by this node, never taken from here.
 #[derive(Debug, serde::Deserialize)]
@@ -2812,7 +2995,10 @@ async fn relay_central(
         .request(verb, &url)
         .timeout(CENTRAL_RELAY_TIMEOUT)
         .header(relay::SYNC_KEY_HEADER, key)
-        .header(relay::RELAY_ORIGIN_HEADER, state.inventory.node().node_id.as_str())
+        .header(
+            relay::RELAY_ORIGIN_HEADER,
+            state.inventory.node().node_id.as_str(),
+        )
         .header(relay::RELAY_USER_HEADER, principal.user_id.to_string())
         .header(header::ACCEPT, "application/json");
     if !body.is_empty() {
@@ -2876,8 +3062,40 @@ async fn store_catalog(
     State(state): State<EdgeState>,
     principal: Option<Extension<EdgePrincipal>>,
     Query(query): Query<crate::edge::pricing::CatalogQuery>,
-) -> Result<Json<Value>, ApiError> {
+    headers: axum::http::HeaderMap,
+) -> Result<Response, ApiError> {
     require_permission(&state, principal, EdgePermission::InventoryRead)?;
+    // Whole-book revalidation (POS-PERFORMANCE-PLAN Phase 2.2): the desk
+    // pulls the book whole at open and then refetches it — on focus, on the
+    // price-drop poll, after a sale — and the book changes only when the
+    // centre publishes a new generation. So the FIRST page carries the
+    // catalogue generation as a strong ETag, and a desk that already holds
+    // that exact book gets a body-less 304 instead of ten JSON pages. Search
+    // and cursor pages never revalidate: they are answers about a query, not
+    // about the book.
+    let revalidating = query.cursor.is_none() && query.q.is_none();
+    let etag: Option<String> = if revalidating {
+        state
+            .inventory
+            .catalog_snapshot_state()
+            .ok()
+            .map(|snapshot| format!("\"{}\"", snapshot.generation))
+    } else {
+        None
+    };
+    if let Some(etag) = &etag {
+        let matches = headers
+            .get(axum::http::header::IF_NONE_MATCH)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|sent| sent.split(',').any(|c| c.trim() == etag));
+        if matches {
+            return Ok((
+                axum::http::StatusCode::NOT_MODIFIED,
+                [(axum::http::header::ETAG, etag.as_str())],
+            )
+                .into_response());
+        }
+    }
     let node = state.inventory.node().clone();
     let page = run_blocking(move || state.inventory.store_catalog_page(query)).await?;
     let items = page.items;
@@ -2886,7 +3104,7 @@ async fn store_catalog(
         .first()
         .map(|item| item.currency.clone())
         .unwrap_or_else(|| "IDR".to_string());
-    Ok(Json(json!({
+    let mut response = Json(json!({
         "site_id": node.site_id.as_str(),
         "channel": crate::edge::pricing::STORE_CHANNEL,
         "as_of": chrono::Utc::now(),
@@ -2897,7 +3115,16 @@ async fn store_catalog(
         "limit": page.limit,
         "next_cursor": page.next_cursor,
         "items": items,
-    })))
+    }))
+    .into_response();
+    if let Some(etag) = etag {
+        if let Ok(value) = axum::http::HeaderValue::from_str(&etag) {
+            response
+                .headers_mut()
+                .insert(axum::http::header::ETAG, value);
+        }
+    }
+    Ok(response)
 }
 
 /// The payment methods head office set this shop up to take, in its order
@@ -2939,7 +3166,10 @@ async fn store_open_shift(
     let report = run_blocking(move || state.inventory.open_shift(request)).await?;
     Ok((
         StatusCode::CREATED,
-        Json(blind_for_cashier(principal.as_ref(), serde_json::to_value(report)?)),
+        Json(blind_for_cashier(
+            principal.as_ref(),
+            serde_json::to_value(report)?,
+        )),
     ))
 }
 
@@ -2954,9 +3184,8 @@ async fn store_open_shift(
 /// count sheet — stays. Supervisors and admins get it whole, and so does a
 /// node running with auth off, which has no roles to tell apart.
 fn blind_for_cashier(principal: Option<&EdgePrincipal>, mut report: Value) -> Value {
-    let cashier = principal.is_some_and(|principal| {
-        principal.role == crate::edge::domain::Role::Cashier
-    });
+    let cashier =
+        principal.is_some_and(|principal| principal.role == crate::edge::domain::Role::Cashier);
     if !cashier {
         return report;
     }
@@ -3047,7 +3276,10 @@ async fn store_cash_movement(
         run_blocking(move || state.inventory.record_cash_movement(&shift_id, request)).await?;
     Ok((
         StatusCode::CREATED,
-        Json(blind_for_cashier(principal.as_ref(), serde_json::to_value(report)?)),
+        Json(blind_for_cashier(
+            principal.as_ref(),
+            serde_json::to_value(report)?,
+        )),
     ))
 }
 
@@ -3104,8 +3336,7 @@ async fn store_record_expense(
         }
         None => None,
     };
-    let recorded =
-        run_blocking(move || state.inventory.record_expense(request, approval)).await?;
+    let recorded = run_blocking(move || state.inventory.record_expense(request, approval)).await?;
     Ok((StatusCode::CREATED, Json(serde_json::to_value(recorded)?)))
 }
 
@@ -3151,7 +3382,11 @@ async fn use_expense_code(
     )
     .await?;
     if !status.is_success() {
-        return Err(relay_refusal(status, &parsed, "Head office refused the code."));
+        return Err(relay_refusal(
+            status,
+            &parsed,
+            "Head office refused the code.",
+        ));
     }
     if let Some(line) = parsed.get("code_above_minor").and_then(Value::as_i64) {
         let learner = state.inventory.clone();
@@ -3409,13 +3644,19 @@ async fn store_my_shifts(
         None => query.actor_id.unwrap_or_default(),
     };
     if actor.trim().is_empty() {
-        return Err(ApiError(EdgeError::Validation("actor_id is required".into())));
+        return Err(ApiError(EdgeError::Validation(
+            "actor_id is required".into(),
+        )));
     }
     let mine = run_blocking(move || state.inventory.my_shifts(&actor)).await?;
     let mut mine = serde_json::to_value(mine)?;
     if let Some(fields) = mine.as_object_mut() {
         if let Some(open) = fields.remove("open") {
-            let open = if open.is_null() { open } else { blind_for_cashier(principal.as_ref(), open) };
+            let open = if open.is_null() {
+                open
+            } else {
+                blind_for_cashier(principal.as_ref(), open)
+            };
             fields.insert("open".into(), open);
         }
         if let Some(Value::Array(uncounted)) = fields.remove("uncounted") {
@@ -5151,6 +5392,42 @@ async fn dc_purchase_lines(
     Ok(Json(json!({ "items": lines })))
 }
 
+/// How many orders this DC is still owed a delivery against, and which were
+/// sent back to be counted again — the badge and the order book's recount
+/// marks, worked out here so neither carries the whole work list across the
+/// network to read two facts off it.
+async fn dc_purchase_summary(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+) -> Result<Json<Value>, ApiError> {
+    require_permission(&state, principal, EdgePermission::DcOperate)?;
+    let mut lines = run_blocking(move || state.inventory.open_purchase_lines()).await?;
+    let orders = lines
+        .iter()
+        .map(|line| line.po_number.as_str())
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
+    // An order's reason is its first recounted line's.
+    lines.sort_by(|a, b| {
+        a.po_number
+            .cmp(&b.po_number)
+            .then(a.line_number.cmp(&b.line_number))
+    });
+    let mut recounts: Vec<Value> = Vec::new();
+    let mut last: Option<String> = None;
+    for line in &lines {
+        let Some(reason) = &line.recount_reason else {
+            continue;
+        };
+        if last.as_deref() == Some(line.po_number.as_str()) {
+            continue;
+        }
+        last = Some(line.po_number.clone());
+        recounts.push(json!({ "po_number": line.po_number, "reason": reason }));
+    }
+    Ok(Json(json!({ "orders": orders, "recounts": recounts })))
+}
+
 /// Record a blind count of what arrived. A document, not a movement: nothing
 /// becomes stock here.
 async fn dc_count_purchase(
@@ -5162,6 +5439,20 @@ async fn dc_count_purchase(
         request.actor_id = principal.username;
     }
     let result = run_blocking(move || state.inventory.count_purchase(request)).await?;
+    Ok((StatusCode::CREATED, Json(serde_json::to_value(result)?)))
+}
+
+/// A whole count sheet in one command: every counted line of one order, one
+/// delivery document, one transaction.
+async fn dc_count_purchase_batch(
+    State(state): State<EdgeState>,
+    principal: Option<Extension<EdgePrincipal>>,
+    Json(mut request): Json<PurchaseCountBatchRequest>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    if let Some(principal) = require_permission(&state, principal, EdgePermission::DcOperate)? {
+        request.actor_id = principal.username;
+    }
+    let result = run_blocking(move || state.inventory.count_purchase_batch(request)).await?;
     Ok((StatusCode::CREATED, Json(serde_json::to_value(result)?)))
 }
 
@@ -5421,7 +5712,10 @@ mod blind_tests {
 
     #[test]
     fn a_cashier_never_reads_what_the_drawer_should_hold() {
-        let seen = blind_for_cashier(Some(&principal(crate::edge::domain::Role::Cashier)), report());
+        let seen = blind_for_cashier(
+            Some(&principal(crate::edge::domain::Role::Cashier)),
+            report(),
+        );
         for key in [
             "sales_total_minor",
             "cash_sales_minor",

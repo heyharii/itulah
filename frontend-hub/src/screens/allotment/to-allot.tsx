@@ -5,9 +5,7 @@ import { DockSelection } from "@/components/shell/dock-selection"
 import { DockTools, type DockStatus } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/ui/states"
-import { Thumbnail } from "@/components/ui/thumbnail"
-import { colourwayFill } from "@/lib/colourway-fill"
-import { count, day, dayMonth } from "@/lib/format"
+import { count, day, dayMonth, quantity } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import {
   asPicks,
@@ -17,6 +15,7 @@ import {
   type PickArticle,
   type PickSupplier,
 } from "./to-allot-data"
+import { ArticleThumb } from "./article-thumb"
 
 /// The Unallotted tab of the Allotments page — see `to-allot-data.tsx` for
 /// what it reads and how the grid walks the suppliers ticked.
@@ -342,7 +341,7 @@ function SupplierFold({
             <span className="block truncate text-[0.875rem] text-mute tabular-nums">
               {count(supplier.articles.length)}{" "}
               {supplier.articles.length === 1 ? "article" : "articles"} ·{" "}
-              {count(supplier.free)} pcs free
+              {quantity(supplier.free)} free
               {ticked > 0 && (
                 <span className="text-accent"> · {count(ticked)} selected</span>
               )}
@@ -466,15 +465,12 @@ function ArticleChoice({
           .filter(Boolean)
           .join(" · ")}
       >
-        <Thumbnail
+        <ArticleThumb
           url={article.image}
           name={article.name}
           division={article.division}
-          colours={
-            article.colours[0] &&
-            colourwayFill(article.colours[0].name, article.colours[0].hex)
-          }
-          className="size-11 shrink-0 rounded-inner"
+          colour={article.colours[0]?.name}
+          articleCode={article.code}
         />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[0.9375rem] font-medium text-ink">

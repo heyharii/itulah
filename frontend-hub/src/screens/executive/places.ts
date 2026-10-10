@@ -36,7 +36,7 @@ export function usePlaces(scope: ReportScope): {
         // Head office does not trade, so it is rarely in the series; the
         // series resolves its id from its kind (0603) so no screen spells it.
         names.get(siteId) ??
-        (siteId === series.data?.head_office_site_id ? "Kantor pusat" : siteId),
+        (siteId === series.data?.head_office_site_id ? "Head office" : siteId),
     }
   }, [series.data])
 }

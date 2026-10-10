@@ -12,13 +12,19 @@ import {
   Warehouse,
 } from "lucide-react"
 
+import { useQuery } from "@tanstack/react-query"
+
 import type { AppModule } from "@/lib/navigation"
-import { useAwaitingIdentity } from "@/screens/procurement/queue"
+import { procurementKeys, unidentifiedCount } from "@/lib/queries/procurement"
 
 /// Delivery lines waiting to be named: the count on New articles, and on the
-/// Master row while it is folded.
+/// Master row while it is folded. Its own small read — taking the length of
+/// the whole queue held every waiting receipt line in memory on every screen.
 export const useNewArticlesCount = () =>
-  useAwaitingIdentity().data?.length ?? null
+  useQuery({
+    queryKey: procurementKeys.unidentifiedCount(),
+    queryFn: ({ signal }) => unidentifiedCount(signal),
+  }).data ?? null
 
 /// This module's row in the sidebar and the sub-items under it.
 /// Owned by the module, composed by `lib/navigation.ts` — so adding a screen
@@ -72,7 +78,7 @@ export const masterNav: AppModule = {
       ],
     },
     {
-      /// The company itself: head office, the Gudang and every store, the
+      /// The company itself: head office, the warehouse and every store, the
       /// premises each owns and who is answerable for each (0600-0602) — the
       /// screen has been called Organisation in the code all along. From
       /// System since 2026-10-04 (owner): a register of the company is
@@ -123,7 +129,7 @@ export const masterNav: AppModule = {
       items: [
         {
           path: "/master/units",
-          label: "Satuan & Conversions",
+          label: "Units & Conversions",
           icon: Scale,
           moved: ["/inventory/units"],
           hidden: true,

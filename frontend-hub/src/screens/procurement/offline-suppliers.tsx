@@ -12,10 +12,7 @@ import { Fact, Facts, Sheet } from "@/components/ui/sheet"
 import type { Supplier } from "@itulah/contract"
 
 import { count, day } from "@/lib/format"
-import {
-  procurementKeys,
-  supplierPage,
-} from "@/lib/queries/procurement"
+import { procurementKeys, supplierPage } from "@/lib/queries/procurement"
 import { refreshReference, useReference } from "@/lib/offline/reference"
 import { useDebounced } from "@/lib/use-debounced"
 import { Suppliers } from "@/screens/procurement/suppliers"
@@ -86,7 +83,7 @@ function OfflineSuppliers({
           (one) =>
             one.name.toLowerCase().includes(needle) ||
             one.supplier_code.toLowerCase().includes(needle) ||
-            (one.contact_name ?? "").toLowerCase().includes(needle),
+            (one.contact_name ?? "").toLowerCase().includes(needle)
         )
   const hidden = Math.max(0, total - suppliers.length)
 
@@ -95,23 +92,23 @@ function OfflineSuppliers({
       <PageHeader
         crumb="Procurement"
         title="Suppliers"
-        sub="Bacaan offline — buku penuh dan semua perubahan dilakukan saat online."
+        sub="Offline reading — the full book and every change are available online only."
       />
 
       <Banner tone="warn" className="mb-4">
-        Offline — menampilkan {count(suppliers.length)} dari {count(total)}{" "}
-        supplier yang tersimpan di perangkat
-        {at === null ? "" : ` (diambil ${day(at)})`}
-        {hidden > 0 ? `; ${count(hidden)} tidak tersimpan.` : "."} Membuka,
-        menambah atau mengubah supplier dilakukan saat online.
+        Offline — showing {count(suppliers.length)} of {count(total)} suppliers
+        stored on this device
+        {at === null ? "" : ` (fetched ${day(at)})`}
+        {hidden > 0 ? `; ${count(hidden)} not stored.` : "."} Opening, adding or
+        changing a supplier is done when online.
       </Banner>
 
-      <Field label="Cari supplier tersimpan">
+      <Field label="Search stored suppliers">
         <Input
           value={typed}
           onChange={(event) => setTyped(event.target.value)}
-          placeholder="Nama, kode, atau kontak"
-          aria-label="Cari supplier tersimpan"
+          placeholder="Name, code, or contact"
+          aria-label="Search stored suppliers"
         />
       </Field>
 
@@ -129,10 +126,10 @@ function OfflineSuppliers({
               <span className="ml-auto">
                 <Button
                   variant="quiet"
-                  aria-label={`Buka ${one.name}`}
+                  aria-label={`Open ${one.name}`}
                   onClick={() => setOpenId(one.supplier_id)}
                 >
-                Detail
+                  Detail
                 </Button>
               </span>
             </div>
@@ -144,8 +141,8 @@ function OfflineSuppliers({
         ))}
         {rows.length === 0 && (
           <Banner tone="info">
-            Tidak ada yang cocok di {count(suppliers.length)} supplier
-            tersimpan. Supplier di luar cache baru terlihat saat online.
+            No match in the {count(suppliers.length)} stored suppliers.
+            Suppliers outside the cache only show when online.
           </Banner>
         )}
       </div>
@@ -158,22 +155,23 @@ function OfflineSuppliers({
         {open !== null && (
           <>
             <Facts>
-              <Fact term="Kode">{open.supplier_code}</Fact>
+              <Fact term="Code">{open.supplier_code}</Fact>
               <Fact term="Status">{open.status}</Fact>
-              <Fact term="Kontak">{open.contact_name ?? "—"}</Fact>
-              <Fact term="Telepon">{open.phone ?? "—"}</Fact>
+              <Fact term="Contact">{open.contact_name ?? "—"}</Fact>
+              <Fact term="Phone Number">{open.phone ?? "—"}</Fact>
               <Fact term="Email">{open.email ?? "—"}</Fact>
-              <Fact term="Alamat">{open.address ?? "—"}</Fact>
+              <Fact term="Address">{open.address ?? "—"}</Fact>
               <Fact term="NPWP">{open.npwp ?? "—"}</Fact>
-              <Fact term="PKP">{open.is_pkp ? "Ya" : "Bukan"}</Fact>
-              <Fact term="Bentuk usaha">{open.legal_form ?? "—"}</Fact>
-              <Fact term="Syarat bayar bawaan">
+              <Fact term="PKP">{open.is_pkp ? "Yes" : "No"}</Fact>
+              <Fact term="Legal Form">{open.legal_form ?? "—"}</Fact>
+              <Fact term="Default Payment Terms">
                 {open.default_payment_terms_code ?? "—"}
               </Fact>
-              <Fact term="Catatan">{open.notes ?? "—"}</Fact>
+              <Fact term="Notes">{open.notes ?? "—"}</Fact>
             </Facts>
             <Banner tone="info">
-              Bacaan tersimpan perangkat — versi terbaru ada saat online.
+              Read from the copy stored on this device — the latest version is
+              there when online.
             </Banner>
           </>
         )}

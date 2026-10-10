@@ -220,8 +220,9 @@ export function Input({
         className={cn(
           "h-10 w-full rounded-inner border border-hairline-2 bg-canvas px-3 text-[0.9375rem] text-ink transition-[border-color,box-shadow] outline-none",
           "placeholder:text-mute hover:border-hairline-strong focus:border-accent",
-          // On a form, the form's box — see `FORM_BOX`.
-          form && [FORM_BOX, FORM_HALO],
+          // On a form, the form's box — see `FORM_BOX`. Off one, in a toolbar
+          // or a table cell, 40 for a pointer and 44 for a finger (D1).
+          form ? [FORM_BOX, FORM_HALO] : "pointer-coarse:h-11",
           "disabled:opacity-50",
           // Read, not typed — a record open for reading shows its answers in
           // the same boxes, without the hover that invites a click.
@@ -355,7 +356,9 @@ export function Checkbox({
           box and toggles it exactly once. */}
       <label
         className={cn(
-          "inline-flex items-center gap-2 text-[0.875rem] text-text capitalize",
+          // A 20px box and a 44px row under a finger (D1): the label is the
+          // target, so the row is the height.
+          "inline-flex items-center gap-2 text-[0.875rem] text-text capitalize pointer-coarse:min-h-11",
           disabled === true ? "opacity-55" : "cursor-pointer"
         )}
       >
@@ -366,7 +369,7 @@ export function Checkbox({
           disabled={disabled}
           {...aria}
           className={cn(
-            "grid size-3.5 shrink-0 place-items-center rounded-[0.25rem] border border-hairline-strong bg-canvas transition-colors outline-none",
+            "grid size-3.5 shrink-0 place-items-center rounded-[0.25rem] border border-hairline-strong bg-canvas transition-colors outline-none pointer-coarse:size-5",
             "hover:border-line",
             "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
             "data-checked:border-accent data-checked:bg-accent",
@@ -377,9 +380,15 @@ export function Checkbox({
         >
           <BaseCheckbox.Indicator className="flex text-white">
             {indeterminate === true ? (
-              <Minus className="size-2.5" strokeWidth={3} />
+              <Minus
+                className="size-2.5 pointer-coarse:size-3.5"
+                strokeWidth={3}
+              />
             ) : (
-              <Check className="size-2.5" strokeWidth={3} />
+              <Check
+                className="size-2.5 pointer-coarse:size-3.5"
+                strokeWidth={3}
+              />
             )}
           </BaseCheckbox.Indicator>
         </BaseCheckbox.Root>
@@ -668,7 +677,7 @@ export function Select({
           {...aria}
           className={cn(
             "flex h-10 w-full items-center rounded-inner border border-hairline-2 bg-canvas px-3 text-left text-[0.9375rem] text-ink disabled:opacity-50",
-            form && FORM_BOX,
+            form ? FORM_BOX : "pointer-coarse:h-11",
             INVALID,
             className
           )}
@@ -722,7 +731,7 @@ export function Select({
           // one field nobody could see they were on.
           "focus-visible:border-accent data-[popup-open]:border-accent",
           "data-disabled:opacity-50",
-          form && [FORM_BOX, FORM_HALO_TRIGGER],
+          form ? [FORM_BOX, FORM_HALO_TRIGGER] : "pointer-coarse:h-11",
           INVALID,
           className
         )}

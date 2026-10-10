@@ -7,6 +7,7 @@ import {
   type LucideIcon,
 } from "lucide-react"
 
+import { dateText } from "@/lib/format"
 import { money } from "@itulah/contract/money"
 
 /// The words and numbers the Money screens share — how a tender is named, how
@@ -80,68 +81,58 @@ export function tenderOf(method: string): TenderKind {
 
 // ── Days ────────────────────────────────────────────────────────────────────
 
-/// How a day is written in this module.
+/// How a day is written in this module: the house format (`06 Oct 2026`,
+/// weekdays `Tue 06 Oct`), through `dateText` so the months are English.
 ///
-/// Local rather than `moment()` from `lib/format.ts`: that one is a day AND a
-/// minute, and a day's takings have no minute. `new Date(iso)` alone would
-/// read the node's `YYYY-MM-DD` as UTC and move a Jakarta shop's day back by
-/// one, so the midnight is spelled out and parsed local, the way `isoDay()`
-/// writes it.
-const at = (iso: string) => new Date(`${iso}T00:00:00`)
+/// Local rather than `day()` from `lib/format.ts`: that one takes an instant,
+/// and a day's takings are a calendar day. `new Date(iso)` alone would read the
+/// node's `YYYY-MM-DD` as UTC and move a Jakarta shop's day back by one, so the
+/// midnight is spelled out and parsed local, the way `isoDay()` writes it.
+const at = (iso: string) => new Date(`${iso.slice(0, 10)}T00:00:00`)
+
+const DAY = { day: "2-digit", month: "short" } as const
+const DAY_YEAR = { day: "2-digit", month: "short", year: "numeric" } as const
+
+/// A calendar day with its year, no weekday: "06 Oct 2026".
+export const dayYear = (iso: string) => dateText(at(iso), DAY_YEAR)
 
 /// An axis tick: as short as a date gets and still be a date.
-export const dayTick = (iso: string) =>
-  at(iso).toLocaleDateString("id-ID", { day: "2-digit", month: "short" })
+export const dayTick = (iso: string) => dateText(at(iso), DAY)
 
-/// A tooltip, a caption: the day somebody says out loud.
+/// A tooltip, a caption: the day somebody says out loud, with its year.
 export const dayTitle = (iso: string) =>
-  at(iso).toLocaleDateString("id-ID", {
-    weekday: "long",
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-  })
+  `${dateText(at(iso), { weekday: "short" })} ${dateText(at(iso), DAY_YEAR)}`
 
 /// A row's name. The weekday is carried because half of what a daily list is
 /// read for is which days are quiet, and a reader should not have to work that
 /// out from a number.
-export const dayStamp = (iso: string) =>
-  at(iso).toLocaleDateString("id-ID", {
-    weekday: "short",
-    day: "2-digit",
-    month: "short",
-  })
+export const dayStamp = dayTitle
 
-/// A span, both ends named: "27 Agu – 25 Sep".
-export const spanWords = (from: string, to: string) =>
-  from === to ? dayStamp(from) : `${dayTick(from)} – ${dayTick(to)}`
+/// A span, both ends named: "07 Sep – 06 Oct 2026".
+export function spanWords(from: string, to: string): string {
+  if (from === to) return dayTitle(from)
+  return at(from).getFullYear() === at(to).getFullYear()
+    ? `${dayTick(from)} – ${dateText(at(to), DAY_YEAR)}`
+    : `${dateText(at(from), DAY_YEAR)} – ${dateText(at(to), DAY_YEAR)}`
+}
 
 /// A week or a month, named by the day it starts on — the node names a week by
 /// its Monday and a month by its first.
 export function bucketTick(start: string, bucket: string): string {
   if (bucket === "month") {
-    return at(start).toLocaleDateString("id-ID", {
-      month: "short",
-      year: "2-digit",
-    })
+    return dateText(at(start), { month: "short", year: "2-digit" })
   }
   return dayTick(start)
 }
 
 export function bucketTitle(start: string, bucket: string): string {
   if (bucket === "month") {
-    return at(start).toLocaleDateString("id-ID", {
-      month: "long",
-      year: "numeric",
-    })
+    return dateText(at(start), { month: "long", year: "numeric" })
   }
   if (bucket === "week") {
     const end = at(start)
     end.setDate(end.getDate() + 6)
-    return `Week of ${dayTick(start)} – ${end.toLocaleDateString("id-ID", {
-      day: "2-digit",
-      month: "short",
-    })}`
+    return `Week of ${dayTick(start)} – ${dateText(end, DAY_YEAR)}`
   }
   return dayTitle(start)
 }

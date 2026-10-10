@@ -4,15 +4,16 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
-import { Lock, Plus } from "lucide-react"
+import { Lock } from "lucide-react"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Field, Input, Select } from "@/components/ui/field"
-import { PeopleSheet, SheetSection } from "@/components/ui/people-sheet"
+import { PeopleSheet, SheetFoot } from "@/components/ui/people-sheet"
 import { PeopleTable } from "@/components/ui/people-table"
-import { Pill } from "@/components/ui/pill"
+import { Pill, Status } from "@/components/ui/pill"
 import { Stat, StatStrip } from "@/components/ui/stat-strip"
+import { Banner } from "@/components/ui/states"
 import { moment } from "@/lib/format"
 import {
   awaitingOvertimeAt,
@@ -23,13 +24,27 @@ import {
   overtimeOrdersOf,
   readDate,
   readMinutes,
+  readMonth,
   rules,
   withdrawOvertime,
   type StoreScope,
 } from "@/lib/queries/hr"
-import { centreState } from "@/screens/hr/centre"
-import { Facts, Fenced, Person, PersonPicker, Submit } from "@/screens/hr/parts"
-import { personName, useTeam, type Tone } from "@/screens/hr/words"
+import { centreState, describeCentre } from "@/screens/hr/centre"
+import {
+  Facts,
+  Fenced,
+  Person,
+  personCard,
+  PersonPicker,
+  Submit,
+} from "@/screens/hr/parts"
+import {
+  personByLogin,
+  personName,
+  requestState,
+  useTeam,
+  type Tone,
+} from "@/screens/hr/words"
 import { HrWorkspace } from "@/screens/hr/workspace"
 import type {
   EmployeeList,
@@ -46,17 +61,15 @@ import type {
 /// keys disjoint — so there is no button here that agrees on somebody's
 /// behalf, and an order nobody answers authorises nothing. The value of the
 /// hours is head office's to compute (🔒); the shop records the order and,
-/// while it is unanswered, may take it back.
+/// while it is unanswered, may withdraw it.
 export function HrOvertime() {
   const [ordering, setOrdering] = useState(false)
   return (
     <HrWorkspace
-      actions={
-        <Button variant="primary" onClick={() => setOrdering(true)}>
-          <Plus />
-          Order overtime
-        </Button>
-      }
+      primary={{
+        label: "New overtime order",
+        onClick: () => setOrdering(true),
+      }}
     >
       {(scope) => (
         <Overtime scope={scope} ordering={ordering} onOrdering={setOrdering} />
@@ -65,19 +78,20 @@ export function HrOvertime() {
   )
 }
 
-/// What an order's state means, said as what it waits for.
+/// An order's state in the module's four words. The worker's answer is the
+/// approval here — they agree or they decline — so AGREED is Approved and
+/// DECLINED is Rejected; who is being waited on is a fact in the sheet, not
+/// part of the state's name.
 function orderState(state: string): { label: string; tone: Tone } {
   switch (state) {
     case "AWAITING_CONSENT":
-      return { label: "Waiting on the employee", tone: "warn" }
+      return requestState("PENDING")
     case "AGREED":
-      return { label: "Agreed · authorised", tone: "ok" }
+      return requestState("APPROVED")
     case "DECLINED":
-      return { label: "Declined", tone: "bad" }
-    case "WITHDRAWN":
-      return { label: "Withdrawn", tone: "neutral" }
+      return requestState("REJECTED")
     default:
-      return { label: state, tone: "neutral" }
+      return requestState(state)
   }
 }
 
@@ -124,7 +138,7 @@ function Overtime({
   return (
     <>
       {centreState(awaiting, {
-        loading: "Loading…",
+        loading: "Reading the overtime orders…",
         what: "this shop's overtime orders",
         render: (queue) => {
           const byId = new Map<string, OvertimeOrderView>()
@@ -154,7 +168,7 @@ function Overtime({
               <Fenced dropped={queue.elsewhere} place={scope.unit_id} />
               <StatStrip>
                 <Stat
-                  label="Waiting on the employee"
+                  label="Pending"
                   value={queue.rows.length}
                   tone={queue.rows.length > 0 ? "warn" : undefined}
                 />
@@ -163,7 +177,7 @@ function Overtime({
                   value={readMinutes(authorisedThisMonth)}
                 />
                 <Stat
-                  label="Declined this month"
+                  label="Rejected this month"
                   value={
                     rows.filter(
                       (order) =>
@@ -181,6 +195,31 @@ function Overtime({
                 rowKey={(order) => order.id}
                 onRowClick={setOpen}
                 empty="No overtime ordered."
+                card={(order) => {
+                  const state = orderState(order.state)
+                  // Authorised hours exist only once the person has agreed;
+                  // until then the figure is what was ordered.
+                  const authorised = order.authorized_minutes
+                  return {
+                    ...personCard(team.data, order.employee_id, [
+                      `${readDate(order.on_date, true)} · ${dayKindWord(order.day_kind)}`,
+                    ]),
+                    lead:
+                      authorised === null
+                        ? {
+                            figure: readMinutes(order.planned_minutes),
+                            caption: "ordered",
+                          }
+                        : {
+                            figure: readMinutes(authorised),
+                            caption: "authorised",
+                          },
+                    foot: {
+                      info: <Status tone={state.tone}>{state.label}</Status>,
+                      action: { label: "Open", onClick: () => setOpen(order) },
+                    },
+                  }
+                }}
                 columns={[
                   {
                     key: "who",
@@ -192,13 +231,11 @@ function Overtime({
                   {
                     key: "date",
                     header: "Date",
-                    card: "meta",
                     cell: (order) => readDate(order.on_date, true),
                   },
                   {
                     key: "kind",
                     header: "Kind",
-                    card: "meta",
                     cell: (order) => dayKindWord(order.day_kind),
                   },
                   {
@@ -222,14 +259,12 @@ function Overtime({
                   {
                     key: "period",
                     header: "Payroll",
-                    card: "hide",
-                    cell: (order) => readMonthShort(order.on_date),
+                    cell: (order) => readMonth(order.on_date.slice(0, 7)),
                   },
                   {
                     key: "value",
                     header: "Value",
                     align: "right",
-                    card: "hide",
                     cell: () => (
                       <span
                         className="inline-flex items-center gap-1 text-mute"
@@ -243,10 +278,9 @@ function Overtime({
                   {
                     key: "state",
                     header: "Status",
-                    card: "status",
                     cell: (order) => {
                       const state = orderState(order.state)
-                      return <Pill tone={state.tone}>{state.label}</Pill>
+                      return <Status tone={state.tone}>{state.label}</Status>
                     },
                   },
                 ]}
@@ -275,30 +309,26 @@ function Overtime({
   )
 }
 
-/// `2026-09-14` → `Sep 2026`, the payroll month an order lands in.
-function readMonthShort(iso: string): string {
-  const parsed = new Date(`${iso.slice(0, 7)}-01T00:00:00`)
-  return parsed.toLocaleDateString("id-ID", { month: "short", year: "numeric" })
-}
-
-/// The rules the hours are paid under, as the prototype's chips. Head office's
+/// The rules the hours are paid under, in one quiet line. Head office's
 /// numbers, read rather than restated — a multiplier printed here from memory
 /// would be wrong the day head office changes it.
 function Rules({ policy }: { policy: readonly PolicyView[] }) {
   if (policy.length === 0) return null
   return (
-    <div className="mb-4 flex flex-wrap gap-1.5">
-      {policy.map((rule) => (
-        <Pill key={rule.key} tone="neutral">
-          {rule.label}: {rule.value}
-          {rule.unit === "TIMES"
-            ? "×"
-            : rule.unit === "HOUR"
-              ? " h"
-              : ` ${rule.unit.toLowerCase()}`}
-        </Pill>
-      ))}
-    </div>
+    <p className="mb-4 text-meta text-body">
+      {policy
+        .map(
+          (rule) =>
+            `${rule.label}: ${rule.value}${
+              rule.unit === "TIMES"
+                ? "×"
+                : rule.unit === "HOUR"
+                  ? " h"
+                  : ` ${rule.unit.toLowerCase()}`
+            }`,
+        )
+        .join(" · ")}
+    </p>
   )
 }
 
@@ -335,79 +365,78 @@ function OrderSheet({
       onOpenChange={(next) => {
         if (!next) onClose()
       }}
-      crumb={
-        <>
-          Overtime · <span className="font-mono">{order.id}</span>
-        </>
-      }
+      id={order.id}
+      crumb="Overtime"
       title={personName(team, order.employee_id)}
       sub={`${readDate(order.on_date, true)} · ${dayKindWord(order.day_kind)}`}
       status={<Pill tone={state.tone}>{state.label}</Pill>}
       foot={
         open ? (
-          <div className="flex flex-col gap-3">
-            <Field
-              label="Reason"
-            >
-              <Input
-                value={reason}
-                placeholder="Delivery moved to Monday"
-                onChange={(event) => setReason(event.target.value)}
-              />
-            </Field>
-            <Submit
-              label="Withdraw the order"
-              pending={withdraw.isPending}
+          <SheetFoot>
+            <Button
+              variant="danger"
               disabled={reason.trim() === ""}
-              error={withdraw.error}
-              onSubmit={() => withdraw.mutate()}
-            />
-          </div>
+              pending={withdraw.isPending}
+              onClick={() => withdraw.mutate()}
+            >
+              {withdraw.isPending ? "Withdrawing…" : "Withdraw order"}
+            </Button>
+          </SheetFoot>
         ) : undefined
       }
     >
-      <SheetSection title="The order">
-        <Facts
-          rows={[
-            ["Ordered by", `${order.ordered_by} · ${moment(order.ordered_at)}`],
-            ["Hours", readMinutes(order.planned_minutes)],
-            ["Because", order.ordered_reason],
-            [
-              "Employee's answer",
-              order.answered_at === null
-                ? "not yet — it waits in their app"
-                : `${order.state === "AGREED" ? "Agreed" : "Declined"} · ${moment(order.answered_at)}`,
-            ],
-            order.answered_reason !== null && [
-              "They said",
-              order.answered_reason,
-            ],
-            order.withdrawn_by !== null && [
-              "Withdrawn",
-              `${order.withdrawn_by}${order.withdrawn_reason === null ? "" : ` · ${order.withdrawn_reason}`}`,
-            ],
-          ]}
-        />
-      </SheetSection>
-      <SheetSection title="Authorised">
-        <Facts
-          rows={[
-            [
-              "Hours",
-              order.authorized_minutes === null
-                ? "nothing yet"
-                : readMinutes(order.authorized_minutes),
-            ],
-            ["Payroll", readMonthShort(order.on_date)],
-            ["Value", "Set at head office"],
-          ]}
-        />
-      </SheetSection>
+      <Facts
+        rows={[
+          ["Ordered by", personByLogin(team, order.ordered_by)],
+          ["Ordered on", moment(order.ordered_at)],
+          ["Hours ordered", readMinutes(order.planned_minutes)],
+          [
+            "Hours authorised",
+            order.authorized_minutes === null
+              ? "—"
+              : readMinutes(order.authorized_minutes),
+          ],
+          ["Payroll month", readMonth(order.on_date.slice(0, 7))],
+          ["Value", "Set at head office"],
+          ["Because", order.ordered_reason, true],
+          // Who is being waited on belongs here, not in the state's name.
+          open && ["Waiting on", personName(team, order.employee_id)],
+          order.answered_at !== null && ["Answered", moment(order.answered_at)],
+          order.answered_reason !== null && [
+            "Their reason",
+            order.answered_reason,
+            true,
+          ],
+          order.withdrawn_by !== null && [
+            "Withdrawn by",
+            personByLogin(team, order.withdrawn_by),
+          ],
+          order.withdrawn_reason !== null && [
+            "Withdrawn because",
+            order.withdrawn_reason,
+            true,
+          ],
+        ]}
+      />
+      {open && (
+        <div className="mt-6 flex flex-col gap-3">
+          <Field label="Reason" required>
+            <Input
+              value={reason}
+              placeholder="Delivery moved to Monday"
+              onChange={(event) => setReason(event.target.value)}
+            />
+          </Field>
+          {withdraw.error !== null && (
+            <Banner tone="bad">{describeCentre(withdraw.error)}</Banner>
+          )}
+        </div>
+      )}
     </PeopleSheet>
   )
 }
 
-/// Order overtime — the employer's written instruction.
+/// A new overtime order — the employer's written instruction.
 function OrderForm({
   team,
   policy,
@@ -457,12 +486,11 @@ function OrderForm({
       onOpenChange={(next) => {
         if (!next) onClose()
       }}
-      crumb="Overtime"
-      title="Order overtime"
-      sub="The employee confirms in the app"
+      title="New overtime order"
       foot={
         <Submit
-          label="Send the order"
+          label="Create overtime order"
+          pendingLabel="Creating…"
           pending={order.isPending}
           disabled={
             employeeId === "" ||
@@ -474,6 +502,7 @@ function OrderForm({
           }
           error={order.error}
           onSubmit={() => order.mutate()}
+          onCancel={onClose}
         />
       }
     >
@@ -483,8 +512,9 @@ function OrderForm({
           value={employeeId}
           onChange={setEmployeeId}
           label="Employee"
+          required
         />
-        <Field label="The day counts as">
+        <Field label="The day counts as" required>
           <Select
             value={dayKind}
             onChange={(value) => setDayKind(value as typeof dayKind)}
@@ -497,6 +527,7 @@ function OrderForm({
         <div className="grid grid-cols-2 gap-3">
           <Field
             label="Date"
+            required
             problem={
               onDate !== "" && onDate < today
                 ? "Pick today or later."
@@ -512,6 +543,7 @@ function OrderForm({
           </Field>
           <Field
             label="Hours"
+            required
             problem={
               tooLong ? `At most ${cap} hours on a working day.` : undefined
             }
@@ -527,7 +559,7 @@ function OrderForm({
             />
           </Field>
         </div>
-        <Field label="Reason">
+        <Field label="Reason" required>
           <Input
             value={reason}
             placeholder="Stock count before the sale"

@@ -10,6 +10,7 @@ import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Day } from "@/components/ui/day"
 import { Panel } from "@/components/ui/dialog"
+import { Fab } from "@/components/ui/fab"
 import { Field, Input, Select, Textarea } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill, Status } from "@/components/ui/pill"
@@ -24,6 +25,7 @@ import {
   NoMatch,
 } from "@/components/ui/states"
 import { count, day, label, money, moment } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   financeKeys,
   journalEntry,
@@ -55,6 +57,7 @@ import {
   draftTotals,
   type DraftLine,
 } from "@/screens/finance/journal-lines"
+import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
 import { UnitName, UnitSelect, WindowControl } from "@/screens/finance/parts"
 import { idempotencyKey } from "@itulah/contract/client"
 import type { JournalEntryRow, JournalLineView } from "@itulah/contract"
@@ -117,6 +120,7 @@ export function Journals() {
   // money movement (`?entry=`) opens the entry it names.
   const reading = useSheet("entry")
   const [composing, setComposing] = useState(false)
+  const phone = useLayout() === "phone"
   // "Start a journal from this template" lands here with `?journalTemplate=`.
   const fromTemplate = useSheet("journalTemplate")
   const templates = useQuery({
@@ -189,7 +193,9 @@ export function Journals() {
 
   return (
     <PageContent>
+      {/* A phone: the search is one of the Filters, "New entry" the round +. */}
       <PageHeader
+        className="max-md:hidden"
         crumb="Finance · Payments"
         title="Journal Entry"
         actions={
@@ -197,6 +203,8 @@ export function Journals() {
             <Input
               value={needle}
               onChange={(event) => setNeedle(event.target.value)}
+              aria-label="Search entries"
+              placeholder="Search entries"
               className="h-control w-48"
             />
             <Button variant="primary" onClick={() => setComposing(true)}>
@@ -205,8 +213,16 @@ export function Journals() {
           </>
         }
       />
+      <Fab label="New entry" onClick={() => setComposing(true)} />
 
       <Toolbar>
+        <Input
+          value={needle}
+          onChange={(event) => setNeedle(event.target.value)}
+          aria-label="Search entries"
+          placeholder="Search entries"
+          className="h-control md:hidden"
+        />
         <WindowControl range={range} />
         <span className="inline-flex w-44 shrink-0">
           <Select
@@ -215,7 +231,7 @@ export function Journals() {
             className="h-control w-44"
             aria-label="Entry type"
           >
-            <option value="">Every type</option>
+            <option value="">All types</option>
             {kinds.map((facet) => (
               <option key={facet.value} value={facet.value}>
                 {label(facet.value)}
@@ -261,6 +277,34 @@ export function Journals() {
               </EmptyState>
             ) : rows.length === 0 ? (
               <NoMatch what="entries" onClear={() => setNeedle("")} />
+            ) : phone ? (
+              <>
+                <PhoneList
+                  rows={rows.map((entry) => ({
+                    key: entry.entry_id,
+                    title: entry.memo ?? label(entry.source_kind),
+                    code: entry.entry_number,
+                    lead: <CardFigure value={money(entry.total_minor)} />,
+                    foot: (
+                      <span className="flex flex-col">
+                        <span>
+                          {day(entry.posting_date)} · {label(entry.source_kind)}
+                          {byHand(entry) && " · by hand"}
+                        </span>
+                        <span>{entry.posted_by}</span>
+                      </span>
+                    ),
+                    action:
+                      entry.reversed_by !== null ? (
+                        <Status tone="bad">Reversed</Status>
+                      ) : (
+                        <Status tone="ok">Posted</Status>
+                      ),
+                    onOpen: () => reading.open(entry.entry_id),
+                  }))}
+                />
+                <LoadMore query={entries} />
+              </>
             ) : (
               <>
                 <Grid>

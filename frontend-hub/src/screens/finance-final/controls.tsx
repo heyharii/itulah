@@ -5,11 +5,14 @@ import { useMemo, useState } from "react"
 import { PageContent } from "@/components/shell/app-shell"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Fab } from "@/components/ui/fab"
 import { Input } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Status } from "@/components/ui/pill"
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
+import { SubTabs } from "@/components/ui/sub-tabs"
 import { count, money } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   closeReadiness,
   domainKeys,
@@ -18,6 +21,7 @@ import {
 } from "@/lib/queries/finance-domains"
 import { Grid, Td, Th } from "@/screens/finance-final/parts"
 import { monthLabel } from "@/screens/finance/chart"
+import { PhoneCard, PhoneList } from "@/components/ui/phone-cards"
 
 /// Period Close — what stands between a month and being shut, then every
 /// subledger beside the ledger it controls.
@@ -36,6 +40,7 @@ import { monthLabel } from "@/screens/finance/chart"
 /// lock) and Period Closing Voucher (the year-end entry). This is the step
 /// before both.
 export function FinanceControls() {
+  const phone = useLayout() === "phone"
   const client = useQueryClient()
   const now = new Date()
   const [month, setMonth] = useState({
@@ -83,35 +88,64 @@ export function FinanceControls() {
         crumb="Finance · Closing"
         title="Period Close"
         sub="Check the month, then close it for the shops."
+        // On a phone the month is the dock's status button and closing for the
+        // shops its +.
         actions={
-          <>
-            <Input
-              type="month"
-              aria-label="Month"
-              className="h-control w-44"
-              value={`${month.year}-${String(month.month).padStart(2, "0")}`}
-              onChange={(event) => {
-                const [year, part] = event.target.value.split("-")
-                if (year && part)
-                  setMonth({ year: Number(year), month: Number(part) })
-              }}
-            />
-            <Button
-              variant="primary"
-              pending={soft.isPending}
-              disabled={status !== "OPEN"}
-              title={
-                status === "OPEN"
-                  ? undefined
-                  : `${name} is already ${statusWord(status).toLowerCase()}`
-              }
-              onClick={() => soft.mutate()}
-            >
-              Close for the shops
-            </Button>
-          </>
+          phone ? undefined : (
+            <>
+              <Input
+                type="month"
+                aria-label="Month"
+                className="h-control w-44"
+                value={`${month.year}-${String(month.month).padStart(2, "0")}`}
+                onChange={(event) => {
+                  const [year, part] = event.target.value.split("-")
+                  if (year && part)
+                    setMonth({ year: Number(year), month: Number(part) })
+                }}
+              />
+              <Button
+                variant="primary"
+                pending={soft.isPending}
+                disabled={status !== "OPEN"}
+                title={
+                  status === "OPEN"
+                    ? undefined
+                    : `${name} is already ${statusWord(status).toLowerCase()}`
+                }
+                onClick={() => soft.mutate()}
+              >
+                Close for the shops
+              </Button>
+            </>
+          )
         }
       />
+
+      {phone && (
+        <>
+          <SubTabs
+            tabs={recentMonths(now).map((one) => ({
+              value: `${one.year}-${String(one.month).padStart(2, "0")}`,
+              label: monthLabel(one.year, one.month),
+            }))}
+            value={`${month.year}-${String(month.month).padStart(2, "0")}`}
+            onChange={(next) => {
+              const [year, part] = next.split("-")
+              if (year && part)
+                setMonth({ year: Number(year), month: Number(part) })
+            }}
+          />
+          {status === "OPEN" && (
+            <Fab
+              label="Close for the shops"
+              onClick={() => {
+                if (!soft.isPending) soft.mutate()
+              }}
+            />
+          )}
+        </>
+      )}
 
       {/* One line instead of three banners: where the month stands. */}
       <div className="mb-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-[0.9375rem]">
@@ -119,15 +153,29 @@ export function FinanceControls() {
         <Status tone={status === "OPEN" ? "info" : "ok"}>
           {statusWord(status)}
         </Status>
-        <span className={blockers > 0 ? "text-bad-fg" : "text-ok-fg"}>
-          {blockers === 0
-            ? "Nothing blocks closing"
-            : `${count(blockers)} ${blockers === 1 ? "thing blocks" : "things block"} closing`}
-        </span>
+        {/* Nothing is "all clear" until it has been read: before the answers
+            land, both say so instead of drawing the good news. */}
+        {readiness.data === undefined ? (
+          <span className="text-mute">
+            {readiness.isError
+              ? "The month could not be checked"
+              : "Checking the month…"}
+          </span>
+        ) : (
+          <span className={blockers > 0 ? "text-bad-fg" : "text-ok-fg"}>
+            {blockers === 0
+              ? "Nothing blocks closing"
+              : `${count(blockers)} ${blockers === 1 ? "thing blocks" : "things block"} closing`}
+          </span>
+        )}
         <span className="text-mute">
-          {off.length === 0
-            ? "Every control agrees with the ledger"
-            : `${count(off.length)} ${off.length === 1 ? "control is" : "controls are"} off`}
+          {controls.data === undefined
+            ? controls.isError
+              ? "The controls could not be checked"
+              : "Checking the controls…"
+            : off.length === 0
+              ? "Every control agrees with the ledger"
+              : `${count(off.length)} ${off.length === 1 ? "control is" : "controls are"} off`}
         </span>
       </div>
 
@@ -170,6 +218,44 @@ export function FinanceControls() {
         <ErrorState error={controls.error} />
       ) : rows.length === 0 ? (
         <EmptyState>Nothing can be checked yet.</EmptyState>
+      ) : phone ? (
+        <PhoneList>
+          {rows.map((row) => (
+            <PhoneCard
+              key={row.domain}
+              title={DOMAIN_LABEL[row.domain] ?? row.label}
+              line={row.covered ? undefined : "Not reconciled yet"}
+              lead={
+                !row.covered
+                  ? "—"
+                  : row.difference_minor === 0
+                    ? "Agrees"
+                    : money(row.difference_minor)
+              }
+              caption={
+                row.covered && row.difference_minor !== 0
+                  ? "difference"
+                  : undefined
+              }
+              tone={row.covered && row.difference_minor !== 0 ? "bad" : "quiet"}
+              foot={
+                <>
+                  <div className="tabular-nums">
+                    Ledger {money(row.gl_minor)}
+                    {row.covered &&
+                      ` · Subledger ${money(row.subledger_minor)}`}
+                  </div>
+                  {row.unmatched > 0 && (
+                    <div>
+                      {count(row.unmatched)} open{" "}
+                      {row.unmatched === 1 ? "item" : "items"}
+                    </div>
+                  )}
+                </>
+              }
+            />
+          ))}
+        </PhoneList>
       ) : (
         <Grid>
           <thead>
@@ -236,6 +322,23 @@ export function FinanceControls() {
   )
 }
 
+/// The twelve months up to and including this one, newest first: the ones a
+/// close is asked about.
+function recentMonths(now: Date): { year: number; month: number }[] {
+  const out: { year: number; month: number }[] = []
+  let year = now.getFullYear()
+  let month = now.getMonth() + 1
+  for (let i = 0; i < 12; i += 1) {
+    out.push({ year, month })
+    month -= 1
+    if (month === 0) {
+      month = 12
+      year -= 1
+    }
+  }
+  return out
+}
+
 type CheckStatus = "OK" | "BLOCKER" | "UNKNOWN"
 
 const RANK: Record<string, number> = { BLOCKER: 0, UNKNOWN: 1, OK: 2 }
@@ -283,7 +386,7 @@ const DOMAIN_LABEL: Readonly<Record<string, string>> = {
   TAX_CREDIT: "Tax credit",
   ADVANCE: "Advances",
   FINANCING: "Loans",
-  AP: "Supplier payables",
+  AP: "Total payables",
   INTERUNIT: "Between units",
   BANK: "Bank",
   FIXED_ASSET: "Fixed assets",

@@ -3,15 +3,18 @@ import { Plus } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockTools } from "@/components/shell/dock-tools"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Fab } from "@/components/ui/fab"
 import { Input } from "@/components/ui/field"
 import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
 import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { EmptyState, LoadMore, type Pageable } from "@/components/ui/states"
-import { count, money, span } from "@/lib/format"
+import { count, money, moneyCompact, span } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { gaContracts, gaKeys } from "@/lib/queries/ga"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
@@ -29,6 +32,14 @@ import {
 } from "@/screens/contracts/groups"
 import { ContractHubSheet } from "@/screens/contracts/hub"
 import { FinanceMark, StandingPill } from "@/screens/contracts/parts"
+import {
+  CardFigure,
+  CardName,
+  type CardSpec,
+  DESK_BAR,
+  PhoneCards,
+} from "@/components/ui/phone-cards"
+import { FilterSheet } from "@/components/ui/filter-sheet"
 import type { GaContractRow, GaContractSummary } from "@itulah/contract"
 
 /// The contract register — every deal behind the bills, on one screen.
@@ -113,6 +124,8 @@ export function Contracts() {
   const [search, setSearch] = useState("")
   const [archived, setArchived] = useState(false)
   const [adding, setAdding] = useState(false)
+  const [filtering, setFiltering] = useState(false)
+  const phone = useLayout() === "phone"
   // The search is the server's, so it waits for the typing to stop.
   const needle = useDebounced(search.trim(), 300)
 
@@ -170,32 +183,88 @@ export function Contracts() {
         title={view.title}
         sub={view.sub}
         actions={
-          <>
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              className="h-8 w-56"
-            />
-            <Button variant="primary" onClick={() => setAdding(true)}>
-              <Plus />
-              Add contract
-            </Button>
-          </>
+          // On a phone the search, the group and the archive are the dock's,
+          // and the one thing this page makes is its round button.
+          phone ? undefined : (
+            <>
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                className="h-8 w-56"
+              />
+              <Button variant="primary" onClick={() => setAdding(true)}>
+                <Plus />
+                Add contract
+              </Button>
+            </>
+          )
         }
       />
 
-      <Toolbar>
+      <Fab label="Add contract" onClick={() => setAdding(true)} />
+      <DockTools
+        search={{
+          value: search,
+          onChange: setSearch,
+          label: "Search contracts",
+        }}
+        filter={{
+          count: view.group === undefined ? 0 : 1,
+          onOpen: () => setFiltering(true),
+        }}
+        status={{
+          value: archived ? "ARCHIVED" : "LIVE",
+          options: [
+            { value: "LIVE", label: "Active" },
+            { value: "ARCHIVED", label: "Archived" },
+          ],
+          onChange: (next) => setArchived(next === "ARCHIVED"),
+        }}
+      />
+      <FilterSheet
+        open={filtering}
+        onOpenChange={setFiltering}
+        groups={[
+          {
+            key: "group",
+            label: "Group",
+            value: view.group ?? null,
+            options: [
+              {
+                value: null,
+                label: "All",
+                count: (head?.facets.groups ?? []).reduce(
+                  (sum, one) => sum + one.count,
+                  0
+                ),
+              },
+              ...CONTRACT_GROUPS.map((group) => ({
+                value: group.group_code as string | null,
+                label: group.label,
+                count:
+                  (head?.facets.groups ?? []).find(
+                    (one) => one.value === group.group_code
+                  )?.count ?? 0,
+              })),
+            ],
+            onChange: (next) =>
+              next === null ? chip.close() : chip.replace(next),
+          },
+        ]}
+      />
+
+      <div className={DESK_BAR}>
         <GroupChips
           here={view.group ?? null}
           counts={head?.facets.groups ?? []}
         />
-      </Toolbar>
+      </div>
 
       {head !== undefined && (
         <SummaryStrip summary={head.summary} total={head.total} view={view} />
       )}
 
-      <Toolbar>
+      <div className={DESK_BAR}>
         <Segmented
           options={[
             { value: "LIVE" as const, label: "Active" },
@@ -211,7 +280,7 @@ export function Contracts() {
             {head.total === 1 ? "contract" : "contracts"}
           </span>
         )}
-      </Toolbar>
+      </div>
 
       {queryState(register, {
         loading: "Loading contracts…",
@@ -422,6 +491,75 @@ function ContractTable({
   onOpen: (contractId: string) => void
   more: Pageable
 }) {
+  const phone = useLayout() === "phone"
+  const partyName = useContractParty()
+  if (phone) {
+    const spec: CardSpec<GaContractRow> =
+      view.kind === "utilities"
+        ? {
+            title: (row) => (
+              <CardName name={partyName(row)} code={row.customer_number} />
+            ),
+            meta: [(row) => `${row.contract_type_name} · ${siteOf(row)}`],
+            lead: (row) => (
+              <CardFigure
+                value={
+                  <span title={money(row.billed_minor)}>
+                    {moneyCompact(row.billed_minor)}
+                  </span>
+                }
+                caption="Billed"
+              />
+            ),
+            foot: (row) =>
+              row.last_usage === null
+                ? "No reading yet"
+                : `${count(row.last_usage)} ${row.last_unit} · ${monthLabel(row.last_usage_period)}`,
+            action: (row) => <StandingPill row={row} />,
+          }
+        : {
+            title: (row) => (
+              <CardName name={partyName(row)} code={row.contract_number} />
+            ),
+            meta: [
+              (row) =>
+                `${row.contract_type_name}${
+                  row.objek_name === null ? "" : ` · ${row.objek_name}`
+                } · ${siteOf(row)}`,
+              (row) =>
+                row.remaining_minor === null
+                  ? null
+                  : `${moneyCompact(row.billed_minor)} ${
+                      view.group === "DISEWAKAN" ? "received" : "billed"
+                    } · ${moneyCompact(row.remaining_minor)} left`,
+            ],
+            lead: (row) => (
+              <CardFigure
+                value={
+                  <span title={money(row.contract_value_minor)}>
+                    {moneyCompact(row.contract_value_minor)}
+                  </span>
+                }
+                caption="Contract value"
+              />
+            ),
+            foot: (row) => (
+              <span className="tabular-nums">
+                {span(row.starts_on, row.ends_on)}
+              </span>
+            ),
+            action: (row) => <StandingPill row={row} />,
+          }
+    return (
+      <PhoneCards
+        rows={rows}
+        rowId={(row) => row.contract_id}
+        spec={spec}
+        onOpen={(row) => onOpen(row.contract_id)}
+        more={more}
+      />
+    )
+  }
   return (
     <Card className="overflow-hidden">
       {/* The register scrolls INSIDE its own box rather than squeezing the

@@ -143,12 +143,14 @@ impl EdgeRfid {
 
         let (tag_count, sighting_count, first, last): (i64, i64, Option<String>, Option<String>) =
             connection
-                .query_row(
+                .prepare_cached(
                     "SELECT COUNT(DISTINCT epc), COUNT(*), MIN(first_seen_at), MAX(last_seen_at)
                      FROM edge_observation_sighting WHERE reader_session_id=?1",
-                    params![id],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
                 )
+                .map_err(db)?
+                .query_row(params![id], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+                })
                 .map_err(db)?;
 
         let mut device_statement = connection
@@ -246,16 +248,51 @@ impl EdgeRfid {
         let now = Utc::now();
         let business_now = self.clock.now();
         let mut connection = self.lock()?;
+        let request: EdgeRfidObservationRequest = serde_json::from_slice(raw_body)
+            .map_err(|error| EdgeError::Validation(format!("invalid RFID JSON: {error}")))?;
+        validate_request(&self.node, &request, business_now)?;
+        let consolidated = consolidate_reads(&request.observations);
+        if consolidated.is_empty() {
+            return Err(EdgeError::Validation(
+                "RFID batch contains no valid EPC".into(),
+            ));
+        }
+        if consolidated.len() > crate::sync::MAX_RFID_SIGHTINGS_PER_BATCH {
+            return Err(EdgeError::Validation(format!(
+                "RFID batch exceeds {} consolidated EPCs",
+                crate::sync::MAX_RFID_SIGHTINGS_PER_BATCH
+            )));
+        }
+
+        // The batch lands in bounded chunks (POS-PERFORMANCE-PLAN Phase 3).
+        // One transaction of up to 2,000 INSERTs held the node's single write
+        // lock for the whole sweep while a counter may have been mid-sale; a
+        // chunk boundary releases it, and a sale interleaves between chunks.
+        // What keeps this honest:
+        //
+        // - the SEQUENCE is claimed in the first transaction, so two
+        //   different batches from one device can never both enqueue;
+        // - each chunk writes a receipt row (key, index, digest), so a retry
+        //   after a crash mid-batch skips the chunks that already landed
+        //   instead of double-writing them;
+        // - the batch receipt and the sync fact are still written ONCE, in a
+        //   final transaction, and still answer idempotent replays exactly as
+        //   before. Sightings are evidence, never ledger quantities, so a
+        //   chunk boundary between them breaks no invariant.
+        const CHUNK: usize = 250;
+
         let tx = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(db)?;
         let device: Option<(String, i64, String, i64)> = tx
-            .query_row(
+            .prepare_cached(
                 "SELECT auth_key_sha256,active,valid_until,last_sequence
                  FROM edge_rfid_device WHERE device_id=?1",
-                params![device_id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
+            .map_err(db)?
+            .query_row(params![device_id], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })
             .optional()
             .map_err(db)?;
         let Some((signing_key, active, valid_until, last_sequence)) = device else {
@@ -283,20 +320,23 @@ impl EdgeRfid {
             ));
         }
 
-        let request: EdgeRfidObservationRequest = serde_json::from_slice(raw_body)
-            .map_err(|error| EdgeError::Validation(format!("invalid RFID JSON: {error}")))?;
-        validate_request(&self.node, &request, business_now)?;
-
-        let prior: Option<(String, i64, String, String)> = tx
-            .query_row(
-                "SELECT device_id,sequence,request_digest,response_json
+        let prior: Option<(String, String, String)> = tx
+            .prepare_cached(
+                "SELECT device_id,request_digest,response_json
                  FROM edge_rfid_batch_receipt WHERE idempotency_key=?1",
-                params![request.idempotency_key],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
+            .map_err(db)?
+            .query_row(params![request.idempotency_key], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
             .optional()
             .map_err(db)?;
-        if let Some((prior_device, _prior_sequence, prior_digest, response_json)) = prior {
+        if let Some((prior_device, prior_digest, response_json)) = prior {
+            if prior_device != device_id || prior_digest != request_digest {
+                return Err(EdgeError::Conflict(
+                    "idempotency key was already used for another RFID request".into(),
+                ));
+            }
             // The same reader, filing the same bytes, gets the answer it was
             // already given. The sequence it signed with is deliberately NOT
             // part of that test.
@@ -312,16 +352,11 @@ impl EdgeRfid {
             // an answer over shop wifi could never get it back.
             //
             // Anti-replay of genuinely new work is not weakened by this: the
-            // `proof.sequence <= last_sequence` check below is untouched and
-            // still refuses a reused sequence for any batch that is not this
-            // one. What establishes "this is the same batch from the same
-            // reader" is the device and the digest over the body, and those
-            // two are what is compared.
-            if prior_device != device_id || prior_digest != request_digest {
-                return Err(EdgeError::Conflict(
-                    "idempotency key was already used for another RFID request".into(),
-                ));
-            }
+            // claim below refuses a reused sequence for any batch that is not
+            // this one. What establishes "this is the same batch from the
+            // same reader" is the device and the digest over the body, and
+            // those two are what is compared — the digest guard lives in the
+            // receipt lookup's caller, which checked it before returning.
             let response = serde_json::from_str(&response_json).map_err(|error| {
                 EdgeError::Persistence(format!("stored RFID response is invalid: {error}"))
             })?;
@@ -335,18 +370,13 @@ impl EdgeRfid {
                 "RFID request timestamp is outside the {RFID_SIGNATURE_MAX_SKEW_SECONDS}-second window"
             )));
         }
-        if proof.sequence <= last_sequence {
-            return Err(EdgeError::Conflict(format!(
-                "RFID device sequence replayed; last accepted sequence is {last_sequence}"
-            )));
-        }
         let allowed: bool = tx
-            .query_row(
+            .prepare_cached(
                 "SELECT EXISTS(SELECT 1 FROM edge_rfid_device_pool
                                WHERE device_id=?1 AND pool_id=?2)",
-                params![device_id, request.pool],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row(params![device_id, request.pool], |row| row.get(0))
             .map_err(db)?;
         if !allowed {
             return Err(EdgeError::Forbidden(format!(
@@ -354,120 +384,188 @@ impl EdgeRfid {
                 request.pool
             )));
         }
-
-        let consolidated = consolidate_reads(&request.observations);
-        if consolidated.is_empty() {
-            return Err(EdgeError::Validation(
-                "RFID batch contains no valid EPC".into(),
-            ));
-        }
-        if consolidated.len() > crate::sync::MAX_RFID_SIGHTINGS_PER_BATCH {
-            return Err(EdgeError::Validation(format!(
-                "RFID batch exceeds {} consolidated EPCs",
-                crate::sync::MAX_RFID_SIGHTINGS_PER_BATCH
+        // Claim this batch's sequence now, not at the end: a second batch
+        // from the same device that arrives while our chunks land is refused
+        // here rather than double-enqueued. A retry of THIS batch carries a
+        // fresh sequence by the protocol above, so the claim costs it
+        // nothing.
+        let claimed = tx
+            .prepare_cached(
+                "UPDATE edge_rfid_device
+                 SET last_sequence=?2 WHERE device_id=?1 AND last_sequence<?2",
+            )
+            .map_err(db)?
+            .execute(params![device_id, proof.sequence])
+            .map_err(db)?;
+        if claimed == 0 {
+            return Err(EdgeError::Conflict(format!(
+                "RFID device sequence replayed; last accepted sequence is {last_sequence}"
             )));
         }
+        tx.commit().map_err(db)?;
+
         let received_at = business_now;
         let batch_id = Uuid::new_v4();
-        let mut sightings = Vec::with_capacity(consolidated.len());
-        for read in consolidated {
-            let observation_id = Uuid::new_v4();
-            tx.execute(
-                "INSERT INTO edge_observation_sighting
-                     (observation_id,epc,site_id,pool_id,first_seen_at,last_seen_at,
-                      received_at,device_id,reader_session_id,operator_id,read_count,
-                      best_rssi,antenna)
-                 VALUES(?1,?2,?3,?4,?5,?5,?6,?7,?8,?9,?10,?11,?12)",
-                params![
-                    observation_id.to_string(),
-                    read.epc,
-                    request.site_id,
-                    request.pool,
-                    time_text(request.observed_at),
-                    time_text(received_at),
-                    device_id,
-                    request.reader_session_id,
-                    operator_id,
-                    read.read_count,
-                    read.best_rssi,
-                    read.antenna,
-                ],
+        for (index, chunk) in consolidated.chunks(CHUNK).enumerate() {
+            let index = i64::try_from(index).unwrap_or(i64::MAX);
+            let tx = connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(db)?;
+            let landed: i64 = tx
+                .prepare_cached(
+                    "SELECT COUNT(*) FROM edge_rfid_batch_chunk
+                     WHERE idempotency_key=?1 AND chunk_index=?2 AND request_digest=?3",
+                )
+                .map_err(db)?
+                .query_row(
+                    params![request.idempotency_key, index, request_digest],
+                    |row| row.get(0),
+                )
+                .map_err(db)?;
+            if landed == 0 {
+                for read in chunk {
+                    let observation_id = Uuid::new_v4();
+                    tx.prepare_cached(
+                        "INSERT INTO edge_observation_sighting
+                         (observation_id,epc,site_id,pool_id,first_seen_at,last_seen_at,
+                          received_at,device_id,reader_session_id,operator_id,read_count,
+                          best_rssi,antenna)
+                     VALUES(?1,?2,?3,?4,?5,?5,?6,?7,?8,?9,?10,?11,?12)",
+                    )
+                    .map_err(db)?
+                    .execute(params![
+                        observation_id.to_string(),
+                        read.epc,
+                        request.site_id,
+                        request.pool,
+                        time_text(request.observed_at),
+                        time_text(received_at),
+                        device_id,
+                        request.reader_session_id,
+                        operator_id,
+                        read.read_count,
+                        read.best_rssi,
+                        read.antenna.clone(),
+                    ])
+                    .map_err(db)?;
+                }
+                tx.prepare_cached(
+                    "INSERT INTO edge_rfid_batch_chunk
+                         (idempotency_key,chunk_index,sighting_count,request_digest,created_at)
+                     VALUES(?1,?2,?3,?4,?5)",
+                )
+                .map_err(db)?
+                .execute(params![
+                    request.idempotency_key,
+                    index,
+                    i64::try_from(chunk.len()).unwrap_or(i64::MAX),
+                    request_digest,
+                    time_text(business_now),
+                ])
+                .map_err(db)?;
+            }
+            tx.commit().map_err(db)?;
+        }
+
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db)?;
+        // A racing identical retry may have finished its own finalize while
+        // this batch was chunking; it wins, this one becomes a replay.
+        let raced: Option<String> = tx
+            .prepare_cached(
+                "SELECT response_json
+                 FROM edge_rfid_batch_receipt WHERE idempotency_key=?1",
+            )
+            .map_err(db)?
+            .query_row(params![request.idempotency_key], |row| row.get(0))
+            .optional()
+            .map_err(db)?;
+        let response = if let Some(response_json) = raced {
+            serde_json::from_str(&response_json).map_err(|error| {
+                EdgeError::Persistence(format!("stored RFID response is invalid: {error}"))
+            })?
+        } else {
+            let sightings = consolidated
+                .iter()
+                .map(|read| RfidObservationSighting {
+                    observation_id: Uuid::new_v4(),
+                    epc: read.epc.clone(),
+                    read_count: read.read_count,
+                    best_rssi: read.best_rssi,
+                    antenna: read.antenna.clone(),
+                })
+                .collect::<Vec<_>>();
+            let payload = RfidObservationBatchPayload {
+                schema_version: RFID_OBSERVATION_SCHEMA_VERSION,
+                batch_id,
+                idempotency_key: request.idempotency_key.clone(),
+                site_id: request.site_id.clone(),
+                pool_id: request.pool.clone(),
+                device_id: device_id.clone(),
+                operator_id,
+                reader_session_id: request.reader_session_id.clone(),
+                observed_at: request.observed_at,
+                received_at,
+                device_sequence: proof.sequence,
+                sightings,
+            };
+            payload
+                .validate()
+                .map_err(|error| EdgeError::Validation(error.to_string()))?;
+            let sync_sequence = crate::edge::sync::enqueue_fact(
+                &tx,
+                batch_id,
+                INVENTORY_RFID_OBSERVATION_BATCH_V1,
+                &payload,
             )
             .map_err(db)?;
-            sightings.push(RfidObservationSighting {
-                observation_id,
-                epc: read.epc,
-                read_count: read.read_count,
-                best_rssi: read.best_rssi,
-                antenna: read.antenna,
+            let response = json!({
+                "batch_id":batch_id,
+                "idempotency_key":request.idempotency_key,
+                "device_id":device_id,
+                "device_sequence":proof.sequence,
+                "raw_read_count":request.observations.iter()
+                    .map(|read| i64::from(read.read_count.max(1))).sum::<i64>(),
+                "consolidated_sighting_count":payload.sightings.len(),
+                "observation_ids":payload.sightings.iter()
+                    .map(|sighting| sighting.observation_id).collect::<Vec<_>>(),
+                "observed_at":request.observed_at,
+                "received_at":received_at,
+                "sync":{"queued":sync_sequence.is_some(),"sequence":sync_sequence},
+                "inventory_effect":{"movement_count":0,"missing_created":0},
             });
-        }
-        let payload = RfidObservationBatchPayload {
-            schema_version: RFID_OBSERVATION_SCHEMA_VERSION,
-            batch_id,
-            idempotency_key: request.idempotency_key.clone(),
-            site_id: request.site_id.clone(),
-            pool_id: request.pool.clone(),
-            device_id: device_id.clone(),
-            operator_id,
-            reader_session_id: request.reader_session_id.clone(),
-            observed_at: request.observed_at,
-            received_at,
-            device_sequence: proof.sequence,
-            sightings,
-        };
-        payload
-            .validate()
-            .map_err(|error| EdgeError::Validation(error.to_string()))?;
-        let sync_sequence = crate::edge::sync::enqueue_fact(
-            &tx,
-            batch_id,
-            INVENTORY_RFID_OBSERVATION_BATCH_V1,
-            &payload,
-        )
-        .map_err(db)?;
-        let response = json!({
-            "batch_id":batch_id,
-            "idempotency_key":request.idempotency_key,
-            "device_id":device_id,
-            "device_sequence":proof.sequence,
-            "raw_read_count":request.observations.iter()
-                .map(|read| i64::from(read.read_count.max(1))).sum::<i64>(),
-            "consolidated_sighting_count":payload.sightings.len(),
-            "observation_ids":payload.sightings.iter()
-                .map(|sighting| sighting.observation_id).collect::<Vec<_>>(),
-            "observed_at":request.observed_at,
-            "received_at":received_at,
-            "sync":{"queued":sync_sequence.is_some(),"sequence":sync_sequence},
-            "inventory_effect":{"movement_count":0,"missing_created":0},
-        });
-        let response_json = serde_json::to_string(&response)
-            .map_err(|error| EdgeError::Persistence(format!("serialize RFID response: {error}")))?;
-        tx.execute(
-            "INSERT INTO edge_rfid_batch_receipt
-                 (idempotency_key,device_id,sequence,request_digest,response_json,created_at)
-             VALUES(?1,?2,?3,?4,?5,?6)",
-            params![
+            tx.prepare_cached(
+                "INSERT INTO edge_rfid_batch_receipt
+                     (idempotency_key,device_id,sequence,request_digest,response_json,created_at)
+                 VALUES(?1,?2,?3,?4,?5,?6)",
+            )
+            .map_err(db)?
+            .execute(params![
                 request.idempotency_key,
                 device_id,
                 proof.sequence,
                 request_digest,
-                response_json,
+                serde_json::to_string(&response).map_err(|error| {
+                    EdgeError::Persistence(format!("serialize RFID response: {error}"))
+                })?,
                 time_text(business_now),
-            ],
-        )
-        .map_err(map_receipt_error)?;
-        tx.execute(
+            ])
+            .map_err(map_receipt_error)?;
+            response
+        };
+        tx.prepare_cached(
             "UPDATE edge_rfid_device
-             SET last_sequence=?2,last_request_digest=?3,last_seen_at=?4
-             WHERE device_id=?1",
-            params![
-                device_id,
-                proof.sequence,
-                request_digest,
-                time_text(business_now)
-            ],
+                 SET last_request_digest=?3,last_seen_at=?4
+                 WHERE device_id=?1",
         )
+        .map_err(db)?
+        .execute(params![
+            device_id,
+            proof.sequence,
+            request_digest,
+            time_text(business_now)
+        ])
         .map_err(db)?;
         // A batch is proof of life too, and may carry what the handheld
         // knows about itself. A malformed `device` block is ignored rather
@@ -511,12 +609,14 @@ impl EdgeRfid {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(db)?;
         let device: Option<(String, i64, String, i64)> = tx
-            .query_row(
+            .prepare_cached(
                 "SELECT auth_key_sha256,active,valid_until,last_sequence
                  FROM edge_rfid_device WHERE device_id=?1",
-                params![device_id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
+            .map_err(db)?
+            .query_row(params![device_id], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })
             .optional()
             .map_err(db)?;
         let Some((signing_key, active, valid_until, last_sequence)) = device else {
@@ -573,17 +673,18 @@ impl EdgeRfid {
                 "battery is a percentage, 0 to 100".into(),
             ));
         }
-        tx.execute(
+        tx.prepare_cached(
             "UPDATE edge_rfid_device
              SET last_sequence=?2,last_request_digest=?3,last_seen_at=?4
              WHERE device_id=?1",
-            params![
-                device_id,
-                proof.sequence,
-                request_digest,
-                time_text(business_now)
-            ],
         )
+        .map_err(db)?
+        .execute(params![
+            device_id,
+            proof.sequence,
+            request_digest,
+            time_text(business_now)
+        ])
         .map_err(db)?;
         record_device_health(&tx, &device_id, business_now, Some(&report))?;
         tx.commit().map_err(db)?;
@@ -607,8 +708,7 @@ fn record_device_health(
     let app_version = report
         .app_version
         .filter(|version| version.len() <= 64 && !version.trim().is_empty());
-    tx.execute(
-        "INSERT INTO edge_rfid_device_health
+    tx.prepare_cached("INSERT INTO edge_rfid_device_health
              (device_id, pinged_at, battery_percent, app_version, last_scan_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?2)
          ON CONFLICT (device_id) DO UPDATE SET
@@ -616,7 +716,8 @@ fn record_device_health(
              battery_percent = COALESCE(excluded.battery_percent, edge_rfid_device_health.battery_percent),
              app_version = COALESCE(excluded.app_version, edge_rfid_device_health.app_version),
              last_scan_at = COALESCE(excluded.last_scan_at, edge_rfid_device_health.last_scan_at),
-             updated_at = excluded.updated_at",
+             updated_at = excluded.updated_at"
+    ).map_err(db)?.execute(
         params![
             device_id,
             time_text(at),
@@ -710,8 +811,7 @@ pub fn sign_rfid_request_at(
     sequence: i64,
     body_sha256: &str,
 ) -> String {
-    let canonical =
-        format!("POST\n{path}\n{device_id}\n{timestamp}\n{sequence}\n{body_sha256}");
+    let canonical = format!("POST\n{path}\n{device_id}\n{timestamp}\n{sequence}\n{body_sha256}");
     security::hmac_sha256_hex(signing_key_sha256.as_bytes(), canonical.as_bytes())
 }
 
@@ -814,24 +914,26 @@ mod tests {
                 .lock()
                 .unwrap_or_else(|error| panic!("connection: {error}"));
             connection
-                .execute(
+                .prepare_cached(
                     "INSERT INTO edge_rfid_device
                          (device_id,label,auth_key_sha256,active,valid_until,last_sequence,
                           policy_version,updated_at)
                      VALUES('RFID-01','Test reader',?1,1,?2,0,1,?3)",
-                    params![
-                        signing_key,
-                        time_text(Utc::now() + Duration::days(1)),
-                        time_text(Utc::now()),
-                    ],
                 )
+                .map_err(db)?
+                .execute(params![
+                    signing_key,
+                    time_text(Utc::now() + Duration::days(1)),
+                    time_text(Utc::now()),
+                ])
                 .unwrap_or_else(|error| panic!("device: {error}"));
             connection
-                .execute(
+                .prepare_cached(
                     "INSERT INTO edge_rfid_device_pool(device_id,pool_id)
                      VALUES('RFID-01','store-07.floor')",
-                    [],
                 )
+                .map_err(db)?
+                .execute([])
                 .unwrap_or_else(|error| panic!("scope: {error}"));
         }
         let service = EdgeRfid::new(edge.connection(), node, edge.clock());
@@ -897,24 +999,26 @@ mod tests {
                 .lock()
                 .unwrap_or_else(|error| panic!("connection: {error}"));
             connection
-                .execute(
+                .prepare_cached(
                     "INSERT INTO edge_rfid_device
                          (device_id,label,auth_key_sha256,active,valid_until,last_sequence,
                           policy_version,updated_at)
                      VALUES('RFID-02','Second reader',?1,1,?2,0,1,?3)",
-                    params![
-                        signing_key,
-                        time_text(Utc::now() + Duration::days(1)),
-                        time_text(Utc::now()),
-                    ],
                 )
+                .map_err(db)?
+                .execute(params![
+                    signing_key,
+                    time_text(Utc::now() + Duration::days(1)),
+                    time_text(Utc::now()),
+                ])
                 .unwrap_or_else(|error| panic!("second device: {error}"));
             connection
-                .execute(
+                .prepare_cached(
                     "INSERT INTO edge_rfid_device_pool(device_id,pool_id)
                      VALUES('RFID-02','store-07.floor')",
-                    [],
                 )
+                .map_err(db)?
+                .execute([])
                 .unwrap_or_else(|error| panic!("second scope: {error}"));
         }
 
@@ -1017,20 +1121,20 @@ mod tests {
             .lock()
             .unwrap_or_else(|error| panic!("connection: {error}"));
         let observations: i64 = connection
-            .query_row(
-                "SELECT count(*) FROM edge_observation_sighting",
-                [],
-                |row| row.get(0),
-            )
+            .prepare_cached("SELECT count(*) FROM edge_observation_sighting")
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .unwrap_or_else(|error| panic!("observations: {error}"));
         assert_eq!(observations, 1);
         let facts: i64 = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT count(*) FROM sync_fact_log
                  WHERE event_type=?1",
-                params![INVENTORY_RFID_OBSERVATION_BATCH_V1],
-                |row| row.get(0),
             )
+            .map_err(db)?
+            .query_row(params![INVENTORY_RFID_OBSERVATION_BATCH_V1], |row| {
+                row.get(0)
+            })
             .unwrap_or_else(|error| panic!("facts: {error}"));
         assert_eq!(facts, 1);
     }
@@ -1105,11 +1209,9 @@ mod tests {
             .lock()
             .unwrap_or_else(|error| panic!("connection: {error}"));
         let observations: i64 = connection
-            .query_row(
-                "SELECT count(*) FROM edge_observation_sighting",
-                [],
-                |row| row.get(0),
-            )
+            .prepare_cached("SELECT count(*) FROM edge_observation_sighting")
+            .map_err(db)?
+            .query_row([], |row| row.get(0))
             .unwrap_or_else(|error| panic!("observations: {error}"));
         assert_eq!(observations, 1);
     }

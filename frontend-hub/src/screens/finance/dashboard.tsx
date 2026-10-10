@@ -4,12 +4,23 @@ import { useMemo } from "react"
 import { PageContent } from "@/components/shell/app-shell"
 import { AppLink } from "@/components/ui/app-link"
 import { BarSeries, LineSeries } from "@/components/ui/chart"
+import { Kpi, KpiStrip } from "@/components/ui/kpi"
 import { PageHeader } from "@/components/ui/page-header"
-import { count, day, money } from "@/lib/format"
+import { count, day, money, moneyCompact } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { financeKeys, listAllBills, listGiros } from "@/lib/queries/finance"
 import { domainKeys, profitAndLoss } from "@/lib/queries/finance-domains"
 import { isoDay, todayIso } from "@/screens/finance/chart"
 import { useSupplierName } from "@/screens/finance/hooks"
+import {
+  AGEING_BUCKETS,
+  overdueMinor,
+  useDeliveryNumber,
+  useInventoryValue,
+  useOpenDeliveries,
+  usePayables,
+} from "@/screens/finance/measures"
+import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
 import {
   AgeingBar,
   ChartCard,
@@ -21,8 +32,6 @@ import {
   useLastMonths,
   useMonthlyPnl,
   useNumberCards,
-  usePayablesAgeing,
-  useTotalLiabilities,
 } from "@/screens/finance/workspace"
 
 /// The Finance Overview (owner, 2026-10-01): what is in the bank, what has to
@@ -37,11 +46,18 @@ export function FinanceDashboard() {
   const bank = useBankBalance(months)
   const supplierName = useSupplierName()
 
+  // Total payables is ONE read, the server's ageing (`measures.ts` says what
+  // it counts). The lists below are the same population written out: the
+  // posted bills, then the deliveries no bill covers yet, then — for what is
+  // about to leave the bank — the giros issued and not cleared.
+  const payables = usePayables()
   const bills = useQuery({
     queryKey: [...financeKeys.bills("POSTED", null), "projection"],
     queryFn: ({ signal }) => listAllBills("POSTED", undefined, signal),
     staleTime: 30_000,
   })
+  const deliveries = useOpenDeliveries()
+  const deliveryNumber = useDeliveryNumber()
   const giros = useQuery({
     queryKey: ["finance", "giros", "projection", "OUT"] as const,
     queryFn: ({ signal }) =>
@@ -52,19 +68,37 @@ export function FinanceDashboard() {
   const today = todayIso()
   const fortnight = isoDay(addDays(new Date(), 14))
 
-  // Every payment the company still owes, bill or giro, as one shape.
+  // Every open item behind the figure, as one shape. `late` is the server's
+  // own days past due (negative until the day), so "overdue" is the same
+  // question the ageing asked and not a second date comparison made here.
   const owed = useMemo<Owed[]>(() => {
     const rows: Owed[] = []
     for (const bill of bills.data ?? []) {
-      if (bill.outstanding_minor <= 0 || bill.due_date === null) continue
+      // A held bill is owed but not ageing: the figure leaves it out, so the
+      // list does too.
+      if (bill.on_hold || bill.outstanding_minor <= 0) continue
+      const due = bill.next_due_date ?? bill.due_date
+      if (due === null) continue
       rows.push({
         key: `b-${bill.invoice_id}`,
-        due: bill.due_date,
+        due,
         late: bill.days_overdue,
         who: supplierName(bill.supplier_id, bill.supplier_name),
         what: bill.invoice_number,
         how: "Bill",
         amount: bill.outstanding_minor,
+      })
+    }
+    for (const item of deliveries.data?.items ?? []) {
+      if (item.outstanding_minor <= 0) continue
+      rows.push({
+        key: `d-${item.entry_id}`,
+        due: item.due_date ?? item.posting_date,
+        late: item.age_days,
+        who: supplierName(item.party_id, item.party_name),
+        what: deliveryNumber(item.voucher_id, item.entry_number),
+        how: "Delivery",
+        amount: item.outstanding_minor,
       })
     }
     for (const giro of giros.data ?? []) {
@@ -84,28 +118,27 @@ export function FinanceDashboard() {
       })
     }
     return rows
-  }, [bills.data, giros.data, supplierName])
+  }, [bills.data, deliveries.data, giros.data, supplierName, deliveryNumber])
 
+  // About to leave: due in the next fortnight, giros included. Overdue is
+  // supplier debt past its due date and nothing else — a giro already holds
+  // the debt, and one the bank has not cleared yet is the Giro Board's matter,
+  // so the list and the "overdue" under Total payables are one number.
   const upcoming = owed
-    .filter((row) => row.due >= today && row.due <= fortnight)
+    .filter((row) => row.late <= 0 && row.due <= fortnight && row.due >= today)
     .sort((a, b) => a.due.localeCompare(b.due))
   const overdue = owed
-    .filter((row) => row.due < today)
+    .filter((row) => row.how !== "Giro" && row.late > 0)
     .sort((a, b) => b.late - a.late)
-  const overdueTotal = overdue.reduce((sum, row) => sum + row.amount, 0)
 
-  const owedTotal = owed.reduce((sum, row) => sum + row.amount, 0)
+  // The figures: the ageing's, never a sum of the lists above.
+  const owedTotal = payables.data?.total.total_minor
+  const overdueTotal =
+    payables.data === undefined ? undefined : overdueMinor(payables.data.total)
 
-  // What the stock is worth, as the balance sheet carries it: the lines under
-  // the client's INVENTORY heading (goods, shopping bags, goods in transit).
-  const sheet = useTotalLiabilities()
-  const inventoryValue = (sheet.data?.lines ?? [])
-    .filter(
-      (line) =>
-        /inventory|persediaan/i.test(line.group_name ?? "") ||
-        /^(persediaan|bdp|barang dalam perjalanan)/i.test(line.account_name)
-    )
-    .reduce((sum, line) => sum + line.amount_minor, 0)
+  // What the stock is worth: set-up stock, stock waiting to be set up, and
+  // stock in transit, each counted once.
+  const inventory = useInventoryValue()
 
   // Six months of expense, by the client's own expense groups.
   const recent = months.slice(-6)
@@ -126,7 +159,6 @@ export function FinanceDashboard() {
     return { bucket: bucket.key, groups }
   })
   const expensesPending = statements.some((read) => read.isPending)
-  const ageing = usePayablesAgeing()
 
   const balances = bank.rows.map((row) => row.balance)
   const bankNow = balances[balances.length - 1]
@@ -140,45 +172,82 @@ export function FinanceDashboard() {
     balances.length >= 3
       ? balances[balances.length - 2] - balances[balances.length - 3]
       : undefined
-  const listsPending = bills.isPending || giros.isPending
+  const listsPending =
+    bills.isPending || deliveries.isPending || giros.isPending
+  const listsFailed = bills.isError || deliveries.isError || giros.isError
+  // A read that failed is not a balance of nothing: the figures say "—" for
+  // both, never Rp 0.
+  const bankKnown = !bank.pending && !bank.failed
 
   return (
     <PageContent>
-      <PageHeader crumb="Finance" title="Overview" />
+      <PageHeader className="max-md:hidden" crumb="Finance" title="Overview" />
 
       {/* Four figures (owner, 2026-10-01): the money we hold, what we owe,
           what cash did this month, and what the stock on the shelves is
           worth. */}
-      <div className="mb-8 grid grid-cols-2 gap-3 lg:grid-cols-4">
+      {/* A phone: the four figures are one card, two to a row — the desk's
+          four cards would each leave a rupiah figure 145px to stand in. */}
+      <KpiStrip className="md:hidden">
+        <Kpi
+          label="Cash and bank"
+          value={!bankKnown || bankNow === undefined ? "—" : money(bankNow)}
+        />
+        <Kpi
+          label="Total payables"
+          value={owedTotal === undefined ? "—" : money(owedTotal)}
+          delta={
+            overdueTotal !== undefined && overdueTotal > 0
+              ? `${money(overdueTotal)} overdue`
+              : undefined
+          }
+          tone="down"
+        />
+        <Kpi
+          label="Cash flow this month"
+          value={
+            !bankKnown || flowThisMonth === undefined
+              ? "—"
+              : money(flowThisMonth)
+          }
+        />
+        <Kpi
+          label="Inventory value"
+          value={inventory.value === undefined ? "—" : money(inventory.value)}
+        />
+      </KpiStrip>
+      <div className="mb-8 grid grid-cols-2 gap-3 max-md:hidden lg:grid-cols-4">
         <Headline
           label="Cash and bank"
-          value={bank.pending ? undefined : bankNow}
+          value={bankKnown ? bankNow : undefined}
           note="Every bank account, today"
         />
         <Headline
           label="Total payables"
-          value={listsPending ? undefined : owedTotal}
+          value={owedTotal}
           note={
-            overdueTotal > 0
+            overdueTotal !== undefined && overdueTotal > 0
               ? `${money(overdueTotal)} of it overdue`
-              : "Bills and giros not yet paid"
+              : "Owed to suppliers, as at today"
           }
         />
         <Headline
           label="Cash flow this month"
-          value={bank.pending ? undefined : flowThisMonth}
+          value={bankKnown ? flowThisMonth : undefined}
           note={
-            flowLastMonth === undefined
+            !bankKnown || flowLastMonth === undefined
               ? "Change in the bank since month end"
               : `Last month ${money(flowLastMonth)}`
           }
-          delta={percentChange(flowThisMonth, flowLastMonth)}
+          delta={
+            bankKnown ? percentChange(flowThisMonth, flowLastMonth) : undefined
+          }
           tone={(flowThisMonth ?? 0) < 0 ? "bad" : undefined}
         />
         <Headline
           label="Inventory value"
-          value={sheet.isPending ? undefined : inventoryValue}
-          note="Stock at cost, in the books today"
+          value={inventory.value}
+          note="On hand, in transit and awaiting setup, at cost"
         />
       </div>
 
@@ -191,15 +260,19 @@ export function FinanceDashboard() {
           pending={bank.pending}
           failed={bank.failed}
         >
-          <LineSeries
-            rows={bank.rows}
-            dataKey="balance"
-            label="Bank balance"
-            format={money}
-            titleOf={monthTitle}
-            labelOf={monthTick}
-            className="h-[13rem]"
-          />
+          {bank.rows.every((row) => row.balance === 0) ? (
+            <ChartEmpty>No bank balance in these months.</ChartEmpty>
+          ) : (
+            <LineSeries
+              rows={bank.rows}
+              dataKey="balance"
+              label="Bank balance"
+              format={money}
+              titleOf={monthTitle}
+              labelOf={monthTick}
+              className="h-[13rem]"
+            />
+          )}
         </SmallChart>
         <SmallChart
           title="Income and expenses"
@@ -207,21 +280,27 @@ export function FinanceDashboard() {
           pending={pnl.pending}
           failed={pnl.failed}
         >
-          <BarSeries
-            rows={pnl.rows.slice(-6).map((row) => ({
-              bucket: row.bucket,
-              income: row.income,
-              expense: row.expense,
-            }))}
-            series={[
-              { key: "expense", label: "Expenses", tone: "ghost" },
-              { key: "income", label: "Income", tone: "accent" },
-            ]}
-            format={money}
-            titleOf={monthTitle}
-            labelOf={monthTick}
-            className="h-[13rem]"
-          />
+          {pnl.rows
+            .slice(-6)
+            .every((row) => row.income === 0 && row.expense === 0) ? (
+            <ChartEmpty>No income or expense in these months.</ChartEmpty>
+          ) : (
+            <BarSeries
+              rows={pnl.rows.slice(-6).map((row) => ({
+                bucket: row.bucket,
+                income: row.income,
+                expense: row.expense,
+              }))}
+              series={[
+                { key: "expense", label: "Expenses", tone: "ghost" },
+                { key: "income", label: "Income", tone: "accent" },
+              ]}
+              format={money}
+              titleOf={monthTitle}
+              labelOf={monthTick}
+              className="h-[13rem]"
+            />
+          )}
         </SmallChart>
       </div>
       <div className="mb-8 grid grid-cols-1 gap-6 xl:grid-cols-2">
@@ -231,6 +310,7 @@ export function FinanceDashboard() {
           to="/finance/payables/projection"
           rows={upcoming}
           pending={listsPending}
+          failed={listsFailed}
           empty="Nothing falls due in the next two weeks."
           when={(row) => day(row.due)}
         />
@@ -240,6 +320,7 @@ export function FinanceDashboard() {
           to="/finance/payables/aging"
           rows={overdue}
           pending={listsPending}
+          failed={listsFailed}
           empty="Nothing is late."
           when={(row) => (
             <span className="text-bad-fg">
@@ -262,11 +343,11 @@ export function FinanceDashboard() {
         </SmallChart>
         <SmallChart
           title="Payables ageing"
-          meta="Supplier bills, as at today"
-          pending={ageing.isPending}
-          failed={ageing.isError}
+          meta="Total payables, as at today"
+          pending={payables.isPending}
+          failed={payables.isError}
         >
-          {ageing.data && <AgeingColumns buckets={ageing.data.total} />}
+          {payables.data && <AgeingColumns buckets={payables.data.total} />}
         </SmallChart>
       </div>
     </PageContent>
@@ -334,7 +415,7 @@ function ExpenseGroups({
       </p>
     )
   return (
-    <div className="flex gap-6">
+    <div className="flex gap-6 max-md:flex-col">
       <div className="flex h-[13rem] flex-1 items-end gap-3">
         {stacks.map((stack) => (
           <div
@@ -362,7 +443,7 @@ function ExpenseGroups({
           </div>
         ))}
       </div>
-      <ul className="flex w-56 shrink-0 flex-col justify-center gap-2.5">
+      <ul className="flex w-56 shrink-0 flex-col justify-center gap-2.5 max-md:w-full">
         {legend.map((row, index) => (
           <li
             key={row.group}
@@ -380,7 +461,7 @@ function ExpenseGroups({
               {titleCase(row.group)}
             </span>
             <span className="text-ink tabular-nums">
-              {short.format(row.total)}
+              {moneyCompact(row.total)}
             </span>
           </li>
         ))}
@@ -402,14 +483,38 @@ function AgeingColumns({
     total_minor: number
   }
 }) {
-  const columns = [
-    { label: "Not due", value: buckets.not_due_minor, fill: "#b9c0c9" },
-    { label: "1–30 days", value: buckets.days_1_30_minor, fill: "#f59e0b" },
-    { label: "31–60 days", value: buckets.days_31_60_minor, fill: "#fb923c" },
-    { label: "61–90 days", value: buckets.days_61_90_minor, fill: "#f43f5e" },
-    { label: "> 90 days", value: buckets.days_over_90_minor, fill: "#be123c" },
-  ]
+  const fills = ["#b9c0c9", "#f59e0b", "#fb923c", "#f43f5e", "#be123c"]
+  const columns = AGEING_BUCKETS.map((bucket, index) => ({
+    label: bucket.label,
+    value: buckets[bucket.key],
+    fill: fills[index],
+  }))
   const top = Math.max(1, ...columns.map((column) => column.value))
+  // Five columns of "Rp 123,5 M" over a 59px-wide bar do not fit a phone:
+  // there the ageing is the five figures, each with its colour.
+  if (useLayout() === "phone")
+    return (
+      <ul className="flex flex-col gap-2.5">
+        {columns.map((column) => (
+          <li
+            key={column.label}
+            className="flex items-center gap-2.5 text-[0.9375rem]"
+          >
+            <span
+              aria-hidden
+              className="size-2.5 shrink-0 rounded-full"
+              style={{ background: column.fill }}
+            />
+            <span className="min-w-0 flex-1 truncate text-body">
+              {column.label}
+            </span>
+            <span className="font-medium text-ink tabular-nums">
+              {money(column.value)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    )
   return (
     <div className="flex h-[13rem] items-end gap-3">
       {columns.map((column) => (
@@ -418,7 +523,7 @@ function AgeingColumns({
           className="flex h-full min-w-0 flex-1 flex-col justify-end gap-1.5"
         >
           <span className="text-center text-[0.875rem] font-medium text-ink tabular-nums">
-            {`Rp ${short.format(column.value)}`}
+            {moneyCompact(column.value)}
           </span>
           <div
             className="w-full rounded-t-[4px]"
@@ -436,11 +541,6 @@ function AgeingColumns({
   )
 }
 
-const short = new Intl.NumberFormat("id-ID", {
-  notation: "compact",
-  maximumFractionDigits: 1,
-})
-
 /// "BEBAN ADMINISTRASI DAN UMUM" → "Beban Administrasi Dan Umum".
 function titleCase(text: string): string {
   return text.toLowerCase().replace(/(^|\s)\S/g, (head) => head.toUpperCase())
@@ -452,7 +552,7 @@ interface Owed {
   readonly late: number
   readonly who: string
   readonly what: string
-  readonly how: "Bill" | "Giro"
+  readonly how: "Bill" | "Delivery" | "Giro"
   readonly amount: number
 }
 
@@ -480,6 +580,16 @@ function SmallChart({
         {children}
       </ChartState>
     </div>
+  )
+}
+
+/// What a chart card says when its months are all nothing: one sentence in
+/// place of an axis labelled 0 to 4.
+function ChartEmpty({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="flex h-[13rem] items-center justify-center text-[0.875rem] text-mute">
+      {children}
+    </p>
   )
 }
 
@@ -553,6 +663,7 @@ function PaymentList({
   to,
   rows,
   pending,
+  failed,
   empty,
   when,
 }: {
@@ -561,11 +672,15 @@ function PaymentList({
   to: string
   rows: readonly Owed[]
   pending: boolean
+  /// A list that could not be read is not an empty one: "Nothing is late."
+  /// over a failed read is the most reassuring wrong answer this page has.
+  failed: boolean
   empty: string
   when: (row: Owed) => React.ReactNode
 }) {
   const shown = rows.slice(0, 6)
   const total = rows.reduce((sum, row) => sum + row.amount, 0)
+  const phone = useLayout() === "phone"
   return (
     <section className="flex flex-col">
       <div className="mb-3 flex items-baseline justify-between gap-3">
@@ -579,37 +694,53 @@ function PaymentList({
             : "Open"}
         </AppLink>
       </div>
-      <div className="overflow-hidden rounded-card border border-hairline-2 bg-canvas shadow-soft">
-        {pending ? (
-          <p className="px-5 py-8 text-center text-[0.875rem] text-mute">
-            Reading…
-          </p>
-        ) : shown.length === 0 ? (
-          <p className="px-5 py-8 text-center text-[0.875rem] text-mute">
-            {empty}
-          </p>
-        ) : (
-          shown.map((row) => (
-            <div
-              key={row.key}
-              className="flex items-center gap-4 border-b border-hairline px-5 py-3.5 last:border-b-0"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-ink">{row.who}</div>
-                <div className="truncate text-[0.875rem] text-mute">
-                  {row.how} · <span className="font-mono">{row.what}</span>
+      {phone && !pending && !failed && shown.length > 0 ? (
+        <PhoneList
+          rows={shown.map((row) => ({
+            key: row.key,
+            title: row.who,
+            code: `${row.how} · ${row.what}`,
+            lead: <CardFigure value={money(row.amount)} />,
+            foot: when(row),
+          }))}
+        />
+      ) : (
+        <div className="overflow-hidden rounded-card border border-hairline-2 bg-canvas shadow-soft">
+          {pending ? (
+            <p className="px-5 py-8 text-center text-[0.875rem] text-mute">
+              Reading…
+            </p>
+          ) : failed ? (
+            <p className="px-5 py-8 text-center text-[0.875rem] text-mute">
+              These payments could not be read.
+            </p>
+          ) : shown.length === 0 ? (
+            <p className="px-5 py-8 text-center text-[0.875rem] text-mute">
+              {empty}
+            </p>
+          ) : (
+            shown.map((row) => (
+              <div
+                key={row.key}
+                className="flex items-center gap-4 border-b border-hairline px-5 py-3.5 last:border-b-0"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-ink">{row.who}</div>
+                  <div className="truncate text-[0.875rem] text-mute">
+                    {row.how} · <span className="font-mono">{row.what}</span>
+                  </div>
+                </div>
+                <div className="w-28 shrink-0 text-[0.875rem] text-body">
+                  {when(row)}
+                </div>
+                <div className="w-36 shrink-0 text-right font-medium text-ink tabular-nums">
+                  {money(row.amount)}
                 </div>
               </div>
-              <div className="w-28 shrink-0 text-[0.875rem] text-body">
-                {when(row)}
-              </div>
-              <div className="w-36 shrink-0 text-right font-medium text-ink tabular-nums">
-                {money(row.amount)}
-              </div>
-            </div>
-          ))
-        )}
-      </div>
+            ))
+          )}
+        </div>
+      )}
     </section>
   )
 }
@@ -622,11 +753,15 @@ export function PaymentsDashboard() {
   const months = useLastMonths(12)
   const bank = useBankBalance(months)
   const cards = useNumberCards()
-  const ageing = usePayablesAgeing()
+  const ageing = usePayables()
 
   return (
     <PageContent>
-      <PageHeader crumb="Finance · Payments" title="Payments Dashboard" />
+      <PageHeader
+        className="max-md:hidden"
+        crumb="Finance · Payments"
+        title="Payments Dashboard"
+      />
 
       <NumberCards cards={cards} />
 

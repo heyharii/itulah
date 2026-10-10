@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
+import { Fab } from "@/components/ui/fab"
 import { Button } from "@/components/ui/button"
 import { Field, Input } from "@/components/ui/field"
 import { Toggle } from "@/components/ui/form"
@@ -31,6 +33,7 @@ import type { ShiftView } from "@itulah/contract"
 /// shift, and last March's roster must still read back.
 export function ShiftSettings() {
   const canWrite = useCanWrite()
+  const phone = useLayout() === "phone"
   const shifts = useQuery({
     queryKey: rosterKeys.shifts(),
     queryFn: ({ signal }) => listShifts(signal),
@@ -40,11 +43,13 @@ export function ShiftSettings() {
 
   return (
     <PageContent>
+      {canWrite && <Fab label="New shift" onClick={() => create.show()} />}
       <PageHeader
         crumb="People"
         title="Shifts"
-        sub="The hours a rostered day is worth. Set once for every place, so one shop's Pagi means the same as the next."
+        sub="The hours a rostered day is worth. Set once for every place, so one shop's Morning means the same as the next."
         actions={
+          !phone &&
           canWrite && (
             <Button variant="primary" onClick={() => create.show()}>
               New shift

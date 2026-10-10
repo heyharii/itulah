@@ -1,27 +1,24 @@
-import { useQuery } from "@tanstack/react-query"
+import { queryOptions, useQuery } from "@tanstack/react-query"
 import { useMemo, useState } from "react"
 
 import type { ReceivedShipment } from "@itulah/contract"
 
+import type { Refreshable } from "@/components/ui/refresh-stamp"
 import { keys as operationKeys } from "@/lib/operations/keys"
 import {
   fleetPools,
   inventoryKeys,
   missingPage,
-  observationAnomalies,
   type FleetPool,
   type MissingItem,
   type MissingScope,
-  type ObservationAnomaly,
 } from "@/lib/queries/inventory"
 import { receivedShipments } from "@/screens/operations/board/received"
 
 /// The live exception feed the inbox, the nav badge and the store cards all
-/// read. Three feeds, none of them sample:
+/// read. Two feeds, none of them sample:
 ///
 /// - **Missing** — the ledger's own `:missing` balances, oldest first.
-/// - **Seen elsewhere** — the observation surface's placement mismatches: a
-///   reader saw a tag in a pool other than its ledger position.
 /// - **Store receive gaps** — surat jalan the stores signed for short, the
 ///   same read the operations board carries, so a case here and a lane there
 ///   can never disagree.
@@ -37,7 +34,31 @@ const RECEIVED_DAYS = 30
 
 const MISSING_SCOPE: MissingScope = { sort: "missing_since", limit: 200 }
 
-export type ExceptionKind = "Missing" | "Extra" | "Seen elsewhere"
+/// The start of the receive-gap window: midnight UTC, `RECEIVED_DAYS` back.
+/// Whole days on purpose — the moment this hook mounts is not a question the
+/// server needs asked, and a window to the millisecond is a new cache key at
+/// every mount: the nav badge, this screen and the prefetcher would each fetch
+/// their own copy and none could warm another's.
+export function receivedSince(now: number = Date.now()): string {
+  const today = Math.floor(now / 86_400_000) * 86_400_000
+  return new Date(today - RECEIVED_DAYS * 86_400_000).toISOString()
+}
+
+/// The two feeds the cases are made of, as queries, shared by the hook below
+/// and the prefetcher (`screens/inventory/prefetch.ts`).
+export const missingFeedQuery = () =>
+  queryOptions({
+    queryKey: inventoryKeys.missing(MISSING_SCOPE),
+    queryFn: ({ signal }) => missingPage(MISSING_SCOPE, signal),
+  })
+
+export const receivedFeedQuery = (since: string) =>
+  queryOptions({
+    queryKey: operationKeys.receivedShipments(since),
+    queryFn: ({ signal }) => receivedShipments(since, signal),
+  })
+
+export type ExceptionKind = "Missing" | "Extra"
 
 /// One row of the received-shipments feed. Re-named here because the case
 /// panel reads it out of the `raw` union and "the received shipment" is the
@@ -46,11 +67,10 @@ export type ReceivedShipmentRow = ReceivedShipment
 
 export interface ExceptionCase {
   /// Stable across reloads, and the shape a deep link or a store card can
-  /// name: `missing:{subject_id}` | `gap:{shipment_number}:{sku_code}` |
-  /// `mismatch:{epc}:{observed_pool}`.
+  /// name: `missing:{subject_id}` | `gap:{shipment_number}:{sku_code}`.
   readonly id: string
   readonly kind: ExceptionKind
-  /// Negative for missing, positive for extra/elsewhere.
+  /// Negative for missing, positive for extra.
   readonly qty: number
   /// The site id the case belongs to — what place cards and unit labels
   /// group by.
@@ -66,13 +86,13 @@ export interface ExceptionCase {
   /// `Counting` when an ACTIVE count covers the row
   /// (`MissingItem.latest_count_status`); the feeds hold nothing else open.
   readonly status: "Open" | "Counting"
-  /// Count | Store receive | Readers | the missing cause's step.
+  /// Count | Store receive | the missing cause's step.
   readonly from: string
-  /// missing_reference_id / shipment_number / epc.
+  /// missing_reference_id / shipment_number.
   readonly doc: string | null
   readonly lastSeenAt: string | null
   /// The feed row itself, for the case panel and the writes against it.
-  readonly raw: MissingItem | ObservationAnomaly | ReceivedShipmentRow
+  readonly raw: MissingItem | ReceivedShipmentRow
 }
 
 /// The movement cause that carried a piece into Missing, as the step people
@@ -109,35 +129,14 @@ function daysSince(iso: string | null): number | null {
   return Math.floor((Date.now() - at.getTime()) / 86_400_000)
 }
 
-/// Pool ids to sites and labels, over the fleet read.
-///
-/// A centre pool id's first segment **is** the site — a site id admits only
-/// lowercase letters, digits and `-`, never the dot. But the fleet read also
-/// carries Edge-derived rows, which may spell the same shelf with the node's
-/// own site (`dc-01.warehouse`); the shadow link on such a row names the
-/// origin, and the origin names the site it stands in. The same mapping the
-/// pools screen makes, folded into two lookups.
+/// The shelf a store's deliveries land in, looked up over the fleet read.
+/// Rollups are skipped: they are fleet-wide figures, not a place you can
+/// stand a gap's pool on.
 interface PoolIndex {
-  siteOf: (poolId: string) => string | null
-  labelOf: (poolId: string) => string | null
-  /// The shelf a store's deliveries land in, for receive-gap cases and the
-  /// counts asked against them.
   storeStockroom: (siteId: string) => { id: string; label: string } | null
 }
 
 function poolIndex(pools: readonly FleetPool[]): PoolIndex {
-  const siteOfOrigin = new Map<string, string>()
-  for (const item of pools) {
-    const shadowing = item.authority.shadowed_by_origin_id
-    if (shadowing !== null) siteOfOrigin.set(shadowing, item.site_id)
-  }
-  const byCentreId = new Map<string, FleetPool>()
-  for (const item of pools) {
-    const site = siteOfOrigin.get(item.origin_id) ?? item.site_id
-    const rest = item.id.slice(item.id.indexOf(".") + 1)
-    const id = item.id.includes(".") ? `${site}.${rest}` : item.id
-    byCentreId.set(id, item)
-  }
   const bySite = new Map<string, FleetPool[]>()
   for (const item of pools) {
     if (item.is_rollup) continue
@@ -146,10 +145,6 @@ function poolIndex(pools: readonly FleetPool[]): PoolIndex {
     else bySite.set(item.site_id, [item])
   }
   return {
-    siteOf: (poolId) =>
-      byCentreId.get(poolId)?.site_id ??
-      (poolId.includes(".") ? poolId.slice(0, poolId.indexOf(".")) : null),
-    labelOf: (poolId) => byCentreId.get(poolId)?.label ?? null,
     storeStockroom: (siteId) => {
       const own = bySite.get(siteId)
       if (own === undefined || own.length === 0) return null
@@ -159,32 +154,20 @@ function poolIndex(pools: readonly FleetPool[]): PoolIndex {
   }
 }
 
-/// The cases, merged from all three feeds. `null` while ANY feed is loading —
+/// The cases, merged from both feeds. `null` while ANY feed is loading —
 /// an inbox that fills in kind by kind would have a selection that jumps —
 /// and the array once every feed has answered. A feed that answered empty
 /// simply contributes nothing.
 export function useExceptionCases(): {
   cases: readonly ExceptionCase[] | null
+  /// The feeds' own reads, for the screen's reload and "Updated" stamp.
+  feeds: readonly Refreshable[]
 } {
-  // Fixed when the component mounts, like the board's `since`.
-  const [since] = useState(() =>
-    new Date(Date.now() - RECEIVED_DAYS * 86_400_000).toISOString()
-  )
+  // Fixed when the component mounts, to the day (`receivedSince`).
+  const [since] = useState(() => receivedSince())
 
-  const missing = useQuery({
-    queryKey: inventoryKeys.missing(MISSING_SCOPE),
-    queryFn: ({ signal }) => missingPage(MISSING_SCOPE, signal),
-  })
-  const anomalies = useQuery({
-    queryKey: inventoryKeys.anomalies(),
-    queryFn: ({ signal }) => observationAnomalies(signal),
-  })
-  // The same key the operations board holds it under, so one fetch serves
-  // both screens.
-  const received = useQuery({
-    queryKey: operationKeys.receivedShipments(since),
-    queryFn: ({ signal }) => receivedShipments(since, signal),
-  })
+  const missing = useQuery(missingFeedQuery())
+  const received = useQuery(receivedFeedQuery(since))
   // For the pool → site/label mapping, and the stockroom a gap names.
   const fleet = useQuery({
     queryKey: inventoryKeys.fleet(),
@@ -192,13 +175,7 @@ export function useExceptionCases(): {
   })
 
   const cases = useMemo<readonly ExceptionCase[] | null>(() => {
-    if (
-      missing.isPending ||
-      anomalies.isPending ||
-      received.isPending ||
-      fleet.isPending
-    )
-      return null
+    if (missing.isPending || received.isPending || fleet.isPending) return null
 
     const pools = poolIndex(fleet.data?.items ?? [])
     const out: ExceptionCase[] = []
@@ -218,25 +195,6 @@ export function useExceptionCases(): {
         from: stepOf(row.missing_cause, row.missing_reference_type),
         doc: row.missing_reference_id,
         lastSeenAt: row.last_observation,
-        raw: row,
-      })
-    }
-
-    for (const row of anomalies.data ?? []) {
-      out.push({
-        id: `mismatch:${row.epc}:${row.observed_pool}`,
-        kind: "Seen elsewhere",
-        qty: row.quantity,
-        place: pools.siteOf(row.ledger_pool) ?? row.ledger_pool,
-        pool: row.ledger_pool,
-        poolLabel: pools.labelOf(row.ledger_pool) ?? row.ledger_pool,
-        sku: null,
-        article: null,
-        ageDays: daysSince(row.last_observed_at),
-        status: "Open",
-        from: "Readers",
-        doc: row.epc,
-        lastSeenAt: row.last_observed_at,
         raw: row,
       })
     }
@@ -267,9 +225,9 @@ export function useExceptionCases(): {
     // Oldest first — the inbox is worked worst-case first, like the missing
     // screen sorts.
     return out.sort((a, b) => (b.ageDays ?? -1) - (a.ageDays ?? -1))
-  }, [missing.data, anomalies.data, received.data, fleet.data])
+  }, [missing.data, received.data, fleet.data])
 
-  return { cases }
+  return { cases, feeds: [missing, received, fleet] }
 }
 
 /// The nav badge's number. The feeds only hold open/counting rows — a

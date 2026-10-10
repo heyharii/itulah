@@ -7,13 +7,13 @@ import {
 import { Lock } from "lucide-react"
 import { useState } from "react"
 
-import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Field, Input, Select } from "@/components/ui/field"
-import { PeopleSheet } from "@/components/ui/people-sheet"
+import { PeopleSheet, SheetSection } from "@/components/ui/people-sheet"
 import { PeopleTable } from "@/components/ui/people-table"
 import { PeopleTabs } from "@/components/ui/people-tabs"
-import { Pill } from "@/components/ui/pill"
+import { Pill, Status } from "@/components/ui/pill"
+import { Stat, StatStrip } from "@/components/ui/stat-strip"
 import {
   hrKeys,
   isoDay,
@@ -24,9 +24,15 @@ import {
   type StoreScope,
 } from "@/lib/queries/hr"
 import { centreState } from "@/screens/hr/centre"
+import { Facts, Person, personCard, Submit } from "@/screens/hr/parts"
 import { RefusedBanner } from "@/screens/hr/refused"
-import { Facts, Person, Submit } from "@/screens/hr/parts"
-import { personName, useTeam } from "@/screens/hr/words"
+import {
+  personByLogin,
+  personName,
+  teamRows,
+  useTeam,
+  type Tone,
+} from "@/screens/hr/words"
 import { HrWorkspace } from "@/screens/hr/workspace"
 import { money } from "@itulah/contract/money"
 import type {
@@ -53,9 +59,7 @@ import type {
 /// that would read as "nobody is registered".
 export function HrBenefits() {
   return (
-    <HrWorkspace>
-      {(scope) => <Benefits scope={scope} />}
-    </HrWorkspace>
+    <HrWorkspace>{(scope) => <Benefits scope={scope} />}</HrWorkspace>
   )
 }
 
@@ -77,6 +81,7 @@ function Benefits({ scope }: { scope: StoreScope }) {
 
   return (
     <>
+      {/* On a phone the dock's one chip; on a desk the underline tabs. */}
       <PeopleTabs
         value={tab}
         onChange={setTab}
@@ -98,13 +103,13 @@ function Benefits({ scope }: { scope: StoreScope }) {
       )}
       {tab === "bpjs" &&
         centreState(statutory, {
-          loading: "Loading…",
+          loading: "Reading the BPJS rates…",
           what: "the BPJS rates",
           render: (rows) => <Bpjs rates={rows} team={team.data} />,
         })}
       {tab === "other" &&
         centreState(benefit, {
-          loading: "Loading…",
+          loading: "Reading the benefit rules…",
           what: "the benefit rules",
           render: (rows) => <Other rules={rows} />,
         })}
@@ -113,6 +118,30 @@ function Benefits({ scope }: { scope: StoreScope }) {
 }
 
 // ── uniforms ────────────────────────────────────────────────────────────────
+
+/// One person's uniform ledger, folded to what the list says about them.
+interface UniformRow {
+  readonly id: string
+  readonly loading: boolean
+  /// Sets handed over this calendar year.
+  readonly thisYear: number
+  /// The day of the last handover, if there has ever been one.
+  readonly last: string | null
+  /// Every handover, newest first.
+  readonly ledger: readonly UniformIssuanceView[]
+}
+
+/// Where somebody stands against the yearly allowance, in a word. No allowance
+/// rule from head office, no word.
+function allowanceState(
+  given: number,
+  allowance: number | null,
+): { label: string; tone: Tone } | null {
+  if (allowance === null) return null
+  if (given >= allowance) return { label: "Allowance given", tone: "ok" }
+  const left = allowance - given
+  return { label: `${left} ${left === 1 ? "set" : "sets"} left`, tone: "neutral" }
+}
 
 function Uniforms({
   team,
@@ -135,20 +164,21 @@ function Uniforms({
   const year = String(new Date().getFullYear())
   const [recording, setRecording] = useState<string | null>(null)
 
-  const rows = people.map((person, index) => {
-    const ledger: readonly UniformIssuanceView[] = reads[index]?.data ?? []
-    const latest = [...ledger].sort((left, right) =>
+  const rows: UniformRow[] = people.map((person, index) => {
+    const ledger = [...(reads[index]?.data ?? [])].sort((left, right) =>
       right.issued_on.localeCompare(left.issued_on),
-    )[0]
+    )
     return {
       id: person.employee_id,
       loading: reads[index]?.isPending ?? true,
       thisYear: ledger
         .filter((row) => row.issued_on.startsWith(year))
         .reduce((sum, row) => sum + row.sets, 0),
-      last: latest?.issued_on ?? null,
+      last: ledger[0]?.issued_on ?? null,
+      ledger,
     }
   })
+  const open = rows.find((row) => row.id === recording)
 
   return (
     <>
@@ -158,7 +188,34 @@ function Uniforms({
       <PeopleTable
         rows={rows}
         rowKey={(row) => row.id}
+        onRowClick={(row) => setRecording(row.id)}
         empty="Nobody posted here."
+        card={(row) => {
+          const state = row.loading
+            ? null
+            : allowanceState(row.thisYear, allowance)
+          return {
+            ...personCard(team, row.id, [
+              row.loading
+                ? undefined
+                : row.last === null
+                  ? "Nothing handed over yet"
+                  : `Last handed over ${readDate(row.last)}`,
+            ]),
+            lead: {
+              figure: row.loading ? "…" : row.thisYear,
+              caption: `sets in ${year}`,
+              muted: row.loading || row.thisYear === 0,
+            },
+            foot: {
+              info:
+                state === null ? undefined : (
+                  <Status tone={state.tone}>{state.label}</Status>
+                ),
+              action: { label: "Open", onClick: () => setRecording(row.id) },
+            },
+          }
+        }}
         columns={[
           {
             key: "who",
@@ -168,13 +225,8 @@ function Uniforms({
           {
             key: "last",
             header: "Last handed over",
-            card: "meta",
             cell: (row) =>
-              row.loading
-                ? "…"
-                : row.last === null
-                  ? "never"
-                  : readDate(row.last),
+              row.loading ? "…" : row.last === null ? "—" : readDate(row.last),
           },
           {
             key: "year",
@@ -186,35 +238,30 @@ function Uniforms({
             key: "allowance",
             header: "Allowance",
             align: "right",
-            card: "hide",
             cell: () => (allowance === null ? "—" : `${allowance} a year`),
           },
           {
-            key: "act",
-            header: "",
-            card: "action",
-            cell: (row) =>
-              row.loading ? null : allowance !== null &&
-                row.thisYear >= allowance ? (
-                <Pill tone="ok">Allowance given</Pill>
+            key: "state",
+            header: "Status",
+            cell: (row) => {
+              const state = row.loading
+                ? null
+                : allowanceState(row.thisYear, allowance)
+              return state === null ? (
+                "—"
               ) : (
-                <Button
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    setRecording(row.id)
-                  }}
-                >
-                  Record handover
-                </Button>
-              ),
+                <Status tone={state.tone}>{state.label}</Status>
+              )
+            },
           },
         ]}
       />
-      {recording !== null && (
-        <RecordUniform
-          employeeId={recording}
+      {open !== undefined && (
+        <UniformSheet
+          key={open.id}
+          row={open}
           team={team}
-          given={rows.find((row) => row.id === recording)?.thisYear ?? 0}
+          year={year}
           allowance={allowance}
           onClose={() => setRecording(null)}
         />
@@ -223,20 +270,25 @@ function Uniforms({
   )
 }
 
-function RecordUniform({
-  employeeId,
+/// One person's uniforms: what has been handed over, and — while the yearly
+/// allowance has room — the form that records the next handover.
+function UniformSheet({
+  row,
   team,
-  given,
+  year,
   allowance,
   onClose,
 }: {
-  employeeId: string
+  row: UniformRow
   team: EmployeeList | undefined
-  given: number
+  year: string
   allowance: number | null
   onClose: () => void
 }) {
   const client = useQueryClient()
+  const employeeId = row.id
+  const given = row.thisYear
+  const full = allowance !== null && given >= allowance
   const left = allowance === null ? 3 : Math.max(1, allowance - given)
   const [sets, setSets] = useState("1")
   const [issuedOn, setIssuedOn] = useState(isoDay(new Date()))
@@ -249,6 +301,9 @@ function RecordUniform({
       onClose()
     },
   })
+  const role = teamRows(team).find(
+    (person) => person.employee_id === employeeId,
+  )?.position
 
   return (
     <PeopleSheet
@@ -256,55 +311,100 @@ function RecordUniform({
       onOpenChange={(next) => {
         if (!next) onClose()
       }}
-      crumb="Benefits · Uniforms"
+      crumb="Uniform"
       title={personName(team, employeeId)}
       sub={
         allowance === null
-          ? `${given} set${given === 1 ? "" : "s"} this year`
-          : `${given} of ${allowance} sets this year`
+          ? `${given} ${given === 1 ? "set" : "sets"} in ${year}`
+          : `${given} of ${allowance} sets in ${year}`
       }
+      status={full ? <Pill tone="ok">Allowance given</Pill> : undefined}
       foot={
-        <Submit
-          label="Record the handover"
-          pending={record.isPending}
-          disabled={issuedOn === "" || reason.trim() === ""}
-          error={record.error}
-          onSubmit={() => record.mutate()}
-        />
+        full ? undefined : (
+          <Submit
+            label="Create handover"
+            pendingLabel="Creating…"
+            pending={record.isPending}
+            disabled={issuedOn === "" || reason.trim() === ""}
+            error={record.error}
+            onSubmit={() => record.mutate()}
+            onCancel={onClose}
+          />
+        )
       }
     >
-      <div className="flex flex-col gap-3">
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Sets">
-            <Select value={sets} onChange={setSets}>
-              {Array.from({ length: left }, (_, index) =>
-                String(index + 1),
-              ).map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Handed over on">
-            <Input
-              type="date"
-              value={issuedOn}
-              max={isoDay(new Date())}
-              onChange={(event) => setIssuedOn(event.target.value)}
-            />
-          </Field>
-        </div>
-        <Field
-          label="Reason"
+      <Facts
+        rows={[
+          ["Position", role ?? "—"],
+          ["Allowance", allowance === null ? "—" : `${allowance} sets a year`],
+          [
+            "Last handed over",
+            row.last === null ? "Nothing yet" : readDate(row.last),
+          ],
+        ]}
+      />
+      {row.ledger.length > 0 && (
+        <SheetSection
+          title="Handed over"
+          aside={row.ledger.length}
+          className="mt-6"
         >
-          <Input
-            value={reason}
-            placeholder="New joiner's first set"
-            onChange={(event) => setReason(event.target.value)}
-          />
-        </Field>
-      </div>
+          <ul className="flex flex-col divide-y divide-hairline">
+            {row.ledger.map((entry) => (
+              <li
+                key={entry.id}
+                className="flex items-baseline justify-between gap-3 py-2.5 first:pt-0 last:pb-0"
+              >
+                <span className="min-w-0">
+                  <span className="block text-cell text-ink">
+                    {readDate(entry.issued_on)}
+                  </span>
+                  <span className="block truncate text-meta text-mute">
+                    {personByLogin(team, entry.recorded_by)}
+                  </span>
+                </span>
+                <span className="shrink-0 text-cell text-ink tabular-nums">
+                  {entry.sets} {entry.sets === 1 ? "set" : "sets"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </SheetSection>
+      )}
+      {!full && (
+        <SheetSection title="New handover" className="mt-6">
+          <div className="flex flex-col gap-3">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Sets" required>
+                <Select value={sets} onChange={setSets}>
+                  {Array.from({ length: left }, (_, index) =>
+                    String(index + 1),
+                  ).map((value) => (
+                    <option key={value} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Handed over on" required>
+                <Input
+                  type="date"
+                  value={issuedOn}
+                  max={isoDay(new Date())}
+                  onChange={(event) => setIssuedOn(event.target.value)}
+                />
+              </Field>
+            </div>
+            <Field label="Reason" required>
+              <Input
+                value={reason}
+                placeholder="New joiner's first set"
+                onChange={(event) => setReason(event.target.value)}
+              />
+            </Field>
+          </div>
+        </SheetSection>
+      )}
     </PeopleSheet>
   )
 }
@@ -333,10 +433,24 @@ function Bpjs({
 
   return (
     <>
+      {/* The four rates are the same for everybody: a line of figures over
+          the list, not a column repeated on every row. */}
+      <StatStrip className="md:grid-cols-4">
+        <Stat label="Kesehatan, company" value={pct(kesCo)} />
+        <Stat label="Kesehatan, employee" value={pct(kesEmp)} />
+        <Stat label="Ketenagakerjaan, company" value={pct(tkCo)} />
+        <Stat label="Ketenagakerjaan, employee" value={pct(tkEmp)} />
+      </StatStrip>
       <PeopleTable
         rows={people}
         rowKey={(person) => person.employee_id}
         empty="Nobody posted here."
+        card={(person) => ({
+          ...personCard(team, person.employee_id),
+          foot: {
+            info: <Status tone="neutral">Registration held at head office</Status>,
+          },
+        })}
         columns={[
           {
             key: "who",
@@ -346,13 +460,11 @@ function Bpjs({
           {
             key: "kes",
             header: "BPJS Kesehatan",
-            card: "meta",
             cell: () => <HeldAtHo />,
           },
           {
             key: "tk",
             header: "BPJS Ketenagakerjaan",
-            card: "meta",
             cell: () => <HeldAtHo />,
           },
           {
@@ -373,16 +485,6 @@ function Bpjs({
           },
         ]}
       />
-      <Card className="mt-4 px-4 py-3">
-        <Facts
-          rows={[
-            ["Kesehatan, company", pct(kesCo)],
-            ["Kesehatan, employee", pct(kesEmp)],
-            ["Ketenagakerjaan, company", pct(tkCo)],
-            ["Ketenagakerjaan, employee", pct(tkEmp)],
-          ]}
-        />
-      </Card>
     </>
   )
 }
@@ -403,40 +505,35 @@ function Other({ rules: rows }: { rules: readonly PolicyView[] }) {
     (rule) => rule.key !== "benefit.uniform_sets_annual",
   )
   return (
-    <>
-      <Card className="divide-y divide-hairline">
+    <Card className="divide-y divide-hairline">
+      <Line
+        title="THR (religious holiday allowance)"
+        sub="1 month's base after 12 months · pro rata"
+      />
+      {shown.map((rule) => (
         <Line
-          title="THR (religious holiday allowance)"
-          sub="1 month's base after 12 months · pro rata"
+          key={rule.key}
+          title={rule.label}
+          sub={
+            rule.unit === "RUPIAH"
+              ? money(rule.value)
+              : `${rule.value} ${rule.unit.toLowerCase()}`
+          }
         />
-        {shown.map((rule) => (
-          <Line
-            key={rule.key}
-            title={rule.label}
-            sub={
-              rule.unit === "RUPIAH"
-                ? money(rule.value)
-                : `${rule.value} ${rule.unit.toLowerCase()}`
-            }
-          />
-        ))}
-        <Line
-          title="Severance and entitlements"
-          sub="Set at head office on leaving"
-        />
-      </Card>
-    </>
+      ))}
+      <Line
+        title="Severance and entitlements"
+        sub="Set at head office on leaving"
+      />
+    </Card>
   )
 }
 
 function Line({ title, sub }: { title: string; sub: string }) {
   return (
-    <div className="flex items-start justify-between gap-3 px-4 py-3">
-      <span className="min-w-0">
-        <span className="block text-cell font-medium text-ink">{title}</span>
-        <span className="block text-meta text-body">{sub}</span>
-      </span>
-      <Pill tone="neutral">HO</Pill>
+    <div className="px-4 py-3">
+      <span className="block text-cell font-medium text-ink">{title}</span>
+      <span className="block text-meta text-body">{sub}</span>
     </div>
   )
 }

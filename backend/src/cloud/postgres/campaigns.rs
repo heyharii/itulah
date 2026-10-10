@@ -684,16 +684,15 @@ pub async fn campaign_plan(pool: &PgPool, campaign_id: &str) -> Result<CampaignP
             .await?,
         )
     };
-    let (activities, rule_ids, markdown_ids, scope_rows, published, guardrails, breaches) =
-        tokio::try_join!(
-            activities,
-            rules_in_books(pool, &campaign_id),
-            markdowns_in_books(pool, &campaign_id),
-            scope_rows,
-            published_campaign(pool, &campaign_id),
-            guardrails,
-            breaches,
-        )?;
+    let (activities, rule_ids, markdown_ids, scope_rows, published, guardrails, breaches) = tokio::try_join!(
+        activities,
+        rules_in_books(pool, &campaign_id),
+        markdowns_in_books(pool, &campaign_id),
+        scope_rows,
+        published_campaign(pool, &campaign_id),
+        guardrails,
+        breaches,
+    )?;
 
     let activities: Vec<CampaignActivityRow> = activities
         .iter()
@@ -730,8 +729,8 @@ pub async fn campaign_plan(pool: &PgPool, campaign_id: &str) -> Result<CampaignP
         })
         .collect();
 
-    let binding_site_ids: Option<Vec<String>> = published
-        .and_then(|row| row.get::<Option<Vec<String>>, _>("site_ids"));
+    let binding_site_ids: Option<Vec<String>> =
+        published.and_then(|row| row.get::<Option<Vec<String>>, _>("site_ids"));
 
     let declared_sites: Vec<String> = declared
         .iter()
@@ -756,7 +755,6 @@ pub async fn campaign_plan(pool: &PgPool, campaign_id: &str) -> Result<CampaignP
         ),
         _ => (Vec::new(), Vec::new()),
     };
-
 
     Ok(CampaignPlanView {
         campaign_id,

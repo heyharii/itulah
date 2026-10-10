@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
+import { Fab } from "@/components/ui/fab"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox, Field, Input } from "@/components/ui/field"
@@ -21,7 +23,12 @@ import {
 } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
-import { ListCard, RowOpen, SheetFooter } from "@/screens/people/settings-kit"
+import {
+  CardFoot,
+  ListCard,
+  RowOpen,
+  SheetFooter,
+} from "@/screens/people/settings-kit"
 import { useOpener } from "@/screens/people/settings-lib"
 import type { GeofenceView, MobileAttendanceSetting } from "@itulah/contract"
 
@@ -30,6 +37,7 @@ import type { GeofenceView, MobileAttendanceSetting } from "@itulah/contract"
 /// to come from.
 export function MobileSettings() {
   const canWrite = useCanWrite()
+  const phone = useLayout() === "phone"
   const setting = useQuery({
     queryKey: attendanceSettingKeys.mobile(),
     queryFn: ({ signal }) => mobileSetting(signal),
@@ -46,11 +54,13 @@ export function MobileSettings() {
 
   return (
     <PageContent>
+      {canWrite && <Fab label="Add location" onClick={() => fence.show()} />}
       <PageHeader
         crumb="People"
         title="Mobile Attendance"
         sub="Whether the employee app may punch, whether it must say where the phone is, and the circle around each unit a punch must come from."
         actions={
+          !phone &&
           canWrite && (
             <>
               <Button onClick={() => edit.show()} disabled={!setting.data}>
@@ -86,6 +96,13 @@ export function MobileSettings() {
             ),
           })}
         </div>
+        {canWrite && (
+          <CardFoot
+            label="Edit"
+            disabled={!setting.data}
+            onClick={() => edit.show()}
+          />
+        )}
       </Card>
 
       <ListCard title="Attendance locations">

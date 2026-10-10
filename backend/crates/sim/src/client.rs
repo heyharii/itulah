@@ -79,7 +79,13 @@ impl Nodes {
             .timeout(std::time::Duration::from_secs(30))
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
-        Self { cloud, dc, store, http, run_id }
+        Self {
+            cloud,
+            dc,
+            store,
+            http,
+            run_id,
+        }
     }
 
     pub fn base(&self, node: Node) -> &str {
@@ -200,7 +206,19 @@ pub async fn call(
     body: Value,
     expect: Expect,
 ) -> SimResult<Value> {
-    request_with(nodes, rec, clock, actor, node, method, path, body, &[], expect).await
+    request_with(
+        nodes,
+        rec,
+        clock,
+        actor,
+        node,
+        method,
+        path,
+        body,
+        &[],
+        expect,
+    )
+    .await
 }
 
 /// The same call carrying an `Idempotency-Key` header — the wire contract of

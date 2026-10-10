@@ -6,12 +6,14 @@ import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { ConfirmButton, Panel } from "@/components/ui/dialog"
+import { Fab } from "@/components/ui/fab"
 import { Checkbox, Field, Input, Select, Textarea } from "@/components/ui/field"
 import { PageHeader } from "@/components/ui/page-header"
 import { Pill } from "@/components/ui/pill"
 import { Toolbar } from "@/components/ui/segmented"
 import { Banner, EmptyState, Problem } from "@/components/ui/states"
 import { count } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { queryState } from "@/lib/query-state"
 import {
   evaluateBankRules,
@@ -24,7 +26,8 @@ import {
 } from "@/lib/queries/finance"
 import { Code, Grid, Td, Th } from "@/screens/finance-final/parts"
 import { useMeaningLabel } from "@/screens/finance/hooks"
-import { UnitName, UnitSelect } from "@/screens/finance/parts"
+import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
+import { PhoneChoice, UnitName, UnitSelect } from "@/screens/finance/parts"
 import type {
   BankRuleRow,
   BankRuleRunOutcome,
@@ -65,6 +68,7 @@ export function BankRules() {
   const [outcome, setOutcome] = useState<BankRuleRunOutcome | null>(null)
   const client = useQueryClient()
   const meaning = useMeaningLabel()
+  const phone = useLayout() === "phone"
 
   const rules = useQuery({
     queryKey: financeKeys.bankRules(showRetired),
@@ -100,6 +104,7 @@ export function BankRules() {
   return (
     <PageContent>
       <PageHeader
+        className="max-md:hidden"
         crumb="Finance · Banking"
         title="Bank Rules"
         actions={
@@ -117,6 +122,19 @@ export function BankRules() {
           </>
         }
       />
+
+      {/* A phone: "Show retired" is a chip in the dock and the new rule the
+          round +; "Apply rules now" stands at the foot of the list. */}
+      <PhoneChoice
+        title="Show"
+        value={showRetired ? "all" : "active"}
+        onChange={(next) => setShowRetired(next === "all")}
+        options={[
+          { value: "active", label: "Active rules", short: "Active" },
+          { value: "all", label: "Active and retired", short: "All" },
+        ]}
+      />
+      <Fab label="New rule" onClick={() => setEditing("new")} />
 
       <div className="flex flex-col gap-3">
         {/* Retire reports its own failure inside its confirmation. */}
@@ -151,20 +169,22 @@ export function BankRules() {
           </Banner>
         )}
 
-        <Toolbar className="mb-0">
-          <Checkbox
-            label="Show retired"
-            checked={showRetired}
-            onChange={setShowRetired}
-          />
-          <Toolbar.Spacer />
-          <span className="text-[0.875rem] text-mute">
-            {count(active)} active {active === 1 ? "rule" : "rules"} · lowest
-            priority is tried first
-          </span>
-        </Toolbar>
+        {!phone && (
+          <Toolbar className="mb-0">
+            <Checkbox
+              label="Show retired"
+              checked={showRetired}
+              onChange={setShowRetired}
+            />
+            <Toolbar.Spacer />
+            <span className="text-[0.875rem] text-mute">
+              {count(active)} active {active === 1 ? "rule" : "rules"} · lowest
+              priority is tried first
+            </span>
+          </Toolbar>
+        )}
 
-        <Card className="overflow-hidden">
+        <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
           {queryState(rules, {
             loading: "Reading the rules…",
             render: () =>
@@ -179,6 +199,53 @@ export function BankRules() {
                   No rule yet. A rule recognises a bank line you see every month
                   — a charge, interest, a tax — and proposes what it is.
                 </EmptyState>
+              ) : phone ? (
+                <PhoneList
+                  rows={rows.map((row) => ({
+                    key: row.rule_id,
+                    title: (
+                      <>
+                        <span className="font-normal text-mute">
+                          {MATCH_VERB[row.match_kind] ?? row.match_kind}
+                        </span>{" "}
+                        <span className="font-mono text-[1rem]">
+                          {row.pattern}
+                        </span>
+                      </>
+                    ),
+                    line: <RecordsAs row={row} meaning={meaning} />,
+                    lead:
+                      row.proposed_count === 0 ? (
+                        <CardFigure value="Never" caption="used" />
+                      ) : (
+                        <CardFigure
+                          value={count(row.accepted_count)}
+                          caption={`of ${count(row.proposed_count)} used`}
+                        />
+                      ),
+                    foot: (
+                      <span className="flex flex-col">
+                        <span>
+                          Priority {row.priority} ·{" "}
+                          {DIRECTION[row.direction] ?? row.direction}
+                        </span>
+                        <UnitName id={row.unit_id} />
+                      </span>
+                    ),
+                    action: row.active ? (
+                      <Button
+                        variant="tint"
+                        size="card"
+                        onClick={() => setEditing(row)}
+                      >
+                        Edit
+                      </Button>
+                    ) : (
+                      <Pill tone="neutral">Retired</Pill>
+                    ),
+                    onOpen: row.active ? () => setEditing(row) : undefined,
+                  }))}
+                />
               ) : (
                 <Grid>
                   <thead>
@@ -272,6 +339,16 @@ export function BankRules() {
               ),
           })}
         </Card>
+
+        {phone && (
+          <Button
+            pending={apply.isPending}
+            disabled={active === 0}
+            onClick={() => apply.mutate()}
+          >
+            {apply.isPending ? "Applying…" : "Apply rules now"}
+          </Button>
+        )}
       </div>
 
       <Panel

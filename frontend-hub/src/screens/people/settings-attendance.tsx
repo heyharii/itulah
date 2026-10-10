@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
+import { Fab } from "@/components/ui/fab"
 import { Button } from "@/components/ui/button"
 import { Day } from "@/components/ui/day"
 import { Field, Input, Textarea } from "@/components/ui/field"
@@ -36,6 +38,7 @@ import type { PolicyVersionView } from "@itulah/contract"
 /// month.
 export function AttendanceRuleSettings() {
   const canWrite = useCanWrite()
+  const phone = useLayout() === "phone"
   const sheet = useOpener()
   const [asOf, setAsOf] = useState("")
 
@@ -64,11 +67,13 @@ export function AttendanceRuleSettings() {
 
   return (
     <PageContent>
+      {canWrite && <Fab label="New version" onClick={() => sheet.show()} />}
       <PageHeader
         crumb="People"
         title="Attendance Rules"
         sub="The tolerances a month of arrivals is judged against. Anybody signed in may read them; only head office may change them."
         actions={
+          !phone &&
           canWrite && (
             <Button variant="primary" onClick={() => sheet.show()}>
               New version

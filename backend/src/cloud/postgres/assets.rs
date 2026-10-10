@@ -361,7 +361,13 @@ fn to_asset(row: &sqlx::postgres::PgRow) -> Result<AssetRow, AppError> {
         // is nothing. Cost less accumulated here would keep a written-off
         // laptop in every "at book value" total beside a balance sheet that
         // no longer has it.
-        book_value_minor: cost.map(|c| if disposed_on.is_some() { 0 } else { c - accumulated }),
+        book_value_minor: cost.map(|c| {
+            if disposed_on.is_some() {
+                0
+            } else {
+                c - accumulated
+            }
+        }),
         last_depreciated_month: row.try_get("last_depreciated_month")?,
         acquired_via: row.try_get("acquired_via")?,
         disposed_on,
@@ -1269,19 +1275,20 @@ pub async fn assess_asset(
     // months exactly while "3 years" and "3.0003 years" do not.
     // Neither given: the class's own default life (0467), as an ERPNext Asset
     // Category supplies one.
-    let class_life: Option<i32> = if request.useful_life_months.is_none() && request.rate_bps.is_none() {
-        sqlx::query_scalar(
-            "SELECT c.default_useful_life_months FROM fixed_asset a
+    let class_life: Option<i32> =
+        if request.useful_life_months.is_none() && request.rate_bps.is_none() {
+            sqlx::query_scalar(
+                "SELECT c.default_useful_life_months FROM fixed_asset a
                JOIN asset_class c ON c.class_code = a.category_code
               WHERE a.asset_id = $1",
-        )
-        .bind(asset_id)
-        .fetch_optional(pool)
-        .await?
-        .flatten()
-    } else {
-        None
-    };
+            )
+            .bind(asset_id)
+            .fetch_optional(pool)
+            .await?
+            .flatten()
+        } else {
+            None
+        };
     let (useful_life_months, rate_bps) =
         reconcile_life(request.useful_life_months.or(class_life), request.rate_bps)?;
     let charge_kind = match request.charge_kind.as_deref().map(str::trim) {
@@ -2019,7 +2026,9 @@ pub async fn unmapped_categories(pool: &PgPool) -> Result<Vec<String>, AppError>
             (kind.contra_key(), None),
         ] {
             if let Err(error) = asset_leg(pool, key, &unit, &category, expected).await {
-                missing.push(format!("{key} for {category} in the books of {unit}: {error}"));
+                missing.push(format!(
+                    "{key} for {category} in the books of {unit}: {error}"
+                ));
             }
         }
     }

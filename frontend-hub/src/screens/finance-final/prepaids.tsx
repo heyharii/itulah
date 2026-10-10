@@ -1,5 +1,5 @@
 import { useQueries, useQuery } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import { Fragment, useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
 import { PageHeader } from "@/components/ui/page-header"
@@ -7,6 +7,7 @@ import { Pill } from "@/components/ui/pill"
 import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
 import { count, money } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   accountChildren,
   accountLedger,
@@ -26,7 +27,9 @@ import {
   TotalRow,
 } from "@/screens/finance-final/parts"
 import { useWindow } from "@/screens/finance/hooks"
+import { PhoneCard, PhoneHeading, PhoneList } from "@/components/ui/phone-cards"
 import { UnitName, UnitSelect, WindowControl } from "@/screens/finance/parts"
+import { FactsSheet, PhoneRows } from "@/screens/finance/phone-parts"
 import type { FiscalPeriod, LedgerAccount } from "@itulah/contract"
 
 /// Prepaids & Accruals — costs paid before the months they belong to, and
@@ -67,6 +70,8 @@ import type { FiscalPeriod, LedgerAccount } from "@itulah/contract"
 /// it. A plausible twelve-month release ladder over nothing would be the one
 /// thing worse than an empty page.
 export function PrepaidsAndAccruals() {
+  const phone = useLayout() === "phone"
+  const [shown, setShown] = useState<FamilyReading | null>(null)
   const range = useWindow()
   // On the wire. A prepayment belongs to the unit that will consume it — a
   // shop's rent is that store's cost — so "what is C007 carrying" is a
@@ -189,7 +194,7 @@ export function PrepaidsAndAccruals() {
         <span className="text-[0.875rem] text-mute">
           {range.chip}
           {unit === "" ? (
-            " · every unit"
+            " · all units"
           ) : (
             <>
               {" · "}
@@ -233,53 +238,148 @@ export function PrepaidsAndAccruals() {
             />
           </CardRow>
 
-          <Grid>
-            <thead>
-              <tr>
-                <Th>What it is</Th>
-                <Th width="16rem">The client&rsquo;s account</Th>
-                <Th width="7.5rem">Code</Th>
-                <Th align="right" width="9rem">
-                  Carried in
-                </Th>
-                <Th align="right" width="9rem">
-                  Added
-                </Th>
-                <Th align="right" width="9rem">
-                  Released
-                </Th>
-                <Th align="right" width="5rem">
-                  <span title="How many postings are behind the two movement figures">
-                    Moves
-                  </span>
-                </Th>
-                <Th align="right" width="9.5rem">
-                  Carried out
-                </Th>
-              </tr>
-            </thead>
+          {phone ? (
+            <>
+              <PhoneList>
+                {(["PREPAID", "ACCRUED"] as const).map((side) => (
+                  <Fragment key={side}>
+                    <PhoneHeading
+                      title={
+                        side === "PREPAID"
+                          ? "Paid before its months"
+                          : "Ran before its cost"
+                      }
+                    />
+                    {families.rows
+                      .filter((row) => row.family.side === side)
+                      .map((row) => (
+                        <PhoneCard
+                          key={row.family.code}
+                          title={row.family.what}
+                          line={row.family.reading}
+                          lead={
+                            row.carriedOut === null
+                              ? "—"
+                              : money(row.carriedOut)
+                          }
+                          caption="carried out"
+                          tone={
+                            row.carriedOut !== null && row.carriedOut < 0
+                              ? "bad"
+                              : undefined
+                          }
+                          foot={
+                            <span className="tabular-nums">
+                              {row.name ?? "—"} · {count(row.movements ?? 0)}{" "}
+                              moves
+                            </span>
+                          }
+                          onOpen={() => setShown(row)}
+                        />
+                      ))}
+                  </Fragment>
+                ))}
+              </PhoneList>
+              <FactsSheet
+                open={shown !== null}
+                onClose={() => setShown(null)}
+                title={shown?.family.what ?? ""}
+                id={shown?.family.code}
+                caption={shown?.name ?? undefined}
+                facts={
+                  shown === null
+                    ? []
+                    : [
+                        {
+                          label: "Carried in",
+                          value: money(shown.carriedIn),
+                        },
+                        {
+                          label: "Added",
+                          value: money(
+                            shown.family.side === "ACCRUED"
+                              ? shown.credit
+                              : shown.debit
+                          ),
+                        },
+                        {
+                          label: "Released",
+                          value: money(
+                            shown.family.side === "ACCRUED"
+                              ? shown.debit
+                              : shown.credit
+                          ),
+                        },
+                        {
+                          label: "Moves",
+                          value:
+                            shown.movements === null
+                              ? "—"
+                              : count(shown.movements),
+                        },
+                        {
+                          label: "Carried out",
+                          value: money(shown.carriedOut),
+                        },
+                      ]
+                }
+              >
+                {shown !== null && (
+                  <p className="mt-4 text-[0.875rem] text-mute">
+                    {shown.family.covers}
+                  </p>
+                )}
+              </FactsSheet>
+            </>
+          ) : (
+            <Grid>
+              <thead>
+                <tr>
+                  <Th>What it is</Th>
+                  <Th width="16rem">The client&rsquo;s account</Th>
+                  <Th width="7.5rem">Code</Th>
+                  <Th align="right" width="9rem">
+                    Carried in
+                  </Th>
+                  <Th align="right" width="9rem">
+                    Added
+                  </Th>
+                  <Th align="right" width="9rem">
+                    Released
+                  </Th>
+                  <Th align="right" width="5rem">
+                    <span title="How many postings are behind the two movement figures">
+                      Moves
+                    </span>
+                  </Th>
+                  <Th align="right" width="9.5rem">
+                    Carried out
+                  </Th>
+                </tr>
+              </thead>
 
-            {/* Two `<tbody>` elements and one `<thead>`, not two tables. The
+              {/* Two `<tbody>` elements and one `<thead>`, not two tables. The
                 question this page is read with is comparative — is the cost we
                 are holding back the same size as the cost we have taken and not
                 paid — and that comparison is made by running the eye down one
                 column. Two tables cannot be relied on to put "Carried out" at
                 the same x position twice. */}
-            <SideBody
-              label="Paid before its months"
-              sub="An asset until the month it belongs to arrives"
-              rows={families.rows.filter(
-                (row) => row.family.side === "PREPAID"
-              )}
-            />
-            <SideBody
-              label="Ran before its cost"
-              sub="A liability from the month it belongs to until the invoice lands"
-              rows={families.rows.filter(
-                (row) => row.family.side === "ACCRUED"
-              )}
-            />
-          </Grid>
+              <SideBody
+                label="Paid before its months"
+                sub="An asset until the month it belongs to arrives"
+                rows={families.rows.filter(
+                  (row) => row.family.side === "PREPAID"
+                )}
+              />
+              <SideBody
+                label="Ran before its cost"
+                sub="A liability from the month it belongs to until the invoice lands"
+                rows={families.rows.filter(
+                  (row) => row.family.side === "ACCRUED"
+                )}
+              />
+            </Grid>
+          )}
 
           <Note>
             <b>
@@ -560,6 +660,7 @@ function Figure({ minor, strong }: { minor: number | null; strong?: boolean }) {
 /// something the database will refuse. The period list is the honest domain
 /// of this table.
 function Schedule({ to, unit }: { to: string; unit: string }) {
+  const phone = useLayout() === "phone"
   const periods = useQuery({
     // The same key `useWindow()` already reads the period list under, so the
     // toolbar above and this table are one request.
@@ -603,63 +704,92 @@ function Schedule({ to, unit }: { to: string; unit: string }) {
         </EmptyState>
       ) : (
         <>
-          <Grid>
-            <thead>
-              <tr>
-                <Th>Month</Th>
-                <Th width="9rem">Books</Th>
-                <Th align="right" width="7rem">
-                  <span title="Journal entries posted into this month, of every kind">
-                    Entries
-                  </span>
-                </Th>
-                <Th align="right" width="11rem">
-                  <span title="Prepaid cost belonging to this month">
-                    To release
-                  </span>
-                </Th>
-                <Th align="right" width="11rem">
-                  <span title="Cost taken into this month with no invoice against it">
-                    Accrual to take
-                  </span>
-                </Th>
-                <Th align="right" width="11rem">
-                  <span title="Prepaid still held after this month has been released">
-                    Still to release
-                  </span>
-                </Th>
-              </tr>
-            </thead>
-            <tbody>
-              {periods.data.map((period) => (
-                <PeriodRow
-                  key={`${period.year}-${period.month}`}
-                  period={period}
-                />
-              ))}
-              <TotalRow>
-                <Td>{count(periods.data.length)} months</Td>
-                <Td />
-                <Td align="right">
-                  {count(
+          {phone ? (
+            <PhoneRows
+              rows={[
+                ...periods.data.map((period) => ({
+                  key: `${period.year}-${period.month}`,
+                  title: `${MONTHS[period.month - 1] ?? period.month} ${period.year}`,
+                  sub: `${count(period.entry_count)} ${period.entry_count === 1 ? "entry" : "entries"}`,
+                  figure:
+                    period.status.toUpperCase() === "OPEN" ? (
+                      <Pill tone="info">Open</Pill>
+                    ) : (
+                      <Pill tone="ok">Closed</Pill>
+                    ),
+                })),
+                {
+                  key: "total",
+                  title: `${count(periods.data.length)} months`,
+                  sub: undefined,
+                  figure: `${count(
                     periods.data.reduce(
                       (sum, period) => sum + period.entry_count,
                       0
                     )
-                  )}
-                </Td>
-                <Td align="right">
-                  <NotKept />
-                </Td>
-                <Td align="right">
-                  <NotKept />
-                </Td>
-                <Td align="right">
-                  <NotKept />
-                </Td>
-              </TotalRow>
-            </tbody>
-          </Grid>
+                  )} entries`,
+                },
+              ]}
+            />
+          ) : (
+            <Grid>
+              <thead>
+                <tr>
+                  <Th>Month</Th>
+                  <Th width="9rem">Books</Th>
+                  <Th align="right" width="7rem">
+                    <span title="Journal entries posted into this month, of every kind">
+                      Entries
+                    </span>
+                  </Th>
+                  <Th align="right" width="11rem">
+                    <span title="Prepaid cost belonging to this month">
+                      To release
+                    </span>
+                  </Th>
+                  <Th align="right" width="11rem">
+                    <span title="Cost taken into this month with no invoice against it">
+                      Accrual to take
+                    </span>
+                  </Th>
+                  <Th align="right" width="11rem">
+                    <span title="Prepaid still held after this month has been released">
+                      Still to release
+                    </span>
+                  </Th>
+                </tr>
+              </thead>
+              <tbody>
+                {periods.data.map((period) => (
+                  <PeriodRow
+                    key={`${period.year}-${period.month}`}
+                    period={period}
+                  />
+                ))}
+                <TotalRow>
+                  <Td>{count(periods.data.length)} months</Td>
+                  <Td />
+                  <Td align="right">
+                    {count(
+                      periods.data.reduce(
+                        (sum, period) => sum + period.entry_count,
+                        0
+                      )
+                    )}
+                  </Td>
+                  <Td align="right">
+                    <NotKept />
+                  </Td>
+                  <Td align="right">
+                    <NotKept />
+                  </Td>
+                  <Td align="right">
+                    <NotKept />
+                  </Td>
+                </TotalRow>
+              </tbody>
+            </Grid>
+          )}
 
           {attention.data !== undefined &&
             attention.data.month_not_open > 0 && (
@@ -913,39 +1043,62 @@ function BucketList({
   mappedCodes: readonly string[]
   pendingMap: boolean
 }) {
+  const phone = useLayout() === "phone"
   return (
     <div>
       <div className="mb-1.5 text-[0.875rem] font-medium text-mute">
         {heading} · {count(accounts.length)}
       </div>
-      <Grid>
-        <tbody>
-          {accounts.map((account) => {
+      {phone ? (
+        <PhoneRows
+          rows={accounts.map((account) => {
             const mapped = mappedCodes.some((code) =>
               code.startsWith(account.account_code)
             )
-            return (
-              <tr key={account.account_code}>
-                <Td>{account.name}</Td>
-                <Td>
-                  <Code>{account.account_code}</Code>
-                </Td>
-                <Td align="right">
-                  {pendingMap ? (
-                    <span className="text-faint">—</span>
-                  ) : mapped ? (
-                    <Pill tone="ok">mapped</Pill>
-                  ) : (
-                    <span className="text-[0.875rem] text-faint">
-                      no meaning
-                    </span>
-                  )}
-                </Td>
-              </tr>
-            )
+            return {
+              key: account.account_code,
+              title: account.name,
+              sub: <span className="font-mono">{account.account_code}</span>,
+              figure: pendingMap ? (
+                <span className="text-faint">—</span>
+              ) : mapped ? (
+                <Pill tone="ok">mapped</Pill>
+              ) : (
+                <span className="font-normal text-faint">no meaning</span>
+              ),
+            }
           })}
-        </tbody>
-      </Grid>
+        />
+      ) : (
+        <Grid>
+          <tbody>
+            {accounts.map((account) => {
+              const mapped = mappedCodes.some((code) =>
+                code.startsWith(account.account_code)
+              )
+              return (
+                <tr key={account.account_code}>
+                  <Td>{account.name}</Td>
+                  <Td>
+                    <Code>{account.account_code}</Code>
+                  </Td>
+                  <Td align="right">
+                    {pendingMap ? (
+                      <span className="text-faint">—</span>
+                    ) : mapped ? (
+                      <Pill tone="ok">mapped</Pill>
+                    ) : (
+                      <span className="text-[0.875rem] text-faint">
+                        no meaning
+                      </span>
+                    )}
+                  </Td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </Grid>
+      )}
     </div>
   )
 }

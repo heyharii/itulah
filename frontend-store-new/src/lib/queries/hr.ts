@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 
 import { CENTRAL_KEY_PREFIX, cloud, relayAccess } from "@/lib/cloud"
+import { dateText } from "@/lib/format"
 import { useIdentity } from "@/lib/session"
 import type {
   ApplicantView,
@@ -393,32 +394,30 @@ export function addDays(from: Date, days: number): Date {
   return moved
 }
 
-/// `13 Sep`, `Sen 14 Sep` — a date read off a wall rather than out of a
-/// database.
-///
-/// The year appears only when it is not this one, and that is not tidiness: a
-/// contract ending "05 Jan" is either three weeks away or fifteen months away,
-/// and the difference decides whether somebody has to be spoken to this week.
-/// Leave and rota dates are all inside the year, so they stay short.
+/// `06 Oct 2026`, `Tue 06 Oct 2026` — a date read off a wall rather than out
+/// of a database, in the house format (audit D6: English month names, day
+/// first, always with the year — a contract ending "05 Jan" is either three
+/// weeks away or fifteen months away).
 export function readDate(iso: string, withWeekday = false): string {
   const parsed = new Date(`${iso}T00:00:00`)
   if (Number.isNaN(parsed.getTime())) return iso
-  return parsed.toLocaleDateString("id-ID", {
-    weekday: withWeekday ? "short" : undefined,
+  const date = dateText(parsed, {
     day: "2-digit",
     month: "short",
-    year:
-      parsed.getFullYear() === new Date().getFullYear() ? undefined : "numeric",
+    year: "numeric",
   })
+  return withWeekday
+    ? `${dateText(parsed, { weekday: "short" })} ${date}`
+    : date
 }
 
-/// `2026-08` → `Agustus 2026`. A period is named on the wire the way it sorts
+/// `2026-08` → `August 2026`. A period is named on the wire the way it sorts
 /// and read on screen the way it is said; printing the code would put a
 /// spreadsheet's spelling of August in front of a shop manager.
 export function readMonth(period: string): string {
   const parsed = new Date(`${period}-01T00:00:00`)
   if (Number.isNaN(parsed.getTime())) return period
-  return parsed.toLocaleDateString("id-ID", { month: "long", year: "numeric" })
+  return dateText(parsed, { month: "long", year: "numeric" })
 }
 
 /// `420` → `7h`, `450` → `7h 30m`. Minutes and never hours on the wire: a

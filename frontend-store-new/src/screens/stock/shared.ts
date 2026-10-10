@@ -167,6 +167,29 @@ export function directionOf(row: Pick<MovementView, "from" | "to">): Direction {
   return to ? "in" : "out"
 }
 
+export const DIRECTION_WORD: Readonly<Record<Direction, string>> = {
+  in: "In",
+  out: "Out",
+  inside: "Inside",
+}
+
+/// "Stockroom → Shop floor": a movement's route as one line of words, for a
+/// card. The chips (`Route` in `parts.tsx`) are for a sheet, where there is
+/// room for two boxes and an arrow.
+export function routeText(from: string, to: string, cause?: string): string {
+  const say = (id: string) => {
+    const place = readPlace(id, cause)
+    return place.state === null ? place.name : `${place.name} (${place.state})`
+  }
+  return `${say(from)} → ${say(to)}`
+}
+
+/// Where a delivery came from, as the shop says it: the DC, or the site's own
+/// name.
+export function sourceName(siteId: string): string {
+  return siteId.toLowerCase() === "dc" ? "DC" : humanise(siteId)
+}
+
 /// One of this shop's three places. A DC's pool is inside the pool grammar
 /// and still outside the shop, so the grammar alone does not answer this.
 function ours(id: string): boolean {

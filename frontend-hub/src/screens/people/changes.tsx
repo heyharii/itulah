@@ -3,6 +3,9 @@ import { useState } from "react"
 
 import type { PersonalDataRequestView } from "@itulah/contract"
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
+import { Fab } from "@/components/ui/fab"
+import { DockChoice } from "@/components/shell/dock-tools"
 import { AppLink } from "@/components/ui/app-link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -42,6 +45,12 @@ import { problemOf } from "@/lib/problem"
 import { queryState } from "@/lib/query-state"
 import { useCanWrite } from "@/lib/session"
 import { EmployeePick } from "@/screens/people/employee-pick"
+import {
+  CardButton,
+  CardDate,
+  CardName,
+  PhoneCards,
+} from "@/components/ui/phone-cards"
 
 type Slice = "PENDING" | "ALL"
 type Page = "EMPLOYMENT" | "DETAILS"
@@ -67,8 +76,11 @@ function summary(change: ChangeProposalView): string {
 /// and it applies on the day it takes effect.
 export function EmployeeChanges() {
   const canWrite = useCanWrite()
+  const phone = useLayout() === "phone"
   const [page, setPage] = useState<Page>("EMPLOYMENT")
   const [starting, setStarting] = useState(false)
+  const [employment, setEmployment] = useState<Slice>("PENDING")
+  const [requested, setRequested] = useState<Slice>("PENDING")
   const waiting = useDataRequests(false)
   const waitingCount = waiting.data?.length ?? 0
 
@@ -79,6 +91,7 @@ export function EmployeeChanges() {
         title="Employee Changes"
         sub="Transfers, promotions, salary changes and separations — proposed, then decided."
         actions={
+          !phone &&
           canWrite && (
             <Button variant="primary" onClick={() => setStarting(true)}>
               New change
@@ -87,24 +100,73 @@ export function EmployeeChanges() {
         }
       />
 
-      <Toolbar>
-        <Segmented<Page>
-          options={[
-            { value: "EMPLOYMENT", label: "Employment" },
-            {
-              value: "DETAILS",
-              label: `Detail requests (${count(waitingCount)})`,
-            },
-          ]}
-          value={page}
-          onChange={setPage}
-        />
-      </Toolbar>
+      {/* On a phone the two lists and their two slices are one choice, the
+          chip over the bottom bar, and a new change is the round +. */}
+      {phone ? (
+        <>
+          <DockChoice
+            value={`${page}:${page === "EMPLOYMENT" ? employment : requested}`}
+            onChange={(next) => {
+              const [nextPage, nextSlice] = next.split(":") as [Page, Slice]
+              setPage(nextPage)
+              if (nextPage === "EMPLOYMENT") setEmployment(nextSlice)
+              else setRequested(nextSlice)
+            }}
+            options={[
+              {
+                value: "EMPLOYMENT:PENDING",
+                label: "Employment · Waiting",
+                short: "Employment · Waiting",
+              },
+              {
+                value: "EMPLOYMENT:ALL",
+                label: "Employment · All",
+                short: "Employment · All",
+              },
+              {
+                value: "DETAILS:PENDING",
+                label: `Detail requests · Waiting (${count(waitingCount)})`,
+                short: "Requests · Waiting",
+              },
+              {
+                value: "DETAILS:ALL",
+                label: "Detail requests · All",
+                short: "Requests · All",
+              },
+            ]}
+          />
+          {canWrite && (
+            <Fab label="New change" onClick={() => setStarting(true)} />
+          )}
+        </>
+      ) : (
+        <Toolbar>
+          <Segmented<Page>
+            options={[
+              { value: "EMPLOYMENT", label: "Employment" },
+              {
+                value: "DETAILS",
+                label: `Detail requests (${count(waitingCount)})`,
+              },
+            ]}
+            value={page}
+            onChange={setPage}
+          />
+        </Toolbar>
+      )}
 
       {page === "EMPLOYMENT" ? (
-        <EmploymentChanges canWrite={canWrite} />
+        <EmploymentChanges
+          canWrite={canWrite}
+          slice={employment}
+          onSlice={setEmployment}
+        />
       ) : (
-        <DetailRequests canWrite={canWrite} />
+        <DetailRequests
+          canWrite={canWrite}
+          slice={requested}
+          onSlice={setRequested}
+        />
       )}
 
       <NewChangeSheet open={starting} onClose={() => setStarting(false)} />
@@ -112,10 +174,18 @@ export function EmployeeChanges() {
   )
 }
 
-function EmploymentChanges({ canWrite }: { canWrite: boolean }) {
+function EmploymentChanges({
+  canWrite,
+  slice,
+  onSlice: setSlice,
+}: {
+  canWrite: boolean
+  slice: Slice
+  onSlice: (slice: Slice) => void
+}) {
   const changes = useChangeProposals()
   const people = useEveryEmployee()
-  const [slice, setSlice] = useState<Slice>("PENDING")
+  const phone = useLayout() === "phone"
   const [openId, setOpenId] = useState<string | null>(null)
 
   const all = changes.data ?? []
@@ -128,22 +198,24 @@ function EmploymentChanges({ canWrite }: { canWrite: boolean }) {
 
   return (
     <>
-      <Toolbar>
-        <Segmented<Slice>
-          options={[
-            { value: "PENDING", label: "Waiting" },
-            { value: "ALL", label: "All" },
-          ]}
-          value={slice}
-          onChange={setSlice}
-        />
-        <Toolbar.Spacer />
-        <span className="text-[0.875rem] text-mute tabular-nums">
-          {count(rows.length)} {rows.length === 1 ? "change" : "changes"}
-        </span>
-      </Toolbar>
+      {!phone && (
+        <Toolbar>
+          <Segmented<Slice>
+            options={[
+              { value: "PENDING", label: "Waiting" },
+              { value: "ALL", label: "All" },
+            ]}
+            value={slice}
+            onChange={setSlice}
+          />
+          <Toolbar.Spacer />
+          <span className="text-[0.875rem] text-mute tabular-nums">
+            {count(rows.length)} {rows.length === 1 ? "change" : "changes"}
+          </span>
+        </Toolbar>
+      )}
 
-      <Card className="overflow-hidden px-4 py-3">
+      <Card className="overflow-hidden px-4 py-3 max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:p-0 max-md:shadow-none">
         {changes.isPending ? (
           <LoadingState>Loading changes…</LoadingState>
         ) : changes.isError ? (
@@ -154,6 +226,35 @@ function EmploymentChanges({ canWrite }: { canWrite: boolean }) {
               ? "No change is waiting for a decision. “New change” in the header proposes one."
               : "No change has been proposed yet."}
           </EmptyState>
+        ) : phone ? (
+          <PhoneCards
+            rows={rows}
+            onOpen={(change) => setOpenId(change.id)}
+            rowId={(change) => change.id}
+            spec={{
+              title: (change) => (
+                <CardName
+                  name={nameOf(people.data, change.employee_id)}
+                  line={`${CHANGE_KIND_LABEL[change.kind] ?? change.kind} · ${summary(change)}`}
+                />
+              ),
+              lead: (change) => <CardDate iso={change.effective_on} />,
+              foot: (change) => (
+                <Pill tone={STATE_TONE[change.state] ?? "neutral"}>
+                  {CHANGE_STATE_LABEL[change.state] ?? change.state}
+                </Pill>
+              ),
+              action: (change) => (
+                <CardButton
+                  label={
+                    canWrite && change.state === "PENDING" ? "Decide" : "Open"
+                  }
+                  ariaLabel={`Open the change for ${nameOf(people.data, change.employee_id)}`}
+                  onClick={() => setOpenId(change.id)}
+                />
+              ),
+            }}
+          />
         ) : (
           <MiniTable head={["Who", "Kind", "What", "Effective", "State"]}>
             {rows.map((change) => (
@@ -195,8 +296,16 @@ function EmploymentChanges({ canWrite }: { canWrite: boolean }) {
 
 /// Employees' own requests to change their phone, email or address. Approving
 /// one changes the record; the person who filed it cannot decide it.
-function DetailRequests({ canWrite }: { canWrite: boolean }) {
-  const [slice, setSlice] = useState<Slice>("PENDING")
+function DetailRequests({
+  canWrite,
+  slice,
+  onSlice: setSlice,
+}: {
+  canWrite: boolean
+  slice: Slice
+  onSlice: (slice: Slice) => void
+}) {
+  const phone = useLayout() === "phone"
   const requests = useDataRequests(slice === "ALL")
   const units = useReachableUnits().data ?? []
   const unitName = (id: string | null) =>
@@ -207,22 +316,24 @@ function DetailRequests({ canWrite }: { canWrite: boolean }) {
 
   return (
     <>
-      <Toolbar>
-        <Segmented<Slice>
-          options={[
-            { value: "PENDING", label: "Waiting" },
-            { value: "ALL", label: "All" },
-          ]}
-          value={slice}
-          onChange={setSlice}
-        />
-        <Toolbar.Spacer />
-        <span className="text-[0.875rem] text-mute tabular-nums">
-          {count(rows.length)} {rows.length === 1 ? "request" : "requests"}
-        </span>
-      </Toolbar>
+      {!phone && (
+        <Toolbar>
+          <Segmented<Slice>
+            options={[
+              { value: "PENDING", label: "Waiting" },
+              { value: "ALL", label: "All" },
+            ]}
+            value={slice}
+            onChange={setSlice}
+          />
+          <Toolbar.Spacer />
+          <span className="text-[0.875rem] text-mute tabular-nums">
+            {count(rows.length)} {rows.length === 1 ? "request" : "requests"}
+          </span>
+        </Toolbar>
+      )}
 
-      <Card className="overflow-hidden px-4 py-3">
+      <Card className="overflow-hidden px-4 py-3 max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:p-0 max-md:shadow-none">
         {queryState(requests, {
           loading: "Loading requests…",
           render: () =>
@@ -232,6 +343,37 @@ function DetailRequests({ canWrite }: { canWrite: boolean }) {
                   ? "No detail request is waiting for a decision."
                   : "Nobody has asked to change their details yet."}
               </EmptyState>
+            ) : phone ? (
+              <PhoneCards
+                rows={rows}
+                onOpen={(request) => setOpenId(request.id)}
+                rowId={(request) => request.id}
+                spec={{
+                  title: (request) => (
+                    <CardName
+                      name={request.full_name ?? request.employee_code}
+                      line={`${DATA_FIELD_LABEL[request.field] ?? request.field} · ${request.current ?? "—"} → ${asked(request)}`}
+                    />
+                  ),
+                  lead: (request) => <CardDate iso={request.filed_at} />,
+                  foot: (request) => (
+                    <Pill tone={STATE_TONE[request.state] ?? "neutral"}>
+                      {CHANGE_STATE_LABEL[request.state] ?? request.state}
+                    </Pill>
+                  ),
+                  action: (request) => (
+                    <CardButton
+                      label={
+                        canWrite && request.state === "PENDING"
+                          ? "Decide"
+                          : "Open"
+                      }
+                      ariaLabel={`Open the request from ${request.full_name ?? request.employee_code}`}
+                      onClick={() => setOpenId(request.id)}
+                    />
+                  ),
+                }}
+              />
             ) : (
               <MiniTable
                 head={[

@@ -324,6 +324,21 @@ pub async fn list_suppliers(
     ))
 }
 
+pub async fn supplier_options(
+    State(state): State<AppState>,
+    Query(query): Query<SupplierListQuery>,
+) -> Result<Json<infrastructure::SupplierOptions>, AppError> {
+    Ok(Json(
+        infrastructure::list_supplier_options(
+            &state.db,
+            query.status.map(|value| value.as_str().to_owned()),
+            query.cursor,
+            query.limit,
+        )
+        .await?,
+    ))
+}
+
 pub async fn supplier_detail(
     State(state): State<AppState>,
     Path(supplier_id): Path<Uuid>,

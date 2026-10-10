@@ -14,6 +14,7 @@ import {
 import { edge } from "@/lib/api"
 import { useEdgeNodeIdentity } from "@/lib/edge-session"
 import { money, moment } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { financeKeys, moneyOverview } from "@/lib/queries/finance"
 import { useUnits } from "@/lib/queries/organisation"
 import {
@@ -28,7 +29,9 @@ import {
   TotalRow,
 } from "@/screens/finance-final/parts"
 import { useWindow } from "@/screens/finance/hooks"
+import { CardFigure, PhoneList } from "@/components/ui/phone-cards"
 import {
+  PhoneFigures,
   SiteName,
   UnitName,
   UnitSelect,
@@ -77,6 +80,7 @@ import type {
 /// these has head office ever seen". Today that is all of them. See the note at
 /// the foot of the screen.
 export function Expenses() {
+  const phone = useLayout() === "phone"
   const range = useWindow()
   const [unit, setUnit] = useState("")
 
@@ -155,6 +159,7 @@ export function Expenses() {
   return (
     <PageContent>
       <PageHeader
+        className="max-md:hidden"
         crumb="Finance · Cash & Bank"
         title="Expenses"
         sub="What a shop spent out of its own hands, what it was for, and how much of the float is left."
@@ -174,7 +179,7 @@ export function Expenses() {
         <span className="text-[0.875rem] text-mute">
           {range.chip}
           {unit === "" ? (
-            " · every unit"
+            " · all units"
           ) : (
             <>
               {" · "}
@@ -206,44 +211,72 @@ export function Expenses() {
           ) : tin.error ? (
             <ErrorState error={tin.error} onRetry={() => void tin.refetch()} />
           ) : (
-            <CardRow columns={4}>
-              <NumberCard
-                label="Float handed over"
-                value={tin.data.float_in_minor}
-                note={`${tin.data.top_up_count} top-up${tin.data.top_up_count === 1 ? "" : "s"} since the tin was opened`}
+            <>
+              <PhoneFigures
+                items={[
+                  {
+                    label: "Float handed over",
+                    value: tin.data.float_in_minor,
+                  },
+                  { label: "Spent", value: tin.data.spent_minor },
+                  {
+                    label: "Left to spend",
+                    value: tin.data.balance_minor,
+                    tone:
+                      tin.data.balance_minor <= 0
+                        ? "bad"
+                        : tin.data.balance_minor < tin.data.code_above_minor
+                          ? "warn"
+                          : "ok",
+                  },
+                  {
+                    label: "Never reached the book",
+                    value: tin.data.spent_minor,
+                    tone: "warn",
+                  },
+                ]}
               />
-              <NumberCard
-                label="Spent"
-                value={tin.data.spent_minor}
-                note={`${tin.data.expense_count} receipts`}
-              />
-              {/* The manager's question, and the only card that is allowed to
+              <div className="max-md:hidden">
+                <CardRow columns={4}>
+                  <NumberCard
+                    label="Float handed over"
+                    value={tin.data.float_in_minor}
+                    note={`${tin.data.top_up_count} top-up${tin.data.top_up_count === 1 ? "" : "s"} since the tin was opened`}
+                  />
+                  <NumberCard
+                    label="Spent"
+                    value={tin.data.spent_minor}
+                    note={`${tin.data.expense_count} receipts`}
+                  />
+                  {/* The manager's question, and the only card that is allowed to
                   turn a colour. An imprest float is a lifetime figure, not a
                   period one: money handed over in July is still in the tin in
                   September, so this does not move when the span above does. */}
-              <NumberCard
-                label="Left to spend"
-                value={tin.data.balance_minor}
-                tone={
-                  tin.data.balance_minor <= 0
-                    ? "bad"
-                    : tin.data.balance_minor < tin.data.code_above_minor
-                      ? "warn"
-                      : "ok"
-                }
-                note={`Code from Finance above ${money(tin.data.code_above_minor)}`}
-              />
-              {/* Head office's question, answered the way it really stands.
+                  <NumberCard
+                    label="Left to spend"
+                    value={tin.data.balance_minor}
+                    tone={
+                      tin.data.balance_minor <= 0
+                        ? "bad"
+                        : tin.data.balance_minor < tin.data.code_above_minor
+                          ? "warn"
+                          : "ok"
+                    }
+                    note={`Code from Finance above ${money(tin.data.code_above_minor)}`}
+                  />
+                  {/* Head office's question, answered the way it really stands.
                   The node captures every receipt and uploads it, and the centre
                   has no arm that applies it — so this is not "unapproved", it is
                   "unseen", and it is the whole of what was spent. */}
-              <NumberCard
-                label="Never reached the book"
-                value={tin.data.spent_minor}
-                tone="warn"
-                note="not one receipt has been posted at the centre"
-              />
-            </CardRow>
+                  <NumberCard
+                    label="Never reached the book"
+                    value={tin.data.spent_minor}
+                    tone="warn"
+                    note="not one receipt has been posted at the centre"
+                  />
+                </CardRow>
+              </div>
+            </>
           )}
         </section>
 
@@ -267,6 +300,49 @@ export function Expenses() {
               account on the Account map, and until one is bound there is no
               float to be in a position about.
             </EmptyState>
+          ) : phone ? (
+            <PhoneList
+              rows={units.map((unit) => {
+                const counted =
+                  unit.unit_id === nodeUnit &&
+                  tin.data !== undefined &&
+                  tin.data !== null
+                    ? tin.data.balance_minor
+                    : null
+                const difference =
+                  counted === null ? null : counted - unit.petty
+                return {
+                  key: unit.unit_id,
+                  title: <UnitName id={unit.unit_id} />,
+                  lead: (
+                    <CardFigure
+                      value={money(unit.petty)}
+                      caption="petty cash"
+                    />
+                  ),
+                  foot: (
+                    <span className="flex flex-col tabular-nums">
+                      <span>
+                        Cash on hand {money(unit.cash)} · cashier float{" "}
+                        {money(unit.float)}
+                      </span>
+                      {counted !== null && (
+                        <span>per the shop {money(counted)}</span>
+                      )}
+                    </span>
+                  ),
+                  action:
+                    difference === null ? undefined : difference === 0 ? (
+                      <Pill tone="ok">agreed</Pill>
+                    ) : (
+                      <span className="text-bad-fg tabular-nums">
+                        {difference > 0 ? "+" : "−"}
+                        {money(Math.abs(difference))}
+                      </span>
+                    ),
+                }
+              })}
+            />
           ) : (
             <Grid>
               <thead>
@@ -418,68 +494,107 @@ export function Expenses() {
             </EmptyState>
           ) : (
             <div className="flex flex-col gap-2.5">
-              <Grid>
-                <thead>
-                  <tr>
-                    <Th width="10rem">When</Th>
-                    <Th width="9rem">Kind</Th>
-                    <Th width="11rem">Payee</Th>
-                    <Th>What it was for</Th>
-                    <Th width="8rem">Claimed by</Th>
-                    <Th width="10rem">Signed by</Th>
-                    <Th align="right" width="8.5rem">
-                      In
-                    </Th>
-                    <Th align="right" width="8.5rem">
-                      Out
-                    </Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {entries.map((entry) => (
-                    <tr key={entry.id}>
-                      <Td className="whitespace-nowrap">{moment(entry.at)}</Td>
-                      <Td>
-                        <Pill tone={entry.out === 0 ? "info" : "neutral"}>
-                          {entry.kind}
-                        </Pill>
-                      </Td>
-                      <Td>{entry.payee}</Td>
-                      <Td className="text-body">{entry.reason}</Td>
-                      <Td>{entry.claimedBy}</Td>
-                      <Td>
-                        {entry.approvedBy}
-                        {/* Which rung said yes. Kept because the ceiling may
+              {phone ? (
+                <PhoneList
+                  rows={entries.map((entry) => ({
+                    key: entry.id,
+                    title: entry.payee,
+                    line: entry.reason,
+                    lead: (
+                      <CardFigure
+                        value={money(entry.out === 0 ? entry.in : entry.out)}
+                        caption={entry.out === 0 ? "in" : "out"}
+                      />
+                    ),
+                    foot: (
+                      <span className="flex flex-col">
+                        <span>{moment(entry.at)}</span>
+                        <span>
+                          {entry.claimedBy} · signed {entry.approvedBy}
+                          {entry.rung !== null &&
+                            ` (${
+                              entry.rung === "FINANCE"
+                                ? "code"
+                                : entry.rung === "ADMIN"
+                                  ? "head office"
+                                  : "store"
+                            })`}
+                        </span>
+                      </span>
+                    ),
+                    action: (
+                      <Pill tone={entry.out === 0 ? "info" : "neutral"}>
+                        {entry.kind}
+                      </Pill>
+                    ),
+                  }))}
+                />
+              ) : (
+                <Grid>
+                  <thead>
+                    <tr>
+                      <Th width="10rem">When</Th>
+                      <Th width="9rem">Kind</Th>
+                      <Th width="11rem">Payee</Th>
+                      <Th>What it was for</Th>
+                      <Th width="8rem">Claimed by</Th>
+                      <Th width="10rem">Signed by</Th>
+                      <Th align="right" width="8.5rem">
+                        In
+                      </Th>
+                      <Th align="right" width="8.5rem">
+                        Out
+                      </Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {entries.map((entry) => (
+                      <tr key={entry.id}>
+                        <Td className="whitespace-nowrap">
+                          {moment(entry.at)}
+                        </Td>
+                        <Td>
+                          <Pill tone={entry.out === 0 ? "info" : "neutral"}>
+                            {entry.kind}
+                          </Pill>
+                        </Td>
+                        <Td>{entry.payee}</Td>
+                        <Td className="text-body">{entry.reason}</Td>
+                        <Td>{entry.claimedBy}</Td>
+                        <Td>
+                          {entry.approvedBy}
+                          {/* Which rung said yes. Kept because the ceiling may
                             move, and an audit six months from now asks who was
                             allowed to approve this, THEN. */}
-                        {entry.rung !== null && (
-                          <span className="ml-1.5 text-[0.875rem] text-mute">
-                            {entry.rung === "FINANCE"
-                              ? "code"
-                              : entry.rung === "ADMIN"
-                                ? "head office"
-                                : "store"}
-                          </span>
-                        )}
-                      </Td>
-                      <DebitCredit debit={entry.in} credit={entry.out} />
-                    </tr>
-                  ))}
-                  <TotalRow>
-                    <Td />
-                    <Td />
-                    <Td />
-                    <Td />
-                    <Td />
-                    <Td className="text-mute">over this span</Td>
-                    {/* The node's own figures for the whole span, not sums of
+                          {entry.rung !== null && (
+                            <span className="ml-1.5 text-[0.875rem] text-mute">
+                              {entry.rung === "FINANCE"
+                                ? "code"
+                                : entry.rung === "ADMIN"
+                                  ? "head office"
+                                  : "store"}
+                            </span>
+                          )}
+                        </Td>
+                        <DebitCredit debit={entry.in} credit={entry.out} />
+                      </tr>
+                    ))}
+                    <TotalRow>
+                      <Td />
+                      <Td />
+                      <Td />
+                      <Td />
+                      <Td />
+                      <Td className="text-mute">over this span</Td>
+                      {/* The node's own figures for the whole span, not sums of
                         the rows above: the book pages, and a sum here would
                         be a figure about how far somebody had scrolled. */}
-                    <Td align="right">{money(head?.top_up_minor)}</Td>
-                    <Td align="right">{money(head?.spent_minor)}</Td>
-                  </TotalRow>
-                </tbody>
-              </Grid>
+                      <Td align="right">{money(head?.top_up_minor)}</Td>
+                      <Td align="right">{money(head?.spent_minor)}</Td>
+                    </TotalRow>
+                  </tbody>
+                </Grid>
+              )}
               <LoadMore query={book} />
             </div>
           )}

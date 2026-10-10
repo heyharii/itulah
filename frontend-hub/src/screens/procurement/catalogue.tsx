@@ -9,9 +9,11 @@ import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockChoice, DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
-import { DataTable } from "@/components/ui/data-table"
+import { DataTable, dockSortOf } from "@/components/ui/data-table"
+import { Fab } from "@/components/ui/fab"
 import { Input } from "@/components/ui/field"
 import { FilterPanel } from "@/components/ui/filter-panel"
 import { PageHeader } from "@/components/ui/page-header"
@@ -24,6 +26,7 @@ import { EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilters } from "@/lib/filters"
 import { count, money, realItemCode } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   catalogueVocabulary,
   procurementKeys,
@@ -78,7 +81,7 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
     accessorFn: (row) => `${row.item.name} ${row.item.supplier_item_code}`,
     header: "Item",
     size: 280,
-    meta: { filter: { kind: "text" } },
+    meta: { card: "hide", filter: { kind: "text" } },
     cell: ({ row }) => (
       <span className="flex flex-col">
         <span className="font-medium text-ink">{row.original.item.name}</span>
@@ -95,7 +98,7 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
     accessorFn: (row) => row.supplierName,
     header: "Supplier",
     size: 190,
-    meta: { filter: { kind: "option" } },
+    meta: { card: "hide", filter: { kind: "option" } },
     cell: ({ row }) => row.original.supplierName,
   },
   {
@@ -107,7 +110,7 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
     // "Division is empty" is the working list for whoever does that — which is
     // why `divisionLabel` is empty rather than an em dash for an unfiled item.
     // The dash is drawn by the cell.
-    meta: { filter: { kind: "option" } },
+    meta: { card: "hide", filter: { kind: "option" } },
     cell: ({ row }) =>
       row.original.item.division_code === null ? (
         <span className="text-mute">—</span>
@@ -122,6 +125,7 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
     size: 130,
     meta: {
       align: "right",
+      card: "hide",
       filter: { kind: "number", unit: "Rp" },
     },
     cell: ({ row }) => money(row.original.item.unit_price_minor),
@@ -135,6 +139,7 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
     // the answer somebody is looking for, and a facet built from the data
     // cannot say it because the option disappears with the last row.
     meta: {
+      card: "hide",
       filter: {
         kind: "option",
         options: [
@@ -161,6 +166,7 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
     header: "Offered",
     size: 110,
     meta: {
+      card: "hide",
       filter: {
         kind: "option",
         options: [
@@ -175,7 +181,90 @@ const columns: ColumnDef<TableSetup, CatalogueRow>[] = [
       </Pill>
     ),
   },
+  // Four columns that exist only on a card (a phone): the item over its
+  // supplier's code, its price as the figure the card leads with, who sells it
+  // and under which division, and how far it is from being one of ours.
+  {
+    id: "head",
+    accessorFn: (row) => row.item.name,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <span className="flex min-w-0 flex-col gap-1">
+        <span className="min-w-0 text-[1rem] font-semibold break-words text-ink">
+          {row.original.item.name}
+        </span>
+        {realItemCode(row.original.item.supplier_item_code) && (
+          <span className="font-mono text-[0.875rem] font-normal text-mute">
+            {row.original.item.supplier_item_code}
+          </span>
+        )}
+      </span>
+    ),
+  },
+  {
+    id: "lead",
+    accessorFn: (row) => row.item.unit_price_minor,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "lead" },
+    cell: ({ row }) => (
+      <span className="flex flex-col items-end tabular-nums">
+        <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
+          {money(row.original.item.unit_price_minor)}
+        </span>
+        <span className="text-[0.875rem] text-mute">per unit</span>
+      </span>
+    ),
+  },
+  {
+    id: "foot",
+    accessorFn: (row) => row.supplierName,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => (
+      <span className="flex flex-col">
+        <span className="truncate text-ink">{row.original.supplierName}</span>
+        <span className="truncate">
+          {row.original.item.division_code === null
+            ? "No division"
+            : row.original.divisionLabel}
+          {row.original.item.status === "ACTIVE" ? "" : " · Cancelled"}
+        </span>
+      </span>
+    ),
+  },
+  {
+    id: "state",
+    accessorFn: (row) => row.readiness,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { align: "right", card: "status" },
+    cell: ({ row }) =>
+      row.original.readiness === 0 ? (
+        <Pill tone="warn">Unclassified</Pill>
+      ) : row.original.readiness === 1 ? (
+        <Pill tone="neutral">Not linked</Pill>
+      ) : (
+        <Pill tone="ok">Ready</Pill>
+      ),
+  },
 ]
+
+/// What the phone's one dock button chooses between: the three offer statuses
+/// of the item list, and the vocabulary, which is the other tab.
+const PHONE_VIEWS = [
+  { value: "ALL", label: "Everything", short: "Everything" },
+  { value: "ACTIVE", label: "On offer", short: "On offer" },
+  { value: "INACTIVE", label: "Cancelled", short: "Cancelled" },
+  { value: "VOCABULARY", label: "Vocabulary", short: "Vocabulary" },
+] as const
 
 export function Catalogue() {
   const item = useSheet("item")
@@ -230,7 +319,18 @@ export function Catalogue() {
 
   const total = page.data?.pages[0]?.total ?? 0
 
+  /// The phone's one button over the list: a status, or the other tab.
+  const pickView = (next: string) => {
+    if (next === "VOCABULARY") {
+      setTab("vocabulary")
+      return
+    }
+    setTab("items")
+    setStatus(next as SupplierStatus | "ALL")
+  }
+
   const filters = useFilters(columns)
+  const phone = useLayout() === "phone"
 
   const table = useTable(
     useMemo(
@@ -239,10 +339,20 @@ export function Catalogue() {
         data: rows,
         columns: filters.columns,
         getRowId: (row: CatalogueRow) => row.item.supplier_item_id,
-        state: { columnFilters: filters.columnFilters, sorting },
+        state: {
+          columnFilters: filters.columnFilters,
+          sorting,
+          // The card's own columns are drawn on a phone and never on a desk.
+          columnVisibility: {
+            head: phone,
+            lead: phone,
+            foot: phone,
+            state: phone,
+          },
+        },
         onSortingChange: setSorting,
       }),
-      [rows, filters.columns, filters.columnFilters, sorting]
+      [rows, filters.columns, filters.columnFilters, sorting, phone]
     )
   )
 
@@ -258,8 +368,11 @@ export function Catalogue() {
         crumb="Procurement"
         title="Catalogue"
         sub="Every supplier item we know of, and whether it is finished enough to become one of ours."
+        // A desk's search and button: on a phone the field is the dock's and the
+        // button its round "+".
         actions={
-          tab === "items" && (
+          tab === "items" &&
+          !phone && (
             <>
               <Input
                 value={needle}
@@ -278,7 +391,10 @@ export function Catalogue() {
         }
       />
 
+      {/* On a phone the tab and the offer status are the one button in the
+          dock: Everything, On offer, Cancelled, or the vocabulary. */}
       <SubTabs
+        className="max-md:hidden"
         tabs={[
           { value: "items", label: "Items" },
           { value: "vocabulary", label: "Vocabulary" },
@@ -286,10 +402,38 @@ export function Catalogue() {
         value={tab}
         onChange={setTab}
       />
+      {tab === "items" ? (
+        <DockTools
+          search={{
+            value: needle,
+            onChange: setNeedle,
+            label: "Search Catalogue",
+          }}
+          filter={{
+            count: filters.filters.length,
+            panel: { model: filters, table },
+          }}
+          sort={dockSortOf(table)}
+          status={{
+            value: status,
+            options: [...PHONE_VIEWS],
+            onChange: pickView,
+          }}
+        />
+      ) : (
+        <DockChoice
+          value="VOCABULARY"
+          options={PHONE_VIEWS}
+          onChange={pickView}
+        />
+      )}
+      {tab === "items" && (
+        <Fab label="New Item" onClick={() => adding.open(true)} />
+      )}
 
       {tab === "items" ? (
         <>
-          <Toolbar>
+          <div className="mb-3.5 flex flex-wrap items-center gap-[0.4375rem] max-md:hidden">
             <Segmented
               options={[
                 { value: "ALL", label: "Everything" },
@@ -305,9 +449,15 @@ export function Catalogue() {
               {count(unfinished)} of {count(matching)} shown still need
               finishing · {count(total)} in the catalogue
             </span>
-          </Toolbar>
+          </div>
+          {/* The figures, as one sentence, where a phone has no toolbar. */}
+          <p className="mb-3 text-[0.875rem] text-mute tabular-nums md:hidden">
+            <b className="font-medium text-ink">{count(unfinished)}</b> of{" "}
+            {count(matching)} shown still need finishing · {count(total)} in the
+            catalogue
+          </p>
 
-          <Card className="overflow-hidden">
+          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
             {queryState(page, {
               loading: "Reading the catalogue…",
               render: () =>
@@ -319,6 +469,7 @@ export function Catalogue() {
                   </EmptyState>
                 ) : (
                   <DataTable<CatalogueRow>
+                    refresh={[page]}
                     table={table}
                     onRowClick={(row) => item.open(row.item.supplier_item_id)}
                     isSelected={(row) =>
@@ -326,6 +477,9 @@ export function Catalogue() {
                     }
                     more={page}
                     className="max-h-[calc(100dvh-20rem)]"
+                    cardSort={false}
+                    cardsApart
+                    cardLead
                   />
                 ),
             })}

@@ -1,21 +1,26 @@
+import {
+  dayMonth,
+  dayNumber,
+  EMPTY,
+  money as hubMoney,
+  monthYear,
+  recentMoment,
+  time,
+  weekday as hubWeekday,
+  weekdayName,
+} from "@/lib/format"
+
 /// How dates, times and money read on this surface.
 ///
-/// One place rather than a `toLocaleString` at each call site: a payslip that
-/// said `Rp 6.837.500` in one screen and `IDR 6,837,500.00` in the next would
-/// look like two different numbers to the person being paid it.
+/// The hub's own helpers (`lib/format.ts`) in the shapes this surface asks
+/// for, so a payslip that said `Rp 6.837.500` in one screen and `IDR
+/// 6,837,500.00` in the next, or a September that read "Sept" here and "Sep"
+/// there, cannot happen.
 
 /// Rupiah has no minor unit in practice — prices, payslips and this system's
-/// own money types are all whole rupiah — so the fraction digits are forced to
-/// zero rather than left to the locale, which would otherwise print `,00`.
-const rupiah = new Intl.NumberFormat("id-ID", {
-  style: "currency",
-  currency: "IDR",
-  minimumFractionDigits: 0,
-  maximumFractionDigits: 0,
-})
-
+/// own money types are all whole rupiah.
 export function money(amountIdr: number): string {
-  return rupiah.format(amountIdr)
+  return hubMoney(amountIdr)
 }
 
 /// `YYYY-MM-DD` in local time.
@@ -36,24 +41,19 @@ function atMidnight(isoDate: string): Date {
   return new Date(`${isoDate}T00:00:00`)
 }
 
+/// `Tue 06 Oct 2026`
 export function longDate(isoDate: string): string {
-  return atMidnight(isoDate).toLocaleDateString("en-GB", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  })
+  return hubWeekday(isoDate, true)
 }
 
+/// `06 Oct`
 export function shortDate(isoDate: string): string {
-  return atMidnight(isoDate).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-  })
+  return dayMonth(isoDate)
 }
 
+/// `Tue`
 export function weekday(isoDate: string): string {
-  return atMidnight(isoDate).toLocaleDateString("en-GB", { weekday: "short" })
+  return weekdayName(isoDate)
 }
 
 export function dayOfMonth(isoDate: string): string {
@@ -62,7 +62,7 @@ export function dayOfMonth(isoDate: string): string {
 
 /// A range as one phrase, saying the month and year once.
 ///
-/// `Tue 22 – Thu 24 Sept 2026`, not `22 Sept – Thu, 24 Sept 2026`: leave is
+/// `Tue 22 – Thu 24 Sep 2026`, not `22 Sep – Thu 24 Sep 2026`: leave is
 /// asked for in weekdays, and repeating the month between two days of the same
 /// one makes the reader check whether it really is the same month.
 export function dateRange(from: string, to: string): string {
@@ -71,43 +71,32 @@ export function dateRange(from: string, to: string): string {
   }
   const start = atMidnight(from)
   const end = atMidnight(to)
-  const tail = end.toLocaleDateString("en-GB", {
-    month: "short",
-    year: "numeric",
-  })
   if (
     start.getFullYear() === end.getFullYear() &&
     start.getMonth() === end.getMonth()
   ) {
-    return `${weekday(from)} ${start.getDate()} – ${weekday(to)} ${end.getDate()} ${tail}`
+    return `${weekday(from)} ${dayNumber(from)} – ${weekday(to)} ${dayNumber(to)} ${monthYear(to)}`
   }
   return `${shortDate(from)} – ${longDate(to)}`
 }
 
 export function clockTime(instant: string | null): string {
   if (instant === null) {
-    return "—"
+    return EMPTY
   }
-  return new Date(instant).toLocaleTimeString("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-  })
+  return time(instant)
 }
 
+/// `06 Oct, 14:28`
 export function dateTime(instant: string): string {
-  return new Date(instant).toLocaleString("en-GB", {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
+  return recentMoment(instant)
 }
 
 /// Minutes as hours and minutes, because a shift is read as `9h 12m` and never
 /// as 552.
 export function duration(minutes: number): string {
   if (minutes <= 0) {
-    return "—"
+    return EMPTY
   }
   const hours = Math.floor(minutes / 60)
   const rest = minutes % 60
@@ -167,7 +156,7 @@ export function isUpcoming(isoDate: string): boolean {
 /// their manager is looking at.
 export function punchClock(at: string | null): string {
   if (at === null) {
-    return "—"
+    return EMPTY
   }
   const clock = at.split(" ")[1] ?? at
   // `(+1)` is kept, not dropped. A clock-out at 02:10 on an overnight shift is

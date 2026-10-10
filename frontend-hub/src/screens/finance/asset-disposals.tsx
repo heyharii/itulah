@@ -8,14 +8,18 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { monthStamp, type ExportSheet } from "@/lib/export-xlsx"
 import { count, day, money } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { financeKeys, listAllAssets } from "@/lib/queries/finance"
 import { useSiteLabel } from "@/lib/queries/organisation"
 import { queryState } from "@/lib/query-state"
+import { button } from "@/components/ui/button-style"
 import { cn } from "@/lib/utils"
 import { Code, Grid, Td, Th, TotalRow } from "@/screens/finance-final/parts"
 import { todayIso } from "@/screens/finance/chart"
 import type { DateWindow } from "@/screens/finance/hooks"
+import { PhoneCard, PhoneList } from "@/components/ui/phone-cards"
 import { SiteSelect, WindowControl } from "@/screens/finance/parts"
+import { FactsSheet } from "@/screens/finance/phone-parts"
 import { ReportFilters, ReportSummary } from "@/screens/finance/report"
 
 import type { AssetRow } from "@itulah/contract"
@@ -43,6 +47,8 @@ import type { AssetRow } from "@itulah/contract"
 /// set is a small one — a handful a year.
 
 export function AssetDisposals() {
+  const phone = useLayout() === "phone"
+  const [shown, setShown] = useState<AssetRow | null>(null)
   const [from, setFrom] = useState(() => `${new Date().getFullYear()}-01-01`)
   const [to, setTo] = useState(todayIso)
   const [site, setSite] = useState("")
@@ -97,7 +103,7 @@ export function AssetDisposals() {
       filename: `Asset-Disposals-${monthStamp(to)}`,
       sheet: "Asset Disposals",
       title: "Asset Disposals",
-      subtitle: `${range.chip} · ${site === "" ? "every site" : siteName(site)}`,
+      subtitle: `${range.chip} · ${site === "" ? "all sites" : siteName(site)}`,
       columns: [
         { header: "Date", kind: "date" },
         { header: "Asset No", kind: "text", width: 16 },
@@ -142,11 +148,15 @@ export function AssetDisposals() {
       <PageHeader
         crumb="Finance · Financial Reports"
         title="Asset Disposals"
+        // On a phone Export is a row of the Filters sheet, not a button at the
+        // top of the page.
         actions={
-          <ExportButton
-            build={build}
-            disabled={register.data === undefined || rows.length === 0}
-          />
+          phone ? undefined : (
+            <ExportButton
+              build={build}
+              disabled={register.data === undefined || rows.length === 0}
+            />
+          )
         }
       />
 
@@ -158,6 +168,12 @@ export function AssetDisposals() {
           aria-label="Site"
         />
         <WindowControl range={range} />
+        {phone && (
+          <ExportButton
+            build={build}
+            disabled={register.data === undefined || rows.length === 0}
+          />
+        )}
       </ReportFilters>
 
       {queryState(register, {
@@ -192,6 +208,83 @@ export function AssetDisposals() {
                 No asset was sold or written off between {day(from)} and{" "}
                 {day(to)}.
               </EmptyState>
+            ) : phone ? (
+              <>
+                <PhoneList>
+                  {rows.map((row) => (
+                    <PhoneCard
+                      key={row.asset.asset_id}
+                      title={row.asset.name}
+                      line={
+                        <span className="font-mono">
+                          {row.asset.asset_number}
+                        </span>
+                      }
+                      lead={money(row.result)}
+                      caption="gain / (loss)"
+                      tone={row.result < 0 ? "bad" : undefined}
+                      foot={`${day(row.asset.disposed_on)} · ${methodLabel(row.asset.disposal_method)}`}
+                      action={
+                        row.asset.disposal_journal_entry_id ===
+                        null ? undefined : (
+                          <AppLink
+                            to="/finance/accounting/journal-entries"
+                            sheet={{
+                              key: "entry",
+                              value: row.asset.disposal_journal_entry_id,
+                            }}
+                            className={button({
+                              variant: "tint",
+                              size: "card",
+                            })}
+                          >
+                            Open entry
+                          </AppLink>
+                        )
+                      }
+                      onOpen={() => setShown(row.asset)}
+                    />
+                  ))}
+                </PhoneList>
+                <FactsSheet
+                  open={shown !== null}
+                  onClose={() => setShown(null)}
+                  title={shown?.name ?? ""}
+                  id={shown?.asset_number}
+                  caption={shown?.category_name}
+                  facts={
+                    shown === null
+                      ? []
+                      : (() => {
+                          const one = figuresOf(shown)
+                          return [
+                            {
+                              label: "Disposed",
+                              value: day(shown.disposed_on),
+                            },
+                            {
+                              label: "Method",
+                              value: methodLabel(shown.disposal_method),
+                            },
+                            { label: "Cost", value: money(one.cost) },
+                            {
+                              label: "Accumulated depreciation",
+                              value: money(one.accumulated),
+                            },
+                            {
+                              label: "Book value at disposal",
+                              value: money(one.book),
+                            },
+                            { label: "Proceeds", value: money(one.proceeds) },
+                            {
+                              label: "Gain / (Loss)",
+                              value: money(one.result),
+                            },
+                          ]
+                        })()
+                  }
+                />
+              </>
             ) : (
               <Grid>
                 <thead>

@@ -95,8 +95,8 @@ impl TenancyConfig {
                 )))
             }
         }
-        let template_database = env_opt("TENANCY_TEMPLATE_DATABASE")
-            .unwrap_or_else(|| "itulah_blank".into());
+        let template_database =
+            env_opt("TENANCY_TEMPLATE_DATABASE").unwrap_or_else(|| "itulah_blank".into());
         if !is_identifier(&template_database) {
             return Err(AppError::Configuration(
                 "TENANCY_TEMPLATE_DATABASE must be a-z, 0-9 and '_'".into(),
@@ -351,7 +351,10 @@ impl Gateway {
             return Ok(None);
         };
         let tenant = Arc::new(self.open_tenant(&database).await?);
-        self.open.write().await.insert(slug.to_owned(), tenant.clone());
+        self.open
+            .write()
+            .await
+            .insert(slug.to_owned(), tenant.clone());
         info!(business = %slug, "sandbox business opened");
         Ok(Some(tenant))
     }
@@ -425,7 +428,9 @@ async fn create_business(
     }
     let owner_name = body.owner_name.trim().to_owned();
     if owner_name.is_empty() || owner_name.chars().count() > 80 {
-        return Err(AppError::Validation("say who you are, in at most 80 characters".into()));
+        return Err(AppError::Validation(
+            "say who you are, in at most 80 characters".into(),
+        ));
     }
     let username = security::normalize_username(&body.username).map_err(AppError::Validation)?;
     // Hashing also enforces the house minimum length: before the database is
@@ -443,7 +448,9 @@ async fn create_business(
     if live >= gw.tenancy.max_businesses {
         return Ok((
             StatusCode::TOO_MANY_REQUESTS,
-            Json(json!({ "error": "this testing server is full; ask for a business to be removed" })),
+            Json(
+                json!({ "error": "this testing server is full; ask for a business to be removed" }),
+            ),
         )
             .into_response());
     }
@@ -463,8 +470,11 @@ async fn create_business(
                 .execute(&gw.control)
                 .await?;
             info!(business = %slug, "sandbox business made");
-            let mut response =
-                (StatusCode::CREATED, Json(json!({ "slug": slug, "name": name }))).into_response();
+            let mut response = (
+                StatusCode::CREATED,
+                Json(json!({ "slug": slug, "name": name })),
+            )
+                .into_response();
             choose(&gw, response.headers_mut(), Some(&slug));
             Ok(response)
         }
@@ -490,7 +500,13 @@ async fn claim_slug(control: &PgPool, name: &str, owner: &str) -> Result<String,
         let candidate = if n == 1 {
             base.clone()
         } else {
-            format!("{}-{n}", base.chars().take(36).collect::<String>().trim_end_matches('-'))
+            format!(
+                "{}-{n}",
+                base.chars()
+                    .take(36)
+                    .collect::<String>()
+                    .trim_end_matches('-')
+            )
         };
         // A placeholder database name, unique by construction, replaced once
         // the slug is known to be ours.
@@ -510,7 +526,9 @@ async fn claim_slug(control: &PgPool, name: &str, owner: &str) -> Result<String,
             return Ok(candidate);
         }
     }
-    Err(AppError::Conflict("too many businesses already carry that name".into()))
+    Err(AppError::Conflict(
+        "too many businesses already carry that name".into(),
+    ))
 }
 
 async fn make_business(
@@ -557,7 +575,9 @@ async fn select_business(
 ) -> Result<Response, AppError> {
     let slug = body.slug.trim().to_ascii_lowercase();
     let Some((slug, name)) = business_row(&gw.control, &slug).await? else {
-        return Err(AppError::NotFound("no business has that code on this server".into()));
+        return Err(AppError::NotFound(
+            "no business has that code on this server".into(),
+        ));
     };
     let mut response = Json(json!({ "slug": slug, "name": name })).into_response();
     choose(&gw, response.headers_mut(), Some(&slug));
@@ -573,7 +593,13 @@ async fn leave_business(State(gw): Gw) -> Response {
 /// Everything else: the chosen business's own router, request untouched.
 async fn dispatch(State(gw): Gw, mut request: Request) -> Response {
     let Some(slug) = chosen_business(request.headers()) else {
-        return no_business(StatusCode::CONFLICT, "business_required", "choose a business first", &gw, false);
+        return no_business(
+            StatusCode::CONFLICT,
+            "business_required",
+            "choose a business first",
+            &gw,
+            false,
+        );
     };
     match gw.tenant(&slug).await {
         Ok(Some(tenant)) => {
@@ -601,7 +627,13 @@ async fn dispatch(State(gw): Gw, mut request: Request) -> Response {
     }
 }
 
-fn no_business(status: StatusCode, code: &str, message: &str, gw: &Gateway, forget: bool) -> Response {
+fn no_business(
+    status: StatusCode,
+    code: &str,
+    message: &str,
+    gw: &Gateway,
+    forget: bool,
+) -> Response {
     let mut response = (status, Json(json!({ "error": message, "code": code }))).into_response();
     if forget {
         choose(gw, response.headers_mut(), None);
@@ -635,7 +667,9 @@ fn chosen_business(headers: &HeaderMap) -> Option<String> {
 fn choose(gw: &Gateway, headers: &mut HeaderMap, slug: Option<&str>) {
     let secure = gw.config.auth_cookie_secure;
     let business = match slug {
-        Some(slug) => security::set_cookie(BUSINESS_COOKIE, slug, BUSINESS_COOKIE_MAX_AGE, secure, true),
+        Some(slug) => {
+            security::set_cookie(BUSINESS_COOKIE, slug, BUSINESS_COOKIE_MAX_AGE, secure, true)
+        }
         None => security::clear_cookie(BUSINESS_COOKIE, secure, true),
     };
     for cookie in [
@@ -650,11 +684,13 @@ fn choose(gw: &Gateway, headers: &mut HeaderMap, slug: Option<&str>) {
 }
 
 async fn business_row(control: &PgPool, slug: &str) -> Result<Option<(String, String)>, AppError> {
-    Ok(sqlx::query("SELECT slug, name FROM business WHERE slug=$1 AND status='ACTIVE'")
-        .bind(slug)
-        .fetch_optional(control)
-        .await?
-        .map(|row| (row.get("slug"), row.get("name"))))
+    Ok(
+        sqlx::query("SELECT slug, name FROM business WHERE slug=$1 AND status='ACTIVE'")
+            .bind(slug)
+            .fetch_optional(control)
+            .await?
+            .map(|row| (row.get("slug"), row.get("name"))),
+    )
 }
 
 /// `Toko Budi Jaya!` → `toko-budi-jaya`. Never shorter than three characters.
@@ -680,14 +716,16 @@ fn slugify(name: &str) -> String {
 
 fn is_slug(s: &str) -> bool {
     (3..=40).contains(&s.len())
-        && s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        && s.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
         && !s.starts_with('-')
         && !s.ends_with('-')
 }
 
 fn is_identifier(s: &str) -> bool {
     (1..=50).contains(&s.len())
-        && s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        && s.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
 }
 
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
@@ -710,7 +748,9 @@ mod tests {
         assert_eq!(slugify("Toko Budi Jaya!"), "toko-budi-jaya");
         assert_eq!(slugify("  CV. Maju -- Terus "), "cv-maju-terus");
         assert!(slugify("é").starts_with("biz-"));
-        assert!(is_slug(&slugify("A very long business name that keeps going and going")));
+        assert!(is_slug(&slugify(
+            "A very long business name that keeps going and going"
+        )));
     }
 
     #[test]

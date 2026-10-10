@@ -125,16 +125,33 @@ async fn a_voucher_moves_each_sites_profit_into_retained_earnings(pool: PgPool) 
     expense(&pool, date(2026, 9, 12), STORE, "6045", 300_000).await;
     sale(&pool, date(2026, 9, 15), HO, 500_000).await;
 
-    let voucher = cloud::post_period_closing(&pool, &closing(date(2026, 9, 1), date(2026, 9, 30)), ACTOR)
-        .await
-        .unwrap_or_else(|error| panic!("close: {error}"));
+    let voucher =
+        cloud::post_period_closing(&pool, &closing(date(2026, 9, 1), date(2026, 9, 30)), ACTOR)
+            .await
+            .unwrap_or_else(|error| panic!("close: {error}"));
     assert_eq!(voucher.status, "POSTED");
     assert_eq!(voucher.profit_minor, 1_200_000);
 
-    assert_eq!(open_profit(&pool, STORE).await, 0, "the store's P&L accounts are closed");
-    assert_eq!(open_profit(&pool, HO).await, 0, "head office's P&L accounts are closed");
-    assert_eq!(balance(&pool, "3003", STORE).await, -700_000, "the store's profit, credited");
-    assert_eq!(balance(&pool, "3003", HO).await, -500_000, "head office's profit, credited");
+    assert_eq!(
+        open_profit(&pool, STORE).await,
+        0,
+        "the store's P&L accounts are closed"
+    );
+    assert_eq!(
+        open_profit(&pool, HO).await,
+        0,
+        "head office's P&L accounts are closed"
+    );
+    assert_eq!(
+        balance(&pool, "3003", STORE).await,
+        -700_000,
+        "the store's profit, credited"
+    );
+    assert_eq!(
+        balance(&pool, "3003", HO).await,
+        -500_000,
+        "head office's profit, credited"
+    );
 
     let unbalanced: i64 = sqlx::query_scalar(
         "SELECT COUNT(*)::bigint FROM (
@@ -149,13 +166,19 @@ async fn a_voucher_moves_each_sites_profit_into_retained_earnings(pool: PgPool) 
     let pnl = cloud::profit_and_loss(&pool, date(2026, 9, 1), date(2026, 9, 30), Some(STORE))
         .await
         .unwrap_or_else(|error| panic!("p&l: {error}"));
-    assert_eq!(pnl.net_profit_minor, 700_000, "a closed month still reports its profit");
+    assert_eq!(
+        pnl.net_profit_minor, 700_000,
+        "a closed month still reports its profit"
+    );
 
     let sheet = cloud::balance_sheet(&pool, date(2026, 9, 30), Some(STORE))
         .await
         .unwrap_or_else(|error| panic!("balance sheet: {error}"));
     assert!(sheet.balanced, "difference {}", sheet.difference_minor);
-    assert_eq!(sheet.result_minor, 0, "no profit left outside retained earnings");
+    assert_eq!(
+        sheet.result_minor, 0,
+        "no profit left outside retained earnings"
+    );
 }
 
 // 2 -------------------------------------------------------------------------
@@ -171,23 +194,41 @@ async fn vouchers_close_in_order(pool: PgPool) {
         .await
         .unwrap_or_else(|error| panic!("september: {error}"));
 
-    let gap = cloud::post_period_closing(&pool, &closing(date(2026, 10, 2), date(2026, 10, 31)), ACTOR)
-        .await
-        .err()
-        .unwrap_or_else(|| panic!("a voucher that skips a day is refused"))
-        .to_string();
-    assert!(gap.contains("2026-10-01"), "the refusal names the day to start on: {gap}");
+    let gap = cloud::post_period_closing(
+        &pool,
+        &closing(date(2026, 10, 2), date(2026, 10, 31)),
+        ACTOR,
+    )
+    .await
+    .err()
+    .unwrap_or_else(|| panic!("a voucher that skips a day is refused"))
+    .to_string();
     assert!(
-        cloud::post_period_closing(&pool, &closing(date(2026, 9, 15), date(2026, 10, 31)), ACTOR)
-            .await
-            .is_err(),
+        gap.contains("2026-10-01"),
+        "the refusal names the day to start on: {gap}"
+    );
+    assert!(
+        cloud::post_period_closing(
+            &pool,
+            &closing(date(2026, 9, 15), date(2026, 10, 31)),
+            ACTOR
+        )
+        .await
+        .is_err(),
         "a voucher over an already closed range is refused"
     );
 
-    let october = cloud::post_period_closing(&pool, &closing(date(2026, 10, 1), date(2026, 10, 31)), ACTOR)
-        .await
-        .unwrap_or_else(|error| panic!("october: {error}"));
-    assert_eq!(october.profit_minor, 200_000, "October closes only October's profit");
+    let october = cloud::post_period_closing(
+        &pool,
+        &closing(date(2026, 10, 1), date(2026, 10, 31)),
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("october: {error}"));
+    assert_eq!(
+        october.profit_minor, 200_000,
+        "October closes only October's profit"
+    );
     assert_eq!(balance(&pool, "3003", STORE).await, -300_000);
 }
 
@@ -199,11 +240,12 @@ async fn the_first_voucher_leaves_no_earlier_profit_open(pool: PgPool) {
     open(&pool, 2026, 9).await;
     sale(&pool, date(2026, 8, 20), STORE, 100_000).await;
 
-    let refused = cloud::post_period_closing(&pool, &closing(date(2026, 9, 1), date(2026, 9, 30)), ACTOR)
-        .await
-        .err()
-        .unwrap_or_else(|| panic!("August's profit would never be closed"))
-        .to_string();
+    let refused =
+        cloud::post_period_closing(&pool, &closing(date(2026, 9, 1), date(2026, 9, 30)), ACTOR)
+            .await
+            .err()
+            .unwrap_or_else(|| panic!("August's profit would never be closed"))
+            .to_string();
     assert!(refused.contains("2026-08-20"), "{refused}");
 
     cloud::post_period_closing(&pool, &closing(date(2026, 8, 1), date(2026, 9, 30)), ACTOR)
@@ -220,15 +262,22 @@ async fn only_the_last_voucher_is_cancelled_and_cancelling_restores_the_profit(p
     open(&pool, 2026, 10).await;
     sale(&pool, date(2026, 9, 10), STORE, 100_000).await;
     sale(&pool, date(2026, 10, 10), STORE, 200_000).await;
-    let september = cloud::post_period_closing(&pool, &closing(date(2026, 9, 1), date(2026, 9, 30)), ACTOR)
-        .await
-        .unwrap_or_else(|error| panic!("september: {error}"));
-    let october = cloud::post_period_closing(&pool, &closing(date(2026, 10, 1), date(2026, 10, 31)), ACTOR)
-        .await
-        .unwrap_or_else(|error| panic!("october: {error}"));
+    let september =
+        cloud::post_period_closing(&pool, &closing(date(2026, 9, 1), date(2026, 9, 30)), ACTOR)
+            .await
+            .unwrap_or_else(|error| panic!("september: {error}"));
+    let october = cloud::post_period_closing(
+        &pool,
+        &closing(date(2026, 10, 1), date(2026, 10, 31)),
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("october: {error}"));
 
     assert!(
-        cloud::cancel_period_closing(&pool, september.voucher_id, ACTOR).await.is_err(),
+        cloud::cancel_period_closing(&pool, september.voucher_id, ACTOR)
+            .await
+            .is_err(),
         "October was built on September"
     );
     let cancelled = cloud::cancel_period_closing(&pool, october.voucher_id, ACTOR)
@@ -236,13 +285,28 @@ async fn only_the_last_voucher_is_cancelled_and_cancelling_restores_the_profit(p
         .unwrap_or_else(|error| panic!("cancel october: {error}"));
     assert_eq!(cancelled.status, "CANCELLED");
     assert!(cancelled.reversal_entry_id.is_some());
-    assert_eq!(balance(&pool, "3003", STORE).await, -100_000, "only September stays closed");
-    assert_eq!(open_profit(&pool, STORE).await, -200_000, "October's income is open again");
+    assert_eq!(
+        balance(&pool, "3003", STORE).await,
+        -100_000,
+        "only September stays closed"
+    );
+    assert_eq!(
+        open_profit(&pool, STORE).await,
+        -200_000,
+        "October's income is open again"
+    );
 
-    let again = cloud::post_period_closing(&pool, &closing(date(2026, 10, 1), date(2026, 10, 31)), ACTOR)
-        .await
-        .unwrap_or_else(|error| panic!("close october again: {error}"));
-    assert_eq!(again.profit_minor, 200_000, "a cancelled voucher is not counted twice");
+    let again = cloud::post_period_closing(
+        &pool,
+        &closing(date(2026, 10, 1), date(2026, 10, 31)),
+        ACTOR,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("close october again: {error}"));
+    assert_eq!(
+        again.profit_minor, 200_000,
+        "a cancelled voucher is not counted twice"
+    );
 }
 
 // 5 -------------------------------------------------------------------------
@@ -265,11 +329,15 @@ async fn a_soft_closed_month_takes_the_voucher_and_a_closed_one_does_not(pool: P
         .execute(&pool)
         .await
         .unwrap_or_else(|error| panic!("close october: {error}"));
-    let refused = cloud::post_period_closing(&pool, &closing(date(2026, 10, 1), date(2026, 10, 31)), ACTOR)
-        .await
-        .err()
-        .unwrap_or_else(|| panic!("a closed month takes nothing"))
-        .to_string();
+    let refused = cloud::post_period_closing(
+        &pool,
+        &closing(date(2026, 10, 1), date(2026, 10, 31)),
+        ACTOR,
+    )
+    .await
+    .err()
+    .unwrap_or_else(|| panic!("a closed month takes nothing"))
+    .to_string();
     assert!(refused.contains("closed"), "{refused}");
 }
 
@@ -350,6 +418,9 @@ async fn a_standing_year_end_voucher_blocks_undoing_a_close(pool: PgPool) {
         .await
         .err()
         .unwrap_or_else(|| panic!("reopened under a standing voucher"));
-    assert!(refused.to_string().contains("Period Closing Voucher"), "{refused}");
+    assert!(
+        refused.to_string().contains("Period Closing Voucher"),
+        "{refused}"
+    );
     assert_eq!(status_of(&pool, 2026, 9).await, "CLOSED");
 }

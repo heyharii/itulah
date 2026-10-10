@@ -1,3 +1,5 @@
+import { infiniteQueryOptions } from "@tanstack/react-query"
+
 import { node } from "@/lib/api"
 import { arity, type Filter } from "@/lib/filters"
 import type {
@@ -328,6 +330,18 @@ export function searchArticles(scope: ArticleScope, signal?: AbortSignal) {
     { signal }
   )
 }
+
+/// The Articles catalogue, a page at a time. Shared by the screen and its
+/// prefetcher (`screens/master/prefetch.ts`) so the key and the request cannot
+/// drift apart.
+export const articlePagesQuery = (scope: ArticleScope) =>
+  infiniteQueryOptions({
+    queryKey: articleKeys.list(scope),
+    queryFn: ({ pageParam, signal }) =>
+      searchArticles({ ...scope, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  })
 
 /// One article, whole: its colourways, its SKUs, and who sells it to us.
 export async function articleDetail(

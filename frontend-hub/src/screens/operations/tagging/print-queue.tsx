@@ -60,28 +60,32 @@ export function PrintAllButton({
   runs,
   left,
   row,
+  card,
 }: {
   jobs: readonly TaggingWorkJob[]
   runs: Map<string, PrintSessionSummary | null>
   left: number
   /// On a list row: "Print 240", quiet, and the click stays on the button.
   row?: boolean
+  /// On a phone's card: the same words as a tint text button, no icon.
+  card?: boolean
 }) {
   const print = usePrintJobs(jobs, runs)
   return (
     <div className="flex flex-col items-end gap-2">
       <Button
-        variant={row ? "ghost" : "primary"}
+        variant={card ? "tint" : row ? "ghost" : "primary"}
+        size={card ? "card" : undefined}
         pending={print.isPending}
         onClick={(event) => {
           event.stopPropagation()
           print.mutate()
         }}
       >
-        <PrinterIcon />
+        {!card && <PrinterIcon />}
         {print.isPending
           ? "Printing…"
-          : `${row ? "Print" : "Print all"} ${count(left)}`}
+          : `${row || card ? "Print" : "Print all"} ${count(left)}`}
       </Button>
       <Problem error={print.error} />
     </div>

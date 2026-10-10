@@ -520,7 +520,10 @@ fn server_state(facts: &StoreFacts, now: DateTime<Utc>) -> &'static str {
             "WAITING_TO_INSTALL"
         };
     }
-    match (facts.has_node || facts.approved_enrolment.is_some(), facts.heartbeat_at) {
+    match (
+        facts.has_node || facts.approved_enrolment.is_some(),
+        facts.heartbeat_at,
+    ) {
         (_, Some(_)) => "OFFLINE",
         (true, None) => "SYNCING",
         (false, None) => "NOT_INSTALLED",
@@ -1153,6 +1156,7 @@ mod tests {
             approved_enrolment: None,
             tills_active: 0,
             tills_online: 0,
+            till_seats: 0,
             test_print_ok_at: None,
             test_print_failed_at: None,
             people: 0,

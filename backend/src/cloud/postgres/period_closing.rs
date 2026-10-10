@@ -241,7 +241,9 @@ pub async fn cancel_period_closing(
     .ok_or_else(|| AppError::NotFound(format!("closing voucher {voucher_id}")))?;
     let voucher = to_voucher(&row)?;
     if voucher.status != "POSTED" {
-        return Err(AppError::Conflict("this closing voucher is already cancelled".into()));
+        return Err(AppError::Conflict(
+            "this closing voucher is already cancelled".into(),
+        ));
     }
     let later: i64 = sqlx::query_scalar(
         "SELECT COUNT(*)::bigint FROM period_closing_voucher
@@ -257,9 +259,15 @@ pub async fn cancel_period_closing(
     }
     let reversal = match voucher.entry_id {
         Some(entry) => Some(
-            reverse(&mut tx, entry, voucher.period_end, "closing voucher cancelled", actor)
-                .await?
-                .entry_id,
+            reverse(
+                &mut tx,
+                entry,
+                voucher.period_end,
+                "closing voucher cancelled",
+                actor,
+            )
+            .await?
+            .entry_id,
         ),
         None => None,
     };

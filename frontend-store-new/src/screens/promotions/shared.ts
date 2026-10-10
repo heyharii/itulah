@@ -136,11 +136,7 @@ export function away(iso: string, now: number): string {
 
 /// Under six hours, and it is a thing somebody should act on today. A
 /// campaign poster asks sooner — two days — so `hours` is the caller's.
-export function urgent(
-  iso: string | null,
-  now: number,
-  hours = 6,
-): boolean {
+export function urgent(iso: string | null, now: number, hours = 6): boolean {
   if (iso === null) return false
   const left = new Date(iso).getTime() - now
   return left > 0 && left < hours * 60 * 60_000
@@ -239,6 +235,80 @@ export function describeEffect(effect: Effect): string {
     default:
       return "A promotion this till cannot describe"
   }
+}
+
+/// What the offer gives, as the figure a card leads with and a plain word under
+/// it: "20%" over "off", "Rp 50.000" over "off", "Buy 2 get 1" over "free".
+///
+/// `describeEffect` is the whole sentence; this is the part of it that is read
+/// across a counter in a glance. Short on purpose — the figure is 24px and shares
+/// its row with a name.
+export function benefitOf(effect: Effect): {
+  figure: string
+  caption: string
+} {
+  switch (effect.kind) {
+    case "PERCENT":
+      return { figure: percent(effect.bps), caption: "off" }
+    case "AMOUNT":
+      return { figure: money(effect.amount.minor), caption: "off" }
+    case "FIXED_UNIT_PRICE":
+      return { figure: money(effect.unit_price.minor), caption: "each" }
+    case "BUY_X_GET_Y":
+      return {
+        figure: `Buy ${count(effect.buy)} get ${count(effect.get)}`,
+        caption:
+          effect.reward_bps >= 10_000
+            ? "free"
+            : `at ${percent(effect.reward_bps)} off`,
+      }
+    case "FREE_ITEM":
+      return {
+        figure: "Free",
+        caption: `${count(effect.quantity)} ${effect.sku_code ?? "item"}${
+          effect.every_matched_quantity === null
+            ? ""
+            : ` for every ${count(effect.every_matched_quantity)}`
+        }`,
+      }
+    case "EARN_POINTS":
+      switch (effect.mode) {
+        case "SPEND_RATE":
+          return {
+            figure: "1 point",
+            caption: `per ${money(effect.spend_per_point.minor)}`,
+          }
+        case "FIXED_POINTS":
+          return {
+            figure: `${count(effect.points)} ${effect.points === 1 ? "point" : "points"}`,
+            caption: "earned",
+          }
+        case "POINTS_PER_QUANTITY":
+          return {
+            figure: `${count(effect.points)} ${effect.points === 1 ? "point" : "points"}`,
+            caption: "per item",
+          }
+        default:
+          return { figure: "Points", caption: "earned" }
+      }
+    default:
+      return { figure: "—", caption: "Not described" }
+  }
+}
+
+/// How long until an instant, as a figure: "3 days", "5h 20m", "12m". The
+/// shorter sibling of `away` for a card's lead, where "3 days 4h" would not fit
+/// beside a name.
+export function leftIn(iso: string, now: number): string {
+  const left = new Date(iso).getTime() - now
+  if (!Number.isFinite(left)) return "—"
+  if (left <= 0) return "Now"
+  const minutes = Math.floor(left / 60_000)
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ${minutes % 60}m`
+  const days = Math.floor(hours / 24)
+  return `${days} ${days === 1 ? "day" : "days"}`
 }
 
 /// What it lands on, in one line.

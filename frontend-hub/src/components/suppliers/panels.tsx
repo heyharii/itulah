@@ -504,7 +504,7 @@ export function SupplierContactsPanel({ supplierId }: { supplierId: string }) {
               }
             />
           </Field>
-          <Field label="Role" hint="Optional — “Sales”, “Admin”, “Gudang”.">
+          <Field label="Role" hint="Optional — “Sales”, “Admin”, “Warehouse”.">
             <Input
               value={draft.role}
               onChange={(event) =>

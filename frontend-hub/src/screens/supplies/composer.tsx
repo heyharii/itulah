@@ -219,7 +219,7 @@ export function SupplyComposer({
           <div className="grid grid-cols-2 gap-4">
             <Field
               label="Quantity"
-              aside="free text, e.g. 10 pcs, 2 rim, 5 dus"
+              aside="free text, e.g. 10 pcs, 2 reams, 5 boxes"
             >
               <Input
                 value={form.quantity ?? ""}

@@ -375,7 +375,9 @@ pub fn parse_device_test_print_command(payload: &Value) -> Result<DeviceTestPrin
         ));
     }
     if command.requested_by.trim().is_empty() {
-        return Err(format!("{COMMAND_DEVICE_TEST_PRINT} names nobody who asked"));
+        return Err(format!(
+            "{COMMAND_DEVICE_TEST_PRINT} names nobody who asked"
+        ));
     }
     Ok(command)
 }

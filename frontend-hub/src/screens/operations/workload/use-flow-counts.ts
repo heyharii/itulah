@@ -103,9 +103,9 @@ export function useFlowCounts(): FlowCounts {
   ] = useQueries({
     queries: [
       {
-        queryKey: keys.purchaseWork(),
+        queryKey: keys.purchaseSummary(),
         queryFn: ({ signal }: { signal: AbortSignal }) =>
-          dc.purchaseWork(signal),
+          dc.purchaseSummary(signal),
         refetchInterval: POLL_MS,
         enabled: signedIn,
       },
@@ -242,7 +242,7 @@ export function useFlowCounts(): FlowCounts {
       ? {
           // Orders, not lines: one order with nine lines owed is one thing
           // to walk over to, as on the Receiving list.
-          list: new Set((work.data ?? []).map((line) => line.po_number)).size,
+          list: work.data?.orders ?? 0,
           review: verify.data?.length ?? 0,
           received: (receipts.data ?? []).filter(
             (one) => one.accepted_lines > 0
@@ -282,7 +282,7 @@ export function useFlowCounts(): FlowCounts {
       : null,
     rts: rtsReady
       ? {
-          // Raised at this node and waiting for the Gudang, plus raised from
+          // Raised at this node and waiting for the warehouse, plus raised from
           // HO return stock and waiting to be handed over.
           list:
             edge.filter((one) => one.status === "OPEN").length +

@@ -80,10 +80,14 @@ pub async fn save_tax_template(
 ) -> Result<Vec<TaxTemplate>, AppError> {
     let code = template.code.trim().to_ascii_uppercase();
     if code.is_empty() || template.name.trim().is_empty() {
-        return Err(AppError::Validation("a tax template has a code and a name".into()));
+        return Err(AppError::Validation(
+            "a tax template has a code and a name".into(),
+        ));
     }
     if !(0..=10_000).contains(&template.rate_bps) {
-        return Err(AppError::Validation("a rate is between 0 and 10,000 basis points".into()));
+        return Err(AppError::Validation(
+            "a rate is between 0 and 10,000 basis points".into(),
+        ));
     }
     sqlx::query(
         "INSERT INTO tax_template (code, name, rate_bps, is_final, is_active, note, created_by)
@@ -97,14 +101,23 @@ pub async fn save_tax_template(
     .bind(template.rate_bps)
     .bind(template.is_final)
     .bind(template.is_active)
-    .bind(template.note.as_deref().map(str::trim).filter(|n| !n.is_empty()))
+    .bind(
+        template
+            .note
+            .as_deref()
+            .map(str::trim)
+            .filter(|n| !n.is_empty()),
+    )
     .bind(actor)
     .execute(pool)
     .await?;
     tax_templates(pool).await
 }
 
-pub async fn save_tax_type(pool: &PgPool, tax: &TaxTypeSetting) -> Result<TaxTypeSetting, AppError> {
+pub async fn save_tax_type(
+    pool: &PgPool,
+    tax: &TaxTypeSetting,
+) -> Result<TaxTypeSetting, AppError> {
     let code = tax.code.trim().to_ascii_uppercase();
     let nature = tax.nature.trim().to_ascii_uppercase();
     let key = tax.semantic_key.trim().to_ascii_lowercase();

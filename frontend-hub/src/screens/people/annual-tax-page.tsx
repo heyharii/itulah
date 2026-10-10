@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { useLayout } from "@/lib/layout"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/field"
@@ -15,12 +16,19 @@ import { money } from "@/lib/format"
 import { annualTaxSlips, payKeys } from "@/lib/queries/people"
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
+import {
+  CardButton,
+  CardFigure,
+  CardName,
+  PhoneCards,
+} from "@/components/ui/phone-cards"
 import { AnnualTaxSheet } from "@/screens/people/tax-reports"
 import { YEAR_COLUMNS } from "@/screens/people/tax-report-columns"
 
 /// Tax › Annual tax — one year, one row per person: the bukti potong 1721-A1
 /// each employee is given. A row opens the form line by line.
 export function AnnualTaxPage() {
+  const phone = useLayout() === "phone"
   const [year, setYear] = useState(() => new Date().getFullYear())
   const open = useSheet("taxSlip")
   const slips = useQuery({
@@ -30,6 +38,8 @@ export function AnnualTaxPage() {
   })
   const rows = slips.data ?? []
   const shown = rows.find((row) => row.employee_id === open.value) ?? null
+  const exportCsv = () =>
+    downloadCsv(csvName(`1721-A1 ${year}`), toCsv(YEAR_COLUMNS, rows))
 
   return (
     <PageContent>
@@ -38,15 +48,15 @@ export function AnnualTaxPage() {
         title="Annual Tax"
         sub="Each person's 1721-A1 for the year. A year is settled once its last month has been paid."
         actions={
-          <Button
-            variant="primary"
-            disabled={rows.length === 0}
-            onClick={() =>
-              downloadCsv(csvName(`1721-A1 ${year}`), toCsv(YEAR_COLUMNS, rows))
-            }
-          >
-            Export CSV
-          </Button>
+          !phone && (
+            <Button
+              variant="primary"
+              disabled={rows.length === 0}
+              onClick={exportCsv}
+            >
+              Export CSV
+            </Button>
+          )
         }
       />
 
@@ -62,7 +72,7 @@ export function AnnualTaxPage() {
         />
       </Toolbar>
 
-      <Card className="mb-4 overflow-hidden px-4 py-2">
+      <Card className="mb-4 overflow-hidden px-4 py-2 max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:p-0 max-md:shadow-none">
         {queryState(slips, {
           loading: "Adding up the year…",
           render: () =>
@@ -70,6 +80,46 @@ export function AnnualTaxPage() {
               <EmptyState>
                 Nobody has a slip with tax worked out in {year}.
               </EmptyState>
+            ) : phone ? (
+              <PhoneCards
+                rows={rows}
+                onOpen={(row) => open.open(row.employee_id)}
+                rowId={(row) => row.employee_id}
+                spec={{
+                  title: (row) => (
+                    <CardName
+                      name={row.full_name ?? row.employee_code}
+                      line={
+                        <>
+                          <span className="block">{row.npwp ?? "no NPWP"}</span>
+                          <span className="block">
+                            {row.from_month}–{row.to_month} · gross{" "}
+                            {money(row.gross_minor)}
+                          </span>
+                        </>
+                      }
+                    />
+                  ),
+                  lead: (row) => (
+                    <CardFigure
+                      value={money(row.tax_due_minor)}
+                      caption={`withheld ${money(row.tax_withheld_minor)}`}
+                    />
+                  ),
+                  foot: (row) => (
+                    <Pill tone={row.settled ? "ok" : "warn"}>
+                      {row.settled ? "Settled" : "Draft"}
+                    </Pill>
+                  ),
+                  action: (row) => (
+                    <CardButton
+                      label="Open"
+                      ariaLabel={`Open ${row.full_name ?? row.employee_code}’s form`}
+                      onClick={() => open.open(row.employee_id)}
+                    />
+                  ),
+                }}
+              />
             ) : (
               <MiniTable
                 head={[
@@ -119,10 +169,21 @@ export function AnnualTaxPage() {
         })}
       </Card>
 
+      <div className="mb-4 md:hidden">
+        <Button
+          variant="tint"
+          className="w-full"
+          disabled={rows.length === 0}
+          onClick={exportCsv}
+        >
+          Export CSV
+        </Button>
+      </div>
+
       <p className="text-meta text-mute">
         A year is settled once its last month has been paid — December, or the
         month somebody left — because that is the month PPh 21 is worked out on
-        the whole year by Pasal 17. Until then the form is a draft of the year
+        the whole year by Article 17. Until then the form is a draft of the year
         so far.
       </p>
 

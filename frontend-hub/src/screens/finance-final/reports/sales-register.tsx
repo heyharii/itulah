@@ -121,7 +121,7 @@ export function SalesRegister() {
         <span className="text-[0.875rem] text-mute">
           {range.chip}
           {site === "" ? (
-            " · every site"
+            " · all sites"
           ) : (
             <>
               {" · "}

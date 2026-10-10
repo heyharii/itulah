@@ -19,7 +19,7 @@ import { Segmented, Toolbar } from "@/components/ui/segmented"
 import { EmptyState } from "@/components/ui/states"
 import { dc } from "@/lib/api"
 import { SHOW_MISSING } from "@/lib/features"
-import { count, day } from "@/lib/format"
+import { count, day, quantity } from "@/lib/format"
 import { useLayout } from "@/lib/layout"
 import { keys } from "@/lib/operations/keys"
 import { queryState } from "@/lib/query-state"
@@ -85,7 +85,7 @@ const columns: ColumnDef<TableSetup, StoreInboundDelivery>[] = [
   },
   {
     accessorKey: "koli_count",
-    header: "Koli",
+    header: "Cartons",
     size: 100,
     meta: { align: "right", card: "hide" },
     cell: ({ row }) => count(row.original.koli_count),
@@ -123,7 +123,7 @@ const columns: ColumnDef<TableSetup, StoreInboundDelivery>[] = [
         <span className="text-[1.5rem] leading-tight font-semibold tracking-tight text-ink">
           {count(row.original.koli_count)}
         </span>
-        <span className="text-[0.875rem] text-mute">koli</span>
+        <span className="text-[0.875rem] text-mute">cartons</span>
       </span>
     ),
   },
@@ -152,7 +152,7 @@ const columns: ColumnDef<TableSetup, StoreInboundDelivery>[] = [
       const off = isOff(result)
       return (
         <span className={off ? "text-warn-fg" : "text-ok-fg"}>
-          {count(result.received_units)} pcs
+          {quantity(result.received_units)}
           {SHOW_MISSING &&
             result.missing_units > 0 &&
             ` · ${count(result.missing_units)} missing`}
@@ -192,7 +192,7 @@ function CardFoot({ delivery }: { delivery: StoreInboundDelivery }) {
                 : "text-cell font-semibold text-ink"
             }
           >
-            {count(result.received_units)} pcs
+            {quantity(result.received_units)}
           </span>
           {SHOW_MISSING && result.missing_units > 0 && (
             <span className="text-bad-fg">{` · ${count(result.missing_units)} missing`}</span>
@@ -217,6 +217,7 @@ function CountButton({ id }: { id: string }) {
   return (
     <Button
       variant="primary"
+      size="card"
       onClick={(event) => {
         event.stopPropagation()
         delivery.open(id)
@@ -296,6 +297,7 @@ export function ReceiveStoreReturn() {
               </EmptyState>
             ) : (
               <DataTable<StoreInboundDelivery>
+                refresh={[list]}
                 table={table}
                 touch
                 onRowClick={(row) => delivery.open(row.delivery_id)}

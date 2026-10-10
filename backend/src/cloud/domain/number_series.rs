@@ -251,4 +251,3 @@ impl Pattern {
         Ok(out)
     }
 }
-

@@ -162,11 +162,15 @@ pub async fn raise_purchase_return(
     let target = if crate::cloud::dc::common::hosted() {
         None
     } else {
-        Some(inventory_dc_owner_tx(&mut tx, &site_id).await?.ok_or_else(|| {
-            AppError::Validation(format!(
+        Some(
+            inventory_dc_owner_tx(&mut tx, &site_id)
+                .await?
+                .ok_or_else(|| {
+                    AppError::Validation(format!(
                 "no registered DC owns site '{site_id}', so nobody can hand these goods back"
             ))
-        })?)
+                })?,
+        )
     };
 
     let sequence: i64 = sqlx::query_scalar("SELECT nextval('purchase_return_number_sequence')")

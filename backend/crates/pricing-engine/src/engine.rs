@@ -449,15 +449,8 @@ fn check_coupon(
     {
         return Some(RejectionReason::CouponExpired);
     }
-    if coupon.max_uses.is_some_and(|max| coupon.used >= max) {
-        return Some(RejectionReason::CouponUsedUp);
-    }
-    // This legacy publication has no per-code authorization/reservation in the
-    // till. A finite global count read from the last sync is not safe under
-    // concurrent sales at different shops, so fail closed until redemption is
-    // routed through the cloud CouponSet lifecycle.
-    if coupon.max_uses.is_some() {
-        return Some(RejectionReason::CouponNeedsOnlineAuthorization);
+    if let Some(reason) = limited_coupon(coupon, context) {
+        return Some(reason);
     }
     match (&coupon.customer_id, &context.customer_id) {
         (Some(owner), Some(shopper)) if owner == shopper => {}
@@ -465,6 +458,32 @@ fn check_coupon(
         (None, _) => {}
     }
     None
+}
+
+/// The cross-shop cap on a coupon, which the snapshot cannot keep.
+///
+/// A finite global count read from the last sync is not safe under concurrent
+/// sales at different shops — two counters each reading "99 of 100" both give
+/// the hundredth away. So a limited coupon is admitted only on head office's
+/// word: the till asks for a hold (`/store/coupons/{code}/authorize`, relayed
+/// by the shop node to the cloud's coupon set, where the count is kept under a
+/// lock), and the hold rides in on [`PricingContext::coupon_authorizations`].
+///
+/// With a hold, the snapshot's `used` is not consulted either. It is the
+/// stale number the hold exists to replace, and it can read "used up" for a
+/// use head office has just reserved for this very basket — this shop's own
+/// brake counts its unsynced sales into it. Without one, the answer is the
+/// same as it always was: used up when the snapshot already says so (the
+/// truer sentence for the cashier), otherwise "ask head office first".
+fn limited_coupon(coupon: &Coupon, context: &PricingContext) -> Option<RejectionReason> {
+    let max = coupon.max_uses?;
+    if context.coupon_authorization(&coupon.code).is_some() {
+        return None;
+    }
+    if coupon.used >= max {
+        return Some(RejectionReason::CouponUsedUp);
+    }
+    Some(RejectionReason::CouponNeedsOnlineAuthorization)
 }
 
 // ---------------------------------------------------------------------------
@@ -1127,7 +1146,9 @@ fn run_scenario(
                     .or_insert(remaining);
             }
             if let Some(remaining) = candidate.campaign_uses_remaining {
-                campaign_uses.entry(campaign_id.clone()).or_insert(remaining);
+                campaign_uses
+                    .entry(campaign_id.clone())
+                    .or_insert(remaining);
             }
         }
     }
@@ -1143,8 +1164,7 @@ fn run_scenario(
                 .push((rule.rule_id.clone(), RejectionReason::UsageExhausted));
             continue;
         }
-        let campaign_ceiling = campaign_id
-            .and_then(|id| campaign_budgets.get(id).copied());
+        let campaign_ceiling = campaign_id.and_then(|id| campaign_budgets.get(id).copied());
         let ceiling = tighter(candidate.ceiling, campaign_ceiling);
         if campaign_ceiling.is_some_and(|left| left.minor <= 0) {
             scenario
@@ -2138,11 +2158,8 @@ pub(crate) fn check_coupon_code<'a>(
     {
         return Err(RejectionReason::CouponExpired);
     }
-    if coupon.max_uses.is_some_and(|max| coupon.used >= max) {
-        return Err(RejectionReason::CouponUsedUp);
-    }
-    if coupon.max_uses.is_some() {
-        return Err(RejectionReason::CouponNeedsOnlineAuthorization);
+    if let Some(reason) = limited_coupon(coupon, context) {
+        return Err(reason);
     }
     match (&coupon.customer_id, &context.customer_id) {
         (Some(owner), Some(shopper)) if owner == shopper => {}

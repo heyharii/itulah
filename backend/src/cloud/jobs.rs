@@ -84,6 +84,25 @@ impl Pass {
     }
 }
 
+/// How many passes may run at once across every job in this process.
+///
+/// Each running pass holds two connections — its advisory lock and the body's
+/// own — out of the same pool the requests use. Every job waking together at
+/// boot, or a few heavy passes landing at once, took the pool from the people
+/// using the screens. Background work queues behind this instead; requests do
+/// not. `INVENTORY_JOB_CONCURRENCY` overrides the default of two.
+fn pass_permits() -> &'static tokio::sync::Semaphore {
+    static PERMITS: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
+    PERMITS.get_or_init(|| {
+        let permits = std::env::var("INVENTORY_JOB_CONCURRENCY")
+            .ok()
+            .and_then(|raw| raw.trim().parse::<usize>().ok())
+            .filter(|n| *n > 0)
+            .unwrap_or(2);
+        tokio::sync::Semaphore::new(permits)
+    })
+}
+
 /// Start driving a job. Returns at once; the job runs on its own task for the
 /// life of the process.
 pub fn spawn<F, Fut>(pool: PgPool, job: Job, body: F)
@@ -99,11 +118,18 @@ where
     F: Fn(PgPool, Pass) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Pass> + Send + 'static,
 {
-    let every_seconds = i32::try_from(job.every.as_secs()).unwrap_or(i32::MAX).max(1);
+    let every_seconds = i32::try_from(job.every.as_secs())
+        .unwrap_or(i32::MAX)
+        .max(1);
     if let Err(error) = store::register_job(&pool, job.key, job.label, Some(every_seconds)).await {
         warn!(%error, job = job.key, "a job could not be registered; it runs unrecorded until it can");
     }
-    info!(job = job.key, seconds = job.every.as_secs(), "{} started", job.label);
+    info!(
+        job = job.key,
+        seconds = job.every.as_secs(),
+        "{} started",
+        job.label
+    );
 
     let mut due = Instant::now();
     let mut failures: u32 = 0;
@@ -113,10 +139,12 @@ where
             tokio::time::sleep((due - now).min(LISTEN)).await;
         }
 
-        let requested_by = store::take_run_request(&pool, job.key).await.unwrap_or_else(|error| {
-            warn!(%error, job = job.key, "could not read the job's run requests");
-            None
-        });
+        let requested_by = store::take_run_request(&pool, job.key)
+            .await
+            .unwrap_or_else(|error| {
+                warn!(%error, job = job.key, "could not read the job's run requests");
+                None
+            });
         let is_due = Instant::now() >= due;
         if requested_by.is_none() && !is_due {
             continue;
@@ -126,6 +154,18 @@ where
             continue;
         }
 
+        // Wait for a turn before taking the lock, so a job waiting here holds
+        // no connection. A job that runs more than once a minute is a queue
+        // someone is waiting on (articles issued, sales summed) and does a
+        // little each pass: it never queues behind a heavy hourly pass.
+        let _turn = if job.every < Duration::from_secs(60) {
+            None
+        } else {
+            let Ok(turn) = pass_permits().acquire().await else {
+                return;
+            };
+            Some(turn)
+        };
         let lock = match store::try_lock_job(&pool, job.key).await {
             Ok(Some(lock)) => lock,
             Ok(None) => {

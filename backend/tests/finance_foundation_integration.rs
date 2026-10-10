@@ -72,7 +72,13 @@ async fn resolves(pool: &PgPool, role: &str, unit: &str, source: &str) -> Result
         .map_err(|error| error.to_string())
 }
 
-fn link(role: &str, source: &str, scope_type: &str, scope_key: &str, account: &str) -> cloud::SetAccountLinkRequest {
+fn link(
+    role: &str,
+    source: &str,
+    scope_type: &str,
+    scope_key: &str,
+    account: &str,
+) -> cloud::SetAccountLinkRequest {
     cloud::SetAccountLinkRequest {
         role: role.into(),
         source_type: "COMPANY".into(),
@@ -127,8 +133,14 @@ async fn a_new_shop_posts_on_day_one(pool: PgPool) {
     open_a_fourteenth_shop(&pool).await;
     open_september(&pool).await;
 
-    assert_eq!(resolves(&pool, "cash", "store-14", "").await, Ok("1002".into()));
-    assert_eq!(resolves(&pool, "revenue_cash", "store-14", "").await, Ok("4002".into()));
+    assert_eq!(
+        resolves(&pool, "cash", "store-14", "").await,
+        Ok("1002".into())
+    );
+    assert_eq!(
+        resolves(&pool, "revenue_cash", "store-14", "").await,
+        Ok("4002".into())
+    );
     assert_eq!(
         resolves(&pool, "payroll_expense", "store-14", "SALARY").await,
         Ok("6012".into()),
@@ -147,7 +159,10 @@ async fn a_new_shop_posts_on_day_one(pool: PgPool) {
     .unwrap_or_else(|error| panic!("the new shop's first sale must post: {error}"));
     assert_eq!(
         accounts_of(&pool, entry).await,
-        vec![("store-14".into(), "1002".into()), ("store-14".into(), "4002".into())]
+        vec![
+            ("store-14".into(), "1002".into()),
+            ("store-14".into(), "4002".into())
+        ]
     );
 
     let readiness = cloud::posting_readiness(&pool)
@@ -170,13 +185,20 @@ async fn a_new_shop_posts_on_day_one(pool: PgPool) {
 
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn the_most_specific_link_wins(pool: PgPool) {
-    assert_eq!(resolves(&pool, "cash", "store-03", "").await, Ok("1002".into()));
+    assert_eq!(
+        resolves(&pool, "cash", "store-03", "").await,
+        Ok("1002".into())
+    );
 
-    let exception = cloud::set_account_link(&pool, &link("cash", "", "UNIT", "store-03", "1003"), ALICE)
-        .await
-        .unwrap_or_else(|error| panic!("a one-shop exception: {error}"));
+    let exception =
+        cloud::set_account_link(&pool, &link("cash", "", "UNIT", "store-03", "1003"), ALICE)
+            .await
+            .unwrap_or_else(|error| panic!("a one-shop exception: {error}"));
     assert_eq!(exception.decides_units, 1);
-    assert_eq!(resolves(&pool, "cash", "store-03", "").await, Ok("1003".into()));
+    assert_eq!(
+        resolves(&pool, "cash", "store-03", "").await,
+        Ok("1003".into())
+    );
     assert_eq!(
         resolves(&pool, "cash", "store-04", "").await,
         Ok("1002".into()),
@@ -186,19 +208,26 @@ async fn the_most_specific_link_wins(pool: PgPool) {
     cloud::remove_account_link(&pool, exception.link_id, false, ALICE)
         .await
         .unwrap_or_else(|error| panic!("removing an exception strands nobody: {error}"));
-    assert_eq!(resolves(&pool, "cash", "store-03", "").await, Ok("1002".into()));
+    assert_eq!(
+        resolves(&pool, "cash", "store-03", "").await,
+        Ok("1002".into())
+    );
 }
 
 // 3 -------------------------------------------------------------------------
 
 #[sqlx::test(migrations = "./migrations/postgres")]
 async fn a_link_to_the_wrong_kind_of_account_is_refused_when_saved(pool: PgPool) {
-    let refused = cloud::set_account_link(&pool, &link("trade_payable", "", "ALL", "", "6045"), ALICE)
-        .await
-        .err()
-        .unwrap_or_else(|| panic!("an expense account cannot answer to trade_payable"))
-        .to_string();
-    assert!(refused.contains("PAYABLE"), "the refusal names the kind it wanted: {refused}");
+    let refused =
+        cloud::set_account_link(&pool, &link("trade_payable", "", "ALL", "", "6045"), ALICE)
+            .await
+            .err()
+            .unwrap_or_else(|| panic!("an expense account cannot answer to trade_payable"))
+            .to_string();
+    assert!(
+        refused.contains("PAYABLE"),
+        "the refusal names the kind it wanted: {refused}"
+    );
     assert_eq!(
         resolves(&pool, "trade_payable", "ho", "").await,
         Ok("2002".into()),
@@ -228,7 +257,10 @@ async fn removing_the_last_link_a_unit_uses_is_refused_unless_forced(pool: PgPoo
         refused.contains("no account in the books of") && refused.contains("store-01"),
         "the refusal names the units it would strand, and where: {refused}"
     );
-    assert!(resolves(&pool, "cash", "store-01", "").await.is_ok(), "nothing was removed");
+    assert!(
+        resolves(&pool, "cash", "store-01", "").await.is_ok(),
+        "nothing was removed"
+    );
 
     cloud::remove_account_link(&pool, first, true, ALICE)
         .await
@@ -268,7 +300,12 @@ async fn every_change_to_a_link_is_remembered(pool: PgPool) {
         story,
         vec![
             ("DELETE".into(), Some("1004".into()), None, ALICE.into()),
-            ("UPDATE".into(), Some("1003".into()), Some("1004".into()), BOB.into()),
+            (
+                "UPDATE".into(),
+                Some("1003".into()),
+                Some("1004".into()),
+                BOB.into()
+            ),
             ("INSERT".into(), None, Some("1003".into()), ALICE.into()),
         ]
     );
@@ -287,7 +324,10 @@ async fn finance_adds_an_account_and_links_it_at_once(pool: PgPool) {
         .unwrap_or_else(|error| panic!("create: {error}"));
     assert_eq!(change.action, "CREATE");
     assert_eq!(change.changed_by, ALICE);
-    assert_eq!(change.reason.as_deref(), Some("vendor hama baru di semua toko"));
+    assert_eq!(
+        change.reason.as_deref(),
+        Some("vendor hama baru di semua toko")
+    );
 
     let account = sqlx::query(
         "SELECT root_type, account_type, normal_balance, is_active
@@ -308,7 +348,10 @@ async fn finance_adds_an_account_and_links_it_at_once(pool: PgPool) {
     cloud::set_account_link(&pool, &link("expense_misc", "", "ALL", "", "6078"), BOB)
         .await
         .unwrap_or_else(|error| panic!("the new account can be linked at once: {error}"));
-    assert_eq!(resolves(&pool, "expense_misc", "store-09", "").await, Ok("6078".into()));
+    assert_eq!(
+        resolves(&pool, "expense_misc", "store-09", "").await,
+        Ok("6078".into())
+    );
 
     let mut rename = chart_change("UPDATE", "6078");
     rename.name = Some("Biaya Pengendalian Hama".into());
@@ -322,9 +365,21 @@ async fn finance_adds_an_account_and_links_it_at_once(pool: PgPool) {
         .iter()
         .map(|change| (change.action.clone(), change.changed_by.clone()))
         .collect();
-    assert_eq!(story, vec![("UPDATE".into(), BOB.into()), ("CREATE".into(), ALICE.into())]);
-    assert_eq!(history[0].before.as_ref().and_then(|b| b["name"].as_str()), Some("Biaya Pest Control"));
-    assert_eq!(history[0].after["name"].as_str(), Some("Biaya Pengendalian Hama"));
+    assert_eq!(
+        story,
+        vec![
+            ("UPDATE".into(), BOB.into()),
+            ("CREATE".into(), ALICE.into())
+        ]
+    );
+    assert_eq!(
+        history[0].before.as_ref().and_then(|b| b["name"].as_str()),
+        Some("Biaya Pest Control")
+    );
+    assert_eq!(
+        history[0].after["name"].as_str(),
+        Some("Biaya Pengendalian Hama")
+    );
 }
 
 // 7 -------------------------------------------------------------------------
@@ -346,7 +401,9 @@ async fn a_chart_change_that_cannot_apply_is_refused_and_changes_nothing(pool: P
     wrong_type.parent_code = Some("6039".into());
     wrong_type.account_type = Some("CASH".into());
     assert!(
-        cloud::change_chart(&pool, &wrong_type, ALICE).await.is_err(),
+        cloud::change_chart(&pool, &wrong_type, ALICE)
+            .await
+            .is_err(),
         "a cash account cannot sit under an expense heading"
     );
 
@@ -358,11 +415,12 @@ async fn a_chart_change_that_cannot_apply_is_refused_and_changes_nothing(pool: P
         "6045 is already an account"
     );
 
-    let exists: bool =
-        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM ledger_account WHERE account_code = '6079')")
-            .fetch_one(&pool)
-            .await
-            .unwrap_or_else(|error| panic!("exists: {error}"));
+    let exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM ledger_account WHERE account_code = '6079')",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("exists: {error}"));
     assert!(!exists, "a refused change leaves no account behind");
 }
 
@@ -388,8 +446,14 @@ async fn the_affiliate_links_follow_the_kind_of_unit(pool: PgPool) {
         ("LAIN", "2030", "1059"),
     ] {
         for role in ["affiliate_payable", "affiliate_receivable"] {
-            assert_eq!(resolves(&pool, role, "store-07", family).await, Ok(unit.into()));
-            assert_eq!(resolves(&pool, role, "ho", family).await, Ok(head_office.into()));
+            assert_eq!(
+                resolves(&pool, role, "store-07", family).await,
+                Ok(unit.into())
+            );
+            assert_eq!(
+                resolves(&pool, role, "ho", family).await,
+                Ok(head_office.into())
+            );
         }
     }
     let links: i64 = sqlx::query_scalar(

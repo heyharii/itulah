@@ -865,7 +865,10 @@ mod tests {
         ]);
         assert_eq!(totals.len(), 2);
         assert!(totals.iter().all(OpeningUnitTotal::agrees));
-        assert_eq!(totals[0].unit_id, "unit-a", "units keep the file's own order");
+        assert_eq!(
+            totals[0].unit_id, "unit-a",
+            "units keep the file's own order"
+        );
         assert_eq!(totals[0].lines, 2);
     }
 

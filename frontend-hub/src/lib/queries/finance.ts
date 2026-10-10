@@ -54,6 +54,7 @@ import type {
   MoneyOverview,
   PartyMovements,
   PayablesAging,
+  PaymentLedgerView,
   PaymentPage,
   PeriodPage,
   PostingReadiness,
@@ -324,6 +325,13 @@ export const financeKeys = {
   /// debt, and one unit's payables is not another's.
   payablesAging: (asOf: string | null, unit: string | null) =>
     ["finance", "payables-aging", asOf, unit] as const,
+
+  /// The deliveries the payables ageing counts that no supplier bill covers
+  /// yet — open items of the payment ledger, one per goods receipt. Under the
+  /// same `finance` prefix, and wound back the same two ways, so a screen
+  /// that draws the ageing and this list is drawing one set of documents.
+  openDeliveries: (asOf: string | null, unit: string | null) =>
+    ["finance", "payables-deliveries", asOf, unit] as const,
 
   /// The payment register. Three filters, all of them the server's, so a
   /// narrowed list is a narrowed request and never a slice of a wider answer
@@ -1700,10 +1708,11 @@ export function returnBill(
 
 /// Deliveries with no bill against them.
 ///
-/// Not a balance, and every screen that shows it has to say so: the client
-/// keeps no goods-received-not-invoiced account, so this exposure is in the
-/// warehouse and nowhere in the books at all. At month end both inventory and
-/// payables understate by it, and this list is the only place it is ever seen.
+/// Each is already a debt in the books — the goods receipt posts the supplier's
+/// payable the day it is valued, and the payables ageing counts it (see
+/// `openDeliveries`). What this list adds is the paperwork side: the supplier's
+/// own invoice figure where one came, and how long the delivery has waited. Its
+/// value is the order's price, so it can sit a few rupiah off the ledger's.
 export function unbilledReceipts(
   signal?: AbortSignal
 ): Promise<UnbilledReceipt[]> {
@@ -1744,6 +1753,37 @@ export function payablesAging(
 ): Promise<PayablesAging> {
   return node.get<PayablesAging>(
     `/api/v1/finance/payables-aging${search(options)}`,
+    { signal }
+  )
+}
+
+/// The goods receipts the payables ageing counts as debt before their bill
+/// arrives — each an open item of the payment ledger on the trade-payable
+/// account, with the due date its supplier's terms gave it.
+///
+/// The ageing's own second leg: `payables_aging` adds the posted bills and
+/// then these (`open_receipt`), so a list of both is the same population as
+/// the figure, and a screen that drew only the bills would say "nothing is
+/// owed" over a card that says otherwise. `unbilledReceipts` is the same
+/// deliveries priced at the order and not at what the ledger booked, which is
+/// why it is not used for money here.
+///
+/// One request, unpaged: the server clamps it at a thousand open items, and
+/// a house with more unbilled deliveries than that has a different problem.
+export function openDeliveries(
+  options: { as_of?: string; unit?: string } = {},
+  signal?: AbortSignal
+): Promise<PaymentLedgerView> {
+  return node.get<PaymentLedgerView>(
+    `/api/v1/finance/payment-ledger${search({
+      account: "trade_payable",
+      side: "PAYABLE",
+      party_type: "SUPPLIER",
+      voucher_kind: "GOODS_RECEIPT",
+      open_only: true,
+      limit: 1000,
+      ...options,
+    })}`,
     { signal }
   )
 }

@@ -4,6 +4,8 @@ import { useTable } from "@tanstack/react-table"
 import { useMemo, useState } from "react"
 
 import { PageContent } from "@/components/shell/app-shell"
+import { DockPortal } from "@/components/shell/dock"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
@@ -18,6 +20,7 @@ import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { useFilterState, type Filter, type FilterField } from "@/lib/filters"
 import { count, money, moment } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   customerSummary,
   customerTransaction,
@@ -28,6 +31,12 @@ import {
 import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
+import {
+  CardFigure,
+  CardFoot,
+  CardName,
+  PhoneCard,
+} from "@/components/ui/phone-cards"
 import type { CustomerTransaction } from "@itulah/contract"
 
 /// One member's own custom: what they bought, what promotions took off, and
@@ -63,6 +72,7 @@ const columns: ColumnDef<TableSetup, CustomerTransaction>[] = [
     header: "When",
     size: 170,
     enableSorting: false,
+    meta: { card: "hide" },
     cell: ({ row }) => moment(row.original.occurred_at),
   },
   {
@@ -70,6 +80,7 @@ const columns: ColumnDef<TableSetup, CustomerTransaction>[] = [
     header: "Store",
     size: 140,
     enableSorting: false,
+    meta: { card: "hide" },
     /// The shop's own id, as the shops report it — not the one the centre
     /// spells.
     cell: ({ row }) => (
@@ -81,7 +92,7 @@ const columns: ColumnDef<TableSetup, CustomerTransaction>[] = [
     header: "Items",
     size: 100,
     enableSorting: false,
-    meta: { align: "right" },
+    meta: { align: "right", card: "hide" },
     // Units, not lines: two of the same shirt reads as two items on a receipt
     // and should read as two here.
     cell: ({ row }) => count(row.original.item_count),
@@ -91,7 +102,7 @@ const columns: ColumnDef<TableSetup, CustomerTransaction>[] = [
     header: "Saved",
     size: 140,
     enableSorting: false,
-    meta: { align: "right" },
+    meta: { align: "right", card: "hide" },
     cell: ({ row }) =>
       row.original.discount_total_minor > 0 ? (
         <span className="text-ok-fg">
@@ -106,7 +117,7 @@ const columns: ColumnDef<TableSetup, CustomerTransaction>[] = [
     header: "Points",
     size: 100,
     enableSorting: false,
-    meta: { align: "right" },
+    meta: { align: "right", card: "hide" },
     cell: ({ row }) => count(row.original.points_earned),
   },
   {
@@ -114,11 +125,61 @@ const columns: ColumnDef<TableSetup, CustomerTransaction>[] = [
     header: "Charged",
     size: 150,
     enableSorting: false,
-    meta: { align: "right" },
+    meta: { align: "right", card: "hide" },
     cell: ({ row }) => (
       <span className="font-medium text-ink">
         {money(row.original.total_minor)}
       </span>
+    ),
+  },
+  // Three columns that exist only on a card (`cardLead`; a phone): where and
+  // when, what was charged as the figure, and the rest of the row — items,
+  // points, what the promotions took off (owner, 2026-10-06). A tap opens the
+  // receipt, as the row does.
+  {
+    id: "head",
+    accessorFn: (row) => row.site_id,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "title" },
+    cell: ({ row }) => (
+      <CardName
+        name={row.original.site_id}
+        line={moment(row.original.occurred_at)}
+      />
+    ),
+  },
+  {
+    id: "lead",
+    accessorFn: (row) => row.total_minor,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "lead" },
+    cell: ({ row }) => (
+      <CardFigure value={money(row.original.total_minor)} caption="charged" />
+    ),
+  },
+  {
+    id: "foot",
+    accessorFn: (row) => row.item_count,
+    header: "",
+    enableHiding: false,
+    enableSorting: false,
+    meta: { card: "foot" },
+    cell: ({ row }) => (
+      <CardFoot>
+        {count(row.original.item_count)}{" "}
+        {row.original.item_count === 1 ? "item" : "items"} ·{" "}
+        {count(row.original.points_earned)} points
+        {row.original.discount_total_minor > 0 && (
+          <span className="text-ok-fg">
+            {" "}
+            · Saved {money(row.original.discount_total_minor)}
+          </span>
+        )}
+      </CardFoot>
     ),
   },
 ]
@@ -222,6 +283,9 @@ function scopeFromFilters(filters: readonly Filter[]): CustomerHistoryScope {
 }
 
 export function Member() {
+  // A phone keeps the card id and Look up in the drawer over the bottom bar and
+  // reads the member as one card, then their purchases as cards.
+  const phone = useLayout() === "phone"
   const member = useSheet("member")
   const receipt = useSheet("sale")
   const [typed, setTyped] = useState("")
@@ -281,8 +345,10 @@ export function Member() {
         getRowId: (row: CustomerTransaction) => row.sale_id,
         // The rows arrive in the server's order, newest first.
         manualSorting: true,
+        // The card's own columns are drawn on a phone and never on a desk.
+        state: { columnVisibility: { head: phone, lead: phone, foot: phone } },
       }),
-      [rows]
+      [rows, phone]
     )
   )
 
@@ -295,34 +361,57 @@ export function Member() {
         title="Member"
         sub="One member's purchases as the shops reported them, newest first."
         actions={
-          <>
-            <Input
-              value={typed}
-              onChange={(event) => setTyped(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && typed.trim() !== "") {
-                  member.open(typed.trim())
-                }
-              }}
-              className="h-8 w-56 font-mono text-id"
-            />
-            <Button
-              variant="soft"
-              disabled={typed.trim() === ""}
-              onClick={() => member.open(typed.trim())}
-            >
-              Look up
-            </Button>
-          </>
+          phone ? undefined : (
+            <>
+              <Input
+                value={typed}
+                onChange={(event) => setTyped(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && typed.trim() !== "") {
+                    member.open(typed.trim())
+                  }
+                }}
+                className="h-8 w-56 font-mono text-id"
+              />
+              <Button
+                variant="soft"
+                disabled={typed.trim() === ""}
+                onClick={() => member.open(typed.trim())}
+              >
+                Look up
+              </Button>
+            </>
+          )
         }
       />
+
+      {/* The card id is the dock's field and Look up is its button, where the
+          other lists have their plus. The ⚙ narrows the purchases. */}
+      <DockTools
+        search={{ value: typed, onChange: setTyped, label: "Member card id" }}
+        filter={{
+          count: filters.filters.length,
+          panel: { model: filters },
+        }}
+      />
+      <DockPortal slot="action">
+        <button
+          type="button"
+          disabled={typed.trim() === ""}
+          onClick={() => member.open(typed.trim())}
+          className="dock-wide inline-flex h-9 w-full items-center justify-center rounded-full bg-cta px-4 text-[0.875rem] font-semibold text-cta-fg shadow-soft transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.96] disabled:opacity-50"
+        >
+          Look up
+        </button>
+      </DockPortal>
 
       {customerId === "" ? (
         <Card>
           <EmptyState>
-            Type a member id above. There is no customer directory on this node
-            to browse — a member is identified by the id their card carries, and
-            an id here is an argument rather than a credential.
+            Type a member id {phone ? "below" : "above"}. There is no customer
+            directory on this node to browse — a member is identified by the id
+            their card carries, and an id here is an argument rather than a
+            credential.
           </EmptyState>
         </Card>
       ) : (
@@ -335,44 +424,83 @@ export function Member() {
 
           {/* All time, from the server — the chips below narrow the list and
               not these, which is why they sit above the chips. */}
-          <KpiStrip>
-            <Kpi
-              label="Purchases, all time"
-              value={
-                totals === undefined ? "—" : count(totals.transaction_count)
-              }
-            />
-            <Kpi
-              label="Charged"
-              value={totals === undefined ? "—" : money(totals.spent_minor)}
-            />
-            <Kpi
-              label="Promotions took off"
-              value={totals === undefined ? "—" : money(totals.saved_minor)}
-            />
-            <Kpi
-              label="Points earned"
-              value={
-                totals === undefined ? "—" : count(totals.points_earned_total)
-              }
-            />
-            <Kpi
-              label="Average basket"
-              value={
-                totals === undefined || totals.transaction_count === 0
-                  ? "—"
-                  : money(
-                      Math.round(totals.spent_minor / totals.transaction_count)
-                    )
-              }
-            />
-          </KpiStrip>
+          {phone ? (
+            <ul className="mb-4">
+              <PhoneCard
+                head={<CardName name="Member" code={customerId} />}
+                lead={
+                  <CardFigure
+                    value={
+                      totals === undefined ? "—" : money(totals.spent_minor)
+                    }
+                    caption="charged, all time"
+                  />
+                }
+                foot={
+                  <CardFoot>
+                    {totals === undefined
+                      ? "—"
+                      : `${count(totals.transaction_count)} purchases · ${count(totals.points_earned_total)} points earned`}
+                    <br />
+                    {totals === undefined
+                      ? ""
+                      : `Promotions took off ${money(totals.saved_minor)}${
+                          totals.transaction_count === 0
+                            ? ""
+                            : ` · Average basket ${money(
+                                Math.round(
+                                  totals.spent_minor / totals.transaction_count
+                                )
+                              )}`
+                        }`}
+                  </CardFoot>
+                }
+              />
+            </ul>
+          ) : (
+            <KpiStrip>
+              <Kpi
+                label="Purchases, all time"
+                value={
+                  totals === undefined ? "—" : count(totals.transaction_count)
+                }
+              />
+              <Kpi
+                label="Charged"
+                value={totals === undefined ? "—" : money(totals.spent_minor)}
+              />
+              <Kpi
+                label="Promotions took off"
+                value={totals === undefined ? "—" : money(totals.saved_minor)}
+              />
+              <Kpi
+                label="Points earned"
+                value={
+                  totals === undefined ? "—" : count(totals.points_earned_total)
+                }
+              />
+              <Kpi
+                label="Average basket"
+                value={
+                  totals === undefined || totals.transaction_count === 0
+                    ? "—"
+                    : money(
+                        Math.round(
+                          totals.spent_minor / totals.transaction_count
+                        )
+                      )
+                }
+              />
+            </KpiStrip>
+          )}
 
-          <Toolbar>
-            <FilterPanel model={filters} />
-          </Toolbar>
+          {!phone && (
+            <Toolbar>
+              <FilterPanel model={filters} />
+            </Toolbar>
+          )}
 
-          <Card className="overflow-hidden">
+          <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
             {queryState(history, {
               loading: "Reading their history…",
               render: () =>
@@ -388,6 +516,9 @@ export function Member() {
                     onRowClick={(row) => receipt.open(row.sale_id)}
                     isSelected={(row) => row.sale_id === receipt.value}
                     more={history}
+                    cardSort={false}
+                    cardsApart
+                    cardLead
                     className="max-h-[calc(100dvh-22rem)]"
                   />
                 ),

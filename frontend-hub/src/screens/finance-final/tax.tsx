@@ -7,7 +7,9 @@ import { PageHeader } from "@/components/ui/page-header"
 import { Toolbar } from "@/components/ui/segmented"
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states"
 import { SubTabs } from "@/components/ui/sub-tabs"
+import { Pill } from "@/components/ui/pill"
 import { count, dateText, money } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   domainKeys,
   listTaxPeriods,
@@ -21,6 +23,7 @@ import {
   Td,
   Th,
 } from "@/screens/finance-final/parts"
+import { PhoneCard, PhoneList } from "@/components/ui/phone-cards"
 
 /// Tax Payables — every tax period, what it owes or holds as credit, what has
 /// been paid, and what is left.
@@ -35,6 +38,7 @@ import {
 type Show = "OPEN" | "FILED" | "SETTLED" | "ALL"
 
 export function Tax() {
+  const phone = useLayout() === "phone"
   const types = useQuery({
     queryKey: domainKeys.taxTypes(),
     queryFn: ({ signal }) => listTaxTypes(signal),
@@ -83,12 +87,12 @@ export function Tax() {
         <NumberCard
           label="Tax owed, not yet paid"
           value={payable}
-          note="PPh 21, 23, 29, PPN keluaran, PBB"
+          note="PPh 21, 23, 29, output PPN, PBB"
         />
         <NumberCard
           label="Tax credit not yet used"
           value={credit}
-          note="PPh 25 instalments, PPN masukan"
+          note="PPh 25 instalments, input PPN"
         />
         <NumberCard
           label="Periods off the ledger"
@@ -170,6 +174,52 @@ export function Tax() {
             ? "No tax period has been opened yet."
             : "No period matches these filters."}
         </EmptyState>
+      ) : phone ? (
+        <PhoneList>
+          {rows.map((row) => (
+            <PhoneCard
+              key={row.period_id}
+              title={row.tax_type_name}
+              line={`${dateText(
+                new Date(row.period_year, row.period_month - 1, 1),
+                { month: "short", year: "numeric" }
+              )} · ${row.nature === "CREDIT" ? "Credit" : "Payable"}`}
+              lead={
+                row.outstanding_minor === 0 ? "·" : money(row.outstanding_minor)
+              }
+              caption="left"
+              tone={row.outstanding_minor === 0 ? "quiet" : undefined}
+              foot={
+                <span className="tabular-nums">
+                  {row.nature === "CREDIT" ? "Credit" : "Owed"}{" "}
+                  {money(
+                    row.nature === "PAYABLE"
+                      ? row.obligation_minor
+                      : row.credit_minor
+                  )}{" "}
+                  · Paid {money(row.settled_minor)}
+                </span>
+              }
+              action={
+                <Pill
+                  tone={
+                    row.status === "SETTLED"
+                      ? "ok"
+                      : row.status === "FILED"
+                        ? "neutral"
+                        : "warn"
+                  }
+                >
+                  {row.status === "SETTLED"
+                    ? "Settled"
+                    : row.status === "FILED"
+                      ? "Filed"
+                      : "Open"}
+                </Pill>
+              }
+            />
+          ))}
+        </PhoneList>
       ) : (
         <Grid>
           <thead>

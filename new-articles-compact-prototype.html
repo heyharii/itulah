@@ -1,0 +1,684 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>New Articles · compact</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" />
+<style>
+/* New Articles, tidier and smaller. Sizes copied from the running hub
+   (:5480, 5 Oct 2026): page #f6f6f7, white cards r10 / 1px #e6e6e9,
+   rail 68 #242526, department column 232, nav rows 36, controls 34,
+   table header band 40 #f8f8f9, cells 15, labels 14. */
+:root {
+  --sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  --canvas: #fff; --soft: #f8f8f9; --soft-2: #f0f0f2; --soft-3: #f6f6f7;
+  --hair: #e6e6e9; --hair-2: #dadade; --hair-3: #c6c6cc;
+  --ink: #20242c; --text: #394150; --body: #565f6d; --mute: #666f7d; --faint: #b9c0c9; --ico: #89919d;
+  --rail: #242526; --rail-on: #393b3d; --rail-ico: #c3c4c7;
+  --accent: #2563eb; --accent-2: #1d4ed8; --accent-bg: #eff5ff;
+  --warn-fg: #a64a08; --ok-fg: #137a37;
+  --r-card: 10px; --r-in: 8px;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --top: 0px;
+}
+* { box-sizing: border-box; }
+html { -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--soft-3); color: var(--ink); font: 400 15px/1.45 var(--sans); letter-spacing: -0.006em; -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; letter-spacing: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: inherit; }
+button, [role="button"] { touch-action: manipulation; -webkit-user-select: none; user-select: none; }
+input, select { font: inherit; color: inherit; letter-spacing: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+svg { flex-shrink: 0; }
+.ico { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+.mono { font-family: var(--mono); letter-spacing: -0.01em; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* ── shell ─────────────────────────────────────────────────────────── */
+.app { display: grid; grid-template-columns: 68px 232px minmax(0, 1fr); min-height: 100dvh; }
+.rail { position: sticky; top: 0; height: 100dvh; background: var(--rail); display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 0 14px; }
+.rail .logo { width: 36px; height: 36px; border-radius: 9px; background: #000; color: #fff; display: grid; place-items: center; font: 700 17px/1 var(--sans); position: relative; margin-bottom: 10px; }
+.rail .logo i { position: absolute; right: 8px; bottom: 9px; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+.rail b { width: 40px; height: 40px; border-radius: 8px; display: grid; place-items: center; color: var(--rail-ico); }
+.rail b.on { background: var(--rail-on); color: #fff; }
+.rail .sp { flex: 1; }
+.rail .me { width: 28px; height: 28px; border-radius: 50%; background: #3a3c3f; color: #fff; display: grid; place-items: center; font: 500 14px/1 var(--sans); }
+.dept { position: sticky; top: 0; height: 100dvh; background: var(--canvas); border-right: 1px solid var(--hair); display: flex; flex-direction: column; }
+.dept header { height: 52px; border-bottom: 1px solid var(--hair); display: flex; align-items: center; padding: 0 8px 0 16px; font-weight: 600; }
+.dept nav { padding: 10px; display: flex; flex-direction: column; gap: 2px; }
+.dept nav a { height: 36px; border-radius: 8px; padding: 0 10px; display: flex; align-items: center; font-size: 14px; color: var(--body); text-decoration: none; }
+.dept nav a.on { background: var(--accent-bg); color: var(--accent); font-weight: 500; }
+.dept nav a span { margin-left: auto; color: var(--warn-fg); font-weight: 500; }
+.dept footer { margin-top: auto; border-top: 1px solid var(--hair); height: 52px; display: flex; align-items: center; gap: 8px; padding: 0 16px; font-size: 14px; color: var(--text); }
+.topbar { display: none; }
+main { min-width: 0; padding: 24px 32px 120px; }
+.head { display: flex; align-items: center; gap: 12px; min-height: 20px; margin-bottom: 8px; }
+.head h1 { margin: 0; font-size: 15px; font-weight: 600; line-height: 20px; white-space: nowrap; }
+.head { flex-wrap: wrap; }
+@media (max-width: 1023px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .rail, .dept { display: none; }
+  .topbar { display: flex; position: sticky; top: 0; z-index: 20; height: 52px; align-items: center; gap: 10px; padding: 0 20px; background: var(--soft-3); border-bottom: 1px solid var(--hair); color: var(--body); }
+  .topbar strong { color: var(--ink); font-weight: 600; }
+  :root { --top: 52px; }
+  main { padding: 20px 20px 120px; }
+}
+@media (max-width: 767px) { main { padding: 16px 16px 120px; } }
+
+/* prototype-only data switch: dashed, system font, so it never reads as design */
+.data { margin-left: auto; display: inline-flex; align-items: center; gap: 2px; padding: 2px; border: 1px dashed var(--hair-3); border-radius: 8px; font: 500 14px/1 system-ui, sans-serif; letter-spacing: 0; color: #6b6b73; }
+.data span { padding: 0 6px; }
+.data button { height: 26px; padding: 0 8px; border-radius: 6px; white-space: nowrap; }
+.data button[aria-pressed="true"] { background: #fff; color: #18181b; box-shadow: 0 0 0 1px var(--hair); }
+@media (max-width: 767px) { .data span { display: none; } }
+
+/* ── shared pieces ─────────────────────────────────────────────────── */
+.card { background: var(--canvas); border: 1px solid var(--hair); border-radius: var(--r-card); overflow: clip; }
+.bar { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--hair); }
+.search { position: relative; display: block; width: 280px; max-width: 100%; }
+.search .ico { position: absolute; left: 10px; top: 9px; color: var(--ico); pointer-events: none; }
+.search input { width: 100%; height: 34px; border: 1px solid var(--hair-2); border-radius: var(--r-in); padding: 0 10px 0 32px; font-size: 15px; outline: none; background: #fff; transition: border-color 150ms ease; }
+.search input::placeholder { color: var(--mute); }
+.search input:focus { border-color: var(--accent); }
+@media (pointer: coarse) { .search input { font-size: 16px; } }
+.select { position: relative; }
+.select > button { height: 34px; padding: 0 10px 0 12px; border: 1px solid var(--hair-2); border-radius: var(--r-in); background: #fff; display: inline-flex; align-items: center; gap: 8px; font-size: 15px; white-space: nowrap; max-width: 260px; }
+.select > button span { overflow: hidden; text-overflow: ellipsis; }
+.select > button .ico { color: var(--ico); }
+.select > button:active { transform: scale(0.97); }
+.select > button { transition: transform 120ms var(--ease-out), border-color 150ms ease; }
+.menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 30; min-width: 260px; max-width: 340px; background: #fff; border: 1px solid var(--hair); border-radius: 10px; padding: 4px; box-shadow: 0 4px 8px rgb(24 39 60 / 4%), 0 12px 32px rgb(24 39 60 / 10%);
+  transform-origin: top left; opacity: 0; transform: scale(0.97) translateY(-2px); pointer-events: none; transition: opacity 150ms var(--ease-out), transform 150ms var(--ease-out); }
+.menu.open { opacity: 1; transform: none; pointer-events: auto; }
+.menu button { width: 100%; min-height: 36px; padding: 7px 10px; border-radius: 7px; display: flex; align-items: center; gap: 10px; font-size: 15px; }
+.menu button .n { margin-left: auto; color: var(--mute); }
+.menu button .tick { width: 16px; color: var(--accent); }
+.menu button[aria-checked="false"] .tick { visibility: hidden; }
+.empty { padding: 56px 20px; text-align: center; color: var(--mute); }
+.thumb { background: var(--soft-2); display: block; overflow: hidden; }
+.thumb svg { width: 100%; height: 100%; padding: 6%; display: block; }
+.ago { color: var(--mute); }
+@media (hover: hover) and (pointer: fine) {
+  .select > button:hover { border-color: var(--hair-3); }
+  .menu button:hover { background: var(--soft-2); }
+}
+
+/* ── rows shared by the previous Ledger ─────────────────────────────── */
+.row { width: 100%; min-height: 56px; display: grid; grid-template-columns: 40px minmax(0, 1fr) 96px 80px; align-items: center; gap: 0 14px; padding: 8px 20px; border-bottom: 1px solid var(--hair); background: #fff; transition: background-color 120ms ease; }
+.row:last-child { border-bottom: 0; }
+.row .thumb { width: 40px; height: 40px; border-radius: 8px; }
+.row .nm { min-width: 0; display: flex; flex-direction: column; }
+.row .nm b { font-weight: 500; overflow-wrap: anywhere; }
+.row .nm .mono { font-size: 14px; color: var(--mute); }
+.row .pcs { text-align: right; }
+.row .ago { text-align: right; font-size: 14px; }
+.row:active, .row[aria-current="true"] { background: var(--soft-2); }
+@media (hover: hover) and (pointer: fine) { .row:hover { background: #fafafa; } .row[aria-current="true"]:hover { background: var(--soft-2); } }
+.list { container: list / inline-size; }
+
+/* ── Previous Ledger (round 2), kept for comparison ───────────────── */
+.lg { display: grid; grid-template-columns: 220px minmax(0, 1fr); border-bottom: 1px solid var(--hair); }
+.lg:last-child { border-bottom: 0; }
+.lg .who { padding: 16px 20px; border-right: 1px solid var(--hair); background: var(--soft); }
+.lg .who > div { position: sticky; top: calc(var(--top) + 16px); display: flex; flex-direction: column; gap: 2px; }
+.lg .who b { font-weight: 500; overflow-wrap: anywhere; }
+.lg .who span { font-size: 14px; color: var(--mute); }
+.lg .rows { min-width: 0; }
+@container list (max-width: 640px) {
+  .lg { grid-template-columns: minmax(0, 1fr); }
+  .lg .who { border-right: 0; border-bottom: 1px solid var(--hair); padding: 10px 16px; }
+  .lg .who > div { position: static; flex-direction: row; gap: 8px; align-items: baseline; }
+}
+
+/* ── 1 · Ledger, tidied: a hub table whose first column is the supplier,
+   said once and held in place while its lines scroll past ─────────── */
+.tools { display: flex; align-items: center; gap: 8px; margin: 4px 0 12px; }
+.tools .search { flex: 0 1 280px; min-width: 0; }
+.ledger { --sup: 248px; --po: 172px; --qty: 116px; --at: 116px; container: ledger / inline-size; }
+.lhead, .lfoot { display: grid; grid-template-columns: var(--sup) minmax(0, 1fr) var(--po) var(--qty) var(--at); align-items: center; height: 40px; background: var(--soft); font-size: 14px; }
+.lhead { position: sticky; top: var(--top); z-index: 3; border-bottom: 1px solid var(--hair); font-weight: 500; color: var(--body); letter-spacing: 0.04em; }
+.lfoot { position: sticky; bottom: 0; z-index: 3; height: 48px; border-top: 1px solid var(--hair-2); color: var(--mute); }
+.lfoot b { color: var(--ink); font-weight: 500; }
+.lhead > span, .lfoot > span { padding: 0 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.r { text-align: right; }
+.lgrp { display: grid; grid-template-columns: var(--sup) minmax(0, 1fr); }
+.lgrp + .lgrp { border-top: 1px solid var(--hair-2); }
+.lsup { padding: 17px 20px; }
+.lsup > div { position: sticky; top: calc(var(--top) + 57px); display: flex; flex-direction: column; gap: 2px; }
+.lsup b { font-weight: 500; overflow-wrap: anywhere; line-height: 22px; }
+.lsup span { font-size: 14px; color: var(--mute); }
+.lrow { width: 100%; min-height: 56px; display: grid; grid-template-columns: minmax(0, 1fr) var(--po) var(--qty) var(--at); align-items: center; background: #fff; transition: background-color 120ms ease; }
+.lrow + .lrow { border-top: 1px solid var(--hair); }
+.lrow > span { padding: 0 20px; min-width: 0; }
+.lrow .art { display: flex; align-items: center; gap: 12px; padding-top: 8px; padding-bottom: 8px; }
+.lrow .thumb { width: 32px; height: 32px; border-radius: 6px; }
+.lrow .art span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.lrow .po { font-family: var(--mono); font-size: 14px; color: var(--mute); letter-spacing: -0.01em; white-space: nowrap; }
+.lrow .at { color: var(--mute); }
+.lrow:active, .lrow[aria-current="true"] { background: var(--soft-2); }
+@media (hover: hover) and (pointer: fine) { .lrow:hover { background: #fafafa; } .lrow[aria-current="true"]:hover { background: var(--soft-2); } }
+.lrow .art .sub { display: none; font-family: var(--mono); font-size: 14px; color: var(--mute); }
+/* Under 720px the supplier moves above its lines and the PO goes under the name. */
+@container ledger (max-width: 720px) {
+  .lhead, .lfoot { grid-template-columns: minmax(0, 1fr) auto; }
+  .lhead .po, .lhead .sup, .lhead .at, .lfoot .po, .lfoot .at, .lfoot .gap { display: none; }
+  .lgrp { grid-template-columns: minmax(0, 1fr); }
+  .lsup { padding: 10px 16px; background: var(--soft); border-bottom: 1px solid var(--hair); position: sticky; top: calc(var(--top) + 40px); z-index: 2; }
+  .lsup > div { position: static; flex-direction: row; align-items: baseline; gap: 8px; }
+  .lrow { grid-template-columns: minmax(0, 1fr) auto; }
+  .lrow > span { padding: 0 16px; }
+  .lrow .art { padding-right: 0; }
+  .lrow .po { display: none; }
+  .lrow .qty { grid-column: 2; grid-row: 1; align-self: end; padding-top: 8px; }
+  .lrow .at { grid-column: 2; grid-row: 2; align-self: start; padding-bottom: 8px; font-size: 14px; text-align: right; }
+  .lrow .art { grid-row: 1 / span 2; }
+  .lrow .art .sub { display: block; }
+}
+
+/* ── 3 · Today (the screen as it is, for comparison) ──────────────── */
+.today { padding: 20px; display: grid; grid-template-columns: 208px minmax(0, 1fr); gap: 0 28px; align-items: start; }
+.trail { border-right: 1px solid var(--hair); padding-right: 24px; display: flex; flex-direction: column; gap: 6px; }
+.trail .eyebrow { padding: 0 12px 8px; font-size: 14px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--mute); }
+.trail button { min-height: 40px; border-radius: 8px; padding: 0 12px; display: flex; align-items: center; gap: 8px; color: var(--text); }
+.trail button span:first-child { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trail button .n { font-size: 14px; color: var(--mute); }
+.trail button[aria-current="true"] { background: var(--soft-2); color: var(--ink); font-weight: 500; }
+.tmain { min-width: 0; display: flex; flex-direction: column; gap: 20px; }
+.thead { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.thead h3 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.02em; }
+.thead .n { color: var(--mute); }
+.thead .search { margin-left: auto; width: 288px; }
+.thead .search input { height: 40px; }
+.thead .search .ico { top: 12px; }
+.tsec h4 { margin: 0 0 12px; font-size: 15px; font-weight: 600; display: flex; gap: 8px; }
+.tsec h4 .n { color: var(--mute); font-weight: 400; }
+.tsec + .tsec { margin-top: 32px; }
+.cgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: 16px; align-items: start; }
+.ccard { border: 1px solid var(--hair); border-radius: 10px; overflow: hidden; background: #fff; display: flex; flex-direction: column; }
+.ccard .thumb { aspect-ratio: 3 / 2; border-bottom: 1px solid var(--hair); }
+.ccard .bd { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ccard b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ccard .mono { font-size: 14px; color: var(--mute); }
+.ccard .ft { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--hair); display: flex; justify-content: flex-end; gap: 12px; font-size: 14px; }
+.ccard[aria-current="true"] { border-color: rgb(37 99 235 / 0.5); }
+@media (max-width: 900px) { .today { grid-template-columns: minmax(0, 1fr); gap: 20px; } .trail { border: 0; padding: 0; flex-direction: row; overflow-x: auto; } .trail .eyebrow { display: none; } .trail button { border: 1px solid var(--hair); min-width: 9rem; } }
+
+/* ── sheet (stub of the setup form, enough to walk the queue) ─────── */
+.scrim { position: fixed; inset: 0; z-index: 40; background: rgb(246 246 247 / 0.72); opacity: 0; pointer-events: none; transition: opacity 200ms ease; }
+.scrim.open { opacity: 1; pointer-events: auto; }
+.sheet { position: fixed; z-index: 41; top: 20px; right: 20px; bottom: 20px; width: min(760px, calc(100vw - 40px)); background: #fff; border: 1px solid var(--hair); border-radius: 14px; display: flex; flex-direction: column;
+  box-shadow: 0 1px 2px rgb(24 39 60 / 6%), 0 18px 48px -8px rgb(24 39 60 / 18%);
+  transform: translateX(calc(100% + 24px)); transition: transform 200ms var(--ease-out); visibility: hidden; }
+.sheet.open { transform: none; transition: transform 280ms var(--ease-drawer); visibility: visible; }
+.sheet.instant, .scrim.instant { transition: none !important; }
+.sheet:not(.open) { transition: transform 200ms var(--ease-out), visibility 0s 200ms; }
+.sh-head { display: flex; align-items: flex-start; gap: 12px; padding: 20px 20px 16px 28px; border-bottom: 1px solid var(--hair); }
+.sh-head .tt { min-width: 0; flex: 1; }
+.sh-head h2 { margin: 0; font-size: 18px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+.sh-head p { margin: 2px 0 0; font-size: 14px; color: var(--mute); }
+.sh-head .of { font-size: 14px; color: var(--mute); white-space: nowrap; align-self: center; }
+.ib { width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--hair-2); display: grid; place-items: center; color: var(--text); transition: transform 120ms var(--ease-out); }
+.ib.ghost { border-color: transparent; }
+.ib:disabled { opacity: 0.4; cursor: default; }
+.ib:not(:disabled):active { transform: scale(0.94); }
+.sh-body { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 24px 28px; }
+.sh-body .top { display: flex; gap: 20px; align-items: flex-start; margin-bottom: 24px; }
+.sh-body .top .thumb { width: 96px; height: 96px; border-radius: 8px; }
+dl { margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 24px; flex: 1; }
+dt { font-size: 14px; color: var(--mute); }
+dd { margin: 2px 0 0; }
+.fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 20px; }
+.f label { display: block; font-size: 15px; font-weight: 500; margin-bottom: 6px; }
+.f label i { color: #d14343; font-style: normal; }
+.f input, .f select { width: 100%; height: 44px; border: 1px solid var(--hair-2); border-radius: 8px; padding: 0 12px; background: #fff; font-size: 15px; outline: none; }
+.f input:focus, .f select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgb(37 99 235 / 0.12); }
+.f .hint { margin-top: 6px; font-size: 14px; color: var(--mute); }
+.f.wide { grid-column: 1 / -1; }
+.sh-foot { display: flex; align-items: center; justify-content: flex-end; gap: 14px; padding: 14px 20px 14px 28px; border-top: 1px solid var(--hair); }
+.sh-foot .st { font-size: 14px; color: var(--mute); }
+.btn { height: 36px; padding: 0 16px; border-radius: 8px; background: var(--accent); color: #fff; font-weight: 500; transition: transform 120ms var(--ease-out), background-color 150ms ease, opacity 150ms ease; }
+.btn:disabled { opacity: 0.45; cursor: default; }
+.btn:not(:disabled):active { transform: scale(0.97); }
+@media (hover: hover) and (pointer: fine) { .btn:not(:disabled):hover { background: var(--accent-2); } .ib:not(:disabled):hover { background: var(--soft-2); } }
+@media (max-width: 767px) {
+  .sheet { top: 12px; left: 0; right: 0; bottom: 0; width: auto; border-radius: 16px 16px 0 0; transform: translateY(100%); }
+  .sh-head { padding: 16px 12px 12px 16px; } .sh-body { padding: 18px 16px; } .sh-foot { padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); }
+  .sh-head .of { display: none; }
+  .fields { grid-template-columns: minmax(0, 1fr); }
+  .f input, .f select { font-size: 16px; }
+  .sh-body .top .thumb { width: 72px; height: 72px; }
+  dl { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+}
+
+/* toast */
+.toast { position: fixed; left: 50%; bottom: 84px; z-index: 60; transform: translate(-50%, 12px); opacity: 0; pointer-events: none; background: var(--ink); color: #fff; border-radius: 10px; padding: 10px 14px; display: flex; align-items: center; gap: 10px; font-size: 15px; box-shadow: 0 12px 32px rgb(24 39 60 / 18%); transition: transform 300ms var(--ease-out), opacity 300ms var(--ease-out); white-space: nowrap; }
+.toast.open { transform: translate(-50%, 0); opacity: 1; }
+.toast .ico { color: #5ad07a; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet, .sheet.open, .sheet:not(.open) { transform: none !important; transition: opacity 200ms ease, visibility 0s linear 200ms !important; opacity: 0; }
+  .sheet.open { opacity: 1; transition: opacity 200ms ease !important; }
+  .menu, .menu.open { transform: none; }
+  .toast { transform: translate(-50%, 0); }
+}
+
+/* ── picker (prototype harness, PICKER.md; text 14px per the 14px floor) ── */
+.proto-picker { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 2147483647; display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 999px; background: rgba(10, 10, 10, 0.82); -webkit-backdrop-filter: blur(12px) saturate(1.4); backdrop-filter: blur(12px) saturate(1.4); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset, 0 8px 24px rgba(0, 0, 0, 0.24), 0 2px 6px rgba(0, 0, 0, 0.12); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 14px; line-height: 1; -webkit-font-smoothing: antialiased; user-select: none; -webkit-user-select: none; }
+.proto-picker-highlight { position: absolute; top: 4px; left: 0; height: 28px; border-radius: 999px; background: rgba(255, 255, 255, 0.12); will-change: transform; }
+.proto-picker[data-ready] .proto-picker-highlight { transition: transform 250ms cubic-bezier(0.23, 1, 0.32, 1), width 250ms cubic-bezier(0.23, 1, 0.32, 1); }
+@media (prefers-reduced-motion: reduce) { .proto-picker[data-ready] .proto-picker-highlight { transition: none; } }
+.proto-picker-item { position: relative; display: flex; align-items: center; height: 28px; padding: 0 12px; border: 0; border-radius: 999px; background: transparent; color: rgba(255, 255, 255, 0.55); font: inherit; cursor: pointer; transition: color 150ms ease-out; }
+.proto-picker-item:hover { color: rgba(255, 255, 255, 0.85); }
+.proto-picker-item:active { transform: scale(0.97); }
+.proto-picker-item:focus-visible { outline: 2px solid rgba(255, 255, 255, 0.4); outline-offset: 2px; }
+.proto-picker-item[data-active] { color: #fff; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="rail" aria-hidden="true">
+    <span class="logo">C<i></i></span>
+    <b><svg class="ico" viewBox="0 0 24 24"><path d="M3 4h2l2 12h11l2-8H6"/><circle cx="9" cy="20" r="1"/><circle cx="17" cy="20" r="1"/></svg></b>
+    <b class="on"><svg class="ico" viewBox="0 0 24 24"><path d="M8 4 4 7l2 4 2-1v10h8V10l2 1 2-4-4-3c-1 2-2.5 3-4 3S9 6 8 4Z"/></svg></b>
+    <b><svg class="ico" viewBox="0 0 24 24"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="18" r="1.5"/><circle cx="17" cy="18" r="1.5"/></svg></b>
+    <b><svg class="ico" viewBox="0 0 24 24"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/></svg></b>
+    <b><svg class="ico" viewBox="0 0 24 24"><path d="M4 11v2a1 1 0 0 0 1 1h2l5 4V6L7 10H5a1 1 0 0 0-1 1ZM16 9a4 4 0 0 1 0 6"/></svg></b>
+    <b><svg class="ico" viewBox="0 0 24 24"><path d="M4 10h16M5 10V20h14V10M3 10l2-6h14l2 6"/></svg></b>
+    <b><svg class="ico" viewBox="0 0 24 24"><path d="M3 21h18M5 21V10l7-5 7 5v11M9 21v-6h6v6"/></svg></b>
+    <span class="sp"></span>
+    <span class="me">R</span>
+  </aside>
+  <aside class="dept">
+    <header>Merchandise</header>
+    <nav>
+      <a>Articles</a>
+      <a class="on">New Articles <span id="navCount">18</span></a>
+      <a>Divisions</a><a>Tags</a><a>Sizes</a><a>Colors</a><a>Name Suggestions</a><a>Allotments</a><a>Return to HO</a>
+    </nav>
+    <footer><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Mon 5 Oct 2026 · 14:04</footer>
+  </aside>
+  <div>
+    <div class="topbar"><svg class="ico" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>Merchandise <span>/</span> <strong>New Articles</strong></div>
+    <main>
+      <div class="head">
+        <h1>New Articles</h1>
+        <div class="data" role="group" aria-label="Prototype data">
+          <span>Data</span>
+          <button data-data="one">Ladylov 18</button>
+          <button data-data="ten">10 suppliers</button>
+          <button data-data="worst">Worst case</button>
+          <button data-data="empty">Empty</button>
+        </div>
+      </div>
+      <div id="stage"></div>
+    </main>
+  </div>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<section class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="shTitle"></section>
+<div class="toast" id="toast" role="status"></div>
+
+<nav class="proto-picker" aria-label="Prototype variants">
+  <span class="proto-picker-highlight" aria-hidden="true"></span>
+  <button class="proto-picker-item" data-active aria-current="true">Ledger</button>
+  <button class="proto-picker-item">Previous</button>
+  <button class="proto-picker-item">Today</button>
+</nav>
+
+<script>
+/* ── data ──────────────────────────────────────────────────────────── */
+const NF = new Intl.NumberFormat("id-ID");
+const L = (supplier, name, po, pcs, h, price, division) => ({ supplier, name, po, pcs, h, price, division });
+const LADYLOV = "Ladylov, UD";
+const more = (supplier, po, h, division, items) => items.map(([name, n], i) => L(supplier, name, po, n, h + i, 40000 + i * 7500, division));
+const SETS = {
+  one: () => [
+    L(LADYLOV, "Kemeja", "PO-051026-006", 2, 4, 85000, "Wanita"),
+    L(LADYLOV, "2616 Rok", "PO-051026-004", 6, 4, 62000, "Wanita"),
+    L(LADYLOV, "2562 Rok", "PO-051026-003", 24, 5, 58000, "Wanita"),
+    L(LADYLOV, "ZZ-TEST Rok Plisket Panjang Navy", "PO-051026-002", 10, 5, 74000, "Wanita"),
+    L(LADYLOV, "2554 Celana", "PO-051026-002", 11, 5, 69000, "Wanita"),
+    L(LADYLOV, "2562 Rok", "PO-051026-002", 7, 5, 58000, "Wanita"),
+    L(LADYLOV, "2548 Rok Midi", "PO-051026-002", 12, 5, 61000, "Wanita"),
+    L(LADYLOV, "2570 Rok Navy", "PO-051026-002", 8, 5, 61000, "Wanita"),
+    L(LADYLOV, "Bros Mutiara", "PO-051026-002", 30, 5, 9000, null),
+    L(LADYLOV, "2601 Blus Krem", "PO-051026-001", 18, 26, 72000, "Wanita"),
+    L(LADYLOV, "2603 Blus Putih", "PO-051026-001", 18, 26, 72000, "Wanita"),
+    L(LADYLOV, "2588 Celana Kulot", "PO-051026-001", 20, 26, 79000, "Wanita"),
+    L(LADYLOV, "2590 Celana Kulot Hitam", "PO-051026-001", 20, 26, 79000, "Wanita"),
+    L(LADYLOV, "Gamis Ceruti Maroon", "PO-041026-012", 12, 30, 145000, "Wanita"),
+    L(LADYLOV, "Gamis Ceruti", "PO-041026-012", 12, 30, 145000, "Wanita"),
+    L(LADYLOV, "Kaos Basic Putih", "PO-041026-009", 48, 52, 32000, "Wanita"),
+    L(LADYLOV, "Kaos Basic Hitam", "PO-041026-009", 48, 52, 32000, "Wanita"),
+    L(LADYLOV, "Kemeja Linen Navy", "PO-041026-009", 6, 52, 98000, "Wanita"),
+  ],
+  ten: () => [
+    ...SETS.one(),
+    ...more("Garmen Nusantara, PT", "PO-021026-005", 76, "Anak Laki-laki", [["Kaos Anak Dino", 230], ["Kaos Anak Roket Navy", 40], ["Celana Pendek Anak", 40], ["Kemeja Anak Kotak", 7]]),
+    ...more("Indorama, PT", "PO-041026-011", 28, "Pria", [["Kemeja Oxford Putih", 20], ["Kaos Uji UJI3", 6], ["Kaos Uji UJI4", 10], ["Gamis Panjang", 4]]),
+    ...more("Garmen AA, UD", "PO-021026-006", 75, "Pria", [["Kaos Polos Hitam", 120], ["Kaos Polos Putih", 60]]),
+    ...more("Sinar Gemilang, PT", "PO-031026-004", 49, "Wanita", [["Blus Sifon Krem", 36], ["Blus Sifon Hitam", 36], ["Rok Lipit Navy", 24], ["Celana Kulot Linen", 30], ["Gamis Jersey Maroon", 12]]),
+    ...more("Pancasakti Sandang, PT", "PO-031026-002", 54, "Pria", [["Celana Chino Krem", 48], ["Celana Chino Navy", 48], ["Kemeja Flanel", 24]]),
+    ...more("Kencana Mode, PT", "PO-041026-003", 31, "Anak Perempuan", [["Dress Anak Bunga", 18], ["Dress Anak Polkadot", 18], ["Rok Tutu Anak", 24], ["Kaos Anak Unicorn", 36], ["Celana Legging Anak Hitam", 36], ["Blus Anak Renda Putih", 12]]),
+    ...more("Gemilang Tekstil, CV", "PO-021026-002", 98, "Wanita", [["Gamis Ceruti Navy", 10], ["Gamis Ceruti Hitam", 10]]),
+    ...more("Batik Sekar Jagad, CV", "PO-011026-001", 120, "Pria", [["Kemeja Batik Parang", 15], ["Kemeja Batik Kawung", 15], ["Blus Batik Mega Mendung", 12]]),
+    ...more("Rajut Mandiri, UD", "PO-041026-001", 27, "Wanita", [["Kardigan Rajut Krem", 24]]),
+  ],
+  worst: () => [
+    L("Koperasi Produsen Garmen Bandung Raya Sejahtera Abadi, CV", "ZZ-TEST Rok Plisket Panjang Motif Bunga Sakura Edisi Lebaran 2026 Ukuran Besar Navy", "PO-311226-999", 12400, 984, 74000, "Wanita"),
+    L("Koperasi Produsen Garmen Bandung Raya Sejahtera Abadi, CV", "X", "PO-311226-999", 1, 984, 74000, null),
+    L("Koperasi Produsen Garmen Bandung Raya Sejahtera Abadi, CV", "KemejaFlanelKotakKotakLenganPanjangUnisexOversizeHitam", "PO-311226-998", 999999, 2, 99999999, "Pria"),
+    L("PT", "Sepatu", "PO-051026-001", 3, 0, 120000, null),
+    L(LADYLOV, "Kemeja", "PO-051026-006", 2, 4, 85000, "Wanita"),
+    L(LADYLOV, "Kemeja", "PO-051026-005", 2, 4, 85000, "Wanita"),
+  ],
+  empty: () => [],
+};
+
+/* ── garment silhouettes, as the hub's Thumbnail draws them ───────── */
+const SHAPES = {
+  tee: "M31 14 L41 10 Q50 18 59 10 L69 14 L88 29 L80 41 L72 36 L72 90 L28 90 L28 36 L20 41 L12 29 Z",
+  shirt: "M33 12 L42 9 L50 15 L58 9 L67 12 L84 24 L91 72 L81 74 L74 38 L74 92 L26 92 L26 38 L19 74 L9 72 L16 24 Z",
+  blouse: "M34 11 L43 9 Q50 17 57 9 L66 11 L80 24 L88 50 L77 52 L72 36 L76 90 Q50 96 24 90 L28 36 L23 52 L12 50 L20 24 Z",
+  gamis: "M38 9 Q50 14 62 9 L78 20 L88 60 L78 64 L72 38 L82 94 L18 94 L28 38 L22 64 L12 60 L22 20 Z",
+  skirt: "M33 16 L67 16 L84 86 L16 86 Z",
+  longskirt: "M32 12 L68 12 L78 92 L22 92 Z",
+  pants: "M29 8 L71 8 L76 93 L58 93 L50 34 L42 93 L24 93 Z",
+  wide: "M30 8 L70 8 L84 93 L54 93 L50 36 L46 93 L16 93 Z",
+  shoe: "M7 63 Q9 45 23 43 L39 38 Q51 51 66 51 L86 56 Q95 60 93 73 L7 73 Z",
+  hanger: "M44 36 L44 26 Q44 20 52 18 Q58 16 58 11 Q58 7 52 7 Q46 7 46 12 L41 12 Q41 2 52 2 Q64 2 64 11 Q64 20 55 23 L55 36 L94 66 Q99 74 91 78 L9 78 Q1 74 6 66 Z",
+};
+const KINDS = [[/gamis/i, "gamis"], [/sepatu|shoe/i, "shoe"], [/rok (plisket )?panjang|long skirt/i, "longskirt"], [/\brok\b|skirt/i, "skirt"], [/kulot|culotte/i, "wide"], [/celana|pants|jeans/i, "pants"], [/kaos|t-?shirt/i, "tee"], [/kemeja|shirt/i, "shirt"], [/blus|blouse/i, "blouse"]];
+const DIVISION_KINDS = { "Wanita": "blouse", "Pria": "tee", "Anak Laki-laki": "tee" };
+const COLOURS = [[/navy/i, "#24324F"], [/hitam|black/i, "#2B2C30"], [/putih|white/i, "#F7F7F5"], [/krem|cream/i, "#E6D9BF"], [/maroon/i, "#7A2533"]];
+function garment(line) {
+  const kind = (KINDS.find(([re]) => re.test(line.name)) || [])[1] || DIVISION_KINDS[line.division] || "hanger";
+  const fill = (COLOURS.find(([re]) => re.test(line.name)) || [])[1] || "#C9CCD1";
+  return `<svg viewBox="0 0 100 100" aria-hidden="true"><path d="${SHAPES[kind]}" fill="${fill}" stroke="rgb(0 0 0 / .25)" stroke-width="1.2" stroke-linejoin="round"/></svg>`;
+}
+
+/* ── state ─────────────────────────────────────────────────────────── */
+const S = { v: 0, data: "one", lines: [], q: "", sup: null, open: null, menu: false };
+let seq = 0;
+function load(set) {
+  S.data = set; S.q = ""; S.sup = null; S.open = null;
+  S.lines = SETS[set]().map((l) => ({ ...l, id: "l" + ++seq }));
+}
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const pcs = (n) => `${NF.format(n)} ${n === 1 ? "pc" : "pcs"}`;
+const ago = (h) => (h < 1 ? "just now" : h < 24 ? `${h}h ago` : `${Math.floor(h / 24)}d ago`);
+const rp = (n) => `Rp ${NF.format(n)}`;
+
+function suppliers() {
+  const m = new Map();
+  for (const l of S.lines) m.set(l.supplier, (m.get(l.supplier) || 0) + 1);
+  return [...m].map(([name, n]) => ({ name, n })).sort((a, b) => a.name.localeCompare(b.name));
+}
+/* Supplier A–Z, newest PO first inside each: the hub's order. */
+function shown() {
+  const q = S.q.trim().toLowerCase();
+  return S.lines
+    .filter((l) => S.sup === null || l.supplier === S.sup)
+    .filter((l) => q === "" || `${l.name} ${l.po} ${l.supplier}`.toLowerCase().includes(q))
+    .sort((a, b) => a.supplier.localeCompare(b.supplier) || b.po.localeCompare(a.po, undefined, { numeric: true }));
+}
+function groups(rows) {
+  const out = [];
+  for (const r of rows) {
+    const last = out[out.length - 1];
+    if (last && last.name === r.supplier) last.rows.push(r);
+    else out.push({ name: r.supplier, rows: [r] });
+  }
+  return out;
+}
+
+/* ── icons ─────────────────────────────────────────────────────────── */
+const I = {
+  search: '<svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
+  down: '<svg class="ico" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>',
+  left: '<svg class="ico" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>',
+  right: '<svg class="ico" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>',
+  x: '<svg class="ico" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg>',
+  check: '<svg class="ico" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>',
+};
+
+/* ── shared frame for the row versions: one card, one toolbar ───── */
+function supplierSelect() {
+  const list = suppliers();
+  if (list.length < 2) return "";
+  const label = S.sup === null ? "All suppliers" : S.sup;
+  const item = (name, n, on) => `<button role="menuitemradio" aria-checked="${on}" data-sup="${name === null ? "" : esc(name)}"><span class="tick">${I.check}</span><span>${name === null ? "All suppliers" : esc(name)}</span><span class="n num">${NF.format(n)}</span></button>`;
+  return `<div class="select"><button data-act="menu" aria-haspopup="menu" aria-expanded="${S.menu}"><span>${esc(label)}</span>${I.down}</button>
+    <div class="menu${S.menu ? " open" : ""}" role="menu">${item(null, S.lines.length, S.sup === null)}${list.map((s) => item(s.name, s.n, S.sup === s.name)).join("")}</div></div>`;
+}
+function frameCard(kind) {
+  if (S.lines.length === 0) return `<div class="card"><div class="empty">Nothing waiting.</div></div>`;
+  return `<div class="card"><div class="bar"><label class="search">${I.search}<input id="q" type="search" placeholder="Search" aria-label="Search the items waiting" value="${esc(S.q)}" autocomplete="off" /></label>${supplierSelect()}</div><div id="list" class="${kind}"></div></div>`;
+}
+
+const sum = (rows) => rows.reduce((t, l) => t + l.pcs, 0);
+const oldest = (rows) => Math.max(...rows.map((l) => l.h));
+const none = () => `<div class="empty">Nothing here matches that.</div>`;
+function rowHTML(l) {
+  return `<button class="row" data-key="${l.id}" data-open="${l.id}" aria-current="${S.open === l.id}" title="${esc(l.name)}">
+      <span class="thumb">${garment(l)}</span>
+      <span class="nm"><b>${esc(l.name)}</b><span class="mono">${l.po}</span></span>
+      <span class="pcs num">${pcs(l.pcs)}</span>
+      <span class="ago num">${ago(l.h)}</span></button>`;
+}
+/* Previous Ledger (round 2) */
+function listLedger() {
+  const rows = shown();
+  if (rows.length === 0) return none();
+  return groups(rows).map((g) => `<div class="lg"><div class="who" data-key="g:${esc(g.name)}"><div><b>${esc(g.name)}</b><span class="num">${NF.format(g.rows.length)} · ${pcs(sum(g.rows))}</span></div></div>
+      <div class="rows">${g.rows.map(rowHTML).join("")}</div></div>`).join("");
+}
+/* 1 · Ledger, tidied */
+function frameLedger() {
+  if (S.lines.length === 0) return `<div class="card"><div class="empty">Nothing waiting.</div></div>`;
+  return `<div class="tools"><label class="search">${I.search}<input id="q" type="search" placeholder="Search" aria-label="Search the items waiting" value="${esc(S.q)}" autocomplete="off" /></label>${supplierSelect()}</div>
+    <div class="card ledger"><div class="lhead"><span class="sup">Supplier</span><span>Article</span><span class="po">PO</span><span class="r">Quantity</span><span class="r at">Counted</span></div>
+    <div id="list"></div><div class="lfoot" id="lfoot"></div></div>`;
+}
+function listLedgerTidy() {
+  const rows = shown();
+  const foot = document.getElementById("lfoot");
+  if (foot) foot.innerHTML = `<span><b class="num">${NF.format(rows.length)}</b> ${rows.length === 1 ? "item" : "items"}</span><span class="gap"></span><span class="po"></span><span class="r num"><b>${pcs(sum(rows))}</b></span><span class="at"></span>`;
+  if (rows.length === 0) return none();
+  return groups(rows).map((g) => `<div class="lgrp"><div class="lsup" data-key="g:${esc(g.name)}"><div><b>${esc(g.name)}</b><span class="num">${NF.format(g.rows.length)} ${g.rows.length === 1 ? "item" : "items"} · ${pcs(sum(g.rows))}</span></div></div>
+      <div>${g.rows.map((l) => `<button class="lrow" data-key="${l.id}" data-open="${l.id}" aria-current="${S.open === l.id}">
+        <span class="art"><span class="thumb">${garment(l)}</span><span><span class="nm">${esc(l.name)}</span><span class="sub">${l.po}</span></span></span>
+        <span class="po">${l.po}</span><span class="qty r num">${pcs(l.pcs)}</span><span class="at r num">${ago(l.h)}</span></button>`).join("")}</div></div>`).join("");
+}
+/* 3 · Today: the screen as it is now */
+function frameToday() {
+  if (S.lines.length === 0) return `<div class="card"><div class="empty">Nothing waiting.</div></div>`;
+  const rail = [{ name: null, n: S.lines.length }, ...suppliers()].map((s) => `<button data-sup="${s.name === null ? "" : esc(s.name)}" aria-current="${S.sup === s.name}" title="${esc(s.name || "All")}"><span>${esc(s.name || "All")}</span><span class="n num">${NF.format(s.n)}</span></button>`).join("");
+  return `<div class="card today"><aside class="trail"><span class="eyebrow">Supplier</span>${rail}</aside>
+    <section class="tmain"><div class="thead"><h3>${esc(S.sup || "All Suppliers")}</h3><span class="n num" id="tcount"></span><label class="search">${I.search}<input id="q" type="search" aria-label="Search the items waiting" value="${esc(S.q)}" autocomplete="off" /></label></div><div id="list"></div></section></div>`;
+}
+function listToday() {
+  const rows = shown();
+  const c = document.getElementById("tcount"); if (c) c.textContent = NF.format(rows.length);
+  if (rows.length === 0) return `<div class="empty">Nothing here matches that.</div>`;
+  return groups(rows).map((g) => `<div class="tsec">${S.sup === null ? `<h4 data-key="g:${esc(g.name)}"><span>${esc(g.name)}</span><span class="n num">${NF.format(g.rows.length)}</span></h4>` : ""}<div class="cgrid">` +
+    g.rows.map((l) => `<button class="ccard" data-key="${l.id}" data-open="${l.id}" aria-current="${S.open === l.id}"><span class="thumb">${garment(l)}</span>
+      <span class="bd"><b>${esc(l.name)}</b><span class="mono">${l.po}</span><span class="ft"><span class="num">${pcs(l.pcs)}</span><span class="ago num">${ago(l.h)}</span></span></span></button>`).join("") + `</div></div>`).join("");
+}
+
+const VARIANTS = [
+  { frame: frameLedger, list: listLedgerTidy },
+  { frame: () => frameCard("list"), list: listLedger },
+  { frame: frameToday, list: listToday },
+];
+
+/* ── render ────────────────────────────────────────────────────────── */
+const stage = document.getElementById("stage");
+function render() {
+  stage.innerHTML = VARIANTS[S.v].frame();
+  renderList();
+  document.getElementById("navCount").textContent = NF.format(S.lines.length);
+  document.querySelectorAll("[data-data]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.data === S.data)));
+}
+function renderList() {
+  const el = document.getElementById("list");
+  if (el) el.innerHTML = VARIANTS[S.v].list();
+}
+
+/* ── sheet: a stub of the setup form, enough to walk the queue ────── */
+const sheet = document.getElementById("sheet"), scrim = document.getElementById("scrim");
+const DIVISIONS = ["Wanita", "Pria", "Anak Laki-laki", "Anak Perempuan", "Aksesoris"];
+function openSheet(id, { instant = false } = {}) {
+  S.open = id;
+  fillSheet();
+  sheet.classList.toggle("instant", instant); scrim.classList.toggle("instant", instant);
+  sheet.classList.add("open"); scrim.classList.add("open");
+  markCurrent();
+}
+function closeSheet({ instant = false } = {}) {
+  sheet.classList.toggle("instant", instant); scrim.classList.toggle("instant", instant);
+  sheet.classList.remove("open"); scrim.classList.remove("open");
+  S.open = null; markCurrent();
+}
+function markCurrent() {
+  document.querySelectorAll("[data-open]").forEach((b) => b.setAttribute("aria-current", String(b.dataset.open === S.open)));
+}
+function fillSheet() {
+  const rows = shown(), at = rows.findIndex((l) => l.id === S.open), l = rows[at];
+  if (!l) return;
+  const title = l.name.replace(/\b([a-z])/g, (m) => m.toUpperCase());
+  sheet.innerHTML = `
+    <div class="sh-head"><div class="tt"><h2 id="shTitle">${esc(l.name)}</h2><p>${esc(l.supplier)} · <span class="mono">${l.po}</span> · ${pcs(l.pcs)}</p></div>
+      <span class="of num">${NF.format(at + 1)} of ${NF.format(rows.length)}</span>
+      <button class="ib" data-act="prev" aria-label="Previous" ${at === 0 ? "disabled" : ""}>${I.left}</button>
+      <button class="ib" data-act="next" aria-label="Next" ${at === rows.length - 1 ? "disabled" : ""}>${I.right}</button>
+      <button class="ib ghost" data-act="close" aria-label="Close">${I.x}</button></div>
+    <div class="sh-body">
+      <div class="top"><span class="thumb">${garment(l)}</span>
+        <dl><div><dt>Supplier</dt><dd>${esc(l.supplier)}</dd></div><div><dt>Counted</dt><dd class="num">${pcs(l.pcs)}</dd></div>
+        <div><dt>PO</dt><dd class="mono">${l.po}</dd></div><div><dt>Purchase Price</dt><dd class="num">${rp(l.price)} / pc</dd></div></dl></div>
+      <div class="fields">
+        <div class="f wide"><label for="fName">Name <i>*</i></label><input id="fName" value="${esc(title)}" autocomplete="off" /></div>
+        <div class="f"><label for="fDiv">Division <i>*</i></label><select id="fDiv"><option value="">Choose a division</option>${DIVISIONS.map((d) => `<option ${d === l.division ? "selected" : ""}>${d}</option>`).join("")}</select></div>
+        <div class="f"><label for="fPrice">Base Price <i>*</i></label><input id="fPrice" inputmode="numeric" placeholder="Rp" autocomplete="off" /><div class="hint" id="fMarkup">Purchase price ${rp(l.price)}</div></div>
+      </div>
+    </div>
+    <div class="sh-foot"><span class="st" id="fState"></span><button class="btn" data-act="submit" id="fSubmit">Submit</button></div>`;
+  check();
+}
+function check() {
+  const l = S.lines.find((x) => x.id === S.open); if (!l) return;
+  const name = document.getElementById("fName").value.trim();
+  const div = document.getElementById("fDiv").value;
+  const price = Number(document.getElementById("fPrice").value.replace(/\D/g, ""));
+  const markup = price > 0 ? Math.round(((price - l.price) / l.price) * 1000) / 10 : null;
+  document.getElementById("fMarkup").textContent = markup === null ? `Purchase price ${rp(l.price)}` : `Markup ${String(markup).replace(".", ",")} % over ${rp(l.price)}`;
+  const missing = !name ? "Give it a name." : !div ? "Choose a division." : !price ? "Fill in the base price." : "";
+  document.getElementById("fState").textContent = missing;
+  document.getElementById("fSubmit").disabled = missing !== "";
+}
+
+/* Submit: the line leaves the queue (it fades, the rest close the gap),
+   and the sheet moves on to the next one — the hub's own advance rule. */
+let code = 1234;
+function submit() {
+  const rows = shown(), at = rows.findIndex((l) => l.id === S.open);
+  const next = rows[at + 1] || rows[at - 1] || null;
+  const done = S.open;
+  toast(`Article created · <span class="mono">${String(++code).padStart(8, "0")}</span>`);
+  if (next) openSheet(next.id, { instant: true }); else closeSheet();
+  removeWithFlip(done);
+}
+function removeWithFlip(id) {
+  const before = new Map([...document.querySelectorAll("[data-key]")].map((e) => [e.dataset.key, e.getBoundingClientRect()]));
+  const gone = document.querySelector(`[data-key="${id}"]`);
+  const finish = () => {
+    S.lines = S.lines.filter((l) => l.id !== id);
+    if (S.sup !== null && !S.lines.some((l) => l.supplier === S.sup)) S.sup = null;
+    render(); markCurrent();
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    document.querySelectorAll("[data-key]").forEach((e) => {
+      const was = before.get(e.dataset.key); if (!was) return;
+      const now = e.getBoundingClientRect(), dx = was.left - now.left, dy = was.top - now.top;
+      if (dx || dy) e.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], { duration: 260, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
+    });
+  };
+  if (!gone) return finish();
+  let ran = false;
+  const once = () => { if (!ran) { ran = true; finish(); } };
+  gone.animate([{ opacity: 1, transform: "scale(1)" }, { opacity: 0, transform: "scale(0.97)" }], { duration: 160, easing: "ease-out", fill: "forwards" }).finished.then(once);
+  setTimeout(once, 220); // a hidden tab never finishes the animation
+}
+let toastTimer;
+function toast(html) {
+  const t = document.getElementById("toast");
+  t.innerHTML = I.check + `<span>${html}</span>`;
+  t.classList.add("open");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("open"), 3000);
+}
+
+/* ── events ────────────────────────────────────────────────────────── */
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("button");
+  const inMenu = e.target.closest(".select");
+  if (S.menu && !inMenu) { S.menu = false; const m = document.querySelector(".menu"); if (m) m.classList.remove("open"); }
+  if (!t) { if (e.target === scrim) closeSheet(); return; }
+  if (t.dataset.data) { load(t.dataset.data); closeSheet({ instant: true }); render(); return; }
+  if (t.dataset.act === "menu") { S.menu = !S.menu; t.setAttribute("aria-expanded", S.menu); t.nextElementSibling.classList.toggle("open", S.menu); return; }
+  if (t.dataset.sup !== undefined) { S.sup = t.dataset.sup === "" ? null : t.dataset.sup; S.menu = false; render(); return; }
+  if (t.dataset.open) { openSheet(t.dataset.open); return; }
+  const rows = shown(), at = rows.findIndex((l) => l.id === S.open);
+  if (t.dataset.act === "prev" && at > 0) openSheet(rows[at - 1].id, { instant: true });
+  if (t.dataset.act === "next" && at < rows.length - 1) openSheet(rows[at + 1].id, { instant: true });
+  if (t.dataset.act === "close") closeSheet();
+  if (t.dataset.act === "submit") submit();
+});
+document.addEventListener("input", (e) => {
+  if (e.target.id === "q") { S.q = e.target.value; renderList(); return; }
+  if (e.target.id === "fPrice") { const d = e.target.value.replace(/\D/g, "").slice(0, 9); e.target.value = d ? NF.format(Number(d)) : ""; }
+  if (e.target.closest(".sheet")) check();
+});
+document.addEventListener("change", (e) => { if (e.target.closest(".sheet")) check(); });
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    if (S.menu) { S.menu = false; render(); return; }
+    if (S.open) { closeSheet({ instant: true }); return; } // keyboard: no animation
+  }
+});
+
+/* ── picker (PICKER.md reference wiring) ───────────────────────────── */
+const picker = document.querySelector(".proto-picker");
+const highlight = picker.querySelector(".proto-picker-highlight");
+const items = [...picker.querySelectorAll(".proto-picker-item")];
+function moveHighlight() { const el = items[S.v]; highlight.style.width = el.offsetWidth + "px"; highlight.style.transform = `translateX(${el.offsetLeft}px)`; }
+function setActive(i) {
+  if (i < 0 || i >= VARIANTS.length) return;
+  S.v = i; S.menu = false;
+  items.forEach((el, j) => { el.toggleAttribute("data-active", j === i); if (j === i) el.setAttribute("aria-current", "true"); else el.removeAttribute("aria-current"); });
+  moveHighlight();
+  const url = new URL(location); url.searchParams.set("v", i + 1); history.replaceState(null, "", url);
+  closeSheet({ instant: true });
+  stage.innerHTML = ""; requestAnimationFrame(render);
+}
+items.forEach((el, i) => el.addEventListener("click", () => setActive(i)));
+window.addEventListener("resize", moveHighlight);
+document.addEventListener("keydown", (e) => {
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable) return;
+  if (e.metaKey || e.ctrlKey || e.altKey || S.open) return;
+  const num = parseInt(e.key, 10);
+  if (num >= 1 && num <= VARIANTS.length) setActive(num - 1);
+  else if (e.key === "ArrowRight") setActive((S.v + 1) % VARIANTS.length);
+  else if (e.key === "ArrowLeft") setActive((S.v - 1 + VARIANTS.length) % VARIANTS.length);
+});
+
+load("one");
+setActive((parseInt(new URLSearchParams(location.search).get("v"), 10) || 1) - 1);
+requestAnimationFrame(() => requestAnimationFrame(() => picker.setAttribute("data-ready", "")));
+</script>
+</body>
+</html>

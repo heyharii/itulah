@@ -131,7 +131,9 @@ pub async fn issue_expense_code(
     actor: &str,
 ) -> Result<ExpenseCodeView, AppError> {
     if request.ceiling_minor <= 0 {
-        return Err(AppError::Validation("Enter the most the shop may spend.".into()));
+        return Err(AppError::Validation(
+            "Enter the most the shop may spend.".into(),
+        ));
     }
     if !super::sites::unit_exists(pool, request.unit_id.trim()).await? {
         return Err(AppError::NotFound(format!("shop {}", request.unit_id)));
@@ -171,7 +173,9 @@ pub async fn issue_expense_code(
             return view_of(&row);
         }
     }
-    Err(AppError::Conflict("No free code right now; try again.".into()))
+    Err(AppError::Conflict(
+        "No free code right now; try again.".into(),
+    ))
 }
 
 /// Finance withdraws a code the shop has not used.
@@ -189,7 +193,9 @@ pub async fn cancel_expense_code(
     .execute(pool)
     .await?;
     if done.rows_affected() == 0 {
-        return Err(AppError::Conflict("That code is already used or cancelled.".into()));
+        return Err(AppError::Conflict(
+            "That code is already used or cancelled.".into(),
+        ));
     }
     let row = sqlx::query(&format!("{VIEW} WHERE id = $1"))
         .bind(id)

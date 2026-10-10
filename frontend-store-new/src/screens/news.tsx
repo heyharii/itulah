@@ -1,16 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Check, CheckCheck } from "lucide-react"
-import { useMemo, useState, type ReactNode } from "react"
+import { useMemo, useState } from "react"
 
+import { DockPortal } from "@/components/shell/dock"
+import { DockTools } from "@/components/shell/dock-tools"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { CardGroup } from "@/components/ui/card-list"
+import { LeadCard } from "@/components/ui/lead-card"
 import { Screen } from "@/components/ui/screen"
 import { Segmented } from "@/components/ui/segmented"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { Tag } from "@/components/ui/tag"
 import { cloud, CENTRAL_KEY_PREFIX } from "@/lib/cloud"
 import { describe } from "@/lib/errors"
-import { count, label } from "@/lib/format"
+import { count, dateText, label } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import { queryState } from "@/lib/query-state"
 import { cn } from "@/lib/utils"
 import type { Notification, NotificationPage } from "@itulah/contract"
@@ -35,17 +40,76 @@ import type { Notification, NotificationPage } from "@itulah/contract"
 ///
 /// # Drawn as the hub's Notifications
 ///
-/// `frontend-hub/src/screens/system/notifications.tsx`: All / Unread in the
-/// header beside the one filled button, and a feed rather than a table — a
-/// notification has no metric to compare across rows, it has a sentence, and
-/// a 48px cell would truncate the only part that matters. What this adds is
-/// the day each one arrived as a band over its rows, because a shop reads this
-/// once a day or less and "what came in since yesterday" is the question.
+/// `frontend-hub/src/screens/system/notifications.tsx`: a feed rather than a
+/// table — a notification has no metric to compare across rows, it has a
+/// sentence, and a 48px cell would truncate the only part that matters. On a
+/// phone each is a card under its day (`CardGroup`), with the one button on its
+/// foot; the slice (All / Unread) is behind the dock's ⚙ and the screen's one
+/// act, "Mark all read", is the wide button in the dock. On a desk the same
+/// feed is one list with the day as a band, and the slice and the act are in
+/// the page header. What this adds is the day each one arrived: a shop reads
+/// this once a day or less and "what came in since yesterday" is the question.
 ///
-/// Now the Notices tab of Discuss (`screens/discuss.tsx`), which supplies the
-/// gate and the tab switch as `lead`.
-export function Notices({ lead }: { lead: ReactNode }) {
-  return <ShopNews lead={lead} />
+/// The Notices tab of Discuss (`screens/discuss.tsx`), which supplies the gate
+/// and the tab switch.
+export type DiscussTab = "chat" | "notices"
+
+/// The Chat / Notices switch as the dock's status chip on a phone.
+// eslint-disable-next-line react-refresh/only-export-components -- a value both tabs of Discuss read
+export function tabStatus(
+  tab: DiscussTab,
+  onTab: (tab: DiscussTab) => void,
+  unread: number,
+) {
+  return {
+    value: tab,
+    options: [
+      {
+        value: "chat",
+        label: "Chat",
+        count: unread > 0 ? unread : undefined,
+      },
+      { value: "notices", label: "Notices" },
+    ],
+    onChange: (next: string) => onTab(next as DiscussTab),
+  }
+}
+
+/// The same switch on a desk, in the page header.
+export function TabSwitch({
+  tab,
+  onTab,
+  unread,
+}: {
+  tab: DiscussTab
+  onTab: (tab: DiscussTab) => void
+  unread: number
+}) {
+  return (
+    <Segmented<DiscussTab>
+      value={tab}
+      onChange={onTab}
+      options={[
+        {
+          value: "chat",
+          label: unread > 0 ? `Chat · ${count(unread)}` : "Chat",
+        },
+        { value: "notices", label: "Notices" },
+      ]}
+    />
+  )
+}
+
+export function Notices({
+  tab,
+  onTab,
+  unread: chatUnread,
+}: {
+  tab: DiscussTab
+  onTab: (tab: DiscussTab) => void
+  unread: number
+}) {
+  return <ShopNews tab={tab} onTab={onTab} chatUnread={chatUnread} />
 }
 
 const FEED_KEY = [CENTRAL_KEY_PREFIX, "notifications"] as const
@@ -59,8 +123,17 @@ function markRead(id: string) {
 
 type Slice = "all" | "unread"
 
-function ShopNews({ lead }: { lead: ReactNode }) {
+function ShopNews({
+  tab,
+  onTab,
+  chatUnread,
+}: {
+  tab: DiscussTab
+  onTab: (tab: DiscussTab) => void
+  chatUnread: number
+}) {
   const client = useQueryClient()
+  const phone = useLayout() === "phone"
   const [slice, setSlice] = useState<Slice>("all")
 
   const feed = useQuery({
@@ -115,49 +188,54 @@ function ShopNews({ lead }: { lead: ReactNode }) {
   const groups = useMemo(() => byDay(shown), [shown])
 
   const busy = read.isPending || readAll.isPending
+  const nothingToClear = unreadOnScreen.length === 0 || busy
+  const markAll = () => readAll.mutate(unreadOnScreen)
 
-  const filter = (
-    <Segmented<Slice>
-      value={slice}
-      onChange={setSlice}
-      // The hub's compact toolbar size under a mouse, the touch floor under a
-      // finger — the same override the Promotions and GA filters carry.
-      className="md:w-auto [&>button]:px-3.5 [&>button]:whitespace-nowrap pointer-coarse:[&>button]:h-tap md:pointer-fine:[&>button]:h-8"
-      options={[
-        { value: "all", label: `All · ${count(page?.items.length ?? 0)}` },
-        { value: "unread", label: `Unread · ${count(unread)}` },
-      ]}
-    />
-  )
-  const clearAll = (
-    <Button
-      variant="primary"
-      className="md:pointer-fine:h-8 md:pointer-fine:px-3"
-      disabled={unreadOnScreen.length === 0 || busy}
-      onClick={() => readAll.mutate(unreadOnScreen)}
-    >
-      <CheckCheck />
-      {readAll.isPending ? "Marking…" : "Mark all read"}
-    </Button>
-  )
+  const sliceChoices = [
+    { value: "all", label: `All · ${count(page?.items.length ?? 0)}` },
+    { value: "unread", label: `Unread · ${count(unread)}` },
+  ] as const
 
   return (
     <Screen
       actions={
         <>
-          {lead}
-          {filter}
-          {clearAll}
+          <TabSwitch tab={tab} onTab={onTab} unread={chatUnread} />
+          <Segmented<Slice>
+            value={slice}
+            onChange={setSlice}
+            options={sliceChoices}
+          />
+          <Button variant="primary" disabled={nothingToClear} onClick={markAll}>
+            <CheckCheck />
+            {readAll.isPending ? "Marking…" : "Mark all read"}
+          </Button>
         </>
       }
     >
-      {/* The phone has no page header — the bar says "Discuss" — so the filter
-          and the one action stand at the top of the page instead. */}
-      <div className="mb-4 flex flex-col gap-2 md:hidden">
-        {lead}
-        {filter}
-        {clearAll}
-      </div>
+      {/* The phone's dock: Chat / Notices as the status chip, the slice behind
+          the ⚙, and the one act as the wide button beside them. */}
+      <DockTools
+        status={tabStatus(tab, onTab, chatUnread)}
+        views={[
+          {
+            title: "Show",
+            value: slice,
+            options: sliceChoices,
+            onChange: (next) => setSlice(next as Slice),
+          },
+        ]}
+      />
+      <DockPortal slot="action">
+        <button
+          type="button"
+          disabled={nothingToClear}
+          onClick={markAll}
+          className="dock-wide inline-flex h-9 w-full items-center justify-center rounded-full bg-cta px-5 text-[0.875rem] font-semibold whitespace-nowrap text-cta-fg shadow-soft transition-[scale] duration-(--t-press) ease-(--ease-out) active:scale-[0.96] disabled:opacity-50"
+        >
+          {readAll.isPending ? "Marking…" : "Mark all read"}
+        </button>
+      </DockPortal>
 
       {readAll.isSuccess && (
         <Banner tone="ok" className="mb-3">
@@ -183,18 +261,35 @@ function ShopNews({ lead }: { lead: ReactNode }) {
         </Banner>
       )}
 
-      <Card>
-        {queryState(feed, {
-          loading: "Asking head office…",
-          render: () =>
-            shown.length === 0 ? (
-              <EmptyState>
-                {slice === "unread"
-                  ? "Nothing is unread. Switch to All to see what head office has already told this shop."
-                  : "Head office has not sent this shop anything. Faults you report are answered here."}
-              </EmptyState>
-            ) : (
-              groups.map((group) => (
+      {queryState(feed, {
+        loading: "Reading what head office has sent…",
+        render: () =>
+          shown.length === 0 ? (
+            <EmptyState>
+              {slice === "unread"
+                ? "Nothing is unread."
+                : "Head office has not sent this shop anything."}
+            </EmptyState>
+          ) : phone ? (
+            groups.map((group) => (
+              <CardGroup
+                key={group.key}
+                heading={group.label}
+                aside={count(group.items.length)}
+              >
+                {group.items.map((item) => (
+                  <NewsCard
+                    key={item.notification_id}
+                    item={item}
+                    busy={busy}
+                    onRead={() => read.mutate(item.notification_id)}
+                  />
+                ))}
+              </CardGroup>
+            ))
+          ) : (
+            <Card>
+              {groups.map((group) => (
                 <section
                   key={group.key}
                   aria-label={group.label}
@@ -219,19 +314,59 @@ function ShopNews({ lead }: { lead: ReactNode }) {
                     ))}
                   </ul>
                 </section>
-              ))
-            ),
-        })}
-      </Card>
+              ))}
+            </Card>
+          ),
+      })}
     </Screen>
   )
 }
 
-/// One thing head office said.
+/// One thing head office said, as a phone's card: the sentence somebody wrote
+/// under its title, and on the foot when it came and the one button. Unread is
+/// the accent dot before the title; read drops to the grey of something dealt
+/// with and stays on the list — hiding what was just cleared would make cards
+/// jump away while somebody works down them.
+function NewsCard({
+  item,
+  busy,
+  onRead,
+}: {
+  item: Notification
+  busy: boolean
+  onRead: () => void
+}) {
+  const unread = item.read_at === null
+  return (
+    <LeadCard
+      title={
+        <span className="flex items-start gap-2">
+          {unread && (
+            <span
+              aria-hidden
+              className="mt-[0.5625rem] size-1.5 shrink-0 rounded-full bg-accent"
+            />
+          )}
+          <span className={cn(!unread && "font-medium text-body")}>
+            {item.title}
+          </span>
+        </span>
+      }
+      lines={[item.body]}
+      foot={{
+        info: `${kindWord(item.kind)} · ${clock(item.created_at)}${unread ? "" : " · read"}`,
+        action: unread
+          ? { label: "Mark read", onClick: onRead, disabled: busy }
+          : undefined,
+      }}
+    />
+  )
+}
+
+/// One thing head office said, as a desk's feed row.
 ///
 /// Unread is the accent dot and the title at ink; read drops both to the grey
-/// of text somebody has already dealt with, and stays on the list — hiding what
-/// was just cleared would make rows jump away while somebody works down them.
+/// of text somebody has already dealt with.
 ///
 /// No deep link out of here, on purpose: this app has no screen that shows a
 /// purchase order or a bill, and a row that led nowhere would be worse than one
@@ -248,10 +383,7 @@ function NewsRow({
 }) {
   const unread = item.read_at === null
   return (
-    // A grid rather than a row, so the button can stand at the right on a desk
-    // and drop under the sentence on a phone — beside it there, it squeezed
-    // the message into a column four words wide.
-    <li className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 border-b border-hairline px-4 py-3 last:border-b-0 md:grid-cols-[auto_minmax(0,1fr)_auto]">
+    <li className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 border-b border-hairline px-4 py-3 last:border-b-0">
       <span
         aria-hidden
         className={cn(
@@ -269,7 +401,7 @@ function NewsRow({
           >
             {item.title}
           </span>
-          <Tag tone={unread ? "accent" : "neutral"}>{label(item.kind)}</Tag>
+          <Tag tone={unread ? "accent" : "neutral"}>{kindWord(item.kind)}</Tag>
         </div>
         <p className="mt-0.5 text-meta leading-relaxed text-body">
           {item.body}
@@ -283,9 +415,7 @@ function NewsRow({
         <Button
           variant="quiet"
           aria-label={`Mark “${item.title}” as read`}
-          // Small under a mouse, as the hub draws it; the touch floor under a
-          // finger, where a 32px target in a list of them is a mis-tap.
-          className="-my-1 h-8 px-2.5 text-meta max-md:col-start-2 max-md:mt-1 max-md:-ml-2.5 max-md:justify-self-start pointer-coarse:h-tap"
+          className="-my-1"
           disabled={busy}
           onClick={onRead}
         >
@@ -301,6 +431,12 @@ interface Day {
   readonly key: string
   readonly label: string
   readonly items: readonly Notification[]
+}
+
+/// What kind of notice it is, in words: `store.exception.escalated` →
+/// "Store exception escalated".
+function kindWord(kind: string): string {
+  return label(kind.replace(/[._]+/g, " "))
 }
 
 /// The feed cut into days, newest first — in the order the server sent it, so
@@ -326,6 +462,8 @@ function dayKey(when: Date): string {
   return `${when.getFullYear()}-${when.getMonth()}-${when.getDate()}`
 }
 
+/// "Today", "Yesterday", then `Tue 06 Oct 2026` — the house date with its
+/// weekday, which a feed read once a day is glad of.
 function dayLabel(iso: string): string {
   const when = new Date(iso)
   if (Number.isNaN(when.getTime())) return "Undated"
@@ -334,22 +472,16 @@ function dayLabel(iso: string): string {
   yesterday.setDate(today.getDate() - 1)
   if (dayKey(when) === dayKey(today)) return "Today"
   if (dayKey(when) === dayKey(yesterday)) return "Yesterday"
-  return when.toLocaleDateString("en-GB", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    // The year only when it is not this one: a shop scrolling back past New
-    // Year needs it, and everybody else would read it as noise.
-    year: when.getFullYear() === today.getFullYear() ? undefined : "numeric",
-  })
+  return `${dateText(when, { weekday: "short" })} ${dateText(when, {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  })}`
 }
 
-/// The minute, in the shop's own notation — the day is already on the band.
+/// The minute, 24-hour — the day is already on the band.
 function clock(iso: string): string {
   const when = new Date(iso)
   if (Number.isNaN(when.getTime())) return "—"
-  return when.toLocaleTimeString("id-ID", {
-    hour: "2-digit",
-    minute: "2-digit",
-  })
+  return dateText(when, { hour: "2-digit", minute: "2-digit", hour12: false })
 }

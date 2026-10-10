@@ -19,6 +19,7 @@ import { ButtonGroup, Toolbar } from "@/components/ui/segmented"
 import { Banner, EmptyState } from "@/components/ui/states"
 import { useFilters } from "@/lib/filters"
 import { day, moment } from "@/lib/format"
+import { useLayout } from "@/lib/layout"
 import {
   boundedTo,
   decideCorrection,
@@ -40,6 +41,13 @@ import { queryState } from "@/lib/query-state"
 import { useSheet } from "@/lib/sheets"
 import { tableSetup, type TableSetup } from "@/lib/table"
 import { AppLink } from "@/components/ui/app-link"
+import {
+  CardButton,
+  CardDate,
+  CardFigure,
+  CardName,
+  PhoneCards,
+} from "@/components/ui/phone-cards"
 import type { CorrectionRow, LeaveRequestView } from "@itulah/contract"
 
 /// One queue, not three — drawn on the People overview.
@@ -229,6 +237,7 @@ const swapColumns: ColumnDef<TableSetup, SwapRow>[] = [
 ]
 
 export function RequestQueues() {
+  const phone = useLayout() === "phone"
   const request = useSheet("request")
   const [sorting, setSorting] = useState<SortingState>([
     { id: "when", desc: false },
@@ -300,7 +309,7 @@ export function RequestQueues() {
         <FilterPanel model={filters} table={table} />
       </Toolbar>
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         <CardHeader>
           <CardTitle>Leave</CardTitle>
         </CardHeader>
@@ -313,6 +322,47 @@ export function RequestQueues() {
                   ? "No leave anywhere is waiting on a decision."
                   : `No leave at ${bounded} is waiting on a decision.`}
               </EmptyState>
+            ) : phone ? (
+              <PhoneCards
+                rows={table.getRowModel().rows.map((one) => one.original)}
+                onOpen={(row) => request.open(row.id)}
+                empty={`${rows.length.toLocaleString("id-ID")} requests are waiting, and none of them match the filters in force.`}
+                rowId={(row) => row.id}
+                spec={{
+                  title: (row) => (
+                    <CardName
+                      name={row.name}
+                      line={
+                        <>
+                          <span className="block">
+                            {row.leave_type_name} · {row.unit_id}
+                          </span>
+                          <span className="block">
+                            {day(row.from_date)}
+                            {row.to_date !== row.from_date && (
+                              <> – {day(row.to_date)}</>
+                            )}
+                          </span>
+                        </>
+                      }
+                    />
+                  ),
+                  lead: (row) => (
+                    <CardFigure
+                      value={row.chargeable_days}
+                      caption={row.chargeable_days === 1 ? "day" : "days"}
+                    />
+                  ),
+                  foot: () => <>Waiting on a decision</>,
+                  action: (row) => (
+                    <CardButton
+                      label="Open"
+                      ariaLabel={`Open ${row.name}’s leave`}
+                      onClick={() => request.open(row.id)}
+                    />
+                  ),
+                }}
+              />
             ) : (
               <DataTable<LeaveRow>
                 table={table}
@@ -431,6 +481,7 @@ function CorrectionQueue({
   selected: string | undefined
   onOpen: (id: string) => void
 }) {
+  const phone = useLayout() === "phone"
   const [sorting, setSorting] = useState<SortingState>([
     { id: "when", desc: false },
   ])
@@ -451,18 +502,49 @@ function CorrectionQueue({
   if (query.isPending || (query.isSuccess && rows.length === 0)) return null
 
   return (
-    <Card className="mt-4 overflow-hidden">
+    <Card className="mt-4 overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
       <CardHeader>
         <CardTitle>Attendance corrections</CardTitle>
       </CardHeader>
       {queryState(query, {
-        render: () => (
-          <DataTable<CorrectionRow>
-            table={table}
-            onRowClick={(row) => onOpen(row.id)}
-            isSelected={(row) => row.id === selected}
-          />
-        ),
+        render: () =>
+          phone ? (
+            <PhoneCards
+              rows={table.getRowModel().rows.map((one) => one.original)}
+              onOpen={(row) => onOpen(row.id)}
+              rowId={(row) => row.id}
+              spec={{
+                title: (row) => (
+                  <CardName
+                    name={row.display_name}
+                    line={
+                      <>
+                        <span className="block">
+                          {effectLabel(row.effect)} · {row.unit_id}
+                        </span>
+                        <span className="block">{row.reason}</span>
+                      </>
+                    }
+                  />
+                ),
+                lead: (row) => <CardDate iso={row.business_date} />,
+                foot: () => <>Waiting on a decision</>,
+                action: (row) => (
+                  <CardButton
+                    label="Open"
+                    ariaLabel={`Open the correction for ${row.display_name}`}
+                    onClick={() => onOpen(row.id)}
+                  />
+                ),
+              }}
+            />
+          ) : (
+            <DataTable<CorrectionRow>
+              table={table}
+              onRowClick={(row) => onOpen(row.id)}
+              isSelected={(row) => row.id === selected}
+            />
+          ),
       })}
     </Card>
   )
@@ -481,6 +563,7 @@ function SwapQueue({
   selected: string | undefined
   onOpen: (id: string) => void
 }) {
+  const phone = useLayout() === "phone"
   const [sorting, setSorting] = useState<SortingState>([
     { id: "when", desc: false },
   ])
@@ -500,18 +583,49 @@ function SwapQueue({
   if (query.isPending || (query.isSuccess && rows.length === 0)) return null
 
   return (
-    <Card className="mt-4 overflow-hidden">
+    <Card className="mt-4 overflow-hidden max-md:overflow-visible max-md:border-0 max-md:bg-transparent max-md:shadow-none">
       <CardHeader>
         <CardTitle>Roster swaps</CardTitle>
       </CardHeader>
       {queryState(query, {
-        render: () => (
-          <DataTable<SwapRow>
-            table={table}
-            onRowClick={(row) => onOpen(row.id)}
-            isSelected={(row) => row.id === selected}
-          />
-        ),
+        render: () =>
+          phone ? (
+            <PhoneCards
+              rows={table.getRowModel().rows.map((one) => one.original)}
+              onOpen={(row) => onOpen(row.id)}
+              rowId={(row) => row.id}
+              spec={{
+                title: (row) => (
+                  <CardName
+                    name={row.name}
+                    line={
+                      <>
+                        <span className="block">
+                          with {row.withName} · {row.unit_id}
+                        </span>
+                        <span className="block">{row.reason}</span>
+                      </>
+                    }
+                  />
+                ),
+                lead: (row) => <CardDate iso={row.on_date} />,
+                foot: () => <>Waiting on a decision</>,
+                action: (row) => (
+                  <CardButton
+                    label="Open"
+                    ariaLabel={`Open the swap for ${row.name}`}
+                    onClick={() => onOpen(row.id)}
+                  />
+                ),
+              }}
+            />
+          ) : (
+            <DataTable<SwapRow>
+              table={table}
+              onRowClick={(row) => onOpen(row.id)}
+              isSelected={(row) => row.id === selected}
+            />
+          ),
       })}
     </Card>
   )
@@ -535,7 +649,9 @@ function Verdict({
   failed: string | null
   onDecide: (approve: boolean) => void
 }) {
-  const ready = reason.trim() !== ""
+  // On a phone the two verbs are the sheet's foot (`VerdictButtons`), where the
+  // thumb is; the reason stays here.
+  const phone = useLayout() === "phone"
   return (
     <>
       {failed !== null && (
@@ -555,24 +671,57 @@ function Verdict({
             onChange={(event) => onReason(event.target.value)}
           />
         </Field>
-        <ButtonGroup>
-          <Button
-            variant="primary"
-            disabled={!ready || busy}
-            onClick={() => onDecide(true)}
-          >
-            Approve
-          </Button>
-          <Button
-            variant="danger"
-            disabled={!ready || busy}
-            onClick={() => onDecide(false)}
-          >
-            Refuse
-          </Button>
-        </ButtonGroup>
+        {!phone && (
+          <VerdictButtons reason={reason} busy={busy} onDecide={onDecide} />
+        )}
       </div>
     </>
+  )
+}
+
+/// The two verbs of a decision: on a desk fused under the reason, on a phone
+/// side by side in the sheet's foot.
+function VerdictButtons({
+  reason,
+  busy,
+  onDecide,
+}: {
+  reason: string
+  busy: boolean
+  onDecide: (approve: boolean) => void
+}) {
+  const phone = useLayout() === "phone"
+  const ready = reason.trim() !== ""
+  const approve = (
+    <Button
+      variant="primary"
+      className={phone ? "flex-1" : undefined}
+      disabled={!ready || busy}
+      onClick={() => onDecide(true)}
+    >
+      Approve
+    </Button>
+  )
+  const refuse = (
+    <Button
+      variant="danger"
+      className={phone ? "flex-1" : undefined}
+      disabled={!ready || busy}
+      onClick={() => onDecide(false)}
+    >
+      Refuse
+    </Button>
+  )
+  return phone ? (
+    <div className="flex gap-2">
+      {approve}
+      {refuse}
+    </div>
+  ) : (
+    <ButtonGroup>
+      {approve}
+      {refuse}
+    </ButtonGroup>
   )
 }
 
@@ -584,6 +733,7 @@ function RequestSheet({
   onClose: () => void
 }) {
   const client = useQueryClient()
+  const phone = useLayout() === "phone"
   const [reason, setReason] = useState("")
   const [failed, setFailed] = useState<string | null>(null)
 
@@ -626,6 +776,15 @@ function RequestSheet({
         if (!next) onClose()
       }}
       id={request.id}
+      footer={
+        phone ? (
+          <VerdictButtons
+            reason={reason}
+            busy={decide.isPending}
+            onDecide={(approve) => decide.mutate(approve)}
+          />
+        ) : undefined
+      }
       title={request.leave_type_name}
     >
       <Pill tone="warn">Waiting on a decision</Pill>
@@ -673,6 +832,7 @@ function CorrectionSheet({
   onClose: () => void
 }) {
   const client = useQueryClient()
+  const phone = useLayout() === "phone"
   const [reason, setReason] = useState("")
   const [failed, setFailed] = useState<string | null>(null)
 
@@ -702,6 +862,15 @@ function CorrectionSheet({
         if (!next) onClose()
       }}
       id={correction.id}
+      footer={
+        phone ? (
+          <VerdictButtons
+            reason={reason}
+            busy={decide.isPending}
+            onDecide={(approve) => decide.mutate(approve)}
+          />
+        ) : undefined
+      }
       title="Attendance correction"
     >
       <Pill tone="warn">Waiting on a decision</Pill>
@@ -760,6 +929,7 @@ function SwapSheet({
   onClose: () => void
 }) {
   const client = useQueryClient()
+  const phone = useLayout() === "phone"
   const [reason, setReason] = useState("")
   const [failed, setFailed] = useState<string | null>(null)
 
@@ -787,6 +957,15 @@ function SwapSheet({
         if (!next) onClose()
       }}
       id={swap.id}
+      footer={
+        phone ? (
+          <VerdictButtons
+            reason={reason}
+            busy={decide.isPending}
+            onDecide={(approve) => decide.mutate(approve)}
+          />
+        ) : undefined
+      }
       title="Roster swap"
     >
       <Pill tone="warn">Waiting on a decision</Pill>
