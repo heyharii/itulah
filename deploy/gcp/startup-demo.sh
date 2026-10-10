@@ -362,8 +362,21 @@ gcloud auth configure-docker "$registry" -q
 # The network is not always up at boot: a pull that times out once must not end
 # the script half-way (10 Oct 2026: it did, and the containers were never made).
 pull() { for _ in $(seq 1 8); do docker pull -q "$1" >/dev/null && return 0; sleep 15; done; return 1; }
-docker network inspect itulah >/dev/null 2>&1 || docker network create itulah
-docker network inspect front >/dev/null 2>&1 || docker network create front >/dev/null
+# One network per name, made once. Docker allows two networks with one name,
+# and then every command naming it fails as ambiguous (soak test, 10 Oct
+# 2026): spare copies nobody uses are removed.
+ensure_net() {
+  local ids; ids=$(docker network ls -q --filter "name=^$1\$")
+  if [ "$(printf '%s\n' $ids | grep -c .)" -gt 1 ]; then
+    for id in $ids; do
+      [ "$(docker network inspect -f '{{len .Containers}}' "$id")" = 0 ] && docker network rm "$id" >/dev/null
+    done
+    ids=$(docker network ls -q --filter "name=^$1\$")
+  fi
+  [ -n "$ids" ] || docker network create "$1" >/dev/null
+}
+ensure_net itulah
+ensure_net front
 
 exists() { docker ps -a --format '{{.Names}}' | grep -qx "$1"; }
 running() { [ "$(docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null)" = true ]; }
@@ -373,31 +386,38 @@ running() { [ "$(docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null)" = tru
 # script then removed and remade every one of them a minute later).
 stamp() { printf '%s %s' "$1" "$(sha256sum "$2" | cut -c1-16)"; }
 same() { [ "$(docker inspect -f '{{index .Config.Labels "itulah.stamp"}}' "$1" 2>/dev/null)" = "$2" ]; }
-# A cloud answers through the network, as Caddy reaches it.
-healthy() { docker run --rm --network itulah curlimages/curl -fsS -m 5 "http://$1:8080/api/v1/health" >/dev/null 2>&1; }
+# A cloud answers through the network, as Caddy reaches it — asked from inside
+# the running caddy container (busybox wget). A throwaway curl container every
+# two seconds was most of the load on an e2-micro during a deploy (load 16,
+# soak test, 10 Oct 2026); the curl image is only the fallback before Caddy runs.
+healthy() {
+  if running caddy; then
+    docker exec caddy wget -q -T 5 -O /dev/null "http://$1:8080/api/v1/health" >/dev/null 2>&1
+  else
+    docker run --rm --network itulah curlimages/curl -fsS -m 5 "http://$1:8080/api/v1/health" >/dev/null 2>&1
+  fi
+}
 wait_healthy() {  # wait_healthy <name> <seconds>
   local end=$((SECONDS + $2))
   while [ $SECONDS -lt $end ]; do
     running "$1" || return 1
     healthy "$1" && return 0
-    sleep 2
+    sleep 3
   done
   return 1
 }
+# Always asked, never skipped by a guess of ours: Caddy itself does nothing
+# when the config it is given equals the one it runs, and a note kept beside
+# the file can lie — after a reboot by an older script it did, Caddy kept
+# routing to a cloud that was then stopped (soak test, 10 Oct 2026).
 caddy_reload() {
   if running caddy; then
-    docker exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile \
-      && sha256sum "$state/Caddyfile" | cut -c1-64 > "$state/.caddy-loaded"
+    docker exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
   fi
-}
-# Only when the Caddyfile changed: a reload can drop a connection.
-caddy_reload_if_changed() {
-  [ "$(sha256sum "$state/Caddyfile" | cut -c1-64)" = "$(cat "$state/.caddy-loaded" 2>/dev/null)" ] && return 0
-  caddy_reload
 }
 # The front network: Caddy and the cloud that serves.
 ensure_front() {
-  docker network inspect front >/dev/null 2>&1 || docker network create front >/dev/null
+  ensure_net front
   if running caddy && ! docker inspect -f '{{json .NetworkSettings.Networks}}' caddy | grep -q '"front"'; then
     docker network connect front caddy
   fi
@@ -405,6 +425,31 @@ ensure_front() {
 join_front() {  # join_front <cloud>: from now on Caddy's requests may reach it
   docker inspect -f '{{json .NetworkSettings.Networks}}' "$1" | grep -q '"front"' \
     || docker network connect --alias cloud-front front "$1"
+}
+
+# Take a node out before it stops, the way a load balancer drains one: inside
+# its own network namespace new connections to :8080 are refused (a refused
+# connection is one Caddy opens again elsewhere — nothing was sent, so even a
+# POST is safe), and the ones already open are let finish. Only then is it
+# stopped. Without this a request that had just reached the old cloud was cut
+# by its shutdown: a sign-in answered 502 (soak test, 10 Oct 2026).
+drain() {  # drain <container>
+  local pid; pid=$(docker inspect -f '{{.State.Pid}}' "$1" 2>/dev/null || echo 0)
+  if [ "$pid" -gt 0 ] && nsenter -t "$pid" -n iptables -I INPUT -p tcp --dport 8080 --syn -j REJECT --reject-with tcp-reset 2>/dev/null; then
+    # Visitors' requests arrive from Caddy; the nodes' sync keeps connections
+    # of its own open for good, and it tries again when they close.
+    local caddy_ips filter="" ip
+    caddy_ips=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' caddy 2>/dev/null)
+    for ip in $caddy_ips; do filter="${filter:+$filter or }dst $ip"; done
+    [ -n "$filter" ] || filter="dst 0.0.0.0/0"
+    for _ in $(seq 1 60); do
+      [ "$(nsenter -t "$pid" -n ss -Htn state established "( sport = :8080 ) and ( $filter )" 2>/dev/null | grep -c .)" = 0 ] && break
+      sleep 0.5
+    done
+  else
+    echo "drain: no iptables in $1's namespace; waiting instead" >&2
+    sleep 5
+  fi
 }
 
 run_cloud() {  # run_cloud <name> <image> [cpu-shares]
@@ -423,6 +468,7 @@ run_edge() {  # run_edge <dc|store> <image>
 # requests that arrive in between.
 swap_edge() {  # swap_edge <dc|store> <image>
   if exists "$1" && same "$1" "$(stamp "$2" "$state/$1.env")"; then docker start "$1" >/dev/null; return; fi
+  running "$1" && drain "$1"
   docker stop -t 30 "$1" >/dev/null 2>&1 || true
   docker rm -f "$1" >/dev/null 2>&1 || true
   run_edge "$1" "$2"
@@ -475,13 +521,12 @@ ensure_caddy() {
     ensure_front
     # The Caddyfile was just written: a graceful reload when it changed, never
     # a restart.
-    for _ in $(seq 1 20); do caddy_reload_if_changed >/dev/null 2>&1 && return 0; sleep 1; done
+    for _ in $(seq 1 20); do caddy_reload >/dev/null 2>&1 && return 0; sleep 1; done
     echo "caddy reload failed" >&2; return 1
   fi
   docker run -d --name caddy --restart unless-stopped --network itulah -p 80:80 -p 443:443 \
     -v "$state/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$state/www:/srv:ro" -v "$state/caddy/data:/data" -v "$state/caddy/config:/config" caddy:2 >/dev/null
   docker network connect front caddy
-  sha256sum "$state/Caddyfile" | cut -c1-64 > "$state/.caddy-loaded"
 }
 
 if [ "$mode" = boot ]; then
@@ -516,7 +561,7 @@ if [ "$mode" = rollout ]; then
   # one reload of this path, and only if the file changed.
   ensure_front
   join_front "$cloud_live"
-  caddy_reload_if_changed || { echo "caddy reload failed before the swap" >&2; exit 1; }
+  caddy_reload || { echo "caddy reload failed before the swap" >&2; exit 1; }
   cloud_live_before="$cloud_live"
   image_before="$(docker inspect -f '{{.Config.Image}}' "$cloud_live" 2>/dev/null || true)"
   next=cloud-a; [ "$cloud_live" = cloud-a ] && next=cloud-b
@@ -540,6 +585,8 @@ if [ "$mode" = rollout ]; then
   # finishes what it holds (SIGTERM: the server's graceful shutdown, 30 s at
   # most). A connection Caddy cannot open meanwhile is opened again.
   sleep 5
+  echo "$(date -u +%T) draining $cloud_live_before"
+  drain "$cloud_live_before"
   echo "$(date -u +%T) stopping $cloud_live_before"
   docker stop -t 30 "$cloud_live_before" >/dev/null 2>&1 || true
   docker rm -f "$cloud_live_before" >/dev/null 2>&1 || true

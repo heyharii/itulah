@@ -94,7 +94,8 @@ def main():
                     b[1] += 1
                     stats["bad_seconds"].add(int(now))
                     failures.append((now, name, code, err))
-                    print(f"  FAIL {now:7.1f}s {name:6} -> {code} {err or ''}", flush=True)
+                    wall = time.strftime("%H:%M:%S", time.gmtime())
+                    print(f"  FAIL {now:7.1f}s {wall}Z {name:6} -> {code} {err or ''}", flush=True)
 
     threads = [threading.Thread(target=worker, args=(k,), daemon=True) for k in range(a.workers)]
     for t in threads:
