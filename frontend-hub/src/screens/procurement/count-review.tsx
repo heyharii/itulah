@@ -9,7 +9,6 @@ import {
   CircleCheck,
   FileText,
   RotateCcw,
-  Undo2,
   Upload,
   X,
 } from "lucide-react"
@@ -964,36 +963,24 @@ function Review({
           </div>
         ) : (
           <>
-            {/* What goes back to the supplier: one plain line under the table, no
-              box. A return takes a line's whole excess, so the extra on a line
-              with not-as-ordered pieces goes with them. */}
+            {/* What happens to the pieces, under the table and at the right
+              (owner, 2026-10-10): Accepted goes into stock, To Be Returned
+              goes back to the supplier. A return takes a line's whole excess,
+              so the extra on a line with not-as-ordered pieces goes with
+              them. */}
             {(wrongRows.length > 0 || cleanOvers.length > 0) && (
-              <p className="flex items-center gap-2.5 px-1 text-[0.9375rem] text-body">
-                <Undo2 className="size-[18px] shrink-0 text-info-fg" />
-                <span>
-                  {wrongRows.length > 0 && cleanOvers.length > 0 ? (
-                    <>
-                      <b className="font-medium text-ink">
-                        {pcs(wrongQty + overQty)}
-                      </b>{" "}
-                      will be returned to the supplier
-                      <span className="text-mute">
-                        {` · ${count(wrongQty)} not as ordered, ${count(overQty)} extra`}
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <b className="font-medium text-ink">
-                        {pcs(
-                          wrongRows.length > 0 ? wrongQty + overQty : overQty
-                        )}
-                      </b>{" "}
-                      {wrongRows.length > 0 ? "not as ordered" : "extra"} will
-                      be returned to the supplier
-                    </>
-                  )}
-                </span>
-              </p>
+              <div className="flex justify-end">
+                <dl className="grid w-full grid-cols-[1fr_auto] gap-x-10 gap-y-2 rounded-card border border-hairline bg-soft px-4 py-2.5 text-[0.9375rem] tabular-nums md:w-auto md:grid-cols-[auto_auto]">
+                  <dt className="text-ink">Total Accepted</dt>
+                  <dd className="text-right font-semibold text-ink">
+                    {pcs(totalCounted - overQty)}
+                  </dd>
+                  <dt className="text-ink">To Be Returned</dt>
+                  <dd className="text-right font-semibold text-bad-fg">
+                    {pcs(wrongQty + overQty)}
+                  </dd>
+                </dl>
+              </div>
             )}
           </>
         )}

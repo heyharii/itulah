@@ -861,8 +861,9 @@ function FilterRow({ filters }: { filters: FilterState }) {
 }
 
 /// The status word — or, when the Gudang's count waits for the buyer, the
-/// action in the same place (an order with a count waiting is always active),
-/// or "Recounting" while a count is being taken again.
+/// action in the same place (an order with a count waiting is always active).
+/// A count being taken again changes nothing here: the order stays Active
+/// (owner, 2026-10-10).
 function StatusWord({
   po,
   label,
@@ -879,7 +880,6 @@ function StatusWord({
   stamp?: ReturnType<typeof poStatus>["tone"]
 }) {
   const waiting = useCountsAwaiting().get(po)
-  const recounting = useRecountingPos().has(po)
   const word = (text: string, tone: ReturnType<typeof poStatus>["tone"]) =>
     stamp === undefined ? (
       <span className={className}>{text}</span>
@@ -889,12 +889,6 @@ function StatusWord({
   if (cancelled) return word(label, stamp ?? "neutral")
   if (waiting !== undefined && waiting.length > 0)
     return <ReviewCountButton po={po} inline />
-  if (recounting)
-    return stamp === undefined ? (
-      <span className="whitespace-nowrap text-info-fg">Recounting</span>
-    ) : (
-      <Pill tone="info">Recounting</Pill>
-    )
   return word(label, stamp ?? "neutral")
 }
 /// An order that is cancelled or already complete takes no more goods, so a

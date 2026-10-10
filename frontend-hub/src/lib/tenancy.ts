@@ -150,16 +150,21 @@ const TenancyContext = createContext<TenancyContextValue | null>(null)
 /// select, leave) changes the answer.
 export function TenancyProvider({ children }: { children: ReactNode }) {
   const client = useQueryClient()
+  // A build for a single business (`VITE_TENANCY=off`, the demo's) never asks:
+  // the server is not a sandbox, and one fewer question stands in front of the
+  // first screen (owner, 2026-10-10).
+  const off = import.meta.env.VITE_TENANCY === "off"
   const query = useQuery({
     queryKey: tenancyQueryKey,
     queryFn: ({ signal }) => getTenancy(signal),
     staleTime: Infinity,
     retry: false,
+    enabled: !off,
   })
 
   const state = query.data ?? SINGLE
   const value = useMemo<TenancyContextValue>(() => {
-    const isPending = query.isPending
+    const isPending = off ? false : query.isPending
     const refresh = () =>
       client.invalidateQueries({ queryKey: tenancyQueryKey })
     // Built per-branch rather than `{...state, isPending, refresh}`: a spread
@@ -174,7 +179,7 @@ export function TenancyProvider({ children }: { children: ReactNode }) {
           refresh,
         }
       : { mode: "single", isPending, refresh }
-  }, [state, query.isPending, client])
+  }, [state, query.isPending, client, off])
 
   // Not JSX: this file stays `.ts` so it can sit beside the fetchers it
   // provides rather than forcing every caller through a `.tsx` import for what

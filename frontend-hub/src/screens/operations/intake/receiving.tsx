@@ -939,30 +939,11 @@ export function CountSheet({
                   })}
                 </div>
 
-                {/* The counted amounts added up — the table's total, in the
-                  same column as each line's own figure. */}
-                <div
-                  className={cn(
-                    COUNT_ROW,
-                    "border-t border-hairline bg-soft py-3.5"
-                  )}
-                >
-                  <span className="flex min-h-11 items-center font-medium text-ink">
-                    Total Counted
-                  </span>
-                  <span className="max-sm:hidden" />
-                  <span className="flex min-h-11 items-center justify-end text-right font-medium text-ink tabular-nums">
-                    {countedText}
-                  </span>
-                </div>
-
                 {/* One figure for the whole delivery, not one per line: its
-                  field sits under the counted amounts, in the same column. */}
+                  field sits right under the counted lines, in the same
+                  column, and the totals close the table (owner, 2026-10-10). */}
                 <div
-                  className={cn(
-                    COUNT_ROW,
-                    "border-t border-hairline bg-soft py-3.5"
-                  )}
+                  className={cn(COUNT_ROW, "border-t border-hairline py-3.5")}
                 >
                   <label
                     htmlFor="not-as-ordered"
@@ -1028,6 +1009,32 @@ export function CountSheet({
                   </span>
                 </div>
               </Card>
+
+              {/* The totals, in a box at the right as on Review Count (owner,
+                2026-10-10): what matched the order and what did not are two
+                figures, never one. */}
+              <div className="flex justify-end">
+                <dl className="grid w-full grid-cols-[1fr_auto] gap-x-12 rounded-card border border-hairline bg-soft px-5 py-2 tabular-nums md:w-auto md:min-w-[22rem] md:grid-cols-[1fr_auto]">
+                  <dt className="flex min-h-11 items-center text-[1rem] font-medium text-ink">
+                    Total as Ordered
+                  </dt>
+                  <dd className="flex min-h-11 items-center justify-end text-right text-[1.0625rem] font-semibold text-ink">
+                    {countedText}
+                  </dd>
+                  {wrongPieces !== undefined &&
+                    wrongPieces !== null &&
+                    wrongPieces > 0 && (
+                      <>
+                        <dt className="flex min-h-11 items-center text-[1rem] font-medium text-ink">
+                          Total Not as Ordered
+                        </dt>
+                        <dd className="flex min-h-11 items-center justify-end text-right text-[1.0625rem] font-semibold text-bad-fg">
+                          {`${count(wrongPieces)} pcs`}
+                        </dd>
+                      </>
+                    )}
+                </dl>
+              </div>
 
               <Problem error={record.error} />
             </div>
