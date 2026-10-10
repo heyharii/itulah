@@ -9,6 +9,12 @@ exec > >(tee -a /var/log/itulah-startup.log) 2>&1
 
 meta() { curl -fsS -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/$1"; }
 image="$(meta instance/attributes/itulah-image)"
+# The sandbox keeps its own image: its business databases are migrated by the
+# build it runs (sandbox-...), which may be ahead of or behind the demo's, and
+# a build that lacks a migration a database already holds does not start.
+# Set with
+#   gcloud compute instances add-metadata itulah-demo --metadata itulah-sandbox-image=<image>
+sandbox_image="$(meta instance/attributes/itulah-sandbox-image 2>/dev/null || echo "$image")"
 # Ephemeral IP: the name follows the address at every boot.
 ip="$(meta instance/network-interfaces/0/access-configs/0/external-ip)"
 domain="${ip//./-}.sslip.io"
@@ -265,7 +271,11 @@ E2
 mkdir -p "$state/www"/{hub,store,customer,pos,sandbox}
 
 gcloud auth configure-docker "$registry" -q
-docker pull "$image"
+# The network is not always up at boot: a pull that times out once must not end
+# the script half-way (10 Oct 2026: it did, and the containers were never made).
+for image_to_pull in "$image" "$sandbox_image"; do
+  for _ in $(seq 1 8); do docker pull "$image_to_pull" && break; sleep 15; done
+done
 docker network inspect itulah >/dev/null 2>&1 || docker network create itulah
 docker rm -f caddy store store-sandbox dc cloud cloud-sandbox >/dev/null 2>&1 || true
 
@@ -303,9 +313,9 @@ docker exec pg psql -U itulah -d itulah_cloud -tAc "SELECT 1 FROM pg_database WH
   || docker exec pg createdb -U itulah itulah_control
 # Capped, so a busy sandbox cannot take the demo's memory with it.
 docker run -d --name cloud-sandbox --restart unless-stopped --network itulah --memory 350m \
-  --env-file "$state/cloud-sandbox.env" "$image"
+  --env-file "$state/cloud-sandbox.env" "$sandbox_image"
 docker run -d --name store-sandbox --restart unless-stopped --network itulah --memory 150m \
-  --env-file "$state/store-sandbox.env" -v "$state/store-sandbox:/data" "$image"
+  --env-file "$state/store-sandbox.env" -v "$state/store-sandbox:/data" "$sandbox_image"
 docker run -d --name caddy --restart unless-stopped --network itulah -p 80:80 -p 443:443 \
   -v "$state/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$state/www:/srv:ro" -v "$state/caddy/data:/data" -v "$state/caddy/config:/config" caddy:2
 docker image prune -af --filter "until=72h" >/dev/null 2>&1 || true
