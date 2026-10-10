@@ -18,6 +18,9 @@ sandbox_image="$(meta instance/attributes/itulah-sandbox-image 2>/dev/null || ec
 # Ephemeral IP: the name follows the address at every boot.
 ip="$(meta instance/network-interfaces/0/access-configs/0/external-ip)"
 domain="${ip//./-}.sslip.io"
+# The same hosts under nip.io too (10 Oct 2026): a client network that blocks
+# *.sslip.io by name may still let this one through.
+alias_domain="${ip//./-}.nip.io"
 # Where the Gudang's work is done: `edge` = a DC server (the dc container, its
 # own SQLite, syncing), `cloud` = by the cloud itself, in its own tables, no
 # sync (DC-CLOUD-NATIVE.md, backend/src/cloud/dc). Set with
@@ -198,7 +201,7 @@ fi
 
 site() {  # site <name> <api-block>   static bundle from $state/www/<name>
   cat <<E3
-$1.$domain {
+$1.$domain, $1.$alias_domain {
   encode gzip
   log {
     output file /data/access.log {
