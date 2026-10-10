@@ -266,11 +266,15 @@ function columns(): ColumnDef<TableSetup, AllotmentRow>[] {
     },
     {
       accessorKey: "created_at",
-      header: "Created",
+      header: "Created At",
       sortFn: "datetime",
-      size: 130,
+      size: 170,
       meta: { filter: { kind: "date" }, card: "hide" },
-      cell: ({ row }) => day(row.original.created_at),
+      cell: ({ row }) => (
+        <span className="whitespace-nowrap tabular-nums">
+          {moment(row.original.created_at)}
+        </span>
+      ),
     },
     {
       id: "supplier",
@@ -562,7 +566,7 @@ export function Allotments({
   // a list of allotments is read by number and progress, not by note.
   // Created stays behind Columns: the age beside each number says it.
   const [visibility, setVisibility] = useState<Record<string, boolean>>({
-    created_at: false,
+    created_at: true,
     supplier: false,
     fulfillment_status: false,
     picked: false,
