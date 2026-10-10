@@ -43,8 +43,12 @@ rm -f "$tgz"
 
 gcloud --project "$PROJECT" compute ssh "$VM" --zone "$ZONE" --tunnel-through-iap --command "TARGET=$TARGET"'
 set -e
-W=/var/lib/itulah/www/$TARGET; N=/var/lib/itulah/www/$TARGET.new
-sudo rm -rf $N; sudo mkdir -p $N
+# Each build is a release of its own; $W is a symlink to the live one, and a
+# rename over it swaps it in one step — there is never a moment with no hub
+# (10 Oct 2026: the old move-away-then-move-in left one).
+R=/var/lib/itulah/www/.releases/$TARGET; W=/var/lib/itulah/www/$TARGET
+id=$(date -u +%Y%m%d%H%M%S); N=$R/$id
+sudo mkdir -p $N
 sudo tar xzf /tmp/hub-dist.tgz -C $N 2>/dev/null
 sudo test -f $N/index.html
 # Keep the previous build'"'"'s chunks (never overwriting a new one): a tab that was open
@@ -52,10 +56,13 @@ sudo test -f $N/index.html
 # the "Something went wrong" screen. Chunks nobody has loaded for 30 days go.
 if sudo test -d $W/assets; then sudo cp -an $W/assets/. $N/assets/; fi
 sudo find $N/assets -type f -mtime +30 -delete
-sudo rm -rf /var/lib/itulah/www/$TARGET.old
-sudo mv $W /var/lib/itulah/www/$TARGET.old
-sudo mv $N $W
-sudo rm -rf /var/lib/itulah/www/$TARGET.old /tmp/hub-dist.tgz
+# Once, the first time: the live hub was a plain folder; it becomes a release.
+if sudo test -d $W && ! sudo test -L $W; then sudo mv $W $R/legacy-$id && sudo ln -sfn .releases/$TARGET/legacy-$id $W; fi
+sudo ln -sfn .releases/$TARGET/$id /var/lib/itulah/www/.$TARGET.next
+sudo mv -T /var/lib/itulah/www/.$TARGET.next $W
+# The five newest releases stay, for a rollback by hand (ln -sfn + mv -T).
+sudo ls -1d $R/*/ | sort | head -n -5 | xargs -r sudo rm -rf
+sudo rm -f /tmp/hub-dist.tgz
 echo INSTALLED' 2>&1 | grep -v "WARNING\|NumPy\|please see\|^$"
 
 # Every asset the new index names must answer 200 from the public host.

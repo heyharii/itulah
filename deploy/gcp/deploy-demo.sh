@@ -48,6 +48,15 @@ g compute firewall-rules describe "$VM-iap-ssh" >/dev/null 2>&1 || g compute fir
   --network default --allow tcp:22 --target-tags "$VM" --source-ranges 35.235.240.0/20
 
 if g compute instances describe "$VM" --zone "$ZONE" >/dev/null 2>&1; then
+  # A reset takes the whole site down — Caddy, Postgres, every node — and it
+  # did, twice, on 10 Oct 2026. A running VM gets a new build from
+  # rollout-demo.sh, which swaps the cloud without downtime. REBOOT=1 is for
+  # the rare change that truly needs a boot (a new VM size, a kernel).
+  if [ "${REBOOT:-0}" != 1 ]; then
+    echo "$VM is running: deploy with  IMAGE=$IMAGE deploy/gcp/rollout-demo.sh  (no downtime)." >&2
+    echo "Only REBOOT=1 resets the VM, and the whole site goes down while it boots." >&2
+    exit 1
+  fi
   g compute instances add-metadata "$VM" --zone "$ZONE" --metadata "itulah-image=$IMAGE" \
     --metadata-from-file startup-script="$here/startup-demo.sh"
   g compute instances reset "$VM" --zone "$ZONE"

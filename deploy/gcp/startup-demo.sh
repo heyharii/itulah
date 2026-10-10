@@ -1,14 +1,38 @@
 #!/bin/bash
 #
-# Startup script of the single demo VM (Debian 12), run at every boot.
+# Startup script of the single demo VM (Debian 12), run at every boot — and,
+# copied to /var/lib/itulah/bin/itulah-ctl, the tool a deploy runs on the VM.
 # Containers on one docker network: pg (postgres:16), cloud, dc, store (the
 # one itulah image with APP_BIN=...), caddy (HTTPS, 80/443). Only caddy is
 # published; Postgres and the nodes are reachable inside the host only.
+#
+#   (no argument)        boot: make what is missing, keep what already runs
+#   rollout <image>      deploy without downtime (deploy/gcp/rollout-demo.sh):
+#                        the new cloud starts BESIDE the old one, Caddy moves
+#                        to it once it answers /api/v1/health, the old one is
+#                        stopped after it drains. A new cloud that never gets
+#                        healthy is removed and nothing else changes.
+#
+# Never down for a deploy (owner, 10 Oct 2026, after osretail.site went down
+# twice in one VM reset): nothing here restarts Caddy or Postgres, and Caddy
+# holds a request (lb_try_duration) while a node is being swapped.
 set -euo pipefail
-exec > >(tee -a /var/log/itulah-startup.log) 2>&1
+mode="${1:-boot}"
+want_image="${2:-}"
+if [ "$mode" = boot ]; then
+  exec > >(tee -a /var/log/itulah-startup.log) 2>&1
+else
+  exec > >(tee -a /var/log/itulah-rollout.log) 2>&1
+  echo "== $(date -u +%FT%TZ) $mode $want_image"
+  # Visitors first: the deploy's own work (gcloud, docker client) waits for the
+  # CPU the live cloud is not using. An e2-micro has a quarter of a core.
+  renice -n 15 $$ >/dev/null 2>&1 || true
+fi
 
 meta() { curl -fsS -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/$1"; }
 image="$(meta instance/attributes/itulah-image)"
+# A rollout names its image; metadata follows once it is live.
+if [ "$mode" = rollout ]; then image="${want_image:?rollout needs an image}"; fi
 # The sandbox keeps its own image: its business databases are migrated by the
 # build it runs (sandbox-...), which may be ahead of or behind the demo's, and
 # a build that lacks a migration a database already holds does not start.
@@ -35,6 +59,13 @@ if [ -n "$public_domain" ]; then hub_extra=", $public_domain, www.$public_domain
 dc_hosting="$(meta instance/attributes/itulah-dc-hosting 2>/dev/null || echo edge)"
 registry="${image%%/*}"
 state=/var/lib/itulah
+# Which container serves the cloud now: `cloud` (the first boot), then
+# `cloud-a` / `cloud-b` in turn, one per rollout. Every one of them answers to
+# `cloud` on the itulah network (the nodes' sync URL). Caddy reaches the cloud
+# as `cloud-front`, a name on a network of its own (`front`) that a cloud joins
+# only once it is healthy — so a swap never reloads Caddy: a reload closed a
+# connection it had just accepted (soak test, 10 Oct 2026).
+cloud_live="$(cat "$state/active-cloud" 2>/dev/null || echo cloud)"
 
 # 2 GB swap: the box has 1 GB.
 if [[ ! -f /swapfile ]]; then
@@ -116,7 +147,7 @@ INVENTORY_NODE_ID=cloud-sandbox
 INVENTORY_NODE_ROLE=CLOUD
 # The Gudang is run by the cloud here too, as on the demo: no DC server. Without
 # it the hub asked for a "warehouse node" that does not exist (7 Oct 2026). The
-# hub also needs `dc_hosting` from /api/v1/health, which the gateway answers
+# hub also needs dc_hosting from /api/v1/health, which the gateway answers
 # with its own mode only — the sandbox's Caddy site answers it like the hub's
 # (see the live Caddyfile) until the gateway's health carries it.
 INVENTORY_DC_HOSTING=cloud
@@ -188,7 +219,9 @@ if [ "$dc_hosting" = cloud ]; then
   edge_route=""
 else
   edge_route="  handle_path /edge/* {
-    reverse_proxy dc:8080
+    reverse_proxy dc:8080 {
+      import hold
+    }
   }"
 fi
 
@@ -217,6 +250,11 @@ $1.$domain, $1.$alias_domain$([ "$1" = hub ] && printf "%s" "$hub_extra") {
     }
     format json
   }
+  # The page is asked again every time; the hashed assets never change.
+  @immutable path /assets/*
+  header @immutable Cache-Control "public, max-age=31536000, immutable"
+  @page not path /assets/* /api/* /edge/* /rembg/*
+  header @page Cache-Control "no-cache"
 $2
   handle {
     root * /srv/$1
@@ -226,7 +264,26 @@ $2
 }
 E3
 }
+# The Caddyfile, written in place: it is mounted into the caddy container as a
+# file, and a file replaced by a rename would leave Caddy reading the old one.
+render_caddy() {
 {
+# While a node is being swapped its address answers nothing for a moment: a
+# request waits for it (up to 30 s, tried every 250 ms) instead of failing.
+# Only a connection that could not be made is tried again, so a POST is never
+# sent twice.
+cat <<'E2'
+(hold) {
+  lb_try_duration 30s
+  lb_try_interval 250ms
+  transport http {
+    dial_timeout 2s
+    # A new connection per request: none is left parked on a cloud that is
+    # shutting down, where a request could be lost.
+    keepalive off
+  }
+}
+E2
 cat <<E2
 $domain {
   encode gzip
@@ -239,94 +296,265 @@ $domain {
   }
 $edge_route
   handle_path /store/* {
-    reverse_proxy store:8080
+    reverse_proxy store:8080 {
+      import hold
+    }
   }
   handle {
-    reverse_proxy cloud:8080
+    reverse_proxy cloud-front:8080 {
+      import hold
+    }
   }
 }
 E2
 site hub "$edge_route
 $rembg_route
   handle /api/* {
-    reverse_proxy cloud:8080
+    reverse_proxy cloud-front:8080 {
+      import hold
+    }
   }"
 site store "  handle /api/* {
-    reverse_proxy store-sandbox:8080
+    reverse_proxy store-sandbox:8080 {
+      import hold
+    }
   }"
 site customer "  handle /api/* {
-    reverse_proxy cloud:8080
+    reverse_proxy cloud-front:8080 {
+      import hold
+    }
   }"
 site pos "  handle /api/* {
-    reverse_proxy store-sandbox:8080
+    reverse_proxy store-sandbox:8080 {
+      import hold
+    }
   }"
 # The sandbox has its own web folder (www/sandbox, filled by
 # `TARGET=sandbox deploy/gcp/deploy-hub-demo.sh`): what is being tried reaches
 # it first and the demo's hub only when it is ready.
 site sandbox "  handle /edge/* {
-    reverse_proxy cloud-sandbox:8080
+    reverse_proxy cloud-sandbox:8080 {
+      import hold
+    }
   }
   handle /api/* {
-    reverse_proxy cloud-sandbox:8080
+    reverse_proxy cloud-sandbox:8080 {
+      import hold
+    }
   }"
 # Not published (no -p 8089): only containers on the itulah network reach it.
 cat <<E2
 http://:8089 {
   reverse_proxy cloud-sandbox:8080 {
+    import hold
     header_up x-itulah-business $sandbox_business
   }
 }
 E2
-} > "$state/Caddyfile"
+} > "$state/Caddyfile.next"
+cat "$state/Caddyfile.next" > "$state/Caddyfile"
+rm -f "$state/Caddyfile.next"
+}
+render_caddy
 mkdir -p "$state/www"/{hub,store,customer,pos,sandbox}
 
 gcloud auth configure-docker "$registry" -q
 # The network is not always up at boot: a pull that times out once must not end
 # the script half-way (10 Oct 2026: it did, and the containers were never made).
-for image_to_pull in "$image" "$sandbox_image"; do
-  for _ in $(seq 1 8); do docker pull "$image_to_pull" && break; sleep 15; done
-done
+pull() { for _ in $(seq 1 8); do docker pull -q "$1" >/dev/null && return 0; sleep 15; done; return 1; }
 docker network inspect itulah >/dev/null 2>&1 || docker network create itulah
-docker rm -f caddy store store-sandbox dc cloud cloud-sandbox >/dev/null 2>&1 || true
+docker network inspect front >/dev/null 2>&1 || docker network create front >/dev/null
 
-# Postgres: small, host-only; data lives on the VM disk. 120 connections: the
-# demo's pool (20) plus a few sandbox businesses open at once (20 each).
-# Recreated when its flags change; the data directory carries over.
-pg_args=(-c shared_buffers=64MB -c max_connections=120 -c work_mem=2MB
-  -c maintenance_work_mem=32MB -c effective_cache_size=256MB)
-if docker ps -a --format '{{.Names}}' | grep -qx pg \
-   && [[ "$(docker inspect pg --format '{{json .Args}}')" != *'max_connections=120'* ]]; then
-  docker rm -f pg >/dev/null
-fi
-if ! docker ps -a --format '{{.Names}}' | grep -qx pg; then
-  docker run -d --name pg --restart unless-stopped --network itulah \
-    -e POSTGRES_USER=itulah -e POSTGRES_PASSWORD="$PG_PASSWORD" -e POSTGRES_DB=itulah_cloud \
-    -v "$state/pg:/var/lib/postgresql/data" \
-    -p 127.0.0.1:5432:5432 \
-    postgres:16 "${pg_args[@]}"
-else
-  docker start pg >/dev/null
-fi
-for _ in $(seq 1 60); do docker exec pg pg_isready -U itulah -d itulah_cloud >/dev/null 2>&1 && break; sleep 1; done
+exists() { docker ps -a --format '{{.Names}}' | grep -qx "$1"; }
+running() { [ "$(docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null)" = true ]; }
+# What a container was made from: its image and its environment file. Equal on
+# both counts and it is left running — a reboot then restarts nothing twice
+# (10 Oct 2026: the restart policy brought the old containers back, and this
+# script then removed and remade every one of them a minute later).
+stamp() { printf '%s %s' "$1" "$(sha256sum "$2" | cut -c1-16)"; }
+same() { [ "$(docker inspect -f '{{index .Config.Labels "itulah.stamp"}}' "$1" 2>/dev/null)" = "$2" ]; }
+# A cloud answers through the network, as Caddy reaches it.
+healthy() { docker run --rm --network itulah curlimages/curl -fsS -m 5 "http://$1:8080/api/v1/health" >/dev/null 2>&1; }
+wait_healthy() {  # wait_healthy <name> <seconds>
+  local end=$((SECONDS + $2))
+  while [ $SECONDS -lt $end ]; do
+    running "$1" || return 1
+    healthy "$1" && return 0
+    sleep 2
+  done
+  return 1
+}
+caddy_reload() {
+  if running caddy; then
+    docker exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile \
+      && sha256sum "$state/Caddyfile" | cut -c1-64 > "$state/.caddy-loaded"
+  fi
+}
+# Only when the Caddyfile changed: a reload can drop a connection.
+caddy_reload_if_changed() {
+  [ "$(sha256sum "$state/Caddyfile" | cut -c1-64)" = "$(cat "$state/.caddy-loaded" 2>/dev/null)" ] && return 0
+  caddy_reload
+}
+# The front network: Caddy and the cloud that serves.
+ensure_front() {
+  docker network inspect front >/dev/null 2>&1 || docker network create front >/dev/null
+  if running caddy && ! docker inspect -f '{{json .NetworkSettings.Networks}}' caddy | grep -q '"front"'; then
+    docker network connect front caddy
+  fi
+}
+join_front() {  # join_front <cloud>: from now on Caddy's requests may reach it
+  docker inspect -f '{{json .NetworkSettings.Networks}}' "$1" | grep -q '"front"' \
+    || docker network connect --alias cloud-front front "$1"
+}
 
-docker run -d --name cloud --restart unless-stopped --network itulah --env-file "$state/cloud.env" "$image"
-for _ in $(seq 1 90); do
-  docker exec cloud true 2>/dev/null && docker run --rm --network itulah curlimages/curl -fsS http://cloud:8080/api/v1/health >/dev/null 2>&1 && break
-  sleep 2
-done
-if [ "$dc_hosting" != cloud ]; then
-  docker run -d --name dc --restart unless-stopped --network itulah --env-file "$state/dc.env" -v "$state/dc:/data" "$image"
+run_cloud() {  # run_cloud <name> <image> [cpu-shares]
+  docker run -d --name "$1" --restart unless-stopped --network itulah --network-alias cloud \
+    --cpu-shares "${3:-1024}" \
+    --label "itulah.stamp=$(stamp "$2" "$state/cloud.env")" \
+    --env-file "$state/cloud.env" "$2" >/dev/null
+}
+run_edge() {  # run_edge <dc|store> <image>
+  docker run -d --name "$1" --restart unless-stopped --network itulah \
+    --label "itulah.stamp=$(stamp "$2" "$state/$1.env")" \
+    --env-file "$state/$1.env" -v "$state/$1:/data" "$2" >/dev/null
+}
+# An edge node owns one SQLite file, so it is never run twice: it is stopped
+# (gracefully: SIGTERM, 30 s to finish) and made again, and Caddy holds the
+# requests that arrive in between.
+swap_edge() {  # swap_edge <dc|store> <image>
+  if exists "$1" && same "$1" "$(stamp "$2" "$state/$1.env")"; then docker start "$1" >/dev/null; return; fi
+  docker stop -t 30 "$1" >/dev/null 2>&1 || true
+  docker rm -f "$1" >/dev/null 2>&1 || true
+  run_edge "$1" "$2"
+}
+
+ensure_pg() {
+  # Postgres: small, host-only; data lives on the VM disk. 120 connections: the
+  # demo's pool (20) plus a few sandbox businesses open at once (20 each).
+  # Recreated when its flags change; the data directory carries over.
+  local pg_args=(-c shared_buffers=64MB -c max_connections=120 -c work_mem=2MB
+    -c maintenance_work_mem=32MB -c effective_cache_size=256MB)
+  if exists pg && [[ "$(docker inspect pg --format '{{json .Args}}')" != *'max_connections=120'* ]]; then
+    docker rm -f pg >/dev/null
+  fi
+  if ! exists pg; then
+    docker run -d --name pg --restart unless-stopped --network itulah \
+      -e POSTGRES_USER=itulah -e POSTGRES_PASSWORD="$PG_PASSWORD" -e POSTGRES_DB=itulah_cloud \
+      -v "$state/pg:/var/lib/postgresql/data" \
+      -p 127.0.0.1:5432:5432 \
+      postgres:16 "${pg_args[@]}" >/dev/null
+  else
+    docker start pg >/dev/null
+  fi
+  for _ in $(seq 1 60); do docker exec pg pg_isready -U itulah -d itulah_cloud >/dev/null 2>&1 && break; sleep 1; done
+  # The sandbox needs its control database; its businesses' databases it makes.
+  docker exec pg psql -U itulah -d itulah_cloud -tAc "SELECT 1 FROM pg_database WHERE datname='itulah_control'" | grep -q 1 \
+    || docker exec pg createdb -U itulah itulah_control
+}
+
+ensure_sandbox() {
+  local img="$1"
+  if ! { exists cloud-sandbox && same cloud-sandbox "$(stamp "$img" "$state/cloud-sandbox.env")"; }; then
+    docker rm -f cloud-sandbox >/dev/null 2>&1 || true
+    # Capped, so a busy sandbox cannot take the demo's memory with it.
+    docker run -d --name cloud-sandbox --restart unless-stopped --network itulah --memory 350m \
+      --label "itulah.stamp=$(stamp "$img" "$state/cloud-sandbox.env")" \
+      --env-file "$state/cloud-sandbox.env" "$img" >/dev/null
+  else docker start cloud-sandbox >/dev/null; fi
+  if ! { exists store-sandbox && same store-sandbox "$(stamp "$img" "$state/store-sandbox.env")"; }; then
+    docker rm -f store-sandbox >/dev/null 2>&1 || true
+    docker run -d --name store-sandbox --restart unless-stopped --network itulah --memory 150m \
+      --label "itulah.stamp=$(stamp "$img" "$state/store-sandbox.env")" \
+      --env-file "$state/store-sandbox.env" -v "$state/store-sandbox:/data" "$img" >/dev/null
+  else docker start store-sandbox >/dev/null; fi
+}
+
+ensure_caddy() {
+  if exists caddy; then
+    docker start caddy >/dev/null
+    ensure_front
+    # The Caddyfile was just written: a graceful reload when it changed, never
+    # a restart.
+    for _ in $(seq 1 20); do caddy_reload_if_changed >/dev/null 2>&1 && return 0; sleep 1; done
+    echo "caddy reload failed" >&2; return 1
+  fi
+  docker run -d --name caddy --restart unless-stopped --network itulah -p 80:80 -p 443:443 \
+    -v "$state/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$state/www:/srv:ro" -v "$state/caddy/data:/data" -v "$state/caddy/config:/config" caddy:2 >/dev/null
+  docker network connect front caddy
+  sha256sum "$state/Caddyfile" | cut -c1-64 > "$state/.caddy-loaded"
+}
+
+if [ "$mode" = boot ]; then
+  pull "$image"; pull "$sandbox_image"; docker pull -q curlimages/curl >/dev/null 2>&1 || true
+  ensure_pg
+  # The live cloud: kept if it is the one wanted, else made again (a boot is
+  # already a moment without the site; a deploy uses `rollout`).
+  if ! { exists "$cloud_live" && same "$cloud_live" "$(stamp "$image" "$state/cloud.env")"; }; then
+    docker rm -f "$cloud_live" >/dev/null 2>&1 || true
+    run_cloud "$cloud_live" "$image"
+  else docker start "$cloud_live" >/dev/null; fi
+  wait_healthy "$cloud_live" 300 || echo "cloud not healthy yet" >&2
+  join_front "$cloud_live"
+  # Only one cloud is ever left behind.
+  for other in cloud cloud-a cloud-b; do
+    [ "$other" = "$cloud_live" ] || docker rm -f "$other" >/dev/null 2>&1 || true
+  done
+  if [ "$dc_hosting" != cloud ]; then swap_edge dc "$image"; else docker rm -f dc >/dev/null 2>&1 || true; fi
+  swap_edge store "$image"
+  ensure_sandbox "$sandbox_image"
+  ensure_caddy
+  docker image prune -af --filter "until=72h" >/dev/null 2>&1 || true
+  echo "itulah demo up: $domain"
+  exit 0
 fi
-docker run -d --name store --restart unless-stopped --network itulah --env-file "$state/store.env" -v "$state/store:/data" "$image"
-# The sandbox needs its control database; its businesses' databases it makes.
-docker exec pg psql -U itulah -d itulah_cloud -tAc "SELECT 1 FROM pg_database WHERE datname='itulah_control'" | grep -q 1 \
-  || docker exec pg createdb -U itulah itulah_control
-# Capped, so a busy sandbox cannot take the demo's memory with it.
-docker run -d --name cloud-sandbox --restart unless-stopped --network itulah --memory 350m \
-  --env-file "$state/cloud-sandbox.env" "$sandbox_image"
-docker run -d --name store-sandbox --restart unless-stopped --network itulah --memory 150m \
-  --env-file "$state/store-sandbox.env" -v "$state/store-sandbox:/data" "$sandbox_image"
-docker run -d --name caddy --restart unless-stopped --network itulah -p 80:80 -p 443:443 \
-  -v "$state/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$state/www:/srv:ro" -v "$state/caddy/data:/data" -v "$state/caddy/config:/config" caddy:2
-docker image prune -af --filter "until=72h" >/dev/null 2>&1 || true
-echo "itulah demo up: $domain"
+
+if [ "$mode" = rollout ]; then
+  pull "$image" || { echo "pull failed: $image" >&2; exit 1; }
+  docker pull -q curlimages/curl >/dev/null 2>&1 || true
+  # Once, on a VM set up before the front network: Caddy joins it, the live
+  # cloud joins it, and the Caddyfile that names cloud-front is loaded — the
+  # one reload of this path, and only if the file changed.
+  ensure_front
+  join_front "$cloud_live"
+  caddy_reload_if_changed || { echo "caddy reload failed before the swap" >&2; exit 1; }
+  cloud_live_before="$cloud_live"
+  image_before="$(docker inspect -f '{{.Config.Image}}' "$cloud_live" 2>/dev/null || true)"
+  next=cloud-a; [ "$cloud_live" = cloud-a ] && next=cloud-b
+  docker rm -f "$next" >/dev/null 2>&1 || true
+  echo "$(date -u +%T) starting $next beside $cloud_live"
+  # A quarter of the CPU weight while it warms up (migrations, caches): the
+  # live cloud keeps answering at full speed (soak test, 10 Oct 2026).
+  run_cloud "$next" "$image" 256
+  # It migrates the database before it answers: generous on an e2-micro.
+  if ! wait_healthy "$next" 420; then
+    echo "ROLLBACK: $next never answered /api/v1/health; $cloud_live keeps serving" >&2
+    docker logs --tail 40 "$next" >&2 || true
+    docker rm -f "$next" >/dev/null 2>&1 || true
+    exit 1
+  fi
+  docker update --cpu-shares 1024 "$next" >/dev/null
+  echo "$(date -u +%T) $next healthy; it joins the front"
+  join_front "$next"
+  echo "$next" > "$state/active-cloud"
+  # Both answer for a moment; then the old one stops taking connections and
+  # finishes what it holds (SIGTERM: the server's graceful shutdown, 30 s at
+  # most). A connection Caddy cannot open meanwhile is opened again.
+  sleep 5
+  echo "$(date -u +%T) stopping $cloud_live_before"
+  docker stop -t 30 "$cloud_live_before" >/dev/null 2>&1 || true
+  docker rm -f "$cloud_live_before" >/dev/null 2>&1 || true
+  if [ "$dc_hosting" != cloud ]; then swap_edge dc "$image"; fi
+  echo "$(date -u +%T) swapping store"
+  swap_edge store "$image"
+  # No `docker image prune` here: on an e2-micro already in swap it starved
+  # Caddy of disk for 20 s (soak test, 10 Oct 2026). Only the image just
+  # replaced goes, if nothing else uses it; the boot prunes the rest.
+  if [ -n "$image_before" ] && [ "$image_before" != "$image" ]; then
+    docker rmi "$image_before" >/dev/null 2>&1 || true
+  fi
+  echo "$(date -u +%T) ROLLOUT OK: $image on $next"
+  exit 0
+fi
+
+echo "unknown mode: $mode" >&2
+exit 2

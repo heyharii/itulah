@@ -1,0 +1,130 @@
+# Deploy to the demo (osretail.site) without it ever going down (owner,
+# 10 Oct 2026). Started by hand: Actions → Deploy demo → Run workflow.
+#
+#   image    → the backend image, built by Cloud Build from this commit
+#   gate     → its migrations on a fresh copy of the demo's own database
+#   staging  → rolled out to the test VM while a prober watches: any failed
+#              request stops the pipeline here
+#   demo     → the same rollout on the demo, watched the same way
+#   hub      → the hub built once, swapped in on staging then on the demo
+#
+# Every step is a script in deploy/gcp that also runs from a laptop.
+name: Deploy demo
+
+on:
+  workflow_dispatch:
+    inputs:
+      parts:
+        description: What to deploy
+        type: choice
+        default: both
+        options: [both, backend, hub]
+
+concurrency:
+  group: deploy-demo
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PROJECT: project-21f41328-b088-4894-b3f
+  ZONE: asia-southeast2-a
+  REPO: asia-southeast2-docker.pkg.dev/project-21f41328-b088-4894-b3f/itulah/itulah
+  STAGING_VM: itulah-demo2
+  DEMO_VM: itulah-demo
+  DEMO_HOST: osretail.site
+
+jobs:
+  image:
+    if: inputs.parts != 'hub'
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.tag.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/207703853289/locations/global/workloadIdentityPools/github-deploy/providers/itulah
+          service_account: itulah-github-deploy@project-21f41328-b088-4894-b3f.iam.gserviceaccount.com
+      - uses: google-github-actions/setup-gcloud@v2
+      - id: tag
+        run: echo "image=$REPO:demo-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+      - run: gcloud --project "$PROJECT" builds submit --config deploy/gcp/cloudbuild-demo.yaml --substitutions "_IMAGE=${{ steps.tag.outputs.image }}" .
+
+  gate:
+    needs: image
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env: { POSTGRES_PASSWORD: postgres }
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 2s --health-retries 30
+    env:
+      PGHOST: 127.0.0.1
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGURL: postgresql://postgres:postgres@127.0.0.1:5432
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/207703853289/locations/global/workloadIdentityPools/github-deploy/providers/itulah
+          service_account: itulah-github-deploy@project-21f41328-b088-4894-b3f.iam.gserviceaccount.com
+      - uses: google-github-actions/setup-gcloud@v2
+      - run: sudo apt-get install -y -qq postgresql-client-16 || sudo apt-get install -y -qq postgresql-client
+      - run: gcloud auth configure-docker asia-southeast2-docker.pkg.dev -q && docker pull -q "${{ needs.image.outputs.image }}"
+      - run: IMAGE="${{ needs.image.outputs.image }}" VM="$DEMO_VM" deploy/gcp/migration-gate.sh
+
+  staging:
+    needs: [image, gate]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/207703853289/locations/global/workloadIdentityPools/github-deploy/providers/itulah
+          service_account: itulah-github-deploy@project-21f41328-b088-4894-b3f.iam.gserviceaccount.com
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Rollout to the test VM, watched
+        run: |
+          ip=$(gcloud compute instances describe "$STAGING_VM" --zone "$ZONE" --project "$PROJECT" --format='value(networkInterfaces[0].accessConfigs[0].natIP)')
+          IMAGE="${{ needs.image.outputs.image }}" VM="$STAGING_VM" HOST="${ip//./-}.sslip.io" \
+            deploy/gcp/watched-rollout.sh
+
+  demo:
+    needs: [image, staging]
+    runs-on: ubuntu-latest
+    environment: demo
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/207703853289/locations/global/workloadIdentityPools/github-deploy/providers/itulah
+          service_account: itulah-github-deploy@project-21f41328-b088-4894-b3f.iam.gserviceaccount.com
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Rollout to the demo, watched
+        run: IMAGE="${{ needs.image.outputs.image }}" VM="$DEMO_VM" HOST="$DEMO_HOST" HUB_HOST="$DEMO_HOST" deploy/gcp/watched-rollout.sh
+
+  hub:
+    needs: [demo]
+    if: always() && inputs.parts != 'backend' && (needs.demo.result == 'success' || needs.demo.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: frontend-hub/package-lock.json }
+      - run: npm ci
+        working-directory: frontend-hub
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/207703853289/locations/global/workloadIdentityPools/github-deploy/providers/itulah
+          service_account: itulah-github-deploy@project-21f41328-b088-4894-b3f.iam.gserviceaccount.com
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Hub to the test VM, then the demo, watched
+        run: |
+          ip=$(gcloud compute instances describe "$STAGING_VM" --zone "$ZONE" --project "$PROJECT" --format='value(networkInterfaces[0].accessConfigs[0].natIP)')
+          VM="$STAGING_VM" HOST="${ip//./-}.sslip.io" PART=hub deploy/gcp/watched-rollout.sh
+          VM="$DEMO_VM" HOST="$DEMO_HOST" HUB_HOST="$DEMO_HOST" PART=hub deploy/gcp/watched-rollout.sh
