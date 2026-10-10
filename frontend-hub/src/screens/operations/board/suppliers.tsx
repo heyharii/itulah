@@ -219,6 +219,9 @@ export function SuppliersBoard() {
     <PageContent fill>
       <BoardHeader board="suppliers" actions={phone ? undefined : search} />
       <SubTabs
+        // `fill` makes the page a flex column: a long Completed list squeezed
+        // the strip to nothing (owner, 2026-10-10).
+        className="shrink-0"
         value={tab}
         onChange={(next) => setTab(next as "active" | "completed")}
         tabs={[
