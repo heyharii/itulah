@@ -21,6 +21,13 @@ domain="${ip//./-}.sslip.io"
 # The same hosts under nip.io too (10 Oct 2026): a client network that blocks
 # *.sslip.io by name may still let this one through.
 alias_domain="${ip//./-}.nip.io"
+# The hub is also served at a domain of its own, when metadata names one
+# (11 Oct 2026, osretail.site: its apex, www and hub.). Its DNS A records point
+# at this VM's static address; Caddy gets the certificate itself. Set with
+#   gcloud compute instances add-metadata itulah-demo --metadata itulah-public-domain=osretail.site
+public_domain="$(meta instance/attributes/itulah-public-domain 2>/dev/null || true)"
+hub_extra=""
+if [ -n "$public_domain" ]; then hub_extra=", $public_domain, www.$public_domain, hub.$public_domain"; fi
 # Where the Gudang's work is done: `edge` = a DC server (the dc container, its
 # own SQLite, syncing), `cloud` = by the cloud itself, in its own tables, no
 # sync (DC-CLOUD-NATIVE.md, backend/src/cloud/dc). Set with
@@ -201,7 +208,7 @@ fi
 
 site() {  # site <name> <api-block>   static bundle from $state/www/<name>
   cat <<E3
-$1.$domain, $1.$alias_domain {
+$1.$domain, $1.$alias_domain$([ "$1" = hub ] && printf "%s" "$hub_extra") {
   encode gzip
   log {
     output file /data/access.log {
