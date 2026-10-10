@@ -48,6 +48,10 @@ export function QuantityCheckRequest({
     queryFn: ({ signal }) => listLineQuantityChecks(receiptLineId, signal),
     refetchInterval: 15_000,
   })
+  const lineKey = quantityCheckKeys.line(receiptLineId)
+  // A click asks at once: the box answers "Requested" in the same frame (a
+  // placeholder check), and the server's own check replaces it when it lands
+  // (owner, 2026-10-10: Recount just recounts, nothing in between).
   const ask = useMutation({
     mutationFn: () =>
       askQuantityCheck({
@@ -57,10 +61,28 @@ export function QuantityCheckRequest({
         division: division === "" ? undefined : division,
         tags,
       }),
-    onSuccess: () =>
-      client.invalidateQueries({
-        queryKey: quantityCheckKeys.line(receiptLineId),
-      }),
+    onMutate: async () => {
+      await client.cancelQueries({ queryKey: lineKey })
+      const before = client.getQueryData<QuantityCheck[]>(lineKey)
+      const template = before?.[0]
+      if (template) {
+        const pending: QuantityCheck = {
+          ...template,
+          check_id: `pending-${Date.now()}`,
+          status: "REQUESTED",
+          requested_at: new Date().toISOString(),
+          counted_by: null,
+          counted_at: null,
+          lines: [],
+        }
+        client.setQueryData<QuantityCheck[]>(lineKey, [pending, ...before])
+      }
+      return { before }
+    },
+    onError: (_error, _vars, context) => {
+      if (context?.before) client.setQueryData(lineKey, context.before)
+    },
+    onSettled: () => client.invalidateQueries({ queryKey: lineKey }),
   })
   const all = checks.data ?? []
   const asked = all.some((one) => one.status === "REQUESTED")
